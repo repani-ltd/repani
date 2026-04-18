@@ -388,6 +388,63 @@ func TestRegisterKey_AliasesAndWhitespace(t *testing.T) {
 	}
 }
 
+func TestBackup_RoundTrip_WithBoth(t *testing.T) {
+	var rk RootKey
+	for i := range rk {
+		rk[i] = byte(0x11 * (i + 1))
+	}
+	var reg RegisterKey
+	for i := range reg {
+		reg[i] = byte(0x22 * (i + 1))
+	}
+	blob := EncodeBackup(rk, &reg)
+	if len(blob) != 78 {
+		t.Fatalf("backup length %d, want 78", len(blob))
+	}
+	gotRK, gotReg, err := DecodeBackup(blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRK != rk {
+		t.Fatal("backup RootKey round-trip mismatch")
+	}
+	if gotReg == nil || *gotReg != reg {
+		t.Fatal("backup RegisterKey round-trip mismatch")
+	}
+}
+
+func TestBackup_RoundTrip_RootOnly(t *testing.T) {
+	var rk RootKey
+	for i := range rk {
+		rk[i] = byte(0xAA + i)
+	}
+	blob := EncodeBackup(rk, nil)
+	if len(blob) != 52 {
+		t.Fatalf("root-only backup length %d, want 52", len(blob))
+	}
+	gotRK, gotReg, err := DecodeBackup(blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRK != rk {
+		t.Fatal("root-only backup RootKey mismatch")
+	}
+	if gotReg != nil {
+		t.Fatal("root-only backup returned a non-nil RegisterKey")
+	}
+}
+
+func TestBackup_RejectsWrongLength(t *testing.T) {
+	if _, _, err := DecodeBackup("tooshort"); err == nil {
+		t.Fatal("DecodeBackup should reject short input")
+	}
+	// 65 chars: valid Crockford alphabet but not 52 nor 78.
+	bad := strings.Repeat("A", 65)
+	if _, _, err := DecodeBackup(bad); err == nil {
+		t.Fatal("DecodeBackup should reject a 65-char blob")
+	}
+}
+
 func TestRegisterKey_RejectsPaddingBits(t *testing.T) {
 	var rk RegisterKey
 	enc := EncodeRegisterKey(rk) // all zeros

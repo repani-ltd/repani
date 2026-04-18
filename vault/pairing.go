@@ -86,6 +86,55 @@ func EncodeRegisterKey(rk RegisterKey) string {
 	return out.String()
 }
 
+// EncodeBackup packs a RootKey and optional RegisterKey into a single
+// Crockford base32 blob for offline backup / restore.
+//
+//	regKey == nil → 52 chars (RootKey alone; identical to EncodeRootKey).
+//	regKey != nil → 78 chars (EncodeRootKey || EncodeRegisterKey).
+//
+// DecodeBackup accepts either shape.
+func EncodeBackup(rk RootKey, regKey *RegisterKey) string {
+	if regKey == nil {
+		return EncodeRootKey(rk)
+	}
+	return EncodeRootKey(rk) + EncodeRegisterKey(*regKey)
+}
+
+// DecodeBackup parses a blob produced by EncodeBackup or EncodeRootKey.
+// Whitespace and dashes in the input are ignored. Returns the RootKey
+// and a non-nil RegisterKey pointer only if the blob included one
+// (i.e. it was 78 chars after stripping).
+func DecodeBackup(s string) (RootKey, *RegisterKey, error) {
+	raw := make([]byte, 0, len(s))
+	for i := range len(s) {
+		c := s[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '-' {
+			continue
+		}
+		raw = append(raw, c)
+	}
+	switch len(raw) {
+	case 52:
+		rk, err := DecodeRootKey(string(raw))
+		if err != nil {
+			return RootKey{}, nil, err
+		}
+		return rk, nil, nil
+	case 78:
+		rk, err := DecodeRootKey(string(raw[:52]))
+		if err != nil {
+			return RootKey{}, nil, err
+		}
+		reg, err := DecodeRegisterKey(string(raw[52:]))
+		if err != nil {
+			return RootKey{}, nil, err
+		}
+		return rk, &reg, nil
+	default:
+		return RootKey{}, nil, ErrBadPairingBlob
+	}
+}
+
 // DecodeRegisterKey parses the 26-char Crockford base32 form produced
 // by EncodeRegisterKey. Whitespace and dashes are ignored.
 func DecodeRegisterKey(s string) (RegisterKey, error) {

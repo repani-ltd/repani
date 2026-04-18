@@ -12,6 +12,8 @@
 //	kv sync                       run one sync cycle
 //	kv export [file|-]            dump live state as CSV (Key,Value)
 //	kv import <file|->            import rows from a CSV file
+//	kv backup [file|-]            emit RootKey (+ register key if local)
+//	kv restore <blob|->           restore a vault from a backup blob
 //
 // Environment:
 //
@@ -71,6 +73,10 @@ func main() {
 		runExport(args)
 	case "import":
 		runImport(args)
+	case "backup":
+		runBackup(args)
+	case "restore":
+		runRestore(args)
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 	default:
@@ -94,6 +100,9 @@ Commands:
   sync              run one sync cycle
   export [file|-]   dump live state as CSV (Key,Value); default stdout
   import <file|->   import rows from CSV (reads Key,Value columns by header)
+  backup [file|-]   emit RootKey (+ register key if available locally)
+                    as a single Crockford base32 blob for offline storage
+  restore <blob|->  recover a vault on a fresh device from a backup blob
 
 Environment:
   KV_HOME           storage directory (default ~/.kv)
@@ -315,6 +324,96 @@ func runPair(args []string) {
 func runPairBlob(_ []string) {
 	rk := loadRootKey()
 	fmt.Println(vault.EncodeRootKey(rk))
+}
+
+// runBackup prints a single Crockford base32 blob containing this
+// device's RootKey and, if present, its register.key. The output is
+// the minimum a user needs to restore full read/write access on a
+// fresh machine; treat it as sensitive.
+func runBackup(args []string) {
+	fs := flag.NewFlagSet("backup", flag.ExitOnError)
+	_ = fs.Parse(args)
+
+	var w io.Writer = os.Stdout
+	if fs.NArg() >= 1 && fs.Arg(0) != "-" {
+		f, err := os.OpenFile(fs.Arg(0), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			fatal("open %s: %v", fs.Arg(0), err)
+		}
+		defer f.Close()
+		w = f
+	}
+
+	rk := loadRootKey()
+	regKey := loadRegisterKey() // may be nil
+	blob := vault.EncodeBackup(rk, regKey)
+	// Best-effort scrub.
+	for i := range rk {
+		rk[i] = 0
+	}
+
+	if regKey == nil {
+		fmt.Fprintln(os.Stderr,
+			"warning: no register.key on this device; backup contains RootKey only.")
+		fmt.Fprintln(os.Stderr,
+			"         To include the register key, run this command on a device that was paired")
+		fmt.Fprintln(os.Stderr,
+			"         with `kv pair --register-key <base32>`.")
+	}
+	fmt.Fprintln(w, blob)
+}
+
+// runRestore consumes a blob produced by `kv backup` (or the
+// RootKey-only form produced by `kv pair-blob`) and recreates the
+// local vault. Refuses to run if a vault already exists locally.
+func runRestore(args []string) {
+	fs := flag.NewFlagSet("restore", flag.ExitOnError)
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		fatal("usage: kv restore <blob|->")
+	}
+	blob := fs.Arg(0)
+	if blob == "-" {
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fatal("read stdin: %v", err)
+		}
+		blob = strings.TrimSpace(string(b))
+	}
+	rk, regKey, err := vault.DecodeBackup(blob)
+	if err != nil {
+		fatal("invalid backup blob: %v", err)
+	}
+	if _, err := os.Stat(vaultKeyPath()); err == nil {
+		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())
+	}
+	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
+		fatal("mkdir: %v", err)
+	}
+	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
+		fatal("write vault.key: %v", err)
+	}
+	// Best-effort scrub of the in-memory RootKey.
+	for i := range rk {
+		rk[i] = 0
+	}
+	if regKey != nil {
+		if err := writeKeyExclusive(
+			registerKeyPath(),
+			[]byte(vault.EncodeRegisterKey(*regKey)+"\n"),
+		); err != nil {
+			fatal("write register.key: %v", err)
+		}
+	}
+	// Materialize an empty entries.log with the proper magic header.
+	if ls, err := store.OpenLogStore(entriesPath()); err == nil {
+		_ = ls.Close()
+	}
+	if regKey != nil {
+		fmt.Println("restored (RootKey + register key)")
+	} else {
+		fmt.Println("restored (RootKey only)")
+	}
 }
 
 func runPut(args []string) {
