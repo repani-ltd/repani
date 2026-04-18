@@ -1,0 +1,6 @@
+# kv.limasoul.com — the ASCON-KV server. Caddy terminates TLS and
+# reverse-proxies to kvserve on the loopback. kvserve itself binds
+# plain HTTP via its --addr flag.
+kv.limasoul.com {
+    reverse_proxy 127.0.0.1:8082
+}

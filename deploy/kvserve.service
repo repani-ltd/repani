@@ -1,6 +1,6 @@
 [Unit]
 Description=ASCON-KV server
-Documentation=https://limasoul.com
+Documentation=https://kv.limasoul.com
 After=network-online.target
 Wants=network-online.target
 
@@ -9,28 +9,26 @@ Type=simple
 User=kvserve
 Group=kvserve
 WorkingDirectory=/opt/kvserve
+# kvserve runs behind Caddy (see quietcasting-go/deploy/Caddyfile).
+# Caddy terminates TLS for kv.limasoul.com and proxies to the
+# loopback address below; kvserve itself speaks plain HTTP.
 ExecStart=/opt/kvserve/kvserve \
-    --domain limasoul.com \
+    --addr 127.0.0.1:8082 \
     --data /opt/kvserve/data \
-    --cert-dir /opt/kvserve/data/acme-cache \
     --max-vaults 10000
 Restart=on-failure
 RestartSec=5s
 
-# Logging: captured by journald, query via `journalctl -u kvserve`.
 StandardOutput=journal
 StandardError=journal
 
-# Hardening: the process can only write to its data directory,
-# cannot elevate privileges, and has exactly the capability needed
-# to bind :80 and :443 without running as root.
+# Hardening: the process can only write to its data directory and
+# cannot elevate privileges. No privileged-port capability needed.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/opt/kvserve/data
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target

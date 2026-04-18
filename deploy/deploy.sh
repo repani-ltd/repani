@@ -1,41 +1,41 @@
 #!/bin/bash
-# Deploy kvserve (and the kv CLI) to a remote host. Idempotent:
-# works for first deploy and for upgrades with no special flags.
+# Deploy kvserve and the kv CLI to a remote host that already runs
+# Caddy as its TLS/reverse-proxy front door. This script ships a
+# per-site config block into /etc/caddy/sites/kv.caddy and reloads
+# Caddy so kv.limasoul.com goes live.
+#
+# Prerequisite: Caddy must already be installed and running on HOST.
+# That happens on the first run of ../quietcasting-go/deploy/deploy.sh.
 #
 # Usage: ./deploy/deploy.sh [HOST]
 #
-# HOST defaults to limasoul.com. It must already be reachable via
-# SSH without a password prompt, and the ssh user must have sudo.
+# HOST defaults to limasoul.com. It must be reachable via SSH without
+# a password prompt and the ssh user must have sudo. DNS for
+# kv.limasoul.com must already point at the same machine.
 #
 # Binaries shipped:
-#   kvserve  -- the HTTP daemon (run by systemd, TLS via autocert)
-#   kv       -- client CLI (interactive use, symlinked onto PATH)
+#   kvserve  -- the HTTP daemon (loopback 127.0.0.1:8082)
+#   kv       -- client CLI, symlinked onto PATH
 #
 # Layout on the server:
-#   /opt/kvserve/kvserve              daemon, invoked by systemd
+#   /opt/kvserve/kvserve              daemon (loopback plaintext)
 #   /opt/kvserve/kv                   client CLI
 #   /usr/local/bin/kv                 symlink so the CLI is on PATH
 #   /opt/kvserve/data/                per-vault storage (kvserve user)
-#   /opt/kvserve/data/acme-cache/     Let's Encrypt cache
-#
-# All binaries are root-owned (755) so the service user cannot
-# rewrite them; only /opt/kvserve/data is writable by the service.
+#   /etc/caddy/sites/kv.caddy         caddy site block (reverse_proxy)
 #
 # What this script does NOT do:
-#   - DNS configuration (point HOST's A record at the machine before running).
-#   - Firewall rules (open :80 and :443).
-#   - Backup. /opt/kvserve/data holds every vault's ciphertext log
-#     plus its auth.key; copy it somewhere before destructive ops.
+#   - DNS (kv.limasoul.com must resolve to HOST before running).
+#   - Install or configure Caddy — that's qc-go's deploy's job.
+#   - Backup /opt/kvserve/data.
 
 set -euo pipefail
 
 HOST="${1:-limasoul.com}"
-SERVICE="deploy/kvserve.service"
 
 BINARIES=(kvserve kv)
 CLI_LINKS=(kv)
 
-# Sanity: must be run from the repo root.
 if [ ! -f go.mod ] || [ ! -d cmd/kvserve ]; then
     echo "error: run this script from the kv repo root" >&2
     exit 1
@@ -55,7 +55,8 @@ echo "[2/3] stage to $HOST:/tmp ..."
 for b in "${BINARIES[@]}"; do
     scp -q "bin/$b-linux-amd64" "$HOST:/tmp/$b.new"
 done
-scp -q "$SERVICE" "$HOST:/tmp/kvserve.service"
+scp -q deploy/kvserve.service "$HOST:/tmp/kvserve.service"
+scp -q deploy/sites/kv.caddy  "$HOST:/tmp/kv.caddy"
 
 echo "[3/3] remote install on $HOST ..."
 ssh "$HOST" sudo bash <<REMOTE
@@ -64,25 +65,26 @@ set -euo pipefail
 BINARIES=(${BINARIES[@]})
 CLI_LINKS=(${CLI_LINKS[@]})
 
-# System user. Created once, never deleted by this script.
+# Prerequisite: Caddy is already installed.
+if [ ! -x /usr/local/bin/caddy ] || [ ! -d /etc/caddy/sites ]; then
+    echo "error: Caddy is not installed on this host. Run" >&2
+    echo "       ../quietcasting-go/deploy/deploy.sh $HOST first." >&2
+    exit 1
+fi
+
+# --- kvserve: user, dirs, binaries, service ----------------------
+
 if ! id kvserve >/dev/null 2>&1; then
     useradd --system --shell /sbin/nologin --home-dir /opt/kvserve kvserve
     echo "  created system user kvserve"
 fi
 
-# Directories. /opt/kvserve is root-owned so the service user
-# cannot replace its own binary; /opt/kvserve/data is kvserve-owned
-# so the service can write vault logs and the ACME cache there.
-mkdir -p /opt/kvserve
-mkdir -p /opt/kvserve/data/acme-cache
+mkdir -p /opt/kvserve /opt/kvserve/data
 chown root:root /opt/kvserve
 chown -R kvserve:kvserve /opt/kvserve/data
 chmod 755 /opt/kvserve
 chmod 700 /opt/kvserve/data
-chmod 700 /opt/kvserve/data/acme-cache
 
-# Binaries: keep the previous daemon copy as kvserve.prev for
-# quick rollback; atomically install the new ones.
 for b in "\${BINARIES[@]}"; do
     if [ "\$b" = "kvserve" ] && [ -f /opt/kvserve/kvserve ]; then
         mv /opt/kvserve/kvserve /opt/kvserve/kvserve.prev
@@ -91,17 +93,31 @@ for b in "\${BINARIES[@]}"; do
     rm -f "/tmp/\$b.new"
 done
 
-# Symlinks for interactive CLI tools.
 for b in "\${CLI_LINKS[@]}"; do
     ln -sf "/opt/kvserve/\$b" "/usr/local/bin/\$b"
 done
 
-# Service unit.
 install -m 644 -o root -g root /tmp/kvserve.service /etc/systemd/system/kvserve.service
 rm -f /tmp/kvserve.service
-systemctl daemon-reload
 
-# Start fresh or restart in place.
+# --- caddy site block ---------------------------------------------
+
+install -m 644 -o root -g root /tmp/kv.caddy /etc/caddy/sites/kv.caddy
+rm -f /tmp/kv.caddy
+
+# Validate config before asking Caddy to reload. caddy validate is
+# strict and will refuse if any imported site block is malformed.
+if ! /usr/local/bin/caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    echo "error: /etc/caddy/Caddyfile failed validation after adding kv.caddy" >&2
+    /usr/local/bin/caddy validate --config /etc/caddy/Caddyfile || true
+    rm -f /etc/caddy/sites/kv.caddy
+    exit 1
+fi
+
+systemctl daemon-reload
+systemctl reload caddy
+echo "  reloaded caddy"
+
 if systemctl is-enabled --quiet kvserve 2>/dev/null; then
     systemctl restart kvserve
     echo "  restarted kvserve"
@@ -110,9 +126,8 @@ else
     echo "  enabled and started kvserve"
 fi
 
-# Short settling delay so the status below reflects steady state.
 sleep 2
-systemctl status --no-pager kvserve | head -15
+systemctl status --no-pager kvserve | head -10
 REMOTE
 
 echo
@@ -124,10 +139,13 @@ echo
 echo "CLI symlinks (on PATH):"
 for b in "${CLI_LINKS[@]}"; do echo "  /usr/local/bin/$b"; done
 echo
+echo "Caddy site block:"
+echo "  /etc/caddy/sites/kv.caddy          (kv.limasoul.com → 127.0.0.1:8082)"
+echo
 echo "Next steps:"
-echo "  Logs:         ssh $HOST sudo journalctl -u kvserve -f"
-echo "  Health check: curl -sSfI https://$HOST/v1/sync -X POST -o /dev/null -w '%{http_code}\n'"
-echo "                (expect 400 — no body — which proves TLS is live)"
-echo "  Rollback:     ssh $HOST sudo systemctl stop kvserve \\"
-echo "                    '&&' sudo mv /opt/kvserve/kvserve.prev /opt/kvserve/kvserve \\"
-echo "                    '&&' sudo systemctl start kvserve"
+echo "  Logs (kvserve): ssh $HOST sudo journalctl -u kvserve -f"
+echo "  Health check:   curl -sSI -X POST https://kv.limasoul.com/v1/sync -o /dev/null -w '%{http_code}\n'"
+echo "                  (expect 400 — empty body is not a valid request)"
+echo "  Rollback:       ssh $HOST sudo systemctl stop kvserve \\"
+echo "                      '&&' sudo mv /opt/kvserve/kvserve.prev /opt/kvserve/kvserve \\"
+echo "                      '&&' sudo systemctl start kvserve"
