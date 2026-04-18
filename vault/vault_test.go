@@ -51,6 +51,48 @@ func TestDeriveAuthKey_IndependentOfAEAD(t *testing.T) {
 	}
 }
 
+func TestRegisterAdminMAC_BindsAllInputs(t *testing.T) {
+	var rk RegisterKey
+	for i := range rk {
+		rk[i] = byte(0xA0 + i)
+	}
+	var ak AuthKey
+	for i := range ak {
+		ak[i] = byte(0xB0 + i)
+	}
+	var vid VaultID
+	for i := range vid {
+		vid[i] = byte(0xC0 + i)
+	}
+	base := RegisterAdminMAC(rk, ak, vid)
+
+	// Same inputs → same output.
+	if RegisterAdminMAC(rk, ak, vid) != base {
+		t.Fatal("RegisterAdminMAC not deterministic")
+	}
+
+	// Flip one byte in the register key → different output.
+	rk2 := rk
+	rk2[0] ^= 1
+	if RegisterAdminMAC(rk2, ak, vid) == base {
+		t.Fatal("RegisterAdminMAC insensitive to RegisterKey bit flip")
+	}
+
+	// Flip one byte in the auth key → different output.
+	ak2 := ak
+	ak2[0] ^= 1
+	if RegisterAdminMAC(rk, ak2, vid) == base {
+		t.Fatal("RegisterAdminMAC insensitive to AuthKey bit flip")
+	}
+
+	// Flip one byte in the vault id → different output.
+	vid2 := vid
+	vid2[0] ^= 1
+	if RegisterAdminMAC(rk, ak, vid2) == base {
+		t.Fatal("RegisterAdminMAC insensitive to VaultID bit flip")
+	}
+}
+
 func TestResponseMAC_BindsRequestMAC(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	ak := DeriveAuthKey(rk)

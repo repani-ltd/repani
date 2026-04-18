@@ -34,10 +34,11 @@ type Client struct {
 
 	nowMs func() uint64
 
-	mu         sync.Mutex
-	pending    map[vault.EntryID]struct{}
-	lastTs     uint64 // monotonic-nondecreasing per-client write clock
-	registered bool   // TOFU registration state with the current server
+	mu          sync.Mutex
+	pending     map[vault.EntryID]struct{}
+	lastTs      uint64              // monotonic-nondecreasing per-client write clock
+	registered  bool                // TOFU registration state with the current server
+	registerKey *vault.RegisterKey  // nil → no admin MAC; server must be in permissive mode
 }
 
 // New returns a Client backed by the given store and transport.
@@ -82,6 +83,17 @@ func (c *Client) Registered() bool {
 func (c *Client) SetRegistered(v bool) {
 	c.mu.Lock()
 	c.registered = v
+	c.mu.Unlock()
+}
+
+// SetRegisterKey installs the server-side register-gate secret so the
+// next REGISTER request includes a valid admin MAC. Pass nil to
+// clear. A client with no register key is only compatible with a
+// server in legacy permissive TOFU mode; otherwise the server will
+// return BadMAC on REGISTER.
+func (c *Client) SetRegisterKey(rk *vault.RegisterKey) {
+	c.mu.Lock()
+	c.registerKey = rk
 	c.mu.Unlock()
 }
 
@@ -208,13 +220,18 @@ func (c *Client) syncOnce(ctx context.Context) (done bool, err error) {
 	ladder := vault.ComputeLadder(sorted)
 	terminal := vault.TerminalHash(sorted)
 
-	// snapshot pending ids + registration bit.
+	// snapshot pending ids + registration bit + register key.
 	c.mu.Lock()
 	pushIDs := make([]vault.EntryID, 0, len(c.pending))
 	for id := range c.pending {
 		pushIDs = append(pushIDs, id)
 	}
 	registered := c.registered
+	var regKeySnap *vault.RegisterKey
+	if c.registerKey != nil {
+		rk := *c.registerKey
+		regKeySnap = &rk
+	}
 	c.mu.Unlock()
 
 	// resolve ids to entries using a quick map.
@@ -239,6 +256,9 @@ func (c *Client) syncOnce(ctx context.Context) (done bool, err error) {
 	if !registered {
 		req.Flags |= wire.FlagRegister
 		req.RegAuth = c.authKey
+		if regKeySnap != nil {
+			req.RegAdminMAC = vault.RegisterAdminMAC(*regKeySnap, c.authKey, c.vid)
+		}
 	}
 	reqBytes, err := wire.SignRequest(c.authKey, &req)
 	if err != nil {

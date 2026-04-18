@@ -45,14 +45,15 @@ var (
 
 // Request is the client-to-server sync message.
 type Request struct {
-	VaultID  vault.VaultID
-	Flags    byte
-	N        uint32        // number of entries the client holds
-	Ladder   [][16]byte    // len(Ladder) == len(LadderSizes(N))
-	Terminal [16]byte      // hash of ALL client entries
-	Pushes   []vault.Entry
-	RegAuth  vault.AuthKey // valid iff Flags&FlagRegister != 0
-	MAC      [vault.MACSize]byte
+	VaultID     vault.VaultID
+	Flags       byte
+	N           uint32        // number of entries the client holds
+	Ladder      [][16]byte    // len(Ladder) == len(LadderSizes(N))
+	Terminal    [16]byte      // hash of ALL client entries
+	Pushes      []vault.Entry
+	RegAuth     vault.AuthKey       // valid iff Flags&FlagRegister != 0
+	RegAdminMAC [vault.MACSize]byte // valid iff Flags&FlagRegister != 0
+	MAC         [vault.MACSize]byte
 }
 
 // Response is the server-to-client reply.
@@ -90,7 +91,7 @@ func (r Request) MarshalBody() ([]byte, error) {
 	}
 	regBytes := 0
 	if r.IsRegister() {
-		regBytes = vault.AuthKeySize
+		regBytes = vault.AuthKeySize + vault.MACSize
 	}
 	total := 1 + vault.VaultIDSize + 1 + 4 + len(sizes)*16 + 16 + 2 + pushBytes + regBytes
 	buf := make([]byte, total)
@@ -117,6 +118,8 @@ func (r Request) MarshalBody() ([]byte, error) {
 	if r.IsRegister() {
 		copy(buf[off:off+vault.AuthKeySize], r.RegAuth[:])
 		off += vault.AuthKeySize
+		copy(buf[off:off+vault.MACSize], r.RegAdminMAC[:])
+		off += vault.MACSize
 	}
 	if off != total {
 		return nil, fmt.Errorf("wire: request marshal size mismatch: %d vs %d", off, total)
@@ -184,7 +187,7 @@ func UnmarshalRequest(b []byte) (Request, error) {
 	needLadder := len(sizes) * 16
 	regBytes := 0
 	if r.IsRegister() {
-		regBytes = vault.AuthKeySize
+		regBytes = vault.AuthKeySize + vault.MACSize
 	}
 	if len(b)-off < needLadder+16+2+regBytes+vault.MACSize {
 		return Request{}, fmt.Errorf("%w: ladder+terminal+push_count", ErrShort)
@@ -225,6 +228,8 @@ func UnmarshalRequest(b []byte) (Request, error) {
 	if r.IsRegister() {
 		copy(r.RegAuth[:], b[off:off+vault.AuthKeySize])
 		off += vault.AuthKeySize
+		copy(r.RegAdminMAC[:], b[off:off+vault.MACSize])
+		off += vault.MACSize
 	}
 	copy(r.MAC[:], b[off:off+vault.MACSize])
 	return r, nil

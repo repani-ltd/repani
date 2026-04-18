@@ -43,18 +43,26 @@ func DefaultQuotas() Quotas {
 }
 
 // Options configure a Server at construction time.
+//
+// Exactly one of RegisterKey or RegisterKeyFile must be provided —
+// the protocol has no concept of permissionless (trust-on-first-use)
+// registration: every REGISTER request must carry a valid admin MAC
+// under this key.
 type Options struct {
-	DataDir string       // empty for memory-only
-	Quotas  Quotas       // zero value → DefaultQuotas
-	Clock   func() int64 // unix ms; nil → time.Now
+	DataDir         string              // empty for memory-only
+	Quotas          Quotas              // zero value → DefaultQuotas
+	Clock           func() int64        // unix ms; nil → time.Now
+	RegisterKey     *vault.RegisterKey  // direct register gate secret (tests)
+	RegisterKeyFile string              // path to 16-byte register gate secret (production)
 }
 
 // Server is a vault-aware HTTP handler. The zero value is not ready;
-// use New or NewWithOptions.
+// use NewWithOptions.
 type Server struct {
-	dataDir string
-	quotas  Quotas
-	clock   func() int64
+	dataDir     string
+	quotas      Quotas
+	clock       func() int64
+	registerKey vault.RegisterKey // required; set at construction
 
 	mu     sync.Mutex
 	vaults map[vault.VaultID]*vaultState
@@ -68,15 +76,32 @@ type vaultState struct {
 	dir     string // per-vault directory; empty for memory-only
 }
 
-// New returns a Server rooted at dataDir with default quotas. dataDir
-// is created if missing. Pass an empty string for a purely in-memory
-// server (no persistence).
-func New(dataDir string) (*Server, error) {
-	return NewWithOptions(Options{DataDir: dataDir})
-}
+// ErrNoRegisterKey is returned by NewWithOptions when the caller
+// supplies neither RegisterKey nor RegisterKeyFile.
+var ErrNoRegisterKey = errors.New("server: either Options.RegisterKey or Options.RegisterKeyFile must be set")
 
-// NewWithOptions is the full constructor.
+// NewWithOptions is the constructor. It requires either a
+// RegisterKey (direct) or a RegisterKeyFile (path to a 16-byte file
+// that the server loads on startup). The register key is MANDATORY
+// — permissionless TOFU registration was removed from the protocol.
 func NewWithOptions(opt Options) (*Server, error) {
+	if opt.RegisterKey == nil && opt.RegisterKeyFile == "" {
+		return nil, ErrNoRegisterKey
+	}
+	if opt.RegisterKey != nil && opt.RegisterKeyFile != "" {
+		return nil, errors.New("server: RegisterKey and RegisterKeyFile are mutually exclusive")
+	}
+	var registerKey vault.RegisterKey
+	if opt.RegisterKey != nil {
+		registerKey = *opt.RegisterKey
+	} else {
+		loaded, err := loadRegisterKey(opt.RegisterKeyFile)
+		if err != nil {
+			return nil, err
+		}
+		registerKey = loaded
+	}
+
 	if opt.DataDir != "" {
 		if err := os.MkdirAll(opt.DataDir, 0o700); err != nil {
 			return nil, err
@@ -91,10 +116,11 @@ func NewWithOptions(opt Options) (*Server, error) {
 		clk = func() int64 { return time.Now().UnixMilli() }
 	}
 	s := &Server{
-		dataDir: opt.DataDir,
-		quotas:  q,
-		clock:   clk,
-		vaults:  make(map[vault.VaultID]*vaultState),
+		dataDir:     opt.DataDir,
+		quotas:      q,
+		clock:       clk,
+		registerKey: registerKey,
+		vaults:      make(map[vault.VaultID]*vaultState),
 	}
 	if opt.DataDir != "" {
 		if err := s.loadPersistedVaults(); err != nil {
@@ -102,6 +128,26 @@ func NewWithOptions(opt Options) (*Server, error) {
 		}
 	}
 	return s, nil
+}
+
+// loadRegisterKey reads a 16-byte register gate secret from path.
+// Refuses on wrong size.
+func loadRegisterKey(path string) (vault.RegisterKey, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return vault.RegisterKey{}, fmt.Errorf("server: register-key-file %s: %w", path, err)
+	}
+	if len(b) != vault.RegisterKeySize {
+		return vault.RegisterKey{}, fmt.Errorf("server: register-key-file %s: want %d bytes, got %d",
+			path, vault.RegisterKeySize, len(b))
+	}
+	var rk vault.RegisterKey
+	copy(rk[:], b)
+	// scrub local copy (best-effort).
+	for i := range b {
+		b[i] = 0
+	}
+	return rk, nil
 }
 
 // loadPersistedVaults walks dataDir and rebuilds any on-disk vaults
@@ -262,6 +308,14 @@ func (s *Server) resolveVault(req wire.Request) (*vaultState, vault.AuthKey, byt
 	// Vault doesn't exist.
 	if !req.IsRegister() {
 		return nil, vault.AuthKey{}, wire.StatusUnknownVault
+	}
+
+	// Registration gate: the client must prove knowledge of the
+	// server-side RegisterKey with a MAC over (RegAuth, VaultID).
+	// There is no permissionless TOFU path.
+	want := vault.RegisterAdminMAC(s.registerKey, req.RegAuth, req.VaultID)
+	if subtle.ConstantTimeCompare(want[:], req.RegAdminMAC[:]) != 1 {
+		return nil, vault.AuthKey{}, wire.StatusBadMAC
 	}
 
 	// First-time registration: verify MAC under the claimed AuthKey.

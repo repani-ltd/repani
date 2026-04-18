@@ -22,12 +22,25 @@
 #   /opt/kvserve/kv                   client CLI
 #   /usr/local/bin/kv                 symlink so the CLI is on PATH
 #   /opt/kvserve/data/                per-vault storage (kvserve user)
+#   /opt/kvserve/register.key         16-byte register-gate secret
 #   /etc/caddy/sites/kv.caddy         caddy site block (reverse_proxy)
+#
+# register.key is generated on first install with /dev/urandom. Each
+# `kv init` or `kv pair` on a client must pass --register-key HEX
+# (32 hex chars) matching that file, or the server will reject the
+# REGISTER request with StatusBadMAC. TOFU registration is NOT
+# supported by the protocol — every new vault requires this proof.
+# Read the current register token with:
+#   ssh HOST sudo xxd -p -c 16 /opt/kvserve/register.key
 #
 # What this script does NOT do:
 #   - DNS (kv.limasoul.com must resolve to HOST before running).
 #   - Install or configure Caddy — that's qc-go's deploy's job.
-#   - Backup /opt/kvserve/data.
+#   - Backup /opt/kvserve/data (wiped on every run — see below).
+#
+# NB: this script WIPES /opt/kvserve/data every run so a stale or
+# permissionless-era vault set cannot linger behind the register-key
+# gate. Disable the wipe once you have real vaults to preserve.
 
 set -euo pipefail
 
@@ -79,11 +92,27 @@ if ! id kvserve >/dev/null 2>&1; then
     echo "  created system user kvserve"
 fi
 
-mkdir -p /opt/kvserve /opt/kvserve/data
+mkdir -p /opt/kvserve
 chown root:root /opt/kvserve
-chown -R kvserve:kvserve /opt/kvserve/data
 chmod 755 /opt/kvserve
+
+# Wipe stale (pre-gate) vaults so every live vault is one that was
+# created after the register-key gate was in place. Remove this block
+# once the gate is established and real vaults exist.
+systemctl stop kvserve 2>/dev/null || true
+rm -rf /opt/kvserve/data
+mkdir -p /opt/kvserve/data
+chown -R kvserve:kvserve /opt/kvserve/data
 chmod 700 /opt/kvserve/data
+
+# Register-gate secret: generate once, never regenerate (rotating it
+# would invalidate the flag every paired device has cached).
+if [ ! -f /opt/kvserve/register.key ]; then
+    head -c 16 /dev/urandom > /opt/kvserve/register.key
+    chown kvserve:kvserve /opt/kvserve/register.key
+    chmod 600 /opt/kvserve/register.key
+    echo "  generated /opt/kvserve/register.key"
+fi
 
 for b in "\${BINARIES[@]}"; do
     if [ "\$b" = "kvserve" ] && [ -f /opt/kvserve/kvserve ]; then
@@ -128,6 +157,12 @@ fi
 
 sleep 2
 systemctl status --no-pager kvserve | head -10
+
+# Emit the register token so deploy.sh can surface it without a
+# second ssh round-trip. This leaks it into the local shell's stdout,
+# which the caller captures; nothing persisted on the remote.
+echo "-- register-token --"
+xxd -p -c 16 /opt/kvserve/register.key
 REMOTE
 
 echo
@@ -143,9 +178,9 @@ echo "Caddy site block:"
 echo "  /etc/caddy/sites/kv.caddy          (kv.limasoul.com → 127.0.0.1:8082)"
 echo
 echo "Next steps:"
-echo "  Logs (kvserve): ssh $HOST sudo journalctl -u kvserve -f"
-echo "  Health check:   curl -sSI -X POST https://kv.limasoul.com/v1/sync -o /dev/null -w '%{http_code}\n'"
-echo "                  (expect 400 — empty body is not a valid request)"
-echo "  Rollback:       ssh $HOST sudo systemctl stop kvserve \\"
-echo "                      '&&' sudo mv /opt/kvserve/kvserve.prev /opt/kvserve/kvserve \\"
-echo "                      '&&' sudo systemctl start kvserve"
+echo "  Logs (kvserve):     ssh $HOST sudo journalctl -u kvserve -f"
+echo "  Show register key:  ssh $HOST sudo xxd -p -c 16 /opt/kvserve/register.key"
+echo "  Init a client:      kv init --register-key <HEX>"
+echo "  Rollback:           ssh $HOST sudo systemctl stop kvserve \\"
+echo "                          '&&' sudo mv /opt/kvserve/kvserve.prev /opt/kvserve/kvserve \\"
+echo "                          '&&' sudo systemctl start kvserve"

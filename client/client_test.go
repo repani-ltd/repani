@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/pavlos/kv/server"
@@ -11,6 +12,26 @@ import (
 	"github.com/pavlos/kv/vault"
 	"github.com/pavlos/kv/wire"
 )
+
+// writeFileBytes is a small helper used by gated tests.
+func writeFileBytes(path string, b []byte) error {
+	return os.WriteFile(path, b, 0o600)
+}
+
+// testRegKey is the fixed register-gate secret used by the default
+// test helpers. Every test that calls newPair / newTestServer shares
+// it so the client can complete REGISTER.
+var testRegKey = vault.RegisterKey{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+
+// newTestServer returns an in-memory server wired with testRegKey.
+func newTestServer(t *testing.T) *server.Server {
+	t.Helper()
+	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv
+}
 
 // inProcTransport sends the request bytes directly to a server.Server
 // in the same process, bypassing HTTP. Used by tests.
@@ -24,15 +45,13 @@ func (t *inProcTransport) Do(_ context.Context, req []byte) ([]byte, error) {
 
 func newPair(t *testing.T) (*Client, *server.Server) {
 	t.Helper()
-	srv, err := server.New("")
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv := newTestServer(t)
 	rk, _ := vault.NewRandomRootKey()
 	c, err := New(rk, store.NewMemStore(), &inProcTransport{srv})
 	if err != nil {
 		t.Fatal(err)
 	}
+	c.SetRegisterKey(&testRegKey)
 	return c, srv
 }
 
@@ -130,14 +149,18 @@ func TestSync_ServerWipedRecoversFromClient(t *testing.T) {
 	}
 	// Rebuild a fresh server with the same VaultID (empty store).
 	// Plug the client into it and sync.
-	srv2, _ := server.New("")
+	srv2 := newTestServer(t)
 	c.tran = &inProcTransport{srv2}
+	// The client was registered on the old server; on the fresh
+	// server it must re-REGISTER, so flip the bit.
+	c.SetRegistered(false)
 	if err := c.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
 	// Server should now have all 7 entries: assert by pulling from a
 	// fresh client against srv2.
 	c2, _ := New(c.rk, store.NewMemStore(), &inProcTransport{srv2})
+	c2.SetRegisterKey(&testRegKey)
 	if err := c2.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -154,8 +177,9 @@ func TestSync_ConvergesInLogRounds(t *testing.T) {
 		_ = c.Put([]byte{byte(i & 0xff), byte(i >> 8)}, []byte("v"))
 	}
 	// Fresh server to simulate wipe; sync from scratch.
-	srv2, _ := server.New("")
+	srv2 := newTestServer(t)
 	c.tran = &inProcTransport{srv2}
+	c.SetRegistered(false)
 
 	rounds := 0
 	for {
@@ -227,7 +251,7 @@ func (t *maulTransport) Do(_ context.Context, req []byte) ([]byte, error) {
 // A previous revision of the client would blindly Add() every entry
 // from the response, poisoning the local store.
 func TestSync_RejectsForgedResponse(t *testing.T) {
-	srv, _ := server.New("")
+	srv := newTestServer(t)
 	rk, _ := vault.NewRandomRootKey()
 	tran := &maulTransport{srv: srv, mangle: func(b []byte) []byte {
 		// Flip the last byte of the response MAC.
@@ -242,12 +266,82 @@ func TestSync_RejectsForgedResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	c.SetRegisterKey(&testRegKey)
 	err = c.Sync(context.Background())
 	if err == nil {
 		t.Fatal("expected MAC-verify failure, got nil")
 	}
 	if !errors.Is(err, wire.ErrBadMAC) {
 		t.Fatalf("expected ErrBadMAC, got %v", err)
+	}
+}
+
+// --- register-key gate (end-to-end) ---
+
+// gatedPair returns a client+server pair where the server requires
+// reg_admin_mac under the given register key; the client is pre-
+// configured to present the matching key.
+func gatedPair(t *testing.T, regKey vault.RegisterKey) (*Client, *server.Server) {
+	t.Helper()
+	dir := t.TempDir()
+	keyPath := dir + "/register.key"
+	if err := writeFileBytes(keyPath, regKey[:]); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := server.NewWithOptions(server.Options{RegisterKeyFile: keyPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rk, _ := vault.NewRandomRootKey()
+	c, err := New(rk, store.NewMemStore(), &inProcTransport{srv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetRegisterKey(&regKey)
+	return c, srv
+}
+
+func TestSync_Gated_Accepts(t *testing.T) {
+	var regKey vault.RegisterKey
+	for i := range regKey {
+		regKey[i] = byte(0x55 ^ i)
+	}
+	c, _ := gatedPair(t, regKey)
+	if err := c.Put([]byte("k"), []byte("v")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Sync(context.Background()); err != nil {
+		t.Fatalf("gated sync: %v", err)
+	}
+	if v, ok, _ := c.Get([]byte("k")); !ok || string(v) != "v" {
+		t.Fatalf("round-trip through gated server failed")
+	}
+}
+
+func TestSync_Gated_WrongKeyRejected(t *testing.T) {
+	var serverKey, clientKey vault.RegisterKey
+	for i := range serverKey {
+		serverKey[i] = byte(0x11 + i)
+		clientKey[i] = byte(0xEE - i)
+	}
+	c, _ := gatedPair(t, serverKey)
+	c.SetRegisterKey(&clientKey) // override with wrong key
+	err := c.Sync(context.Background())
+	if err == nil {
+		t.Fatal("sync should have failed with wrong register key")
+	}
+}
+
+func TestSync_Gated_NoKeyRejected(t *testing.T) {
+	var serverKey vault.RegisterKey
+	for i := range serverKey {
+		serverKey[i] = byte(i)
+	}
+	c, _ := gatedPair(t, serverKey)
+	c.SetRegisterKey(nil) // unset
+	err := c.Sync(context.Background())
+	if err == nil {
+		t.Fatal("sync should have failed without register key on gated server")
 	}
 }
 

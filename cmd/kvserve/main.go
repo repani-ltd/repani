@@ -47,6 +47,7 @@ func main() {
 	idleTimeout := flag.Duration("idle-timeout", 120*time.Second, "keep-alive idle timeout")
 	shutdownGrace := flag.Duration("shutdown-grace", 30*time.Second, "graceful shutdown deadline")
 	maxVaults := flag.Uint64("max-vaults", 10_000, "hard cap on number of registered vaults (0 = unlimited)")
+	registerKeyFile := flag.String("register-key-file", "", "path to a 16-byte file that gates REGISTER; omit for permissive TOFU")
 	flag.Parse()
 
 	if (*tlsCert != "") != (*tlsKey != "") {
@@ -61,9 +62,18 @@ func main() {
 
 	quotas := server.DefaultQuotas()
 	quotas.MaxVaults = *maxVaults
-	srv, err := server.NewWithOptions(server.Options{DataDir: *data, Quotas: quotas})
+	srv, err := server.NewWithOptions(server.Options{
+		DataDir:         *data,
+		Quotas:          quotas,
+		RegisterKeyFile: *registerKeyFile,
+	})
 	if err != nil {
 		log.Fatalf("kvserve: %v", err)
+	}
+	if *registerKeyFile != "" {
+		log.Printf("kvserve: REGISTER gated by %s", *registerKeyFile)
+	} else {
+		log.Print("kvserve: REGISTER is permissive (any client can create a new vault). Set --register-key-file for production.")
 	}
 
 	stop := make(chan os.Signal, 1)

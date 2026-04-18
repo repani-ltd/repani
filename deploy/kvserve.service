@@ -15,6 +15,7 @@ WorkingDirectory=/opt/kvserve
 ExecStart=/opt/kvserve/kvserve \
     --addr 127.0.0.1:8082 \
     --data /opt/kvserve/data \
+    --register-key-file /opt/kvserve/register.key \
     --max-vaults 10000
 Restart=on-failure
 RestartSec=5s
@@ -24,6 +25,8 @@ StandardError=journal
 
 # Hardening: the process can only write to its data directory and
 # cannot elevate privileges. No privileged-port capability needed.
+# /opt/kvserve/register.key is the admin gate secret; the service
+# opens it read-only at startup, no write access granted.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

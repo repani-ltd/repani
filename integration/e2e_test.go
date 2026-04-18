@@ -33,32 +33,45 @@ func (t *httpTran) Do(ctx context.Context, body []byte) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// testRegKey is a fixed register-gate secret shared by every server
+// and every client in these e2e tests.
+var testRegKey = vault.RegisterKey{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+
+func newTestServer(t *testing.T) *server.Server {
+	t.Helper()
+	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv
+}
+
 // newStack spins up a real HTTP server and returns the shared RootKey
 // plus two clients built on top of it.
 func newStack(t *testing.T) (rk vault.RootKey, a, b *client.Client, ts *httptest.Server) {
 	t.Helper()
-	srv, err := server.New("")
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv := newTestServer(t)
 	ts = httptest.NewServer(srv)
 	rk, _ = vault.NewRandomRootKey()
 	tran := &httpTran{url: ts.URL}
+	var err error
 	a, err = client.New(rk, store.NewMemStore(), tran)
 	if err != nil {
 		t.Fatal(err)
 	}
+	a.SetRegisterKey(&testRegKey)
 	b, err = client.New(rk, store.NewMemStore(), tran)
 	if err != nil {
 		t.Fatal(err)
 	}
+	b.SetRegisterKey(&testRegKey)
 	return rk, a, b, ts
 }
 
 // --- 1. steady-state: polling is cheap ---
 
 func TestE2E_SteadyStatePayloads(t *testing.T) {
-	srv, _ := server.New("")
+	srv := newTestServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -67,6 +80,7 @@ func TestE2E_SteadyStatePayloads(t *testing.T) {
 	// Build a vault with N entries.
 	const N = 1000
 	c, _ := client.New(rk, store.NewMemStore(), &httpTran{url: ts.URL})
+	c.SetRegisterKey(&testRegKey)
 	for i := range N {
 		_ = c.Put([]byte{byte(i), byte(i >> 8)}, []byte{0xab})
 	}

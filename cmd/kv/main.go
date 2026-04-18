@@ -24,6 +24,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -115,9 +116,10 @@ func homeDir() string {
 	return filepath.Join(ud, ".kv")
 }
 
-func vaultKeyPath() string  { return filepath.Join(homeDir(), "vault.key") }
-func entriesPath() string   { return filepath.Join(homeDir(), "entries.log") }
-func registeredPath() string { return filepath.Join(homeDir(), "registered") }
+func vaultKeyPath() string    { return filepath.Join(homeDir(), "vault.key") }
+func entriesPath() string     { return filepath.Join(homeDir(), "entries.log") }
+func registeredPath() string  { return filepath.Join(homeDir(), "registered") }
+func registerKeyPath() string { return filepath.Join(homeDir(), "register.key") }
 
 func loadRootKey() vault.RootKey {
 	b, err := os.ReadFile(vaultKeyPath())
@@ -197,13 +199,56 @@ func openClient() *client.Client {
 	if registeredFor(url) {
 		c.SetRegistered(true)
 	}
+	// If a register key was saved at init/pair time, pass it along
+	// so the first REGISTER to a gated server succeeds.
+	if rk := loadRegisterKey(); rk != nil {
+		c.SetRegisterKey(rk)
+	}
 	return c
+}
+
+// loadRegisterKey reads $KV_HOME/register.key if present and returns
+// it, or nil if absent. Treats any non-ENOENT error as fatal so the
+// user knows their register-key file is corrupt rather than silently
+// running with no admin MAC.
+func loadRegisterKey() *vault.RegisterKey {
+	b, err := os.ReadFile(registerKeyPath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		fatal("read %s: %v", registerKeyPath(), err)
+	}
+	if len(b) != vault.RegisterKeySize {
+		zero(b)
+		fatal("register.key is %d bytes, want %d", len(b), vault.RegisterKeySize)
+	}
+	var rk vault.RegisterKey
+	copy(rk[:], b)
+	zero(b)
+	return &rk
+}
+
+// saveRegisterKey writes the 16-byte register key to disk mode 0600.
+func saveRegisterKey(hexKey string) error {
+	b, err := hex.DecodeString(strings.TrimSpace(hexKey))
+	if err != nil {
+		return fmt.Errorf("register key: %w", err)
+	}
+	if len(b) != vault.RegisterKeySize {
+		return fmt.Errorf("register key: want %d bytes (%d hex chars), got %d",
+			vault.RegisterKeySize, vault.RegisterKeySize*2, len(b))
+	}
+	defer zero(b)
+	return writeKeyExclusive(registerKeyPath(), b)
 }
 
 // --- commands ---
 
 func runInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	registerKey := fs.String("register-key", "",
+		"server register-gate secret (32 hex chars); required by gated servers")
 	_ = fs.Parse(args)
 	if _, err := os.Stat(vaultKeyPath()); err == nil {
 		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())
@@ -218,6 +263,11 @@ func runInit(args []string) {
 	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
 		fatal("write vault.key: %v", err)
 	}
+	if *registerKey != "" {
+		if err := saveRegisterKey(*registerKey); err != nil {
+			fatal("%v", err)
+		}
+	}
 	// Materialize an empty log with the proper magic header.
 	if ls, err := store.OpenLogStore(entriesPath()); err == nil {
 		_ = ls.Close()
@@ -227,6 +277,8 @@ func runInit(args []string) {
 
 func runPair(args []string) {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
+	registerKey := fs.String("register-key", "",
+		"server register-gate secret (32 hex chars); required by gated servers on a fresh device")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
 		fatal("usage: kv pair <blob|->")
@@ -251,6 +303,11 @@ func runPair(args []string) {
 	}
 	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
 		fatal("write vault.key: %v", err)
+	}
+	if *registerKey != "" {
+		if err := saveRegisterKey(*registerKey); err != nil {
+			fatal("%v", err)
+		}
 	}
 	if ls, err := store.OpenLogStore(entriesPath()); err == nil {
 		_ = ls.Close()

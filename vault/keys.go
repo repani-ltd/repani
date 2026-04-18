@@ -12,13 +12,14 @@ import (
 
 // Sizes.
 const (
-	RootKeySize = 32
-	AEADKeySize = 16
-	AuthKeySize = 16
-	VaultIDSize = 16
-	EntryIDSize = 16
-	NonceSize   = 16
-	MACSize     = 16
+	RootKeySize     = 32
+	AEADKeySize     = 16
+	AuthKeySize     = 16
+	VaultIDSize     = 16
+	EntryIDSize     = 16
+	NonceSize       = 16
+	MACSize         = 16
+	RegisterKeySize = 16
 )
 
 // RootKey is the one durable secret a client must protect. All other
@@ -33,6 +34,15 @@ type AEADKey [AEADKeySize]byte
 // pair-time registration. It authenticates requests and responses on
 // the wire; it does NOT grant decryption of any entry.
 type AuthKey [AuthKeySize]byte
+
+// RegisterKey is the 16-byte server-side secret that gates vault
+// registration. The server holds it at rest (typically a file loaded
+// at startup); the client must present a MAC under it in the first
+// (REGISTER) request for a new VaultID or the server rejects with
+// StatusBadMAC. It is cryptographically independent of every other
+// key: operators may safely rotate it without re-pairing clients
+// (rotation only affects the ability to register NEW vaults).
+type RegisterKey [RegisterKeySize]byte
 
 // VaultID is the public handle the server uses to address a vault.
 type VaultID [VaultIDSize]byte
@@ -50,6 +60,7 @@ var (
 	domRsMAC = []byte("kv/rsmc/")
 	domEID   = []byte("kv/eid1/")
 	domLAD   = []byte("kv/lad1/")
+	domRAdm  = []byte("kv/radm/")
 )
 
 // NewRandomRootKey returns a RootKey filled from crypto/rand.
@@ -127,6 +138,27 @@ func ResponseMAC(ak AuthKey, requestMAC [MACSize]byte, body []byte) [MACSize]byt
 	buf = append(buf, ak[:]...)
 	buf = append(buf, requestMAC[:]...)
 	buf = append(buf, body...)
+	ascon.XOF(buf, out[:])
+	zero(buf)
+	return out
+}
+
+// RegisterAdminMAC computes the 16-byte proof-of-knowledge the
+// client includes in a REGISTER request to satisfy a server that has
+// loaded a RegisterKey:
+//
+//	XOF("kv/radm/" || RegisterKey || AuthKey || VaultID, 16)
+//
+// The MAC binds the specific (VaultID, AuthKey) pair being
+// registered so an attacker cannot replay a captured MAC to register
+// a DIFFERENT vault or a different AuthKey under the same vault.
+func RegisterAdminMAC(rk RegisterKey, ak AuthKey, vid VaultID) [MACSize]byte {
+	var out [MACSize]byte
+	buf := make([]byte, 0, len(domRAdm)+RegisterKeySize+AuthKeySize+VaultIDSize)
+	buf = append(buf, domRAdm...)
+	buf = append(buf, rk[:]...)
+	buf = append(buf, ak[:]...)
+	buf = append(buf, vid[:]...)
 	ascon.XOF(buf, out[:])
 	zero(buf)
 	return out

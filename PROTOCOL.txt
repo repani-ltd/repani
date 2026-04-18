@@ -7,8 +7,9 @@
   for confidentiality and Ascon-XOF128 for hashing and key derivation. There
   is no asymmetric cryptography, no central authority, and no account model
   on the server beyond a per-vault authentication key established via
-  trust-on-first-use at pair time. Servers are blind relays that see only
-  opaque ciphertext and a public vault id.
+  an operator-held register-gate secret that the server loads at
+  startup. Servers are blind relays that see only opaque ciphertext and
+  a public vault id.
 
   A vault is owned by one user across any number of devices that share a
   single 32-byte RootKey. The RootKey is either generated at random on first
@@ -38,10 +39,22 @@
     AuthKey   = XOF("kv/auth/" || RootKey, 16)   request / response MAC key
 
   The VaultID is the only key-derived value ever transmitted in the clear.
-  The AuthKey is shared with the server at pair time via trust-on-first-use
-  (see §Pairing and §Server authentication below); thereafter the server
+  The AuthKey is shared with the server the first time a client registers
+  a new vault (see §Server authentication below); thereafter the server
   holds it per VaultID and uses it to verify every request and to
   authenticate every response.
+
+  The server also holds a single 16-byte RegisterKey that is NOT
+  derived from any client's RootKey. The operator chooses it at server
+  initialization (typically 16 bytes from a cryptographic RNG) and
+  shares it out of band with any user authorized to create a new vault.
+  Every REGISTER request must carry a MAC under this key:
+
+    reg_admin_mac = XOF("kv/radm/" || RegisterKey || AuthKey || VaultID, 16)
+
+  The MAC binds the specific (VaultID, AuthKey) pair being registered
+  so an attacker cannot replay a captured MAC to register a different
+  vault or rebind an existing one.
 
   AuthKey and AEAD_Key are cryptographically independent by domain
   separation. A compromise of AuthKey lets an attacker forge requests
@@ -135,7 +148,9 @@
   an optional AuthKey for first-time registration, and a request MAC:
 
     | ver(1) | vault_id(16) | flags(1) | id_count(4) | ladder | terminal(16)
-    | push_count(2) | entries | [reg_authkey(16)?] | mac(16) |
+    | push_count(2) | entries
+    | [reg_authkey(16) reg_admin_mac(16)]?  (iff REGISTER)
+    | mac(16) |
 
   The 'ver' byte is 0x01.
 
@@ -143,7 +158,7 @@
 
   The 'flags' byte is a bit set:
 
-    bit 0 (REGISTER)  — reg_authkey is present after entries
+    bit 0 (REGISTER)  — reg_authkey and reg_admin_mac follow entries
     bits 1..7         — reserved, MUST be zero
 
   The 'id_count' is a 4-byte unsigned integer N: the number of
@@ -165,6 +180,14 @@
   The 'reg_authkey' field is present if and only if REGISTER is set;
   it carries the client's 16-byte AuthKey. It is covered by the
   request MAC like every other body byte.
+
+  The 'reg_admin_mac' field follows reg_authkey on any REGISTER
+  request. It is the 16-byte admin MAC
+  XOF("kv/radm/" || RegisterKey || reg_authkey || VaultID, 16). The
+  server computes the expected value under its loaded RegisterKey
+  and accepts the REGISTER only when the tags match in constant
+  time. A REGISTER without reg_admin_mac (zeros) or with a wrong
+  value is rejected with BAD_MAC.
 
   The 'mac' is a 16-byte tag computed as
   XOF("kv/rmac/" || AuthKey || body, 16) over all preceding bytes
@@ -219,16 +242,21 @@
   the response is ingested. A bad resp_mac means the entire response
   is discarded.
 
-  ## Server authentication (TOFU pairing)
+  ## Server authentication
 
   The server holds a per-VaultID AuthKey that it uses to verify
   requests and authenticate responses. It acquires AuthKey the first
-  time any client writes to a fresh VaultID. Concretely:
+  time a client registers a fresh VaultID. Every REGISTER request
+  must be gated by the server's RegisterKey; there is no
+  permissionless (trust-on-first-use) path.
 
     First sync for a VaultID:
-      - Client sets REGISTER and includes reg_authkey.
-      - Server records AuthKey := reg_authkey (after verifying that
-        the request mac is a valid tag under reg_authkey).
+      - Client sets REGISTER, includes reg_authkey and reg_admin_mac
+        (XOF("kv/radm/" || RegisterKey || reg_authkey || VaultID, 16)).
+      - Server verifies reg_admin_mac against its loaded RegisterKey
+        in constant time; on mismatch the response is BAD_MAC.
+      - Server verifies the request mac under reg_authkey.
+      - Server records AuthKey := reg_authkey.
       - Subsequent requests must MAC under the same AuthKey.
 
     Subsequent syncs:
@@ -239,38 +267,26 @@
       - A client may send REGISTER with reg_authkey on a vault the
         server already knows about. The server accepts the request
         if reg_authkey matches its stored AuthKey (constant-time
-        compare) and the mac verifies; it rejects otherwise with
-        BAD_MAC. This lets a client whose local "registered" bit is
-        lost safely re-register without giving an attacker a
-        TOFU-reset oracle.
+        compare) and the request mac verifies; the admin MAC is
+        ignored on the idempotent re-register path because the
+        identity of the registrant is already fixed by the stored
+        AuthKey. The server rejects a mismatching reg_authkey with
+        BAD_MAC.
 
     Server-side state loss:
-      - If the server loses its state (disk wipe, restore from older
-        backup), it has no AuthKey for the VaultID. On the next
-        non-registration request it replies UNKNOWN_VAULT; the
-        client re-registers under the same AuthKey and syncing
-        resumes. The protocol still converges the set via the
-        ordinary ladder mechanism.
+      - If the server loses its per-vault state (disk wipe, restore
+        from older backup) but retains the RegisterKey, any client
+        holding the RootKey AND the RegisterKey can re-register
+        under the same AuthKey and resume. If the server loses the
+        RegisterKey too, the operator MUST generate a new one and
+        distribute it to anyone authorized to re-register.
 
-  This is a trust-on-first-use bootstrap. On an untrusted transport
-  (plaintext HTTP) an attacker who predicts a VaultID AND beats the
-  legitimate first client to the server can register under the
-  attacker's AuthKey, permanently locking out the real owner of that
-  VaultID. The VaultID is 128 bits and derived from the RootKey by a
-  one-way XOF, so an attacker who does not already observe the
-  RootKey cannot predict a VaultID. Once a legitimate registration
-  has happened, a passive eavesdropper cannot extract AuthKey from
-  any subsequent traffic (AuthKey never appears on the wire again)
-  and cannot forge requests or responses.
-
-  Deployments that require stronger guarantees on the first sync
-  SHOULD run the transport over TLS. Deployments that do not use
-  TLS still retain:
-    - ciphertext confidentiality (AEAD_Key is never on the wire);
-    - per-entry integrity and authenticity (AEAD tag);
-    - steady-state request/response integrity and authenticity
-      (MAC under AuthKey);
-  and lose only the guarantee that the first sync cannot be hijacked.
+  Because every REGISTER carries a fresh admin MAC, plaintext HTTP is
+  acceptable for steady-state traffic: AEAD_Key and RegisterKey never
+  appear on the wire, AuthKey never appears on the wire after the
+  first sync, and request/response integrity is protected by MAC and
+  per-entry AEAD tags. TLS is still RECOMMENDED in production to
+  limit metadata leakage (VaultID, request sizes, timing).
 
   ## Server quotas
 
@@ -299,8 +315,10 @@
   vault is the VaultID, which is already a one-way derivation of the
   RootKey. With v2's MACs, plaintext HTTP is adequate for
   steady-state; it leaks only the VaultID, request sizes, and
-  timing. The one remaining gap on plaintext transport is the
-  TOFU-pairing race on the very first request to a given server.
+  timing. The admin-MAC gate on REGISTER prevents an attacker from
+  ever creating a vault on the server: without knowledge of the
+  server's RegisterKey, a REGISTER request is rejected with BAD_MAC
+  and the server stores no state.
 
   Clients MUST set a request timeout and a response body length cap.
   The reference client caps bodies at 64 MiB and request/response
@@ -330,12 +348,14 @@
 
   The blob is transported by QR, clipboard, or hand. A mistyped blob
   produces a RootKey that matches no vault on the server; the first
-  sync attempt fails with UNKNOWN_VAULT followed by an independent
-  TOFU registration under the wrong VaultID, which remains isolated
-  from any real vault. The new device stores the RootKey, derives
-  VaultID and AuthKey, and begins sync with REGISTER set. The server
-  is not involved in pairing itself and learns nothing about it
-  beyond the AuthKey the first sync carries.
+  sync attempt fails with UNKNOWN_VAULT and — absent a valid
+  reg_admin_mac — the server refuses to register any fresh VaultID
+  the new device derives. The new device stores the RootKey, derives
+  VaultID and AuthKey, is handed the RegisterKey out of band (the
+  same channel used for pair transfer is sufficient), and begins
+  sync with REGISTER set. The server is not involved in pairing
+  itself and learns nothing about it beyond the AuthKey and admin
+  MAC that the first sync carries.
 
   Paired devices that share a RootKey independently derive the same
   AuthKey and the same VaultID; a new device's first sync presents
@@ -364,16 +384,22 @@
   The server stores, per VaultID, its entries in canonical order
   along with cached terminal and ladder hashes (updated incrementally
   as entries are appended) and the AuthKey established at pair time.
-  On each request the server:
+  It also holds a single 16-byte RegisterKey, loaded from disk at
+  startup, that gates every fresh REGISTER request. On each request
+  the server:
 
     1. Parses the version byte; rejects on mismatch.
     2. Looks up the vault by VaultID.
-       - If absent and REGISTER is set: verify mac under
-         reg_authkey; on success, persist AuthKey and proceed.
+       - If absent and REGISTER is set: verify reg_admin_mac
+         against the server's RegisterKey in constant time; verify
+         the request mac under reg_authkey; on both successes,
+         persist AuthKey and proceed.
        - If absent and REGISTER is clear: reply UNKNOWN_VAULT.
        - If present and REGISTER is set: verify reg_authkey ==
-         stored AuthKey and mac verifies under it; otherwise
-         BAD_MAC.
+         stored AuthKey and the request mac verifies under it;
+         otherwise BAD_MAC. The admin MAC is not re-checked on the
+         idempotent re-register path because identity is already
+         fixed by the stored AuthKey.
        - If present and REGISTER is clear: verify mac under
          stored AuthKey; otherwise BAD_MAC.
     3. Validates quotas and ts_ms bounds on every pushed entry;

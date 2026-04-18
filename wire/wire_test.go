@@ -93,10 +93,16 @@ func TestRequest_RoundTrip_WithLadderAndPushes(t *testing.T) {
 func TestRequest_Register_RoundTrip(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
 	ak := vault.DeriveAuthKey(rk)
+	var regKey vault.RegisterKey
+	for i := range regKey {
+		regKey[i] = byte(0x77 + i)
+	}
+	adminMAC := vault.RegisterAdminMAC(regKey, ak, vault.DeriveVaultID(rk))
 	r := Request{
-		VaultID: vault.DeriveVaultID(rk),
-		Flags:   FlagRegister,
-		RegAuth: ak,
+		VaultID:     vault.DeriveVaultID(rk),
+		Flags:       FlagRegister,
+		RegAuth:     ak,
+		RegAdminMAC: adminMAC,
 	}
 	signed, err := SignRequest(ak, &r)
 	if err != nil {
@@ -111,6 +117,9 @@ func TestRequest_Register_RoundTrip(t *testing.T) {
 	}
 	if got.RegAuth != ak {
 		t.Fatal("RegAuth round-trip mismatch")
+	}
+	if got.RegAdminMAC != adminMAC {
+		t.Fatal("RegAdminMAC round-trip mismatch")
 	}
 	if err := VerifyRequestMAC(ak, got); err != nil {
 		t.Fatalf("MAC verify: %v", err)
