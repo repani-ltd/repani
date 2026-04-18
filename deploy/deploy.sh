@@ -118,7 +118,10 @@ chmod 700 /opt/kvserve/data
 
 # Register-gate secret: Crockford base32 text file, generate once,
 # never regenerate (rotating invalidates every device that cached it).
-if [ ! -f /opt/kvserve/register.key ]; then
+# Use -s (non-empty) rather than -f so a prior failed deploy that
+# left a zero-byte file does not prevent regeneration.
+if [ ! -s /opt/kvserve/register.key ]; then
+    rm -f /opt/kvserve/register.key
     /opt/kvserve/kvserve gen-register-key > /opt/kvserve/register.key
     chown kvserve:kvserve /opt/kvserve/register.key
     chmod 600 /opt/kvserve/register.key
