@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Claude Code local settings (per-developer)
+.claude/settings.local.json
+
+# Binaries built out-of-tree via `go build`
+/kv
+/kvserve
+/cmd/kv/kv
+/cmd/kvserve/kvserve
+
+# Local development data directories
+/data/
+*.log.bak
+
+# Go tooling artefacts
+/coverage.out
+*.test
