@@ -10,6 +10,8 @@
 //	kv del <key>                  tombstone a key
 //	kv ls                         list live keys
 //	kv sync                       run one sync cycle
+//	kv export [file|-]            dump live state as CSV (Key,Value)
+//	kv import <file|->            import rows from a CSV file
 //
 // Environment:
 //
@@ -65,6 +67,10 @@ func main() {
 		runLs(args)
 	case "sync":
 		runSync(args)
+	case "export":
+		runExport(args)
+	case "import":
+		runImport(args)
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 	default:
@@ -86,6 +92,8 @@ Commands:
   del <key>         tombstone a key
   ls                list live keys
   sync              run one sync cycle
+  export [file|-]   dump live state as CSV (Key,Value); default stdout
+  import <file|->   import rows from CSV (reads Key,Value columns by header)
 
 Environment:
   KV_HOME           storage directory (default ~/.kv)
@@ -336,6 +344,54 @@ func runLs(_ []string) {
 func runSync(_ []string) {
 	c := openClient()
 	mustSync(c)
+}
+
+func runExport(args []string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	_ = fs.Parse(args)
+
+	var w io.Writer = os.Stdout
+	if fs.NArg() >= 1 && fs.Arg(0) != "-" {
+		f, err := os.OpenFile(fs.Arg(0), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			fatal("open %s: %v", fs.Arg(0), err)
+		}
+		defer f.Close()
+		w = f
+	}
+	c := openClient()
+	if err := c.ExportCSV(w); err != nil {
+		fatal("export: %v", err)
+	}
+}
+
+func runImport(args []string) {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	offline := fs.Bool("offline", false, "skip auto-sync after import")
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		fatal("usage: kv import <file|->")
+	}
+	var r io.Reader
+	if fs.Arg(0) == "-" {
+		r = bufio.NewReader(os.Stdin)
+	} else {
+		f, err := os.Open(fs.Arg(0))
+		if err != nil {
+			fatal("open %s: %v", fs.Arg(0), err)
+		}
+		defer f.Close()
+		r = f
+	}
+	c := openClient()
+	n, err := c.ImportCSV(r)
+	if err != nil {
+		fatal("import: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "imported %d rows\n", n)
+	if !*offline {
+		mustSync(c)
+	}
 }
 
 func mustSync(c *client.Client) {
