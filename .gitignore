@@ -4,11 +4,12 @@
 # Claude Code local settings (per-developer)
 .claude/settings.local.json
 
-# Binaries built out-of-tree via `go build`
+# Binaries built out-of-tree via `go build` or deploy.sh
 /kv
 /kvserve
 /cmd/kv/kv
 /cmd/kvserve/kvserve
+/bin/
 
 # Local development data directories
 /data/
