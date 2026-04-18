@@ -24,7 +24,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -208,9 +207,11 @@ func openClient() *client.Client {
 }
 
 // loadRegisterKey reads $KV_HOME/register.key if present and returns
-// it, or nil if absent. Treats any non-ENOENT error as fatal so the
-// user knows their register-key file is corrupt rather than silently
-// running with no admin MAC.
+// it, or nil if absent. The file holds the key in Crockford base32
+// (matches what `kvserve gen-register-key` emits and what
+// vault.EncodeRegisterKey produces). Any non-ENOENT error is fatal
+// so the user knows their register-key file is corrupt rather than
+// silently running with no admin MAC.
 func loadRegisterKey() *vault.RegisterKey {
 	b, err := os.ReadFile(registerKeyPath())
 	if err != nil {
@@ -219,28 +220,24 @@ func loadRegisterKey() *vault.RegisterKey {
 		}
 		fatal("read %s: %v", registerKeyPath(), err)
 	}
-	if len(b) != vault.RegisterKeySize {
-		zero(b)
-		fatal("register.key is %d bytes, want %d", len(b), vault.RegisterKeySize)
+	defer zero(b)
+	rk, err := vault.DecodeRegisterKey(string(b))
+	if err != nil {
+		fatal("register.key: %v", err)
 	}
-	var rk vault.RegisterKey
-	copy(rk[:], b)
-	zero(b)
 	return &rk
 }
 
-// saveRegisterKey writes the 16-byte register key to disk mode 0600.
-func saveRegisterKey(hexKey string) error {
-	b, err := hex.DecodeString(strings.TrimSpace(hexKey))
+// saveRegisterKey validates and writes the register key to disk in
+// Crockford base32 form, mode 0600.
+func saveRegisterKey(b32 string) error {
+	rk, err := vault.DecodeRegisterKey(strings.TrimSpace(b32))
 	if err != nil {
 		return fmt.Errorf("register key: %w", err)
 	}
-	if len(b) != vault.RegisterKeySize {
-		return fmt.Errorf("register key: want %d bytes (%d hex chars), got %d",
-			vault.RegisterKeySize, vault.RegisterKeySize*2, len(b))
-	}
-	defer zero(b)
-	return writeKeyExclusive(registerKeyPath(), b)
+	out := []byte(vault.EncodeRegisterKey(rk) + "\n")
+	defer zero(out)
+	return writeKeyExclusive(registerKeyPath(), out)
 }
 
 // --- commands ---
@@ -248,7 +245,7 @@ func saveRegisterKey(hexKey string) error {
 func runInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	registerKey := fs.String("register-key", "",
-		"server register-gate secret (32 hex chars); required by gated servers")
+		"server register-gate secret (26-char Crockford base32); required for `kv init`")
 	_ = fs.Parse(args)
 	if _, err := os.Stat(vaultKeyPath()); err == nil {
 		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())

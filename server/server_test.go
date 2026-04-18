@@ -201,7 +201,7 @@ func gatedServer(t *testing.T) (*Server, vault.RegisterKey, *httptest.Server) {
 	for i := range rk {
 		rk[i] = byte(0xA0 | i) // distinct from testRegKey
 	}
-	if err := os.WriteFile(keyPath, rk[:], 0o600); err != nil {
+	if err := os.WriteFile(keyPath, []byte(vault.EncodeRegisterKey(rk)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	srv, err := NewWithOptions(Options{DataDir: "", RegisterKeyFile: keyPath})

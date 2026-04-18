@@ -63,6 +63,76 @@ func EncodeRootKey(rk RootKey) string {
 	return out.String()
 }
 
+// EncodeRegisterKey returns the Crockford base32 encoding of a
+// RegisterKey (16 bytes → 26 chars; 2 trailing bits are padding
+// and truncated on encode / validated on decode).
+func EncodeRegisterKey(rk RegisterKey) string {
+	var out strings.Builder
+	out.Grow(26)
+	// Three full 5-byte groups → 24 chars.
+	for g := range 3 {
+		b := rk[g*5 : g*5+5]
+		v := uint64(b[0])<<32 | uint64(b[1])<<24 | uint64(b[2])<<16 | uint64(b[3])<<8 | uint64(b[4])
+		for i := 7; i >= 0; i-- {
+			out.WriteByte(crockford[(v>>(uint(i)*5))&0x1f])
+		}
+	}
+	// Trailing 1 byte = 8 bits, encoded as 2 chars (2 bits padding).
+	v := uint32(rk[15])
+	v <<= 2 // pad up to 10 bits so the first 5-bit chunk is MSB-aligned
+	for i := 1; i >= 0; i-- {
+		out.WriteByte(crockford[(v>>(uint(i)*5))&0x1f])
+	}
+	return out.String()
+}
+
+// DecodeRegisterKey parses the 26-char Crockford base32 form produced
+// by EncodeRegisterKey. Whitespace and dashes are ignored.
+func DecodeRegisterKey(s string) (RegisterKey, error) {
+	raw := make([]byte, 0, len(s))
+	for i := range len(s) {
+		c := s[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '-' {
+			continue
+		}
+		raw = append(raw, c)
+	}
+	if len(raw) != 26 {
+		return RegisterKey{}, ErrBadPairingBlob
+	}
+	var rk RegisterKey
+	// First 24 chars → 15 bytes.
+	for g := range 3 {
+		var v uint64
+		for i := range 8 {
+			d := crockfordDec[raw[g*8+i]]
+			if d < 0 {
+				return RegisterKey{}, ErrBadPairingBlob
+			}
+			v = v<<5 | uint64(d)
+		}
+		rk[g*5+0] = byte(v >> 32)
+		rk[g*5+1] = byte(v >> 24)
+		rk[g*5+2] = byte(v >> 16)
+		rk[g*5+3] = byte(v >> 8)
+		rk[g*5+4] = byte(v)
+	}
+	// Last 2 chars → 1 byte (plus 2 bits of padding).
+	var v uint32
+	for i := range 2 {
+		d := crockfordDec[raw[24+i]]
+		if d < 0 {
+			return RegisterKey{}, ErrBadPairingBlob
+		}
+		v = v<<5 | uint32(d)
+	}
+	if v&0x3 != 0 {
+		return RegisterKey{}, ErrBadPairingBlob
+	}
+	rk[15] = byte(v >> 2)
+	return rk, nil
+}
+
 // DecodeRootKey parses the 52-char Crockford base32 form produced by
 // EncodeRootKey. Whitespace and dashes in the input are ignored.
 func DecodeRootKey(s string) (RootKey, error) {

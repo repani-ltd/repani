@@ -25,13 +25,12 @@
 #   /opt/kvserve/register.key         16-byte register-gate secret
 #   /etc/caddy/sites/kv.caddy         caddy site block (reverse_proxy)
 #
-# register.key is generated on first install with /dev/urandom. Each
-# `kv init` or `kv pair` on a client must pass --register-key HEX
-# (32 hex chars) matching that file, or the server will reject the
-# REGISTER request with StatusBadMAC. TOFU registration is NOT
-# supported by the protocol — every new vault requires this proof.
-# Read the current register token with:
-#   ssh HOST sudo xxd -p -c 16 /opt/kvserve/register.key
+# register.key is a 26-char Crockford base32 secret generated on
+# first install by `kvserve gen-register-key`. Each `kv init` on a
+# client must pass --register-key <STRING> matching that file or the
+# server rejects REGISTER with StatusBadMAC. TOFU registration is not
+# supported. Read the current register token with:
+#   ssh HOST sudo cat /opt/kvserve/register.key
 #
 # What this script does NOT do:
 #   - DNS (kv.limasoul.com must resolve to HOST before running).
@@ -105,10 +104,10 @@ mkdir -p /opt/kvserve/data
 chown -R kvserve:kvserve /opt/kvserve/data
 chmod 700 /opt/kvserve/data
 
-# Register-gate secret: generate once, never regenerate (rotating it
-# would invalidate the flag every paired device has cached).
+# Register-gate secret: Crockford base32 text file, generate once,
+# never regenerate (rotating invalidates every device that cached it).
 if [ ! -f /opt/kvserve/register.key ]; then
-    head -c 16 /dev/urandom > /opt/kvserve/register.key
+    /opt/kvserve/kvserve gen-register-key > /opt/kvserve/register.key
     chown kvserve:kvserve /opt/kvserve/register.key
     chmod 600 /opt/kvserve/register.key
     echo "  generated /opt/kvserve/register.key"
@@ -162,7 +161,7 @@ systemctl status --no-pager kvserve | head -10
 # second ssh round-trip. This leaks it into the local shell's stdout,
 # which the caller captures; nothing persisted on the remote.
 echo "-- register-token --"
-xxd -p -c 16 /opt/kvserve/register.key
+cat /opt/kvserve/register.key
 REMOTE
 
 echo
@@ -179,8 +178,8 @@ echo "  /etc/caddy/sites/kv.caddy          (kv.limasoul.com → 127.0.0.1:8082)"
 echo
 echo "Next steps:"
 echo "  Logs (kvserve):     ssh $HOST sudo journalctl -u kvserve -f"
-echo "  Show register key:  ssh $HOST sudo xxd -p -c 16 /opt/kvserve/register.key"
-echo "  Init a client:      kv init --register-key <HEX>"
+echo "  Show register key:  ssh $HOST sudo cat /opt/kvserve/register.key"
+echo "  Init a client:      kv init --register-key <BASE32>"
 echo "  Rollback:           ssh $HOST sudo systemctl stop kvserve \\"
 echo "                          '&&' sudo mv /opt/kvserve/kvserve.prev /opt/kvserve/kvserve \\"
 echo "                          '&&' sudo systemctl start kvserve"

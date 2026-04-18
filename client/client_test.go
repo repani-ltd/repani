@@ -285,7 +285,7 @@ func gatedPair(t *testing.T, regKey vault.RegisterKey) (*Client, *server.Server)
 	t.Helper()
 	dir := t.TempDir()
 	keyPath := dir + "/register.key"
-	if err := writeFileBytes(keyPath, regKey[:]); err != nil {
+	if err := writeFileBytes(keyPath, []byte(vault.EncodeRegisterKey(regKey)+"\n")); err != nil {
 		t.Fatal(err)
 	}
 	srv, err := server.NewWithOptions(server.Options{RegisterKeyFile: keyPath})

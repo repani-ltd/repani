@@ -72,6 +72,18 @@ func NewRandomRootKey() (RootKey, error) {
 	return rk, nil
 }
 
+// NewRegisterKey returns a RegisterKey filled from crypto/rand. The
+// operator generates one per server at deploy time and distributes
+// it (via EncodeRegisterKey) to every user authorized to create a
+// new vault.
+func NewRegisterKey() (RegisterKey, error) {
+	var rk RegisterKey
+	if _, err := rand.Read(rk[:]); err != nil {
+		return RegisterKey{}, err
+	}
+	return rk, nil
+}
+
 // DeriveAEADKey computes AEAD_Key = XOF("kv/aead/" || RootKey, 16).
 func DeriveAEADKey(rk RootKey) AEADKey {
 	var out AEADKey

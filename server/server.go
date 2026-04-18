@@ -130,19 +130,19 @@ func NewWithOptions(opt Options) (*Server, error) {
 	return s, nil
 }
 
-// loadRegisterKey reads a 16-byte register gate secret from path.
-// Refuses on wrong size.
+// loadRegisterKey reads a register gate secret from path. The file
+// must contain the key in Crockford base32 (26 chars, whitespace/
+// dashes ignored), matching what vault.EncodeRegisterKey emits and
+// what `kvserve gen-register-key` writes at deploy time.
 func loadRegisterKey(path string) (vault.RegisterKey, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return vault.RegisterKey{}, fmt.Errorf("server: register-key-file %s: %w", path, err)
 	}
-	if len(b) != vault.RegisterKeySize {
-		return vault.RegisterKey{}, fmt.Errorf("server: register-key-file %s: want %d bytes, got %d",
-			path, vault.RegisterKeySize, len(b))
+	rk, err := vault.DecodeRegisterKey(string(b))
+	if err != nil {
+		return vault.RegisterKey{}, fmt.Errorf("server: register-key-file %s: %w", path, err)
 	}
-	var rk vault.RegisterKey
-	copy(rk[:], b)
 	// scrub local copy (best-effort).
 	for i := range b {
 		b[i] = 0

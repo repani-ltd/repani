@@ -353,6 +353,52 @@ func TestPairing_LowercaseAccepted(t *testing.T) {
 	}
 }
 
+func TestRegisterKey_RoundTrip(t *testing.T) {
+	var rk RegisterKey
+	for i := range rk {
+		rk[i] = byte(i * 7)
+	}
+	enc := EncodeRegisterKey(rk)
+	if len(enc) != 26 {
+		t.Fatalf("EncodeRegisterKey length %d, want 26", len(enc))
+	}
+	got, err := DecodeRegisterKey(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != rk {
+		t.Fatal("RegisterKey round-trip mismatch")
+	}
+}
+
+func TestRegisterKey_AliasesAndWhitespace(t *testing.T) {
+	var rk RegisterKey
+	for i := range rk {
+		rk[i] = byte(0xA0 ^ i)
+	}
+	enc := EncodeRegisterKey(rk)
+	// Inject some whitespace and dashes that decoder must ignore.
+	messy := enc[:5] + "  " + enc[5:13] + "\n" + "-" + enc[13:]
+	got, err := DecodeRegisterKey(messy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != rk {
+		t.Fatal("whitespace-tolerant decode produced wrong key")
+	}
+}
+
+func TestRegisterKey_RejectsPaddingBits(t *testing.T) {
+	var rk RegisterKey
+	enc := EncodeRegisterKey(rk) // all zeros
+	// Flip a low bit of the last char — violates the 2-bit padding
+	// invariant (low 2 bits of the last 10-bit accumulator must be 0).
+	mangled := enc[:25] + string(crockford[1])
+	if _, err := DecodeRegisterKey(mangled); err == nil {
+		t.Fatal("decode should reject non-zero padding bits")
+	}
+}
+
 func TestPairing_RejectsTruncation(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	enc := EncodeRootKey(rk)

@@ -385,7 +385,9 @@
   along with cached terminal and ladder hashes (updated incrementally
   as entries are appended) and the AuthKey established at pair time.
   It also holds a single 16-byte RegisterKey, loaded from disk at
-  startup, that gates every fresh REGISTER request. On each request
+  startup (Crockford base32 text, 26 chars; whitespace and dashes
+  are ignored on read), that gates every fresh REGISTER request. On
+  each request
   the server:
 
     1. Parses the version byte; rejects on mismatch.

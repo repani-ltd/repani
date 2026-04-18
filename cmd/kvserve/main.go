@@ -23,6 +23,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -33,9 +34,24 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/pavlos/kv/server"
+	"github.com/pavlos/kv/vault"
 )
 
 func main() {
+	// Subcommand dispatch. Anything that doesn't start with '-' on the
+	// command line is treated as a subcommand; otherwise fall through
+	// to the default serve-with-flags path.
+	if len(os.Args) >= 2 && len(os.Args[1]) > 0 && os.Args[1][0] != '-' {
+		switch os.Args[1] {
+		case "gen-register-key":
+			runGenRegisterKey()
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "kvserve: unknown subcommand %q\n", os.Args[1])
+			os.Exit(2)
+		}
+	}
+
 	addr := flag.String("addr", ":8080", "address to listen on (modes 1 and 2)")
 	data := flag.String("data", "./data", "data directory (created if missing)")
 	tlsCert := flag.String("tls-cert", "", "path to TLS certificate (mode 2)")
@@ -85,6 +101,21 @@ func main() {
 	default:
 		runSingle(srv, *addr, *tlsCert, *tlsKey, *readTimeout, *writeTimeout, *idleTimeout, *shutdownGrace, stop, *data, *maxVaults)
 	}
+}
+
+// runGenRegisterKey generates a fresh 16-byte register key, encodes
+// it as Crockford base32, and prints it (with a trailing newline) to
+// stdout. Intended for the deploy pipeline:
+//
+//	kvserve gen-register-key > /opt/kvserve/register.key
+//
+// The emitted file is consumed by `kvserve --register-key-file`.
+func runGenRegisterKey() {
+	rk, err := vault.NewRegisterKey()
+	if err != nil {
+		log.Fatalf("kvserve: gen-register-key: %v", err)
+	}
+	fmt.Println(vault.EncodeRegisterKey(rk))
 }
 
 // runSingle handles modes 1 (plain HTTP) and 2 (file-based TLS).
