@@ -15,8 +15,10 @@
 //	kv backup [file|-]            emit RootKey (+ register key if local)
 //	kv restore <blob|->           restore a vault from a backup blob
 //	kv search [flags] <pattern>   case-insensitive substring match
-//	                              across keys AND values (default);
-//	                              --regex, --key, --value, --show
+//	                              across keys AND values; renders a
+//	                              KEY/VALUE table by default.
+//	                              --regex, --key, --value, --keys-only,
+//	                              --case-sensitive
 //
 // Environment:
 //
@@ -38,6 +40,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/pavlos/kv/client"
@@ -110,11 +113,13 @@ Commands:
                     as a single Crockford base32 blob for offline storage
   restore <blob|->  recover a vault on a fresh device from a backup blob
   search <query>    find keys/values containing the substring (case-
-                    insensitive). Flags:
-                      --regex       interpret query as Go regexp
-                      --key         match against keys only
-                      --value       match against values only
-                      --show        also print values (tab-separated)
+                    insensitive). Default output is a column-aligned
+                    KEY/VALUE table. Flags:
+                      --regex          interpret query as Go regexp
+                      --key            match against keys only
+                      --value          match against values only
+                      --keys-only      print bare keys, one per line
+                      --case-sensitive exact-case match
 
 Environment:
   KV_HOME           storage directory (default ~/.kv)
@@ -430,18 +435,26 @@ func runRestore(args []string) {
 
 // runSearch is the client-side full-text search. The server never
 // sees plaintext, so the CLI replays the full local store, decrypts
-// every entry, and filters in memory. Default: case-insensitive
-// substring match against both keys and values. Flags narrow that.
+// every entry, and filters in memory.
+//
+// Default: case-insensitive substring match against both keys and
+// values, rendered as a column-aligned table:
+//
+//	KEY             VALUE
+//	aws_prod_key    AKIA…
+//	github_token    ghp_…
+//
+// --keys-only prints bare keys one per line (pipe-friendly).
 func runSearch(args []string) {
 	fs := flag.NewFlagSet("search", flag.ExitOnError)
 	useRegex := fs.Bool("regex", false, "interpret query as a Go regexp")
 	scopeKey := fs.Bool("key", false, "match against keys only")
 	scopeValue := fs.Bool("value", false, "match against values only")
-	show := fs.Bool("show", false, "print key\\tvalue for each hit (otherwise keys only)")
+	keysOnly := fs.Bool("keys-only", false, "print bare keys, one per line (no table)")
 	caseSensitive := fs.Bool("case-sensitive", false, "exact-case match (default is case-insensitive)")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv search [--regex] [--key|--value] [--show] [--case-sensitive] <query>")
+		fatal("usage: kv search [--regex] [--key|--value] [--keys-only] [--case-sensitive] <query>")
 	}
 	if *scopeKey && *scopeValue {
 		fatal("--key and --value are mutually exclusive (omit both to match either)")
@@ -461,19 +474,14 @@ func runSearch(args []string) {
 		}
 		match = re.MatchString
 	default:
-		needle := query
-		fold := strings.EqualFold
-		contains := strings.Contains
 		if *caseSensitive {
-			match = func(s string) bool { return contains(s, needle) }
+			needle := query
+			match = func(s string) bool { return strings.Contains(s, needle) }
 		} else {
-			// Precompute lower-case needle; compare by folding the
-			// sliding window via strings.Contains on the lowered string.
-			needleLower := strings.ToLower(needle)
+			needleLower := strings.ToLower(query)
 			match = func(s string) bool {
-				return contains(strings.ToLower(s), needleLower)
+				return strings.Contains(strings.ToLower(s), needleLower)
 			}
-			_ = fold
 		}
 	}
 
@@ -482,27 +490,51 @@ func runSearch(args []string) {
 	if err != nil {
 		fatal("search: %v", err)
 	}
+
+	// Collect hits first so we know whether to even print a table
+	// header (avoid emitting a blank header when there are no hits).
+	type hit struct{ k, v string }
+	var hits []hit
 	for _, e := range all {
 		k := string(e.Key)
 		v := string(e.Value)
-		var hit bool
+		var ok bool
 		switch {
 		case *scopeKey:
-			hit = match(k)
+			ok = match(k)
 		case *scopeValue:
-			hit = match(v)
+			ok = match(v)
 		default:
-			hit = match(k) || match(v)
+			ok = match(k) || match(v)
 		}
-		if !hit {
-			continue
-		}
-		if *show {
-			fmt.Printf("%s\t%s\n", k, v)
-		} else {
-			fmt.Println(k)
+		if ok {
+			hits = append(hits, hit{k, v})
 		}
 	}
+	if len(hits) == 0 {
+		return
+	}
+
+	if *keysOnly {
+		for _, h := range hits {
+			fmt.Println(h.k)
+		}
+		return
+	}
+
+	// Tabular output. tabwriter pads columns so the VALUE column
+	// aligns across rows. Multi-line values are emitted raw; the
+	// operator who put them there can deal with wrapping.
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "KEY\tVALUE")
+	for _, h := range hits {
+		// Collapse newlines in the value so a multi-line secret does
+		// not break table alignment. Original value is still
+		// retrievable via `kv get`.
+		v := strings.ReplaceAll(h.v, "\n", " ⏎ ")
+		fmt.Fprintf(tw, "%s\t%s\n", h.k, v)
+	}
+	_ = tw.Flush()
 }
 
 func runPut(args []string) {
