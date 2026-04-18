@@ -14,6 +14,9 @@
 //	kv import <file|->            import rows from a CSV file
 //	kv backup [file|-]            emit RootKey (+ register key if local)
 //	kv restore <blob|->           restore a vault from a backup blob
+//	kv search [flags] <pattern>   case-insensitive substring match
+//	                              across keys AND values (default);
+//	                              --regex, --key, --value, --show
 //
 // Environment:
 //
@@ -33,6 +36,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -77,6 +81,8 @@ func main() {
 		runBackup(args)
 	case "restore":
 		runRestore(args)
+	case "search":
+		runSearch(args)
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 	default:
@@ -103,6 +109,12 @@ Commands:
   backup [file|-]   emit RootKey (+ register key if available locally)
                     as a single Crockford base32 blob for offline storage
   restore <blob|->  recover a vault on a fresh device from a backup blob
+  search <query>    find keys/values containing the substring (case-
+                    insensitive). Flags:
+                      --regex       interpret query as Go regexp
+                      --key         match against keys only
+                      --value       match against values only
+                      --show        also print values (tab-separated)
 
 Environment:
   KV_HOME           storage directory (default ~/.kv)
@@ -413,6 +425,83 @@ func runRestore(args []string) {
 		fmt.Println("restored (RootKey + register key)")
 	} else {
 		fmt.Println("restored (RootKey only)")
+	}
+}
+
+// runSearch is the client-side full-text search. The server never
+// sees plaintext, so the CLI replays the full local store, decrypts
+// every entry, and filters in memory. Default: case-insensitive
+// substring match against both keys and values. Flags narrow that.
+func runSearch(args []string) {
+	fs := flag.NewFlagSet("search", flag.ExitOnError)
+	useRegex := fs.Bool("regex", false, "interpret query as a Go regexp")
+	scopeKey := fs.Bool("key", false, "match against keys only")
+	scopeValue := fs.Bool("value", false, "match against values only")
+	show := fs.Bool("show", false, "print key\\tvalue for each hit (otherwise keys only)")
+	caseSensitive := fs.Bool("case-sensitive", false, "exact-case match (default is case-insensitive)")
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		fatal("usage: kv search [--regex] [--key|--value] [--show] [--case-sensitive] <query>")
+	}
+	if *scopeKey && *scopeValue {
+		fatal("--key and --value are mutually exclusive (omit both to match either)")
+	}
+	query := fs.Arg(0)
+
+	var match func(string) bool
+	switch {
+	case *useRegex:
+		pattern := query
+		if !*caseSensitive {
+			pattern = "(?i)" + pattern
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			fatal("regex: %v", err)
+		}
+		match = re.MatchString
+	default:
+		needle := query
+		fold := strings.EqualFold
+		contains := strings.Contains
+		if *caseSensitive {
+			match = func(s string) bool { return contains(s, needle) }
+		} else {
+			// Precompute lower-case needle; compare by folding the
+			// sliding window via strings.Contains on the lowered string.
+			needleLower := strings.ToLower(needle)
+			match = func(s string) bool {
+				return contains(strings.ToLower(s), needleLower)
+			}
+			_ = fold
+		}
+	}
+
+	c := openClient()
+	all, err := c.All()
+	if err != nil {
+		fatal("search: %v", err)
+	}
+	for _, e := range all {
+		k := string(e.Key)
+		v := string(e.Value)
+		var hit bool
+		switch {
+		case *scopeKey:
+			hit = match(k)
+		case *scopeValue:
+			hit = match(v)
+		default:
+			hit = match(k) || match(v)
+		}
+		if !hit {
+			continue
+		}
+		if *show {
+			fmt.Printf("%s\t%s\n", k, v)
+		} else {
+			fmt.Println(k)
+		}
 	}
 }
 

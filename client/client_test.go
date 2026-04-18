@@ -345,6 +345,35 @@ func TestSync_Gated_NoKeyRejected(t *testing.T) {
 	}
 }
 
+func TestAll_ReturnsLiveEntriesSorted(t *testing.T) {
+	c, _ := newPair(t)
+	if err := c.Put([]byte("b"), []byte("beta")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Put([]byte("a"), []byte("alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Put([]byte("gone"), []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Delete([]byte("gone")); err != nil {
+		t.Fatal(err)
+	}
+	all, err := c.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("All returned %d entries, want 2", len(all))
+	}
+	if string(all[0].Key) != "a" || string(all[0].Value) != "alpha" {
+		t.Fatalf("first entry: got (%q, %q)", all[0].Key, all[0].Value)
+	}
+	if string(all[1].Key) != "b" || string(all[1].Value) != "beta" {
+		t.Fatalf("second entry: got (%q, %q)", all[1].Key, all[1].Value)
+	}
+}
+
 func TestSync_RemoteWritePulledByReader(t *testing.T) {
 	ctx := context.Background()
 	c, srv := newPair(t)

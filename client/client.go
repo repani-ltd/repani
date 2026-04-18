@@ -162,6 +162,37 @@ func (c *Client) List() ([]string, error) {
 	return out, nil
 }
 
+// LiveEntry is a live (non-tombstoned) key/value pair returned by
+// All. Values are held in plaintext in memory; callers are
+// responsible for scrubbing if that matters.
+type LiveEntry struct {
+	Key   []byte
+	Value []byte
+}
+
+// All returns every live (key, value) pair in the vault, sorted by
+// key. It replays and decrypts the full local store and is the basis
+// of client-side search. Tombstoned entries are omitted.
+func (c *Client) All() ([]LiveEntry, error) {
+	m, err := c.replay()
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(m))
+	for k, kv := range m {
+		if kv.tomb {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]LiveEntry, len(keys))
+	for i, k := range keys {
+		out[i] = LiveEntry{Key: []byte(k), Value: m[k].value}
+	}
+	return out, nil
+}
+
 // --- merge (LWW) ---
 
 type keyValue struct {
