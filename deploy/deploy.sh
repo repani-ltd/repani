@@ -95,10 +95,22 @@ mkdir -p /opt/kvserve
 chown root:root /opt/kvserve
 chmod 755 /opt/kvserve
 
+# Stop the running daemon so we can atomically swap binaries.
+systemctl stop kvserve 2>/dev/null || true
+
+# Install NEW binaries first. register-key generation below requires
+# the new 'gen-register-key' subcommand which the old binary lacks.
+for b in "\${BINARIES[@]}"; do
+    if [ "\$b" = "kvserve" ] && [ -f /opt/kvserve/kvserve ]; then
+        mv /opt/kvserve/kvserve /opt/kvserve/kvserve.prev
+    fi
+    install -m 755 -o root -g root "/tmp/\$b.new" "/opt/kvserve/\$b"
+    rm -f "/tmp/\$b.new"
+done
+
 # Wipe stale (pre-gate) vaults so every live vault is one that was
 # created after the register-key gate was in place. Remove this block
 # once the gate is established and real vaults exist.
-systemctl stop kvserve 2>/dev/null || true
 rm -rf /opt/kvserve/data
 mkdir -p /opt/kvserve/data
 chown -R kvserve:kvserve /opt/kvserve/data
@@ -112,14 +124,6 @@ if [ ! -f /opt/kvserve/register.key ]; then
     chmod 600 /opt/kvserve/register.key
     echo "  generated /opt/kvserve/register.key"
 fi
-
-for b in "\${BINARIES[@]}"; do
-    if [ "\$b" = "kvserve" ] && [ -f /opt/kvserve/kvserve ]; then
-        mv /opt/kvserve/kvserve /opt/kvserve/kvserve.prev
-    fi
-    install -m 755 -o root -g root "/tmp/\$b.new" "/opt/kvserve/\$b"
-    rm -f "/tmp/\$b.new"
-done
 
 for b in "\${CLI_LINKS[@]}"; do
     ln -sf "/opt/kvserve/\$b" "/usr/local/bin/\$b"
