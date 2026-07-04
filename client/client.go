@@ -46,7 +46,6 @@ type Client struct {
 	registered bool
 	hasReg     bool
 	regChan    vault.ChannelKey // K_reg, valid iff hasReg
-	dirty      bool
 }
 
 // New returns a Client backed by the given store and transport.
@@ -122,9 +121,6 @@ func (c *Client) Put(key, value []byte) error {
 	if _, err := c.store.Add(e); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	c.dirty = true
-	c.mu.Unlock()
 	return nil
 }
 
@@ -138,9 +134,6 @@ func (c *Client) Delete(key []byte) error {
 	if _, err := c.store.Add(e); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	c.dirty = true
-	c.mu.Unlock()
 	return nil
 }
 
@@ -265,9 +258,6 @@ func (c *Client) Sync(ctx context.Context) error {
 			return preChannelErr("probe", pre)
 		}
 		if inSync {
-			c.mu.Lock()
-			c.dirty = false
-			c.mu.Unlock()
 			return nil
 		}
 

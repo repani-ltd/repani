@@ -26,10 +26,11 @@
 #   /etc/caddy/sites/kv.caddy         caddy site block (reverse_proxy)
 #
 # register.key is a 26-char Crockford base32 secret generated on
-# first install by `kvserve gen-register-key`. Each `kv init` on a
-# client must pass --register-key <STRING> matching that file or the
-# server rejects REGISTER with StatusBadMAC. TOFU registration is not
-# supported. Read the current register token with:
+# first install by `kvserve gen-register-key`. A client must hold the
+# same secret (via `kv init/pair --register-key <STRING>` or
+# `kv set-register-key <STRING>`); otherwise its REGISTER frame will not
+# open under the server's K_reg and is rejected with a BAD_AUTH byte.
+# There is no permissionless registration. Read the current secret with:
 #   ssh HOST sudo cat /opt/kvserve/register.key
 #
 # What this script does NOT do:

@@ -261,7 +261,11 @@
   the walk delta below the frontier re-examines recent history on every
   attempt, so a concurrent or lightly-backdated write that landed behind
   the frontier is caught without a full walk; growing delta reaches an
-  anchor of zero, a full walk that always converges.
+  anchor of zero, a full walk that always converges. delta-windowing is
+  an optional optimization: a client MAY anchor at zero on every
+  reconcile — the simplest choice, correct and fully interoperable since
+  the server never sees delta — trading a rescan of the whole set for no
+  windowing logic at all. The reference client does exactly this.
 
   Why it converges: a PULL walk to an empty page leaves the client
   holding every server entry in the window, and the dedup-tolerant PUSH
