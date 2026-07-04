@@ -52,6 +52,16 @@ import (
 
 const defaultHTTPTimeout = 60 * time.Second
 
+// verbose enables a sync-traffic tracer on the client. It is package-
+// level because several subcommands set it from their own flag sets
+// before openClient runs; KV_VERBOSE turns it on regardless of position.
+var verbose bool
+
+func addVerboseFlag(fs *flag.FlagSet) {
+	fs.BoolVar(&verbose, "v", false, "verbose: print sync traffic (PROBE/PULL/PUSH/REGISTER) and stats to stderr")
+	fs.BoolVar(&verbose, "verbose", false, "alias for -v")
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage(os.Stderr)
@@ -113,7 +123,9 @@ Commands:
   get <key>         print the current value, or exit 1 if absent
   del <key>         tombstone a key
   ls                list live keys
-  sync              run one sync cycle
+  sync [-v]         run one sync cycle (-v/--verbose prints per-frame
+                    traffic and a byte/entry stats summary to stderr;
+                    -v also works on put/del/import)
   export [file|-]   dump live state as CSV (Key,Value); default stdout
   import <file|->   import rows from CSV (reads Key,Value columns by header)
   backup [file|-]   emit RootKey (+ register key if available locally)
@@ -132,6 +144,7 @@ Environment:
   KV_HOME           storage directory (default ~/.kv)
   KV_SERVER         server base URL, e.g. https://vault.example
   KV_HTTP_TIMEOUT   per-request timeout (default 60s)
+  KV_VERBOSE        if set, print sync traffic + stats (same as -v)
 `)
 }
 
@@ -244,6 +257,9 @@ func openClient() *client.Client {
 	// so the first REGISTER to a gated server succeeds.
 	if rk := loadRegisterKey(); rk != nil {
 		c.SetRegisterKey(rk)
+	}
+	if verbose || os.Getenv("KV_VERBOSE") != "" {
+		c.SetTracer(func(s string) { fmt.Fprintln(os.Stderr, s) })
 	}
 	return c
 }
@@ -593,6 +609,7 @@ func runSearch(args []string) {
 func runPut(args []string) {
 	fs := flag.NewFlagSet("put", flag.ExitOnError)
 	offline := fs.Bool("offline", false, "skip auto-sync")
+	addVerboseFlag(fs)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
 		fatal("usage: kv put <key> [value|-]")
@@ -644,6 +661,7 @@ func runGet(args []string) {
 func runDel(args []string) {
 	fs := flag.NewFlagSet("del", flag.ExitOnError)
 	offline := fs.Bool("offline", false, "skip auto-sync")
+	addVerboseFlag(fs)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
 		fatal("usage: kv del <key>")
@@ -668,7 +686,10 @@ func runLs(_ []string) {
 	}
 }
 
-func runSync(_ []string) {
+func runSync(args []string) {
+	fs := flag.NewFlagSet("sync", flag.ExitOnError)
+	addVerboseFlag(fs)
+	_ = fs.Parse(args)
 	c := openClient()
 	mustSync(c)
 }
@@ -695,6 +716,7 @@ func runExport(args []string) {
 func runImport(args []string) {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
 	offline := fs.Bool("offline", false, "skip auto-sync after import")
+	addVerboseFlag(fs)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
 		fatal("usage: kv import <file|->")

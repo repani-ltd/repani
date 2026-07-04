@@ -3,8 +3,10 @@ package client
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pavlos/kv/server"
 	"github.com/pavlos/kv/store"
@@ -229,6 +231,85 @@ func TestSync_PullLoopProtection(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "advance") {
 		t.Fatalf("expected a cursor-advance error, got: %v", err)
+	}
+}
+
+func TestReconcileAnchor(t *testing.T) {
+	srv := newTestServer(t)
+	rk, _ := vault.NewRandomRootKey()
+	c := newClient(t, srv, rk)
+
+	// Empty store → full walk (anchor zero).
+	if ts, _ := c.reconcileAnchor(0); ts != 0 {
+		t.Fatalf("empty store round 0 anchor ts=%d, want 0", ts)
+	}
+	// A store whose frontier is a real (large) timestamp → round 0 looks
+	// back one window; round 1+ is a full walk.
+	now := uint64(time.Now().UnixMilli())
+	aead, _ := rk.AEAD()
+	e, _ := vault.Seal(aead, now, []byte("k"), []byte("\x00v"))
+	_, _ = c.Store().Add(e)
+	if ts, _ := c.reconcileAnchor(0); ts != now-reconcileWindowMs {
+		t.Fatalf("round 0 anchor ts=%d, want %d", ts, now-reconcileWindowMs)
+	}
+	if ts, _ := c.reconcileAnchor(1); ts != 0 {
+		t.Fatalf("round 1 anchor ts=%d, want 0 (full walk)", ts)
+	}
+}
+
+// TestSync_DeltaWindow_MovesOnlyRecent seeds a vault with many entries
+// older than the reconcile window, converges, then makes ONE recent
+// write and syncs — asserting via SyncStats that only the recent entry
+// moves, not the whole vault.
+func TestSync_DeltaWindow_MovesOnlyRecent(t *testing.T) {
+	q := server.DefaultQuotas()
+	q.TSSkewMs = 40 * 24 * 60 * 60 * 1000 // 40 days, so old entries are accepted
+	srv, err := server.NewWithOptions(server.Options{Quotas: q, RegisterKey: &testRegKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rk, _ := vault.NewRandomRootKey()
+	c := newClient(t, srv, rk)
+	aead, _ := rk.AEAD()
+
+	now := uint64(time.Now().UnixMilli())
+	day := uint64(24 * 60 * 60 * 1000)
+	const nOld = 20
+	for i := range nOld {
+		ts := now - (2+uint64(i))*day // 2..21 days ago (all older than the 24h window)
+		e, err := vault.Seal(aead, ts, []byte(fmt.Sprintf("old%02d", i)), []byte("\x00v"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Store().Add(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.Sync(context.Background()); err != nil { // seeds the server (full walk)
+		t.Fatal(err)
+	}
+
+	// One recent write, then sync — should move only the new entry.
+	if err := c.Put([]byte("newkey"), []byte("newval")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s := c.LastSyncStats()
+	if s.Pushed > 2 || s.Pulled > 2 {
+		t.Fatalf("windowed sync moved too much: pushed=%d pulled=%d (want a handful, not ~%d)",
+			s.Pushed, s.Pulled, nOld+1)
+	}
+
+	// Convergence: a fresh reader still sees all 21 keys.
+	reader := newClient(t, srv, rk)
+	if err := reader.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := reader.All()
+	if len(all) != nOld+1 {
+		t.Fatalf("reader sees %d keys, want %d", len(all), nOld+1)
 	}
 }
 
