@@ -156,6 +156,7 @@ Environment:
   KV_SERVER         server base URL, e.g. https://vault.example
   KV_HTTP_TIMEOUT   per-request timeout (default 60s)
   KV_VERBOSE        if set, print sync traffic + stats (same as -v)
+  KV_SYNC_WINDOW    reconcile look-back window (Go duration, default 10m)
 `)
 }
 
@@ -271,6 +272,13 @@ func openClient() *client.Client {
 	}
 	if verbose || os.Getenv("KV_VERBOSE") != "" {
 		c.SetTracer(func(s string) { fmt.Fprintln(os.Stderr, s) })
+	}
+	if w := os.Getenv("KV_SYNC_WINDOW"); w != "" {
+		d, err := time.ParseDuration(w)
+		if err != nil {
+			fatal("KV_SYNC_WINDOW: %v", err)
+		}
+		c.SetSyncWindow(d)
 	}
 	return c
 }

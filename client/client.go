@@ -48,8 +48,15 @@ type Client struct {
 	registered bool
 	hasReg     bool
 	regChan    vault.ChannelKey // K_reg, valid iff hasReg
+	recent     []vault.Entry    // entries written since the last sync (fast-path push)
+	windowMs   uint64           // reconcile look-back window
 	lastStats  SyncStats
 }
+
+// defaultSyncWindowMs is the reconcile look-back: on a plain sync a
+// client walks [frontier - window, ∞). 10 minutes is ample for an
+// auto-syncing vault; anything older falls back to a full walk.
+const defaultSyncWindowMs = 10 * 60 * 1000
 
 // New returns a Client backed by the given store and transport.
 func New(rk vault.RootKey, s store.Store, t Transport) (*Client, error) {
@@ -59,16 +66,27 @@ func New(rk vault.RootKey, s store.Store, t Transport) (*Client, error) {
 	}
 	ak := vault.DeriveAuthKey(rk)
 	return &Client{
-		rk:      rk,
-		aead:    aead,
-		authKey: ak,
-		vid:     vault.DeriveVaultID(rk),
-		c2s:     vault.DeriveC2S(ak),
-		s2c:     vault.DeriveS2C(ak),
-		store:   s,
-		tran:    t,
-		nowMs:   func() uint64 { return uint64(time.Now().UnixMilli()) },
+		rk:       rk,
+		aead:     aead,
+		authKey:  ak,
+		vid:      vault.DeriveVaultID(rk),
+		c2s:      vault.DeriveC2S(ak),
+		s2c:      vault.DeriveS2C(ak),
+		store:    s,
+		tran:     t,
+		windowMs: defaultSyncWindowMs,
+		nowMs:    func() uint64 { return uint64(time.Now().UnixMilli()) },
 	}, nil
+}
+
+// SetSyncWindow overrides the reconcile look-back window (the CLI wires
+// this to KV_SYNC_WINDOW).
+func (c *Client) SetSyncWindow(d time.Duration) {
+	c.mu.Lock()
+	if d > 0 {
+		c.windowMs = uint64(d.Milliseconds())
+	}
+	c.mu.Unlock()
 }
 
 // VaultID returns the public vault handle.
@@ -143,10 +161,7 @@ func (c *Client) Put(key, value []byte) error {
 	if err != nil {
 		return err
 	}
-	if _, err := c.store.Add(e); err != nil {
-		return err
-	}
-	return nil
+	return c.record(e)
 }
 
 // Delete writes a tombstone (an empty value, with no fmt tag).
@@ -156,9 +171,18 @@ func (c *Client) Delete(key []byte) error {
 	if err != nil {
 		return err
 	}
+	return c.record(e)
+}
+
+// record adds a locally-created entry to the store and remembers it for
+// the next sync's fast-path push.
+func (c *Client) record(e vault.Entry) error {
 	if _, err := c.store.Add(e); err != nil {
 		return err
 	}
+	c.mu.Lock()
+	c.recent = append(c.recent, e)
+	c.mu.Unlock()
 	return nil
 }
 
@@ -255,22 +279,26 @@ func (c *Client) All() ([]LiveEntry, error) {
 // forgetting the registration).
 var ErrSyncStuck = errors.New("client: sync did not converge within round budget")
 
-// reconcileWindowMs is the first-round look-back: a reconcile initially
-// walks only [frontier - reconcileWindowMs, ∞), which for the common
-// case (a recent write on either side) moves just the changed entries.
-// If a PROBE still differs afterwards the divergence is older, and the
-// next round widens to a full walk (anchor zero).
-const reconcileWindowMs = 24 * 60 * 60 * 1000 // 24h
-
 // Sync reconciles the client's vault with the server. It registers if
-// needed, PROBEs, and on divergence walks a suffix window (PULL then
-// dedup-tolerant PUSH), widening from a recent window to a full walk
-// across rounds until a PROBE matches. delta-windowing is client-local:
-// the server only ever sees the cursor the client chooses to send.
+// needed, then:
+//   - Fast path: pushes exactly the entries written since the last sync
+//     and PROBEs. If those were the only divergence the probe matches
+//     and sync is done — no pull, no walk.
+//   - Otherwise it walks a suffix window (PULL then dedup-tolerant PUSH),
+//     widening from a recent window to a full walk across rounds until a
+//     PROBE matches.
+//
+// Windowing is client-local: the server only ever sees the cursor the
+// client chooses to send.
 func (c *Client) Sync(ctx context.Context) error {
 	const maxRounds = 64
 	st := &SyncStats{}
 	defer c.reportStats(st)
+
+	c.mu.Lock()
+	recent := c.recent
+	c.recent = nil
+	c.mu.Unlock()
 
 	for round := range maxRounds {
 		c.mu.Lock()
@@ -280,6 +308,18 @@ func (c *Client) Sync(ctx context.Context) error {
 		if !registered {
 			if err := c.register(ctx, st); err != nil {
 				return err
+			}
+		}
+
+		// Fast path: push just-written entries before the first probe.
+		if round == 0 && len(recent) > 0 {
+			if pre, err := c.pushEntries(ctx, recent, st); err != nil {
+				return err
+			} else if pre == wire.ErrUnknownVault {
+				c.SetRegistered(false)
+				continue
+			} else if pre != 0 {
+				return preChannelErr("push", pre)
 			}
 		}
 
@@ -325,17 +365,21 @@ func (c *Client) Sync(ctx context.Context) error {
 }
 
 // reconcileAnchor returns the walk anchor for a reconcile round: round 0
-// looks back reconcileWindowMs below the client's frontier (its newest
+// looks back one window below the client's frontier (its newest
 // canonical position); any later round is a full walk from zero. A fresh
 // or small-timestamp store also anchors at zero.
 func (c *Client) reconcileAnchor(round int) (uint64, vault.EntryID) {
-	if round == 0 {
-		sorted := c.store.Sorted()
-		if n := len(sorted); n > 0 {
-			fTs := sorted[n-1].TsMs
-			if fTs > reconcileWindowMs {
-				return fTs - reconcileWindowMs, vault.EntryID{}
-			}
+	if round != 0 {
+		return 0, vault.EntryID{}
+	}
+	c.mu.Lock()
+	w := c.windowMs
+	c.mu.Unlock()
+	sorted := c.store.Sorted()
+	if n := len(sorted); n > 0 {
+		fTs := sorted[n-1].TsMs
+		if fTs > w {
+			return fTs - w, vault.EntryID{}
 		}
 	}
 	return 0, vault.EntryID{}
@@ -453,24 +497,55 @@ func (c *Client) pushFrom(ctx context.Context, anchorTs uint64, anchorID vault.E
 		if len(batch) == 0 {
 			return 0, nil
 		}
-		payload := wire.SyncReq{Op: wire.OpPush, Entries: batch}.Marshal()
-		resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload, st)
-		if err != nil || pre != 0 {
+		if pre, err := c.sendPush(ctx, batch, "PUSH", st); err != nil || pre != 0 {
 			return pre, err
 		}
-		if resp.Status != wire.StatusOK {
-			return 0, fmt.Errorf("client: push status %s", wire.StatusText(resp.Status))
-		}
-		bytesOut := 0
-		for _, e := range batch {
-			bytesOut += e.Size()
-		}
-		st.Pushed += len(batch)
-		st.PushedBytes += bytesOut
-		c.tracef("PUSH -> %d entries (%d B)", len(batch), bytesOut)
 		last := batch[len(batch)-1]
 		curTs, curID = last.TsMs, last.ID()
 	}
+}
+
+// pushEntries pushes an explicit list of entries in byte-bounded batches
+// — the fast path for freshly-written local entries.
+func (c *Client) pushEntries(ctx context.Context, entries []vault.Entry, st *SyncStats) (byte, error) {
+	i := 0
+	for i < len(entries) {
+		batch := make([]vault.Entry, 0, 64)
+		used := 0
+		for i < len(entries) {
+			sz := entries[i].Size()
+			if len(batch) > 0 && used+sz > wire.PageBytes {
+				break
+			}
+			batch = append(batch, entries[i])
+			used += sz
+			i++
+		}
+		if pre, err := c.sendPush(ctx, batch, "PUSH(new)", st); err != nil || pre != 0 {
+			return pre, err
+		}
+	}
+	return 0, nil
+}
+
+// sendPush pushes one batch, accounting and tracing it.
+func (c *Client) sendPush(ctx context.Context, batch []vault.Entry, label string, st *SyncStats) (byte, error) {
+	payload := wire.SyncReq{Op: wire.OpPush, Entries: batch}.Marshal()
+	resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload, st)
+	if err != nil || pre != 0 {
+		return pre, err
+	}
+	if resp.Status != wire.StatusOK {
+		return 0, fmt.Errorf("client: push status %s", wire.StatusText(resp.Status))
+	}
+	bytesOut := 0
+	for _, e := range batch {
+		bytesOut += e.Size()
+	}
+	st.Pushed += len(batch)
+	st.PushedBytes += bytesOut
+	c.tracef("%s -> %d entries (%d B)", label, len(batch), bytesOut)
+	return 0, nil
 }
 
 // roundtrip seals a request frame under sealK, sends it, and opens the

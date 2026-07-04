@@ -249,8 +249,8 @@ func TestReconcileAnchor(t *testing.T) {
 	aead, _ := rk.AEAD()
 	e, _ := vault.Seal(aead, now, []byte("k"), []byte("\x00v"))
 	_, _ = c.Store().Add(e)
-	if ts, _ := c.reconcileAnchor(0); ts != now-reconcileWindowMs {
-		t.Fatalf("round 0 anchor ts=%d, want %d", ts, now-reconcileWindowMs)
+	if ts, _ := c.reconcileAnchor(0); ts != now-defaultSyncWindowMs {
+		t.Fatalf("round 0 anchor ts=%d, want %d", ts, now-defaultSyncWindowMs)
 	}
 	if ts, _ := c.reconcileAnchor(1); ts != 0 {
 		t.Fatalf("round 1 anchor ts=%d, want 0 (full walk)", ts)
@@ -310,6 +310,34 @@ func TestSync_DeltaWindow_MovesOnlyRecent(t *testing.T) {
 	all, _ := reader.All()
 	if len(all) != nOld+1 {
 		t.Fatalf("reader sees %d keys, want %d", len(all), nOld+1)
+	}
+}
+
+// TestSync_FastPathLocalWrite verifies that after convergence, a single
+// local write syncs by pushing just that entry and a matching probe —
+// no pull, no window walk.
+func TestSync_FastPathLocalWrite(t *testing.T) {
+	srv := newTestServer(t)
+	rk, _ := vault.NewRandomRootKey()
+	c := newClient(t, srv, rk)
+	for i := range 5 {
+		if err := c.Put([]byte(fmt.Sprintf("k%d", i)), []byte("v")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.Sync(context.Background()); err != nil { // converge
+		t.Fatal(err)
+	}
+
+	if err := c.Put([]byte("extra"), []byte("val")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s := c.LastSyncStats()
+	if s.Pushed != 1 || s.Pulled != 0 {
+		t.Fatalf("fast path: pushed=%d pulled=%d, want 1 pushed / 0 pulled", s.Pushed, s.Pulled)
 	}
 }
 

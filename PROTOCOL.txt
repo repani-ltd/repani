@@ -264,10 +264,13 @@
   anchor of zero, a full walk that always converges. Both extremes are
   valid and fully interoperable, since the server never sees delta: a
   client MAY anchor at zero on every reconcile (simplest, but rescans the
-  whole set each time), or window and widen. The reference client
-  windows — round 0 looks back a fixed recent span below its frontier,
-  and if a PROBE still differs it falls back to a full walk — so a recent
-  change moves only recent entries instead of the whole vault.
+  whole set each time), or window and widen. The reference client does
+  two things. After a local write it takes a fast path: it PUSHes just
+  the entries it created since the last sync and PROBEs — a match ends
+  the sync with no pull and no walk, so writing one key moves one entry
+  regardless of vault size. Otherwise (a plain sync, or when that probe
+  still differs) it windows: round 0 looks back a fixed recent span
+  below its frontier and widens to a full walk if a PROBE still differs.
 
   Why it converges: a PULL walk to an empty page leaves the client
   holding every server entry in the window, and the dedup-tolerant PUSH
