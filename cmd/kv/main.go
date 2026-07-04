@@ -5,6 +5,7 @@
 //	kv init                       generate a new vault's RootKey
 //	kv pair <blob|->              join an existing vault (use - to read stdin)
 //	kv pair-blob                  print this device's pairing blob
+//	kv set-register-key <b32|->   install/replace the server register-gate secret
 //	kv put <key> [value|-]        set a key (value from argv or stdin)
 //	kv get <key>                  print the current value
 //	kv del <key>                  tombstone a key
@@ -14,7 +15,7 @@
 //	kv import <file|->            import rows from a CSV file
 //	kv backup [file|-]            emit RootKey (+ register key if local)
 //	kv restore <blob|->           restore a vault from a backup blob
-//	kv search [flags] <pattern>   case-insensitive substring match
+//	kv search|s [flags] <pattern> case-insensitive substring match
 //	                              across keys AND values; renders a
 //	                              KEY/VALUE table by default.
 //	                              --regex, --key, --value, --keys-only,
@@ -67,6 +68,8 @@ func main() {
 		runPair(args)
 	case "pair-blob":
 		runPairBlob(args)
+	case "set-register-key":
+		runSetRegisterKey(args)
 	case "put":
 		runPut(args)
 	case "get":
@@ -85,7 +88,7 @@ func main() {
 		runBackup(args)
 	case "restore":
 		runRestore(args)
-	case "search":
+	case "search", "s":
 		runSearch(args)
 	case "-h", "--help", "help":
 		usage(os.Stdout)
@@ -103,6 +106,9 @@ Commands:
   init              generate a new vault's RootKey
   pair <blob|->     join an existing vault from a pairing blob (use - to read stdin)
   pair-blob         print this device's pairing blob
+  set-register-key <base32|->
+                    install/replace the server register-gate secret used
+                    to register with a gated server (26-char Crockford base32)
   put <key> [val]   set key to val (or read val from stdin if omitted or "-")
   get <key>         print the current value, or exit 1 if absent
   del <key>         tombstone a key
@@ -113,8 +119,8 @@ Commands:
   backup [file|-]   emit RootKey (+ register key if available locally)
                     as a single Crockford base32 blob for offline storage
   restore <blob|->  recover a vault on a fresh device from a backup blob
-  search <query>    find keys/values containing the substring (case-
-                    insensitive). Default output is a column-aligned
+  search <query>    (alias: s) find keys/values containing the substring
+                    (case-insensitive). Default output is a column-aligned
                     KEY/VALUE table. Flags:
                       --regex          interpret query as Go regexp
                       --key            match against keys only
@@ -351,6 +357,43 @@ func runPair(args []string) {
 func runPairBlob(_ []string) {
 	rk := loadRootKey()
 	fmt.Println(vault.EncodeRootKey(rk))
+}
+
+// runSetRegisterKey installs (or replaces) the server register-gate
+// secret on this device so a subsequent sync can register with a gated
+// server. Unlike init/pair it does not touch the vault — it only writes
+// $KV_HOME/register.key (mode 0600), overwriting any existing value.
+func runSetRegisterKey(args []string) {
+	fs := flag.NewFlagSet("set-register-key", flag.ExitOnError)
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		fatal("usage: kv set-register-key <base32|->")
+	}
+	arg := fs.Arg(0)
+	if arg == "-" {
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fatal("read stdin: %v", err)
+		}
+		arg = strings.TrimSpace(string(b))
+	}
+	rk, err := vault.DecodeRegisterKey(arg)
+	if err != nil {
+		fatal("invalid register key: %v", err)
+	}
+	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
+		fatal("mkdir: %v", err)
+	}
+	out := []byte(vault.EncodeRegisterKey(rk) + "\n")
+	defer zero(out)
+	if err := os.WriteFile(registerKeyPath(), out, 0o600); err != nil {
+		fatal("write register.key: %v", err)
+	}
+	// WriteFile keeps existing perms if the file already existed; enforce 0600.
+	if err := os.Chmod(registerKeyPath(), 0o600); err != nil {
+		fatal("chmod register.key: %v", err)
+	}
+	fmt.Fprintln(os.Stderr, "register key saved to "+registerKeyPath())
 }
 
 // runBackup prints a single Crockford base32 blob containing this
