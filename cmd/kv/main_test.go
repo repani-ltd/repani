@@ -53,6 +53,33 @@ func TestPadRunes(t *testing.T) {
 	}
 }
 
+func TestWrapValue(t *testing.T) {
+	// real newlines become separate lines
+	if got := wrapValue("line one\nline two", 100); strings.Join(got, "|") != "line one|line two" {
+		t.Fatalf("newlines: %v", got)
+	}
+	// CRLF normalised
+	if got := wrapValue("a\r\nb", 100); strings.Join(got, "|") != "a|b" {
+		t.Fatalf("crlf: %v", got)
+	}
+	// a long logical line wraps
+	if got := wrapValue("abcdefghij", 4); strings.Join(got, "|") != "abcd|efgh|ij" {
+		t.Fatalf("wrap: %v", got)
+	}
+	// newline then a long line
+	if got := wrapValue("x\nabcdefghij", 4); strings.Join(got, "|") != "x|abcd|efgh|ij" {
+		t.Fatalf("combined: %v", got)
+	}
+	// trailing newline does not add a dangling blank row
+	if got := wrapValue("a\n", 100); strings.Join(got, "|") != "a" {
+		t.Fatalf("trailing newline: %v", got)
+	}
+	// empty value yields one empty line (so the key still prints)
+	if got := wrapValue("", 4); len(got) != 1 || got[0] != "" {
+		t.Fatalf("empty: %v", got)
+	}
+}
+
 func TestCollapseCell(t *testing.T) {
 	got := collapseCell("a\nb\tc\r\nd")
 	if strings.ContainsAny(got, "\n\t\r") {

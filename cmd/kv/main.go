@@ -153,10 +153,11 @@ Commands:
                       --value          match against values only
                       --keys-only      print bare keys, one per line
                       --case-sensitive exact-case match
-                      --wrap           wrap long values instead of truncating
+                      --truncate       one line per value (default: wrap)
                       --width N        force table width (0 = auto/terminal)
-                    Long values are truncated to fit the terminal; piping
-                    the output prints full, untruncated values.
+                    Long values wrap to the terminal width, breaking on
+                    their own newlines; piping prints full, untruncated
+                    values.
 
 Environment:
   KV_HOME           storage directory (default ~/.kv)
@@ -547,7 +548,8 @@ func runSearch(args []string) {
 	scopeValue := fs.Bool("value", false, "match against values only")
 	keysOnly := fs.Bool("keys-only", false, "print bare keys, one per line (no table)")
 	caseSensitive := fs.Bool("case-sensitive", false, "exact-case match (default is case-insensitive)")
-	wrap := fs.Bool("wrap", false, "wrap long values across lines instead of truncating")
+	truncate := fs.Bool("truncate", false, "truncate long values to one line (default: wrap)")
+	_ = fs.Bool("wrap", false, "wrap long values (now the default; accepted for compatibility)")
 	width := fs.Int("width", 0, "table width (0 = auto/terminal)")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
@@ -617,7 +619,7 @@ func runSearch(args []string) {
 		}
 		return
 	}
-	renderTable(hits, *wrap, *width)
+	renderTable(hits, *truncate, *width)
 }
 
 // --- KEY/VALUE table rendering ---
@@ -626,12 +628,14 @@ type kvRow struct{ key, val string }
 
 // renderTable prints rows as an aligned KEY/VALUE table. On a terminal
 // (or when forcedWidth > 0) the value column is sized to the width and a
-// long value is truncated with an ellipsis, or wrapped across
-// continuation lines when wrap is set. When stdout is not a terminal and
-// no width is forced, full values are emitted tab-separated so pipes and
+// long value is wrapped across continuation lines aligned under the value
+// column — breaking on the value's own newlines first, then wrapping each
+// logical line. With truncate set, each value is instead squeezed onto a
+// single line with an ellipsis. When stdout is not a terminal and no
+// width is forced, full values are emitted tab-separated so pipes and
 // scripts get everything. Widths are measured in runes; wide (CJK) glyphs
 // are not double-counted.
-func renderTable(rows []kvRow, wrap bool, forcedWidth int) {
+func renderTable(rows []kvRow, truncate bool, forcedWidth int) {
 	width := tableWidth(forcedWidth)
 	if width == 0 {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -660,19 +664,41 @@ func renderTable(rows []kvRow, wrap bool, forcedWidth int) {
 	fmt.Println(padRunes("KEY", keyW) + gutter + "VALUE")
 	for _, r := range rows {
 		key := truncRunes(r.key, keyW)
-		val := collapseCell(r.val)
-		if !wrap {
-			fmt.Println(padRunes(key, keyW) + gutter + truncRunes(val, valW))
+		if truncate {
+			fmt.Println(padRunes(key, keyW) + gutter + truncRunes(collapseCell(r.val), valW))
 			continue
 		}
-		for i, ch := range chunkRunes(val, valW) {
+		for i, ln := range wrapValue(r.val, valW) {
 			first := ""
 			if i == 0 {
 				first = key
 			}
-			fmt.Println(padRunes(first, keyW) + gutter + ch)
+			fmt.Println(padRunes(first, keyW) + gutter + ln)
 		}
 	}
+}
+
+// wrapValue lays a value out for the wrapped table: it breaks on the
+// value's own line breaks (CR/LF normalised), turns tabs into spaces, and
+// wraps each resulting line to at most w runes. A trailing blank line
+// (e.g. a value that ends in a newline) is dropped so it does not print a
+// dangling empty row. An empty value yields a single empty line.
+func wrapValue(s string, w int) []string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	lines := strings.Split(s, "\n")
+	for len(lines) > 1 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	var out []string
+	for _, ln := range lines {
+		ln = strings.ReplaceAll(ln, "\t", "    ")
+		out = append(out, chunkRunes(ln, w)...)
+	}
+	if len(out) == 0 {
+		out = []string{""}
+	}
+	return out
 }
 
 // tableWidth resolves the render width: an explicit forcedWidth wins;
