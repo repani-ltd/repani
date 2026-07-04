@@ -35,11 +35,17 @@
 # What this script does NOT do:
 #   - DNS (kv.limasoul.com must resolve to HOST before running).
 #   - Install or configure Caddy — that's qc-go's deploy's job.
-#   - Backup /opt/kvserve/data (wiped on every run — see below).
+#   - Backup /opt/kvserve/data.
 #
-# NB: this script WIPES /opt/kvserve/data every run so a stale or
-# permissionless-era vault set cannot linger behind the register-key
-# gate. Disable the wipe once you have real vaults to preserve.
+# NB: a normal deploy PRESERVES /opt/kvserve/data so real vaults survive
+# an upgrade. For a one-time reset — e.g. the v1 on-disk format change,
+# which the new server cannot load from an older layout — run the deploy
+# once with WIPE_DATA=1:
+#
+#   WIPE_DATA=1 ./deploy/deploy.sh
+#
+# That removes the vault data (but not register.key); clients then
+# re-register on their next sync and re-import their exported state.
 
 set -euo pipefail
 
@@ -76,6 +82,7 @@ set -euo pipefail
 
 BINARIES=(${BINARIES[@]})
 CLI_LINKS=(${CLI_LINKS[@]})
+WIPE_DATA=${WIPE_DATA:-0}
 
 # Prerequisite: Caddy is already installed.
 if [ ! -x /usr/local/bin/caddy ] || [ ! -d /etc/caddy/sites ]; then
@@ -108,10 +115,14 @@ for b in "\${BINARIES[@]}"; do
     rm -f "/tmp/\$b.new"
 done
 
-# Wipe stale (pre-gate) vaults so every live vault is one that was
-# created after the register-key gate was in place. Remove this block
-# once the gate is established and real vaults exist.
-rm -rf /opt/kvserve/data
+# Vault data is preserved across deploys. A one-time reset is opt-in via
+# WIPE_DATA=1 — needed for the v1 cutover, since the server cannot load
+# an older on-disk format and would otherwise fail to start. register.key
+# lives outside data/ and is never touched here.
+if [ "\$WIPE_DATA" = "1" ]; then
+    echo "  WIPE_DATA=1 — removing existing vault data at /opt/kvserve/data"
+    rm -rf /opt/kvserve/data
+fi
 mkdir -p /opt/kvserve/data
 chown -R kvserve:kvserve /opt/kvserve/data
 chmod 700 /opt/kvserve/data
