@@ -215,6 +215,15 @@ func openClient() *client.Client {
 	rk := loadRootKey()
 	ls, err := store.OpenLogStore(entriesPath())
 	if err != nil {
+		if errors.Is(err, store.ErrBadMagic) {
+			p := entriesPath()
+			fatal("local entry cache %s is in an incompatible (pre-v1) format.\n"+
+				"  It is only a cache — your RootKey (%s) is untouched. To upgrade:\n"+
+				"    rm %s\n"+
+				"  then run `kv sync` to rebuild from the server, or, if the server\n"+
+				"  was also reset, `kv import <your-export.csv>` to restore your data.",
+				p, vaultKeyPath(), p)
+		}
 		fatal("open log: %v", err)
 	}
 	url := serverURL()
