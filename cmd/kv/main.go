@@ -58,18 +58,29 @@ const defaultHTTPTimeout = 60 * time.Second
 var verbose bool
 
 func addVerboseFlag(fs *flag.FlagSet) {
-	fs.BoolVar(&verbose, "v", false, "verbose: print sync traffic (PROBE/PULL/PUSH/REGISTER) and stats to stderr")
-	fs.BoolVar(&verbose, "verbose", false, "alias for -v")
+	// Default to the current value so a global `kv -v <cmd>` (which set
+	// verbose before the subcommand parsed) is not reset to false.
+	def := verbose
+	fs.BoolVar(&verbose, "v", def, "verbose: print sync traffic (PROBE/PULL/PUSH/REGISTER) and stats to stderr")
+	fs.BoolVar(&verbose, "verbose", def, "alias for -v")
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	rest := os.Args[1:]
+	// Accept a global -v/--verbose before the subcommand, in addition to
+	// the per-subcommand flag — so `kv -v put k v` and `kv put -v k v`
+	// both work.
+	for len(rest) > 0 && (rest[0] == "-v" || rest[0] == "--verbose") {
+		verbose = true
+		rest = rest[1:]
+	}
+	if len(rest) == 0 {
 		usage(os.Stderr)
 		os.Exit(2)
 	}
 
-	cmd := os.Args[1]
-	args := os.Args[2:]
+	cmd := rest[0]
+	args := rest[1:]
 
 	switch cmd {
 	case "init":
