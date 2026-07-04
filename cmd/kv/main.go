@@ -132,7 +132,8 @@ Commands:
                     to register with a gated server (26-char Crockford base32)
   put <key> [val]   set key to val (or read val from stdin if omitted or "-")
   get <key>         print the current value, or exit 1 if absent
-  del <key>         tombstone a key
+  del [-f] <key>    tombstone a key; exit 1 if it is not present
+                    (-f/--force writes the tombstone regardless)
   ls                list live keys
   sync [-v]         run one sync cycle (-v/--verbose prints per-frame
                     traffic and a byte/entry stats summary to stderr;
@@ -680,13 +681,28 @@ func runGet(args []string) {
 func runDel(args []string) {
 	fs := flag.NewFlagSet("del", flag.ExitOnError)
 	offline := fs.Bool("offline", false, "skip auto-sync")
+	force := fs.Bool("force", false, "tombstone even if the key is not present locally")
+	fs.BoolVar(force, "f", false, "alias for --force")
 	addVerboseFlag(fs)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv del <key>")
+		fatal("usage: kv del [-f] <key>")
 	}
+	key := []byte(fs.Arg(0))
+
 	c := openClient()
-	if err := c.Delete([]byte(fs.Arg(0))); err != nil {
+	// Refuse to write a tombstone for a key that is not currently live —
+	// that would only add dead weight. --force overrides (e.g. to delete
+	// a value that exists on the server but has not been synced locally).
+	if !*force {
+		if _, ok, err := c.Get(key); err != nil {
+			fatal("del: %v", err)
+		} else if !ok {
+			fmt.Fprintf(os.Stderr, "kv: no such key: %s\n", fs.Arg(0))
+			os.Exit(1)
+		}
+	}
+	if err := c.Delete(key); err != nil {
 		fatal("del: %v", err)
 	}
 	if !*offline {
