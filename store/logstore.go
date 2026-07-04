@@ -16,7 +16,7 @@ import (
 // On-disk log format:
 //
 //	header:
-//	  magic (8 bytes, "ASCONKV1")
+//	  magic (8 bytes, "ASCONKVA")
 //	repeat:
 //	  | rec_len (4 bytes LE) | entry_bytes |
 //
@@ -26,13 +26,15 @@ import (
 // header is written at file-creation time and rejects accidental
 // cross-format loading.
 
-var logMagic = []byte("ASCONKV1")
+// logMagic tags the v1 on-disk log. The v1 entry format (26-byte
+// header, 2-byte ct_len) differs from earlier layouts, so the magic is
+// bumped to reject a stale-format log rather than mis-parse it.
+var logMagic = []byte("ASCONKVA")
 
-// MaxRecordBytes caps the per-record length we are willing to allocate
-// during replay, protecting against corrupted length prefixes blowing
-// the heap. It is intentionally a bit larger than vault.MaxCtBytes
-// plus the entry header, to leave headroom for any future framing.
-const MaxRecordBytes = vault.MaxCtBytes + vault.EntryHeaderSize + 1024
+// MaxRecordBytes caps the per-record length we allocate during replay,
+// guarding against a corrupted length prefix. A record is one marshaled
+// entry, bounded by MaxEntryBytes.
+const MaxRecordBytes = vault.MaxEntryBytes + 1024
 
 var (
 	// ErrBadMagic reports a file that is not an ASCON-KV log.
@@ -197,8 +199,11 @@ func (ls *LogStore) Add(e vault.Entry) (bool, error) {
 	return true, nil
 }
 
-func (ls *LogStore) Has(id vault.EntryID) bool      { return ls.mem.Has(id) }
-func (ls *LogStore) Len() uint32                    { return ls.mem.Len() }
-func (ls *LogStore) Sorted() []vault.Entry          { return ls.mem.Sorted() }
-func (ls *LogStore) LadderHashAt(k uint32) [16]byte { return ls.mem.LadderHashAt(k) }
-func (ls *LogStore) TerminalHash() [16]byte         { return ls.mem.TerminalHash() }
+func (ls *LogStore) Has(id vault.EntryID) bool { return ls.mem.Has(id) }
+func (ls *LogStore) Len() uint32               { return ls.mem.Len() }
+func (ls *LogStore) Sorted() []vault.Entry     { return ls.mem.Sorted() }
+func (ls *LogStore) SetHash() [16]byte         { return ls.mem.SetHash() }
+
+func (ls *LogStore) EntriesAfter(afterTs uint64, afterID vault.EntryID, budget int) []vault.Entry {
+	return ls.mem.EntriesAfter(afterTs, afterID, budget)
+}

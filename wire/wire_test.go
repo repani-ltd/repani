@@ -21,236 +21,148 @@ func mkEntry(t *testing.T, rk vault.RootKey, ts uint64, key, value string) vault
 	return e
 }
 
-func TestRequest_RoundTrip_Empty(t *testing.T) {
+func testKeys(t *testing.T) (vault.VaultID, vault.ChannelKey, [16]byte) {
+	t.Helper()
 	rk, _ := vault.NewRandomRootKey()
 	ak := vault.DeriveAuthKey(rk)
-	r := Request{
-		VaultID: vault.DeriveVaultID(rk),
-		N:       0,
-	}
-	signed, err := SignRequest(ak, &r)
+	nonce, err := vault.FrameNonce(vault.DeriveVaultID(rk))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := UnmarshalRequest(signed)
+	return vault.DeriveVaultID(rk), vault.DeriveC2S(ak), nonce
+}
+
+func TestFrame_SealOpenRoundTrip(t *testing.T) {
+	vid, k, nonce := testKeys(t)
+	payload := []byte("hello payload")
+	frame, err := SealFrame(KindSync, vid, nonce, k, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.VaultID != r.VaultID {
-		t.Fatal("VaultID mismatch")
+	kind, gotVid, gotNonce, sealed, err := ParseHeader(frame)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got.N != 0 {
-		t.Fatal("N mismatch")
+	if kind != KindSync || gotVid != vid || gotNonce != nonce {
+		t.Fatal("header round-trip mismatch")
 	}
-	if len(got.Ladder) != 0 || len(got.Pushes) != 0 {
-		t.Fatal("expected empty ladder and pushes")
+	got, err := OpenFrame(k, kind, gotVid, gotNonce, sealed)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := VerifyRequestMAC(ak, got); err != nil {
-		t.Fatalf("MAC verify: %v", err)
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch: %q", got)
 	}
 }
 
-func TestRequest_RoundTrip_WithLadderAndPushes(t *testing.T) {
-	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	// N=3 ⇒ progressive sizes {1, 2}. Terminal is a separate field.
-	ladder := [][16]byte{{1}, {2}}
-	terminal := [16]byte{9, 9, 9}
-	e1 := mkEntry(t, rk, 100, "k1", "v1")
-	e2 := mkEntry(t, rk, 200, "k2", "v2")
-	r := Request{
-		VaultID:  vault.DeriveVaultID(rk),
-		N:        3,
-		Ladder:   ladder,
-		Terminal: terminal,
-		Pushes:   []vault.Entry{e1, e2},
-	}
-	signed, err := SignRequest(ak, &r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := UnmarshalRequest(signed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.N != 3 || len(got.Ladder) != 2 {
-		t.Fatalf("ladder len %d N=%d", len(got.Ladder), got.N)
-	}
-	if got.Terminal != terminal {
-		t.Fatal("terminal round-trip mismatch")
-	}
-	if len(got.Pushes) != 2 {
-		t.Fatalf("got %d pushes, want 2", len(got.Pushes))
-	}
-	if got.Pushes[0].ID() != e1.ID() || got.Pushes[1].ID() != e2.ID() {
-		t.Fatal("pushes out of order or corrupt")
-	}
-	if err := VerifyRequestMAC(ak, got); err != nil {
-		t.Fatalf("MAC verify: %v", err)
+func TestFrame_WrongKeyFails(t *testing.T) {
+	vid, k, nonce := testKeys(t)
+	frame, _ := SealFrame(KindSync, vid, nonce, k, []byte("x"))
+	_, _, _, sealed, _ := ParseHeader(frame)
+	var wrong vault.ChannelKey
+	wrong[0] = k[0] ^ 1
+	if _, err := OpenFrame(wrong, KindSync, vid, nonce, sealed); !errors.Is(err, ErrOpen) {
+		t.Fatalf("expected ErrOpen under wrong key, got %v", err)
 	}
 }
 
-func TestRequest_Register_RoundTrip(t *testing.T) {
-	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	var regKey vault.RegisterKey
-	for i := range regKey {
-		regKey[i] = byte(0x77 + i)
-	}
-	adminMAC := vault.RegisterAdminMAC(regKey, ak, vault.DeriveVaultID(rk))
-	r := Request{
-		VaultID:     vault.DeriveVaultID(rk),
-		Flags:       FlagRegister,
-		RegAuth:     ak,
-		RegAdminMAC: adminMAC,
-	}
-	signed, err := SignRequest(ak, &r)
+// TestFrame_KindBoundInAD verifies that flipping the kind byte in the
+// header breaks the open — direction/type cannot be forged.
+func TestFrame_KindBoundInAD(t *testing.T) {
+	vid, k, nonce := testKeys(t)
+	frame, _ := SealFrame(KindSync, vid, nonce, k, []byte("x"))
+	frame[1] = KindResp // flip kind
+	kind, gotVid, gotNonce, sealed, err := ParseHeader(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := UnmarshalRequest(signed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.IsRegister() {
-		t.Fatal("register flag lost in round-trip")
-	}
-	if got.RegAuth != ak {
-		t.Fatal("RegAuth round-trip mismatch")
-	}
-	if got.RegAdminMAC != adminMAC {
-		t.Fatal("RegAdminMAC round-trip mismatch")
-	}
-	if err := VerifyRequestMAC(ak, got); err != nil {
-		t.Fatalf("MAC verify: %v", err)
+	if _, err := OpenFrame(k, kind, gotVid, gotNonce, sealed); !errors.Is(err, ErrOpen) {
+		t.Fatalf("expected ErrOpen after kind tamper, got %v", err)
 	}
 }
 
-func TestRequest_MACRejection(t *testing.T) {
-	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	r := Request{
-		VaultID: vault.DeriveVaultID(rk),
-		N:       0,
-	}
-	signed, err := SignRequest(ak, &r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Flip a bit somewhere in the body (after the version byte).
-	signed[5] ^= 1
-	got, err := UnmarshalRequest(signed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyRequestMAC(ak, got); !errors.Is(err, ErrBadMAC) {
-		t.Fatalf("expected ErrBadMAC on tampered body, got %v", err)
+func TestFrame_VaultIDBoundInAD(t *testing.T) {
+	vid, k, nonce := testKeys(t)
+	frame, _ := SealFrame(KindSync, vid, nonce, k, []byte("x"))
+	frame[2] ^= 1 // flip a vault_id byte
+	kind, gotVid, gotNonce, sealed, _ := ParseHeader(frame)
+	if _, err := OpenFrame(k, kind, gotVid, gotNonce, sealed); !errors.Is(err, ErrOpen) {
+		t.Fatalf("expected ErrOpen after vault_id tamper, got %v", err)
 	}
 }
 
-func TestRequest_BadVersion(t *testing.T) {
-	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	r := Request{VaultID: vault.DeriveVaultID(rk)}
-	signed, err := SignRequest(ak, &r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signed[0] = 0xFF
-	if _, err := UnmarshalRequest(signed); !errors.Is(err, ErrVersion) {
+func TestFrame_BadVersion(t *testing.T) {
+	vid, k, nonce := testKeys(t)
+	frame, _ := SealFrame(KindSync, vid, nonce, k, []byte("x"))
+	frame[0] = 0xFF
+	if _, _, _, _, err := ParseHeader(frame); !errors.Is(err, ErrVersion) {
 		t.Fatalf("expected ErrVersion, got %v", err)
 	}
 }
 
-func TestRequest_ReservedFlagsRejected(t *testing.T) {
-	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	r := Request{
-		VaultID: vault.DeriveVaultID(rk),
-		Flags:   0x80, // reserved
-	}
-	if _, err := SignRequest(ak, &r); !errors.Is(err, ErrFlags) {
-		t.Fatalf("expected ErrFlags from SignRequest, got %v", err)
-	}
-}
-
-func TestRequest_Truncated(t *testing.T) {
-	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	r := Request{
-		VaultID: vault.DeriveVaultID(rk),
-		N:       0,
-	}
-	signed, err := SignRequest(ak, &r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := UnmarshalRequest(signed[:len(signed)-1]); !errors.Is(err, ErrShort) {
+func TestFrame_Short(t *testing.T) {
+	if _, _, _, _, err := ParseHeader([]byte{0x01, 0x02}); !errors.Is(err, ErrShort) {
 		t.Fatalf("expected ErrShort, got %v", err)
 	}
 }
 
-func TestResponse_RoundTrip(t *testing.T) {
+func TestSyncReq_RoundTrips(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	var reqMAC [vault.MACSize]byte
-	for i := range reqMAC {
-		reqMAC[i] = byte(i)
+	e1 := mkEntry(t, rk, 100, "k1", "v1")
+	e2 := mkEntry(t, rk, 200, "k2", "v2")
+
+	cases := []SyncReq{
+		{Op: OpProbe, SetHash: [16]byte{1, 2, 3}},
+		{Op: OpPull, CurTs: 42, CurID: e1.ID()},
+		{Op: OpPush, Entries: []vault.Entry{e1, e2}},
 	}
-	e1 := mkEntry(t, rk, 100, "k", "v1")
-	e2 := mkEntry(t, rk, 200, "k", "v2")
-	resp := Response{
-		Status:  StatusOK,
-		Window:  4,
-		Entries: []vault.Entry{e1, e2},
-	}
-	b, err := SignResponse(ak, reqMAC, resp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := UnmarshalResponse(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Window != 4 || len(got.Entries) != 2 {
-		t.Fatalf("got %+v", got)
-	}
-	if !bytes.Equal(got.Entries[0].Ct, e1.Ct) {
-		t.Fatal("entry ciphertext mismatch")
-	}
-	if err := VerifyResponseMAC(ak, reqMAC, got); err != nil {
-		t.Fatalf("resp MAC verify: %v", err)
+	for _, want := range cases {
+		got, err := ParseSync(want.Marshal())
+		if err != nil {
+			t.Fatalf("op 0x%02x parse: %v", want.Op, err)
+		}
+		if got.Op != want.Op {
+			t.Fatalf("op mismatch")
+		}
+		switch want.Op {
+		case OpProbe:
+			if got.SetHash != want.SetHash {
+				t.Fatal("set_hash mismatch")
+			}
+		case OpPull:
+			if got.CurTs != want.CurTs || got.CurID != want.CurID {
+				t.Fatal("cursor mismatch")
+			}
+		case OpPush:
+			if len(got.Entries) != 2 || got.Entries[0].ID() != e1.ID() || got.Entries[1].ID() != e2.ID() {
+				t.Fatal("push entries mismatch")
+			}
+		}
 	}
 }
 
-func TestResponse_MACBindsRequest(t *testing.T) {
+func TestResp_RoundTrip(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	var reqA, reqB [vault.MACSize]byte
-	for i := range reqA {
-		reqA[i] = byte(i)
-		reqB[i] = byte(i) ^ 1
+	e := mkEntry(t, rk, 1, "k", "v")
+	var reqNonce [vault.NonceSize]byte
+	for i := range reqNonce {
+		reqNonce[i] = byte(i)
 	}
-	resp := Response{Status: StatusOK}
-	b, err := SignResponse(ak, reqA, resp)
+	want := Resp{Status: StatusOK, ReqNonce: reqNonce, Entries: []vault.Entry{e}}
+	got, err := ParseResp(want.Marshal())
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _ := UnmarshalResponse(b)
-	if err := VerifyResponseMAC(ak, reqB, got); !errors.Is(err, ErrBadMAC) {
-		t.Fatalf("expected ErrBadMAC when reqMAC mismatches, got %v", err)
+	if got.Status != StatusOK || got.ReqNonce != reqNonce || len(got.Entries) != 1 {
+		t.Fatalf("resp round-trip mismatch: %+v", got)
+	}
+	if got.Entries[0].ID() != e.ID() {
+		t.Fatal("resp entry mismatch")
 	}
 }
 
-func TestResponse_InSyncSize(t *testing.T) {
-	rk, _ := vault.NewRandomRootKey()
-	ak := vault.DeriveAuthKey(rk)
-	b, err := SignResponse(ak, [vault.MACSize]byte{}, Response{Status: StatusOK})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// ver(1) + status(1) + window(4) + push_count(2) + mac(16) = 24
-	if len(b) != 24 {
-		t.Fatalf("in-sync response is %d bytes, want 24", len(b))
+func TestParseSync_BadOp(t *testing.T) {
+	if _, err := ParseSync([]byte{0x7f}); !errors.Is(err, ErrBadOp) {
+		t.Fatalf("expected ErrBadOp, got %v", err)
 	}
 }

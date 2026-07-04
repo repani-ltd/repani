@@ -2,9 +2,12 @@ package vault
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
+
+func errorsIs(err, target error) bool { return errors.Is(err, target) }
 
 // --- key derivation ---
 
@@ -32,16 +35,6 @@ func TestDeriveVaultID_DiffersFromAEAD(t *testing.T) {
 	}
 }
 
-func TestRequestMAC_SensitiveToBody(t *testing.T) {
-	rk, _ := NewRandomRootKey()
-	ak := DeriveAuthKey(rk)
-	m1 := RequestMAC(ak, []byte("hello"))
-	m2 := RequestMAC(ak, []byte("hellp"))
-	if m1 == m2 {
-		t.Fatal("RequestMAC collision on single-byte diff")
-	}
-}
-
 func TestDeriveAuthKey_IndependentOfAEAD(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	ak := DeriveAuthKey(rk)
@@ -51,61 +44,61 @@ func TestDeriveAuthKey_IndependentOfAEAD(t *testing.T) {
 	}
 }
 
-func TestRegisterAdminMAC_BindsAllInputs(t *testing.T) {
-	var rk RegisterKey
-	for i := range rk {
-		rk[i] = byte(0xA0 + i)
+// TestChannelKeys_Distinct verifies K_c2s, K_s2c, and the AuthKey they
+// derive from are all different — directional key separation is what
+// prevents frame reflection and cross-direction nonce reuse.
+func TestChannelKeys_Distinct(t *testing.T) {
+	rk, _ := NewRandomRootKey()
+	ak := DeriveAuthKey(rk)
+	c2s := DeriveC2S(ak)
+	s2c := DeriveS2C(ak)
+	if c2s == s2c {
+		t.Fatal("K_c2s == K_s2c — directional separation broken")
 	}
-	var ak AuthKey
-	for i := range ak {
-		ak[i] = byte(0xB0 + i)
+	if bytes.Equal(c2s[:], ak[:]) || bytes.Equal(s2c[:], ak[:]) {
+		t.Fatal("channel key collided with AuthKey")
 	}
-	var vid VaultID
-	for i := range vid {
-		vid[i] = byte(0xC0 + i)
-	}
-	base := RegisterAdminMAC(rk, ak, vid)
-
-	// Same inputs → same output.
-	if RegisterAdminMAC(rk, ak, vid) != base {
-		t.Fatal("RegisterAdminMAC not deterministic")
-	}
-
-	// Flip one byte in the register key → different output.
-	rk2 := rk
-	rk2[0] ^= 1
-	if RegisterAdminMAC(rk2, ak, vid) == base {
-		t.Fatal("RegisterAdminMAC insensitive to RegisterKey bit flip")
-	}
-
-	// Flip one byte in the auth key → different output.
-	ak2 := ak
-	ak2[0] ^= 1
-	if RegisterAdminMAC(rk, ak2, vid) == base {
-		t.Fatal("RegisterAdminMAC insensitive to AuthKey bit flip")
-	}
-
-	// Flip one byte in the vault id → different output.
-	vid2 := vid
-	vid2[0] ^= 1
-	if RegisterAdminMAC(rk, ak, vid2) == base {
-		t.Fatal("RegisterAdminMAC insensitive to VaultID bit flip")
+	// Deterministic.
+	if DeriveC2S(ak) != c2s || DeriveS2C(ak) != s2c {
+		t.Fatal("channel key derivation not deterministic")
 	}
 }
 
-func TestResponseMAC_BindsRequestMAC(t *testing.T) {
-	rk, _ := NewRandomRootKey()
-	ak := DeriveAuthKey(rk)
-	var reqA, reqB [MACSize]byte
-	for i := range reqA {
-		reqA[i] = byte(i)
-		reqB[i] = byte(i) ^ 1
+func TestRegKey_DerivedAndDeterministic(t *testing.T) {
+	var reg RegisterKey
+	for i := range reg {
+		reg[i] = byte(0xA0 + i)
 	}
-	body := []byte("response-body")
-	ma := ResponseMAC(ak, reqA, body)
-	mb := ResponseMAC(ak, reqB, body)
-	if ma == mb {
-		t.Fatal("ResponseMAC did not bind request MAC — cache-stitching possible")
+	k := DeriveRegKey(reg)
+	if DeriveRegKey(reg) != k {
+		t.Fatal("K_reg not deterministic")
+	}
+	reg2 := reg
+	reg2[0] ^= 1
+	if DeriveRegKey(reg2) == k {
+		t.Fatal("K_reg insensitive to RegisterKey bit flip")
+	}
+}
+
+// TestNonces_HedgedUnique checks nonce generators return fresh values
+// (the random component dominates) and are 16 bytes.
+func TestNonces_HedgedUnique(t *testing.T) {
+	var vid VaultID
+	seen := map[[NonceSize]byte]bool{}
+	for range 1000 {
+		fn, err := FrameNonce(vid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		en, err := EntryNonce()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seen[fn] || seen[en] {
+			t.Fatal("nonce collision across fresh generations")
+		}
+		seen[fn] = true
+		seen[en] = true
 	}
 }
 
@@ -130,14 +123,14 @@ func TestSealOpen_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestSealOpen_MaxKey(t *testing.T) {
-	// Regression: a plaintext with klen near 2^16 used to wrap the
-	// bounds check in Open (uint16 arithmetic) and panic on the
-	// slice. Open must now reject or handle cleanly.
+func TestSealOpen_MaxKeyAndValue(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	aead, _ := rk.AEAD()
-	key := bytes.Repeat([]byte{'k'}, 65535)
-	e, err := Seal(aead, 1, key, []byte("v"))
+
+	// key_len is 1 byte, so 255 is the max; over-long keys are rejected.
+	key := bytes.Repeat([]byte{'k'}, 255)
+	value := bytes.Repeat([]byte{'v'}, 4096)
+	e, err := Seal(aead, 1, key, value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,8 +138,22 @@ func TestSealOpen_MaxKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if !bytes.Equal(gotK, key) || !bytes.Equal(gotV, []byte("v")) {
+	if !bytes.Equal(gotK, key) || !bytes.Equal(gotV, value) {
 		t.Fatal("max-key round-trip mismatch")
+	}
+	if _, err := Seal(aead, 1, bytes.Repeat([]byte{'k'}, 256), []byte("v")); !errorsIs(err, ErrKeyTooLong) {
+		t.Fatalf("expected ErrKeyTooLong for 256-byte key, got %v", err)
+	}
+}
+
+func TestSeal_RejectsOversizeEntry(t *testing.T) {
+	rk, _ := NewRandomRootKey()
+	aead, _ := rk.AEAD()
+	// A value near the 2-byte value_len limit that pushes the entry over
+	// the 64 KiB cap must be rejected.
+	big := bytes.Repeat([]byte{'x'}, MaxEntryBytes)
+	if _, err := Seal(aead, 1, []byte("k"), big); !errorsIs(err, ErrEntryTooLarge) && !errorsIs(err, ErrValueTooLong) {
+		t.Fatalf("expected oversize rejection, got %v", err)
 	}
 }
 
@@ -200,38 +207,9 @@ func TestEntryID_ContentAddressed(t *testing.T) {
 	}
 }
 
-// --- ladder ---
+// --- set hash ---
 
-func TestLadderSizes(t *testing.T) {
-	// The progressive ladder is powers of two only; full-set coverage
-	// is delivered separately by TerminalHash.
-	cases := []struct {
-		n    uint32
-		want []uint32
-	}{
-		{0, nil},
-		{1, []uint32{1}},
-		{2, []uint32{1, 2}},
-		{3, []uint32{1, 2}},
-		{4, []uint32{1, 2, 4}},
-		{5, []uint32{1, 2, 4}},
-		{8, []uint32{1, 2, 4, 8}},
-		{1000, []uint32{1, 2, 4, 8, 16, 32, 64, 128, 256, 512}},
-	}
-	for _, tc := range cases {
-		got := LadderSizes(tc.n)
-		if len(got) != len(tc.want) {
-			t.Fatalf("LadderSizes(%d)=%v want %v", tc.n, got, tc.want)
-		}
-		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Fatalf("LadderSizes(%d)[%d]=%d want %d", tc.n, i, got[i], tc.want[i])
-			}
-		}
-	}
-}
-
-func TestLadder_DeterministicOverShuffles(t *testing.T) {
+func TestSetHash_DeterministicOverShuffles(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	aead, _ := rk.AEAD()
 	var entries []Entry
@@ -249,19 +227,12 @@ func TestLadder_DeterministicOverShuffles(t *testing.T) {
 	SortCanonical(a)
 	SortCanonical(b)
 
-	la := ComputeLadder(a)
-	lb := ComputeLadder(b)
-	if len(la) != len(lb) {
-		t.Fatalf("ladder length mismatch: %d vs %d", len(la), len(lb))
-	}
-	for i := range la {
-		if la[i] != lb[i] {
-			t.Fatalf("ladder[%d] differs across permutations", i)
-		}
+	if SetHash(a) != SetHash(b) {
+		t.Fatal("SetHash differs across permutations of the same set")
 	}
 }
 
-func TestLadder_TerminalChangesOnInsert(t *testing.T) {
+func TestSetHash_ChangesOnInsert(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	aead, _ := rk.AEAD()
 	var entries []Entry
@@ -270,19 +241,19 @@ func TestLadder_TerminalChangesOnInsert(t *testing.T) {
 		entries = append(entries, e)
 	}
 	SortCanonical(entries)
-	beforeTerm := TerminalHash(entries)
+	before := SetHash(entries)
 
 	extra, _ := Seal(aead, 500, []byte("x"), []byte("x"))
 	entries = append(entries, extra)
 	SortCanonical(entries)
-	afterTerm := TerminalHash(entries)
+	after := SetHash(entries)
 
-	if beforeTerm == afterTerm {
-		t.Fatal("TerminalHash unchanged after insert — count/id binding broken")
+	if before == after {
+		t.Fatal("SetHash unchanged after insert — count/id binding broken")
 	}
 }
 
-func TestTerminalHash_CountSensitive(t *testing.T) {
+func TestSetHash_CountSensitive(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	aead, _ := rk.AEAD()
 	var a, b []Entry
@@ -296,8 +267,14 @@ func TestTerminalHash_CountSensitive(t *testing.T) {
 	b = append(b, a...)
 	SortCanonical(a)
 	SortCanonical(b)
-	if TerminalHash(a) == TerminalHash(b) {
-		t.Fatal("TerminalHash collided across sets of different size — count not bound into hash")
+	if SetHash(a) == SetHash(b) {
+		t.Fatal("SetHash collided across sets of different size — count not bound into hash")
+	}
+}
+
+func TestSetHash_EmptyStable(t *testing.T) {
+	if SetHash(nil) != SetHash([]Entry{}) {
+		t.Fatal("SetHash of the empty set is not stable")
 	}
 }
 

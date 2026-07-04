@@ -1,29 +1,28 @@
 package store
 
 import (
+	"bytes"
+	"sort"
 	"sync"
 
 	"github.com/pavlos/kv/vault"
 )
 
 // MemStore is an in-memory Store backed by a map plus a lazily
-// maintained sorted snapshot. It is safe for concurrent use.
+// maintained canonical-order snapshot (entries and their ids in
+// parallel). It is safe for concurrent use.
 type MemStore struct {
-	mu       sync.Mutex
-	byID     map[vault.EntryID]vault.Entry
-	sorted   []vault.Entry // nil when stale
-	ladder   map[uint32][16]byte
-	terminal [16]byte
-	termSet  bool
-	dirty    bool
+	mu        sync.Mutex
+	byID      map[vault.EntryID]vault.Entry
+	sorted    []vault.Entry   // nil when stale
+	sortedIDs []vault.EntryID // parallel to sorted
+	setHash   [16]byte
+	hashSet   bool
 }
 
 // NewMemStore returns a fresh empty MemStore.
 func NewMemStore() *MemStore {
-	return &MemStore{
-		byID:   make(map[vault.EntryID]vault.Entry),
-		ladder: make(map[uint32][16]byte),
-	}
+	return &MemStore{byID: make(map[vault.EntryID]vault.Entry)}
 }
 
 // Add implements Store.Add.
@@ -35,10 +34,9 @@ func (m *MemStore) Add(e vault.Entry) (bool, error) {
 		return false, nil
 	}
 	m.byID[id] = e
-	m.dirty = true
 	m.sorted = nil
-	m.ladder = make(map[uint32][16]byte)
-	m.termSet = false
+	m.sortedIDs = nil
+	m.hashSet = false
 	return true, nil
 }
 
@@ -57,64 +55,78 @@ func (m *MemStore) Len() uint32 {
 	return uint32(len(m.byID))
 }
 
-// Sorted implements Store.Sorted. The returned slice is a copy; safe
-// to use after the lock is released.
+// Sorted implements Store.Sorted, returning a defensive copy.
 func (m *MemStore) Sorted() []vault.Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.sortedLocked()
+	m.ensureSortedLocked()
+	out := make([]vault.Entry, len(m.sorted))
+	copy(out, m.sorted)
+	return out
 }
 
-// sortedLocked returns (and caches) the canonical-order snapshot.
-func (m *MemStore) sortedLocked() []vault.Entry {
+// ensureSortedLocked (re)builds the canonical snapshot and id index.
+func (m *MemStore) ensureSortedLocked() {
 	if m.sorted != nil {
-		out := make([]vault.Entry, len(m.sorted))
-		copy(out, m.sorted)
-		return out
+		return
 	}
 	out := make([]vault.Entry, 0, len(m.byID))
 	for _, e := range m.byID {
 		out = append(out, e)
 	}
 	vault.SortCanonical(out)
+	ids := make([]vault.EntryID, len(out))
+	for i := range out {
+		ids[i] = out[i].ID()
+	}
 	m.sorted = out
-	// Return a defensive copy so callers can't mutate our cache.
-	cp := make([]vault.Entry, len(out))
-	copy(cp, out)
-	return cp
+	m.sortedIDs = ids
 }
 
-// LadderHashAt implements Store.LadderHashAt.
-func (m *MemStore) LadderHashAt(k uint32) [16]byte {
-	if k == 0 {
-		panic("store: LadderHashAt requires k > 0")
-	}
+// SetHash implements Store.SetHash with caching.
+func (m *MemStore) SetHash() [16]byte {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if h, ok := m.ladder[k]; ok {
-		return h
+	if m.hashSet {
+		return m.setHash
 	}
-	sorted := m.sortedLocked()
-	h := vault.LadderHashAt(sorted, k)
-	m.ladder[k] = h
-	return h
+	m.ensureSortedLocked()
+	m.setHash = vault.SetHash(m.sorted)
+	m.hashSet = true
+	return m.setHash
 }
 
-// TerminalHash implements Store.TerminalHash with caching.
-func (m *MemStore) TerminalHash() [16]byte {
+// EntriesAfter implements Store.EntriesAfter: whole entries in
+// canonical order strictly after the cursor (afterTs, afterID),
+// accumulating until the next would exceed budget bytes — but always at
+// least one, since every entry is smaller than the page budget.
+func (m *MemStore) EntriesAfter(afterTs uint64, afterID vault.EntryID, budget int) []vault.Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.termSet {
-		return m.terminal
+	m.ensureSortedLocked()
+
+	// First index strictly after the cursor (canonical order).
+	start := sort.Search(len(m.sorted), func(i int) bool {
+		if m.sorted[i].TsMs != afterTs {
+			return m.sorted[i].TsMs > afterTs
+		}
+		return bytes.Compare(m.sortedIDs[i][:], afterID[:]) > 0
+	})
+
+	var out []vault.Entry
+	used := 0
+	for i := start; i < len(m.sorted); i++ {
+		sz := m.sorted[i].Size()
+		if len(out) > 0 && used+sz > budget {
+			break
+		}
+		out = append(out, m.sorted[i])
+		used += sz
 	}
-	sorted := m.sortedLocked()
-	m.terminal = vault.TerminalHash(sorted)
-	m.termSet = true
-	return m.terminal
+	return out
 }
 
-// NewMemStoreFromEntries is a test helper that builds a MemStore from
-// a slice of entries.
+// NewMemStoreFromEntries builds a MemStore from a slice of entries.
 func NewMemStoreFromEntries(entries []vault.Entry) *MemStore {
 	m := NewMemStore()
 	for _, e := range entries {

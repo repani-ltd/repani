@@ -57,16 +57,21 @@ func TestMemStore_SortedStable(t *testing.T) {
 	}
 }
 
-func TestMemStore_LadderHashReproducible(t *testing.T) {
+func TestMemStore_SetHashReproducibleAndInvalidated(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
 	m := NewMemStore()
 	for i := range 5 {
 		_, _ = m.Add(mkEntry(t, rk, uint64(i+1), "k", "v"))
 	}
-	h1 := m.LadderHashAt(4)
-	h2 := m.LadderHashAt(4)
+	h1 := m.SetHash()
+	h2 := m.SetHash()
 	if h1 != h2 {
-		t.Fatal("LadderHashAt returned different values for same state")
+		t.Fatal("SetHash returned different values for same state")
+	}
+	// Adding an entry must change the cached hash.
+	_, _ = m.Add(mkEntry(t, rk, 99, "k2", "v2"))
+	if m.SetHash() == h1 {
+		t.Fatal("SetHash did not change after a new entry was added")
 	}
 }
 

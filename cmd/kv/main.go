@@ -46,6 +46,7 @@ import (
 	"github.com/pavlos/kv/client"
 	"github.com/pavlos/kv/store"
 	"github.com/pavlos/kv/vault"
+	"github.com/pavlos/kv/wire"
 )
 
 const defaultHTTPTimeout = 60 * time.Second
@@ -176,7 +177,7 @@ func httpTimeout() time.Duration {
 // --- registration bit (per server URL) ---
 
 // registeredFor reports whether we have recorded a successful
-// TOFU registration for the given server URL. The file stores one
+// registration for the given server URL. The file stores one
 // line per registered URL.
 func registeredFor(url string) bool {
 	b, err := os.ReadFile(registeredPath())
@@ -237,7 +238,7 @@ func openClient() *client.Client {
 // (matches what `kvserve gen-register-key` emits and what
 // vault.EncodeRegisterKey produces). Any non-ENOENT error is fatal
 // so the user knows their register-key file is corrupt rather than
-// silently running with no admin MAC.
+// silently running with no register key.
 func loadRegisterKey() *vault.RegisterKey {
 	b, err := os.ReadFile(registerKeyPath())
 	if err != nil {
@@ -705,7 +706,7 @@ func (h *httpTransport) Do(ctx context.Context, req []byte) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxFrameBytes))
 	if err != nil {
 		return nil, err
 	}

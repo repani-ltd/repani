@@ -63,7 +63,7 @@ func main() {
 	idleTimeout := flag.Duration("idle-timeout", 120*time.Second, "keep-alive idle timeout")
 	shutdownGrace := flag.Duration("shutdown-grace", 30*time.Second, "graceful shutdown deadline")
 	maxVaults := flag.Uint64("max-vaults", 10_000, "hard cap on number of registered vaults (0 = unlimited)")
-	registerKeyFile := flag.String("register-key-file", "", "path to a 16-byte file that gates REGISTER; omit for permissive TOFU")
+	registerKeyFile := flag.String("register-key-file", "", "path to the register-gate secret (Crockford base32); REQUIRED")
 	flag.Parse()
 
 	if (*tlsCert != "") != (*tlsKey != "") {
@@ -76,6 +76,9 @@ func main() {
 		log.Fatal("kvserve: --domain and --tls-cert are mutually exclusive")
 	}
 
+	if *registerKeyFile == "" {
+		log.Fatal("kvserve: --register-key-file is required (generate one with `kvserve gen-register-key`)")
+	}
 	quotas := server.DefaultQuotas()
 	quotas.MaxVaults = *maxVaults
 	srv, err := server.NewWithOptions(server.Options{
@@ -86,11 +89,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("kvserve: %v", err)
 	}
-	if *registerKeyFile != "" {
-		log.Printf("kvserve: REGISTER gated by %s", *registerKeyFile)
-	} else {
-		log.Print("kvserve: REGISTER is permissive (any client can create a new vault). Set --register-key-file for production.")
-	}
+	log.Printf("kvserve: REGISTER gated by %s", *registerKeyFile)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -142,8 +141,8 @@ func runSingle(h http.Handler, addr, certFile, keyFile string, rto, wto, ito, gr
 		log.Printf("kvserve: listening on %s (TLS), data=%s, max-vaults=%d", addr, data, maxVaults)
 	} else {
 		log.Printf("kvserve: listening on %s (plaintext), data=%s, max-vaults=%d", addr, data, maxVaults)
-		log.Print("kvserve: plaintext deployment — v1 MACs protect steady-state traffic, " +
-			"but the first sync for each vault is vulnerable to MITM hijack. TLS recommended.")
+		log.Print("kvserve: plaintext deployment — every frame is sealed, so only metadata " +
+			"(vault id, sizes, timing) is exposed; the AuthKey is never on the wire. TLS still recommended.")
 	}
 
 	awaitShutdown(httpSrv, nil, serverErr, stop, grace)

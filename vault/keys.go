@@ -1,6 +1,6 @@
-// Package vault defines the crypto-aware types and derivations used
-// by ASCON-KV: key material, vault identifier, entry encoding, and
-// the suffix-ladder hash scheme from PROTOCOL.txt.
+// Package vault defines the crypto-aware types and derivations used by
+// ASCON-KV v1: key material, vault identifier, entry encoding, the
+// whole-set hash, and hedged nonces. See PROTOCOL.txt.
 package vault
 
 import (
@@ -15,53 +15,53 @@ const (
 	RootKeySize     = 32
 	AEADKeySize     = 16
 	AuthKeySize     = 16
+	ChannelKeySize  = 16
 	VaultIDSize     = 16
 	EntryIDSize     = 16
 	NonceSize       = 16
-	MACSize         = 16
 	RegisterKeySize = 16
 )
 
-// RootKey is the one durable secret a client must protect. All other
+// RootKey is the one durable secret a device must protect. All other
 // key material is derived from it.
 type RootKey [RootKeySize]byte
 
-// AEADKey is the 16-byte key passed to Ascon-AEAD128 when sealing or
-// opening an entry.
+// AEADKey encrypts entries. It never leaves the devices.
 type AEADKey [AEADKeySize]byte
 
-// AuthKey is the 16-byte MAC key the server holds for a vault after
-// pair-time registration. It authenticates requests and responses on
-// the wire; it does NOT grant decryption of any entry.
+// AuthKey is the shared channel root the server learns at registration.
+// The directional channel keys are derived from it.
 type AuthKey [AuthKeySize]byte
 
-// RegisterKey is the 16-byte server-side secret that gates vault
-// registration. The server holds it at rest (typically a file loaded
-// at startup); the client must present a MAC under it in the first
-// (REGISTER) request for a new VaultID or the server rejects with
-// StatusBadMAC. It is cryptographically independent of every other
-// key: operators may safely rotate it without re-pairing clients
-// (rotation only affects the ability to register NEW vaults).
+// ChannelKey seals one direction of frames (K_c2s, K_s2c) or the
+// registration gate (K_reg).
+type ChannelKey [ChannelKeySize]byte
+
+// RegisterKey is the operator secret that gates vault creation.
 type RegisterKey [RegisterKeySize]byte
 
-// VaultID is the public handle the server uses to address a vault.
+// VaultID is the public routing handle.
 type VaultID [VaultIDSize]byte
 
-// EntryID is the content address of an entry (Ascon-XOF128 over its
-// marshaled bytes).
+// EntryID is the content address of an entry.
 type EntryID [EntryIDSize]byte
 
-// Domain separators are 8 bytes each, per PROTOCOL.txt.
+// Domain separators, 8 bytes each (PROTOCOL.txt §Keys, §Nonces).
 var (
-	domAEAD  = []byte("kv/aead/")
-	domVID   = []byte("kv/vid1/")
-	domAuth  = []byte("kv/auth/")
-	domRMAC  = []byte("kv/rmac/")
-	domRsMAC = []byte("kv/rsmc/")
-	domEID   = []byte("kv/eid1/")
-	domLAD   = []byte("kv/lad1/")
-	domRAdm  = []byte("kv/radm/")
+	domAEAD = []byte("kv/aead/")
+	domVID  = []byte("kv/vid1/")
+	domAuth = []byte("kv/auth/")
+	domC2S  = []byte("kv/c2s0/")
+	domS2C  = []byte("kv/s2c0/")
+	domReg  = []byte("kv/reg0/")
+	domEID  = []byte("kv/eid1/")
+	domSet  = []byte("kv/sset/")
+	domFN   = []byte("kv/rnon/")
+	domEN   = []byte("kv/enon/")
 )
+
+// ErrInvalidKey is returned when supplied key material is malformed.
+var ErrInvalidKey = errors.New("vault: invalid key")
 
 // NewRandomRootKey returns a RootKey filled from crypto/rand.
 func NewRandomRootKey() (RootKey, error) {
@@ -72,10 +72,7 @@ func NewRandomRootKey() (RootKey, error) {
 	return rk, nil
 }
 
-// NewRegisterKey returns a RegisterKey filled from crypto/rand. The
-// operator generates one per server at deploy time and distributes
-// it (via EncodeRegisterKey) to every user authorized to create a
-// new vault.
+// NewRegisterKey returns a RegisterKey filled from crypto/rand.
 func NewRegisterKey() (RegisterKey, error) {
 	var rk RegisterKey
 	if _, err := rand.Read(rk[:]); err != nil {
@@ -84,100 +81,39 @@ func NewRegisterKey() (RegisterKey, error) {
 	return rk, nil
 }
 
-// DeriveAEADKey computes AEAD_Key = XOF("kv/aead/" || RootKey, 16).
-func DeriveAEADKey(rk RootKey) AEADKey {
-	var out AEADKey
-	buf := make([]byte, 0, len(domAEAD)+RootKeySize)
-	buf = append(buf, domAEAD...)
-	buf = append(buf, rk[:]...)
+// derive16 computes XOF(dom || material, 16) and scrubs its scratch.
+func derive16(dom, material []byte) [16]byte {
+	buf := make([]byte, 0, len(dom)+len(material))
+	buf = append(buf, dom...)
+	buf = append(buf, material...)
+	var out [16]byte
 	ascon.XOF(buf, out[:])
 	zero(buf)
 	return out
 }
+
+// DeriveAEADKey computes AEAD_Key = XOF("kv/aead/" || RootKey, 16).
+func DeriveAEADKey(rk RootKey) AEADKey { return derive16(domAEAD, rk[:]) }
 
 // DeriveVaultID computes VaultID = XOF("kv/vid1/" || RootKey, 16).
-func DeriveVaultID(rk RootKey) VaultID {
-	var out VaultID
-	buf := make([]byte, 0, len(domVID)+RootKeySize)
-	buf = append(buf, domVID...)
-	buf = append(buf, rk[:]...)
-	ascon.XOF(buf, out[:])
-	zero(buf)
-	return out
-}
+func DeriveVaultID(rk RootKey) VaultID { return derive16(domVID, rk[:]) }
 
 // DeriveAuthKey computes AuthKey = XOF("kv/auth/" || RootKey, 16).
-// The server learns this on the first (registration) request and uses
-// it to verify every subsequent request and to authenticate every
-// response. It is cryptographically independent of AEAD_Key by domain
-// separation.
-func DeriveAuthKey(rk RootKey) AuthKey {
-	var out AuthKey
-	buf := make([]byte, 0, len(domAuth)+RootKeySize)
-	buf = append(buf, domAuth...)
-	buf = append(buf, rk[:]...)
-	ascon.XOF(buf, out[:])
-	zero(buf)
-	return out
-}
+func DeriveAuthKey(rk RootKey) AuthKey { return derive16(domAuth, rk[:]) }
 
-// RequestMAC computes the 16-byte request authentication tag:
-//
-//	XOF("kv/rmac/" || AuthKey || body, 16)
-//
-// over a body that includes every wire field preceding the MAC.
-func RequestMAC(ak AuthKey, body []byte) [MACSize]byte {
-	var out [MACSize]byte
-	buf := make([]byte, 0, len(domRMAC)+AuthKeySize+len(body))
-	buf = append(buf, domRMAC...)
-	buf = append(buf, ak[:]...)
-	buf = append(buf, body...)
-	ascon.XOF(buf, out[:])
-	zero(buf)
-	return out
-}
+// DeriveC2S computes K_c2s = XOF("kv/c2s0/" || AuthKey, 16), the key
+// that seals client-to-server frames.
+func DeriveC2S(ak AuthKey) ChannelKey { return derive16(domC2S, ak[:]) }
 
-// ResponseMAC computes the 16-byte response authentication tag:
-//
-//	XOF("kv/rsmc/" || AuthKey || request_mac || response_body, 16)
-//
-// Binding request_mac into the response tag prevents an attacker from
-// stitching a cached response to a new request.
-func ResponseMAC(ak AuthKey, requestMAC [MACSize]byte, body []byte) [MACSize]byte {
-	var out [MACSize]byte
-	buf := make([]byte, 0, len(domRsMAC)+AuthKeySize+MACSize+len(body))
-	buf = append(buf, domRsMAC...)
-	buf = append(buf, ak[:]...)
-	buf = append(buf, requestMAC[:]...)
-	buf = append(buf, body...)
-	ascon.XOF(buf, out[:])
-	zero(buf)
-	return out
-}
+// DeriveS2C computes K_s2c = XOF("kv/s2c0/" || AuthKey, 16), the key
+// that seals server-to-client frames.
+func DeriveS2C(ak AuthKey) ChannelKey { return derive16(domS2C, ak[:]) }
 
-// RegisterAdminMAC computes the 16-byte proof-of-knowledge the
-// client includes in a REGISTER request to satisfy a server that has
-// loaded a RegisterKey:
-//
-//	XOF("kv/radm/" || RegisterKey || AuthKey || VaultID, 16)
-//
-// The MAC binds the specific (VaultID, AuthKey) pair being
-// registered so an attacker cannot replay a captured MAC to register
-// a DIFFERENT vault or a different AuthKey under the same vault.
-func RegisterAdminMAC(rk RegisterKey, ak AuthKey, vid VaultID) [MACSize]byte {
-	var out [MACSize]byte
-	buf := make([]byte, 0, len(domRAdm)+RegisterKeySize+AuthKeySize+VaultIDSize)
-	buf = append(buf, domRAdm...)
-	buf = append(buf, rk[:]...)
-	buf = append(buf, ak[:]...)
-	buf = append(buf, vid[:]...)
-	ascon.XOF(buf, out[:])
-	zero(buf)
-	return out
-}
+// DeriveRegKey computes K_reg = XOF("kv/reg0/" || RegisterKey, 16), the
+// key that seals (and gates) a REGISTER frame.
+func DeriveRegKey(rk RegisterKey) ChannelKey { return derive16(domReg, rk[:]) }
 
-// AEAD returns a ready-to-use Ascon-AEAD128 cipher for the given
-// RootKey's derived AEAD_Key.
+// AEAD returns a ready-to-use Ascon-AEAD128 cipher for rk's AEAD_Key.
 func (rk RootKey) AEAD() (*ascon.AEAD, error) {
 	k := DeriveAEADKey(rk)
 	a, err := ascon.NewAEAD(k[:])
@@ -185,12 +121,7 @@ func (rk RootKey) AEAD() (*ascon.AEAD, error) {
 	return a, err
 }
 
-// ErrInvalidKey is returned when a supplied key material is malformed.
-var ErrInvalidKey = errors.New("vault: invalid key")
-
-// zero wipes a byte slice. Best-effort: the compiler may elide this
-// under optimization, but it materially reduces accidental leakage of
-// RootKey bytes via heap re-use in long-lived client processes.
+// zero wipes a byte slice. Best-effort.
 func zero(b []byte) {
 	for i := range b {
 		b[i] = 0

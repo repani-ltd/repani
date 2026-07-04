@@ -1,6 +1,7 @@
-// Package server implements the ASCON-KV server: a blind relay that
+// Package server implements the ASCON-KV v1 server: a blind relay that
 // holds a content-addressed set of entries per VaultID and serves the
-// sync protocol defined in PROTOCOL.txt.
+// paged sync protocol defined in PROTOCOL.txt. It opens every frame
+// under a channel key, never under AEAD_Key, so it never sees plaintext.
 package server
 
 import (
@@ -21,48 +22,42 @@ import (
 	"github.com/pavlos/kv/wire"
 )
 
-// Quotas configure per-vault limits enforced by the server. Defaults
-// come from DefaultQuotas; override via Options.
+// Quotas configure per-vault limits.
 type Quotas struct {
-	MaxEntries     uint64 // hard cap on entries per vault
-	MaxVaultBytes  uint64 // hard cap on total entry bytes per vault
-	MaxVaults      uint64 // hard cap on number of registered vaults; 0 = unlimited
-	TSSkewMs       int64  // accepted |ts_ms - now| in milliseconds
+	MaxEntries    uint64
+	MaxVaultBytes uint64
+	MaxVaults     uint64 // 0 = unlimited
+	TSSkewMs      int64
 }
 
-// DefaultQuotas are the protocol-recommended limits. The MaxVaults
-// default is finite so an out-of-the-box server is DoS-bounded; raise
-// it explicitly for multi-tenant deployments.
+// DefaultQuotas are the protocol-recommended limits. Paging decouples
+// vault size from the frame size, so MaxVaultBytes is a storage cap, not
+// a transport one.
 func DefaultQuotas() Quotas {
 	return Quotas{
 		MaxEntries:    1_000_000,
-		MaxVaultBytes: 1 << 30,            // 1 GiB
+		MaxVaultBytes: 1 << 30, // 1 GiB
 		MaxVaults:     10_000,
-		TSSkewMs:      24 * 60 * 60 * 1000, // 24 h
+		TSSkewMs:      24 * 60 * 60 * 1000,
 	}
 }
 
-// Options configure a Server at construction time.
-//
-// Exactly one of RegisterKey or RegisterKeyFile must be provided —
-// the protocol has no concept of permissionless (trust-on-first-use)
-// registration: every REGISTER request must carry a valid admin MAC
-// under this key.
+// Options configure a Server. Exactly one of RegisterKey or
+// RegisterKeyFile must be set — there is no permissionless registration.
 type Options struct {
-	DataDir         string              // empty for memory-only
-	Quotas          Quotas              // zero value → DefaultQuotas
-	Clock           func() int64        // unix ms; nil → time.Now
-	RegisterKey     *vault.RegisterKey  // direct register gate secret (tests)
-	RegisterKeyFile string              // path to 16-byte register gate secret (production)
+	DataDir         string
+	Quotas          Quotas
+	Clock           func() int64
+	RegisterKey     *vault.RegisterKey
+	RegisterKeyFile string
 }
 
-// Server is a vault-aware HTTP handler. The zero value is not ready;
-// use NewWithOptions.
+// Server is a vault-aware HTTP handler. Use NewWithOptions.
 type Server struct {
-	dataDir     string
-	quotas      Quotas
-	clock       func() int64
-	registerKey vault.RegisterKey // required; set at construction
+	dataDir string
+	quotas  Quotas
+	clock   func() int64
+	regKey  vault.ChannelKey // K_reg = XOF("kv/reg0/" || RegisterKey)
 
 	mu     sync.Mutex
 	vaults map[vault.VaultID]*vaultState
@@ -72,18 +67,17 @@ type vaultState struct {
 	mu      sync.Mutex
 	s       store.Store
 	authKey vault.AuthKey
+	c2s     vault.ChannelKey
+	s2c     vault.ChannelKey
 	bytes   uint64
-	dir     string // per-vault directory; empty for memory-only
+	dir     string
 }
 
-// ErrNoRegisterKey is returned by NewWithOptions when the caller
-// supplies neither RegisterKey nor RegisterKeyFile.
-var ErrNoRegisterKey = errors.New("server: either Options.RegisterKey or Options.RegisterKeyFile must be set")
+// ErrNoRegisterKey is returned when neither RegisterKey nor
+// RegisterKeyFile is supplied.
+var ErrNoRegisterKey = errors.New("server: Options.RegisterKey or Options.RegisterKeyFile must be set")
 
-// NewWithOptions is the constructor. It requires either a
-// RegisterKey (direct) or a RegisterKeyFile (path to a 16-byte file
-// that the server loads on startup). The register key is MANDATORY
-// — permissionless TOFU registration was removed from the protocol.
+// NewWithOptions constructs a Server.
 func NewWithOptions(opt Options) (*Server, error) {
 	if opt.RegisterKey == nil && opt.RegisterKeyFile == "" {
 		return nil, ErrNoRegisterKey
@@ -91,15 +85,15 @@ func NewWithOptions(opt Options) (*Server, error) {
 	if opt.RegisterKey != nil && opt.RegisterKeyFile != "" {
 		return nil, errors.New("server: RegisterKey and RegisterKeyFile are mutually exclusive")
 	}
-	var registerKey vault.RegisterKey
+	var regKey vault.RegisterKey
 	if opt.RegisterKey != nil {
-		registerKey = *opt.RegisterKey
+		regKey = *opt.RegisterKey
 	} else {
 		loaded, err := loadRegisterKey(opt.RegisterKeyFile)
 		if err != nil {
 			return nil, err
 		}
-		registerKey = loaded
+		regKey = loaded
 	}
 
 	if opt.DataDir != "" {
@@ -116,12 +110,13 @@ func NewWithOptions(opt Options) (*Server, error) {
 		clk = func() int64 { return time.Now().UnixMilli() }
 	}
 	s := &Server{
-		dataDir:     opt.DataDir,
-		quotas:      q,
-		clock:       clk,
-		registerKey: registerKey,
-		vaults:      make(map[vault.VaultID]*vaultState),
+		dataDir: opt.DataDir,
+		quotas:  q,
+		clock:   clk,
+		regKey:  vault.DeriveRegKey(regKey),
+		vaults:  make(map[vault.VaultID]*vaultState),
 	}
+	regKey = vault.RegisterKey{} // scrub
 	if opt.DataDir != "" {
 		if err := s.loadPersistedVaults(); err != nil {
 			return nil, err
@@ -130,10 +125,6 @@ func NewWithOptions(opt Options) (*Server, error) {
 	return s, nil
 }
 
-// loadRegisterKey reads a register gate secret from path. The file
-// must contain the key in Crockford base32 (26 chars, whitespace/
-// dashes ignored), matching what vault.EncodeRegisterKey emits and
-// what `kvserve gen-register-key` writes at deploy time.
 func loadRegisterKey(path string) (vault.RegisterKey, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -143,16 +134,12 @@ func loadRegisterKey(path string) (vault.RegisterKey, error) {
 	if err != nil {
 		return vault.RegisterKey{}, fmt.Errorf("server: register-key-file %s: %w", path, err)
 	}
-	// scrub local copy (best-effort).
 	for i := range b {
 		b[i] = 0
 	}
 	return rk, nil
 }
 
-// loadPersistedVaults walks dataDir and rebuilds any on-disk vaults
-// into the in-memory registry. Each vault directory is expected to
-// contain entries.log and auth.key.
 func (s *Server) loadPersistedVaults() error {
 	dirs, err := os.ReadDir(s.dataDir)
 	if err != nil {
@@ -169,27 +156,18 @@ func (s *Server) loadPersistedVaults() error {
 		var vid vault.VaultID
 		copy(vid[:], vidBytes)
 		dir := filepath.Join(s.dataDir, d.Name())
-		authKey, err := readAuthKey(dir)
+		ak, err := readAuthKey(dir)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				// No auth.key — legacy or crashed registration;
-				// skip without loading. Its entries remain on
-				// disk but are unreachable until a client
-				// re-registers.
-				continue
+				continue // crashed registration; unreachable until re-register
 			}
 			return err
 		}
-		logPath := filepath.Join(dir, "entries.log")
-		ls, err := store.OpenLogStore(logPath)
+		ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"))
 		if err != nil {
 			return err
 		}
-		st := &vaultState{
-			s:       ls,
-			authKey: authKey,
-			dir:     dir,
-		}
+		st := newVaultState(ls, ak, dir)
 		for _, e := range ls.Sorted() {
 			st.bytes += uint64(e.Size())
 		}
@@ -198,161 +176,165 @@ func (s *Server) loadPersistedVaults() error {
 	return nil
 }
 
-// HandleSync processes one request body and returns a response body.
-// All application-level errors are signaled in the response status
-// byte; a non-nil err return indicates an I/O or framing problem that
-// prevents producing any response at all.
-func (s *Server) HandleSync(requestBytes []byte) ([]byte, error) {
-	req, err := wire.UnmarshalRequest(requestBytes)
-	if err != nil {
-		// We cannot trust VaultID or MAC — respond with zero key and
-		// zero request MAC. The client's response-MAC check will fail
-		// (it won't have a matching key) which is fine: a broken
-		// request yields a response the client can't accept.
-		return s.errorResponse(vault.AuthKey{}, [vault.MACSize]byte{}, wire.StatusBadRequest)
+func newVaultState(s store.Store, ak vault.AuthKey, dir string) *vaultState {
+	return &vaultState{
+		s:       s,
+		authKey: ak,
+		c2s:     vault.DeriveC2S(ak),
+		s2c:     vault.DeriveS2C(ak),
+		dir:     dir,
 	}
+}
 
-	st, ak, status := s.resolveVault(req)
-	if status != wire.StatusOK {
-		return s.errorResponse(ak, req.MAC, status)
+// HandleFrame processes one request frame and returns a response: either
+// a sealed RESP frame, or a single pre-channel error byte. A non-nil
+// error is an I/O problem that prevents any response.
+func (s *Server) HandleFrame(req []byte) ([]byte, error) {
+	kind, vid, nonce, sealed, err := wire.ParseHeader(req)
+	if err != nil {
+		if errors.Is(err, wire.ErrVersion) {
+			return []byte{wire.ErrBadVersion}, nil
+		}
+		return []byte{wire.ErrBadFrame}, nil
+	}
+	switch kind {
+	case wire.KindRegister:
+		return s.handleRegister(vid, nonce, sealed)
+	case wire.KindSync:
+		return s.handleSync(vid, nonce, sealed)
+	default:
+		return []byte{wire.ErrBadKind}, nil
+	}
+}
+
+func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, sealed []byte) ([]byte, error) {
+	payload, err := wire.OpenFrame(s.regKey, wire.KindRegister, vid, nonce, sealed)
+	if err != nil {
+		return []byte{wire.ErrBadAuth}, nil // gate: wrong RegisterKey
+	}
+	if len(payload) != vault.AuthKeySize {
+		return []byte{wire.ErrBadFrame}, nil
+	}
+	var ak vault.AuthKey
+	copy(ak[:], payload)
+
+	s.mu.Lock()
+	st, exists := s.vaults[vid]
+	if exists {
+		s.mu.Unlock()
+		if subtle.ConstantTimeCompare(st.authKey[:], ak[:]) != 1 {
+			return []byte{wire.ErrBadAuth}, nil // rebind attempt
+		}
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
+	}
+	if s.quotas.MaxVaults != 0 && uint64(len(s.vaults)) >= s.quotas.MaxVaults {
+		s.mu.Unlock()
+		return s.sealResp(vid, vault.DeriveS2C(ak), nonce, wire.StatusQuota, nil)
+	}
+	st, err = s.createVaultLocked(vid, ak)
+	s.mu.Unlock()
+	if err != nil {
+		log.Printf("server: create vault %x: %v", vid[:], err)
+		return []byte{wire.ErrTryLater}, nil
+	}
+	return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
+}
+
+func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, sealed []byte) ([]byte, error) {
+	s.mu.Lock()
+	st, ok := s.vaults[vid]
+	s.mu.Unlock()
+	if !ok {
+		return []byte{wire.ErrUnknownVault}, nil
+	}
+	payload, err := wire.OpenFrame(st.c2s, wire.KindSync, vid, nonce, sealed)
+	if err != nil {
+		return []byte{wire.ErrBadAuth}, nil
+	}
+	req, err := wire.ParseSync(payload)
+	if err != nil {
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
 	}
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	// Quota + clock-skew validation (quotas are pre-ingest worst-case).
-	if qstatus := s.validatePushes(st, req); qstatus != wire.StatusOK {
-		return s.errorResponse(ak, req.MAC, qstatus)
-	}
-
-	// Ingest pushes.
-	for _, e := range req.Pushes {
-		added, err := st.s.Add(e)
-		if err != nil {
-			return nil, err
+	switch req.Op {
+	case wire.OpProbe:
+		status := wire.StatusDiffer
+		if st.s.SetHash() == req.SetHash {
+			status = wire.StatusOK
 		}
-		if added {
-			st.bytes += uint64(e.Size())
+		return s.sealResp(vid, st.s2c, nonce, status, nil)
+
+	case wire.OpPull:
+		page := st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, page)
+
+	case wire.OpPush:
+		newEntries, status := s.validateNew(st, req.Entries)
+		if status != wire.StatusOK {
+			return s.sealResp(vid, st.s2c, nonce, status, nil)
 		}
-	}
-
-	// Terminal/ladder comparison.
-	var serverTerminal [16]byte
-	if st.s.Len() == 0 {
-		serverTerminal = vault.TerminalHash(nil)
-	} else {
-		serverTerminal = st.s.TerminalHash()
-	}
-
-	var window uint32
-	if serverTerminal != req.Terminal {
-		sizes := vault.LadderSizes(req.N)
-		for i, k := range sizes {
-			if i >= len(req.Ladder) {
-				break // defensive; codec already validates this
+		for _, e := range newEntries {
+			added, err := st.s.Add(e)
+			if err != nil {
+				return nil, err
 			}
-			var serverH [16]byte
-			if st.s.Len() == 0 {
-				serverH = vault.LadderHashAt(nil, k)
-			} else {
-				serverH = st.s.LadderHashAt(k)
-			}
-			if serverH != req.Ladder[i] {
-				window = k
-				break
+			if added {
+				st.bytes += uint64(e.Size())
 			}
 		}
-		if window == 0 {
-			window = max(st.s.Len(), req.N)
-		}
-	}
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
 
-	resp := wire.Response{Status: wire.StatusOK}
-	if window > 0 {
-		sorted := st.s.Sorted()
-		d := min(window, uint32(len(sorted)))
-		if d > 0 {
-			resp.Entries = append(resp.Entries, sorted[uint32(len(sorted))-d:]...)
-		}
-		resp.Window = window
+	default:
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
 	}
-	out, err := wire.SignResponse(ak, req.MAC, resp)
+}
+
+// validateNew enforces skew and quota on the entries the server does not
+// already hold; re-pushing an accepted entry is a no-op and not
+// re-judged. Returns the new entries and StatusOK, or nil and a
+// rejecting status.
+func (s *Server) validateNew(st *vaultState, pushes []vault.Entry) ([]vault.Entry, byte) {
+	now := s.clock()
+	skew := s.quotas.TSSkewMs
+	newEntries := make([]vault.Entry, 0, len(pushes))
+	var newBytes uint64
+	for _, e := range pushes {
+		if st.s.Has(e.ID()) {
+			continue
+		}
+		d := int64(e.TsMs) - now
+		if d < -skew || d > skew {
+			return nil, wire.StatusBadRequest
+		}
+		newEntries = append(newEntries, e)
+		newBytes += uint64(e.Size())
+	}
+	if uint64(st.s.Len())+uint64(len(newEntries)) > s.quotas.MaxEntries {
+		return nil, wire.StatusQuota
+	}
+	if st.bytes+newBytes > s.quotas.MaxVaultBytes {
+		return nil, wire.StatusQuota
+	}
+	return newEntries, wire.StatusOK
+}
+
+// sealResp builds a RESP frame under s2c, echoing reqNonce.
+func (s *Server) sealResp(vid vault.VaultID, s2c vault.ChannelKey, reqNonce [vault.NonceSize]byte, status byte, entries []vault.Entry) ([]byte, error) {
+	respNonce, err := vault.FrameNonce(vid)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	payload := wire.Resp{Status: status, ReqNonce: reqNonce, Entries: entries}.Marshal()
+	return wire.SealFrame(wire.KindResp, vid, respNonce, s2c, payload)
 }
 
-// resolveVault looks up (or optionally TOFU-registers) the vault for
-// req.VaultID and returns its state along with the AuthKey to use
-// and a status code. A StatusOK means the caller may proceed; any
-// other status is a terminal reason to return an error response.
-func (s *Server) resolveVault(req wire.Request) (*vaultState, vault.AuthKey, byte) {
-	s.mu.Lock()
-	st, exists := s.vaults[req.VaultID]
-	s.mu.Unlock()
-
-	if exists {
-		if req.IsRegister() {
-			// Idempotent re-registration: reg_authkey must match.
-			if subtle.ConstantTimeCompare(st.authKey[:], req.RegAuth[:]) != 1 {
-				return nil, vault.AuthKey{}, wire.StatusBadMAC
-			}
-		}
-		if err := wire.VerifyRequestMAC(st.authKey, req); err != nil {
-			return nil, st.authKey, wire.StatusBadMAC
-		}
-		return st, st.authKey, wire.StatusOK
-	}
-
-	// Vault doesn't exist.
-	if !req.IsRegister() {
-		return nil, vault.AuthKey{}, wire.StatusUnknownVault
-	}
-
-	// Registration gate: the client must prove knowledge of the
-	// server-side RegisterKey with a MAC over (RegAuth, VaultID).
-	// There is no permissionless TOFU path.
-	want := vault.RegisterAdminMAC(s.registerKey, req.RegAuth, req.VaultID)
-	if subtle.ConstantTimeCompare(want[:], req.RegAdminMAC[:]) != 1 {
-		return nil, vault.AuthKey{}, wire.StatusBadMAC
-	}
-
-	// First-time registration: verify MAC under the claimed AuthKey.
-	if err := wire.VerifyRequestMAC(req.RegAuth, req); err != nil {
-		return nil, vault.AuthKey{}, wire.StatusBadMAC
-	}
-
-	s.mu.Lock()
-	// Double-check under the write lock.
-	if existing, ok := s.vaults[req.VaultID]; ok {
-		s.mu.Unlock()
-		if subtle.ConstantTimeCompare(existing.authKey[:], req.RegAuth[:]) != 1 {
-			return nil, vault.AuthKey{}, wire.StatusBadMAC
-		}
-		return existing, existing.authKey, wire.StatusOK
-	}
-	if s.quotas.MaxVaults != 0 && uint64(len(s.vaults)) >= s.quotas.MaxVaults {
-		s.mu.Unlock()
-		return nil, vault.AuthKey{}, wire.StatusQuota
-	}
-	st, err := s.createVaultLocked(req.VaultID, req.RegAuth)
-	s.mu.Unlock()
-	if err != nil {
-		log.Printf("server: create vault %x: %v", req.VaultID[:], err)
-		return nil, vault.AuthKey{}, wire.StatusBadRequest
-	}
-	return st, st.authKey, wire.StatusOK
-}
-
-// createVaultLocked constructs a new vaultState and persists it. s.mu
-// must be held.
+// createVaultLocked constructs and persists a new vaultState. s.mu held.
 func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultState, error) {
 	if s.dataDir == "" {
-		st := &vaultState{
-			s:       store.NewMemStore(),
-			authKey: ak,
-		}
+		st := newVaultState(store.NewMemStore(), ak, "")
 		s.vaults[vid] = st
 		return st, nil
 	}
@@ -367,46 +349,9 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultS
 	if err != nil {
 		return nil, err
 	}
-	st := &vaultState{
-		s:       ls,
-		authKey: ak,
-		dir:     dir,
-	}
+	st := newVaultState(ls, ak, dir)
 	s.vaults[vid] = st
 	return st, nil
-}
-
-// validatePushes enforces clock-skew and quota bounds without ingesting.
-// Returns StatusOK if pushes may proceed.
-func (s *Server) validatePushes(st *vaultState, req wire.Request) byte {
-	now := s.clock()
-	skew := s.quotas.TSSkewMs
-	for _, e := range req.Pushes {
-		d := int64(e.TsMs) - now
-		if d < -skew || d > skew {
-			return wire.StatusBadRequest
-		}
-	}
-	// Worst-case count/byte (ignores dedup — conservative).
-	if uint64(st.s.Len())+uint64(len(req.Pushes)) > s.quotas.MaxEntries {
-		return wire.StatusQuota
-	}
-	var pushBytes uint64
-	for _, e := range req.Pushes {
-		pushBytes += uint64(e.Size())
-	}
-	if st.bytes+pushBytes > s.quotas.MaxVaultBytes {
-		return wire.StatusQuota
-	}
-	return wire.StatusOK
-}
-
-// errorResponse builds a signed error response with the given status.
-// It never returns the application error to the client; the status
-// byte carries all the information the client is entitled to.
-func (s *Server) errorResponse(ak vault.AuthKey, reqMAC [vault.MACSize]byte, status byte) ([]byte, error) {
-	resp := wire.Response{Status: status}
-	return wire.SignResponse(ak, reqMAC, resp)
 }
 
 // --- per-vault auth.key persistence ---
@@ -437,7 +382,7 @@ func readAuthKey(dir string) (vault.AuthKey, error) {
 
 // --- HTTP ---
 
-// ServeHTTP exposes HandleSync as POST /v1/sync.
+// ServeHTTP exposes HandleFrame as POST /v1/sync.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -447,17 +392,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	const maxBody = 64 << 20 // 64 MB
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, wire.MaxFrameBytes))
 	if err != nil {
-		// Keep the client-visible message generic; log the detail.
 		log.Printf("server: read body: %v", err)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	resp, err := s.HandleSync(body)
+	resp, err := s.HandleFrame(body)
 	if err != nil {
-		log.Printf("server: handle sync: %v", err)
+		log.Printf("server: handle frame: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

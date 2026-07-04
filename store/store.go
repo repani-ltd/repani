@@ -1,6 +1,6 @@
 // Package store provides the client- and server-side entry set used
 // by ASCON-KV. A Store is an unordered set keyed by EntryID that also
-// exposes a canonical-order view and ladder hashes; see PROTOCOL.txt.
+// exposes a canonical-order view and a set hash; see PROTOCOL.txt.
 package store
 
 import "github.com/pavlos/kv/vault"
@@ -24,13 +24,12 @@ type Store interface {
 	// caller to read but must not be mutated.
 	Sorted() []vault.Entry
 
-	// LadderHashAt returns L_k for the current state. k == 0 is
-	// invalid. k may exceed Len(); in that case the hash is computed
-	// over all held entries, per PROTOCOL.txt "or all of them if the
-	// server holds fewer than D".
-	LadderHashAt(k uint32) [16]byte
+	// SetHash returns the 16-byte fingerprint of the whole entry set
+	// (vault.SetHash), used as the sync equality probe.
+	SetHash() [16]byte
 
-	// TerminalHash returns the 16-byte full-set hash binding in the
-	// store's actual entry count (vault.TerminalHash).
-	TerminalHash() [16]byte
+	// EntriesAfter returns whole entries in canonical order strictly
+	// after the cursor (afterTs, afterID), up to budget bytes but always
+	// at least one if any remain. Powers the paged PULL.
+	EntriesAfter(afterTs uint64, afterID vault.EntryID, budget int) []vault.Entry
 }

@@ -18,10 +18,7 @@ import (
 // round-trip cleanly through CSV; such vaults should prefer a
 // byte-preserving transport (e.g., a raw copy of entries.log).
 func (c *Client) ExportCSV(w io.Writer) error {
-	m, err := c.replay()
-	if err != nil {
-		return err
-	}
+	m := c.replay()
 	keys := make([]string, 0, len(m))
 	for k, kv := range m {
 		if kv.tomb {

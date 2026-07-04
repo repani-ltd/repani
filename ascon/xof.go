@@ -14,7 +14,7 @@ import (
 
 // XOFSize is a convenience constant: the 16-byte output length used
 // everywhere in the ASCON-KV protocol (vault ids, MACs, entry ids,
-// ladder hashes).
+// the set hash).
 const XOFSize = 16
 
 // XOF computes Ascon-XOF128 over data and writes exactly len(out)

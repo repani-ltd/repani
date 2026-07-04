@@ -1,5 +1,7 @@
-// Package client provides the ASCON-KV client side: Put/Get/Delete on
-// a local encrypted store, plus a sync cycle against a server.
+// Package client provides the ASCON-KV v1 client: Put/Get/Delete on a
+// local encrypted store, plus a paged sync against a server. Every frame
+// it sends is a single AEAD seal; reconciliation is PROBE / PULL / PUSH
+// as defined in PROTOCOL.txt.
 package client
 
 import (
@@ -16,9 +18,11 @@ import (
 	"github.com/pavlos/kv/wire"
 )
 
-// Transport sends a marshaled request and returns the marshaled
-// response. It is implementable by a real HTTP client, an in-process
-// handler for tests, or any other carrier.
+// fmtRaw is the value-encoding tag for a verbatim value (CLIENT.txt).
+const fmtRaw = 0x00
+
+// Transport sends a marshaled request frame and returns the response
+// bytes (a sealed RESP frame, or a single pre-channel error byte).
 type Transport interface {
 	Do(ctx context.Context, request []byte) (response []byte, err error)
 }
@@ -29,16 +33,19 @@ type Client struct {
 	aead    *ascon.AEAD
 	authKey vault.AuthKey
 	vid     vault.VaultID
+	c2s     vault.ChannelKey
+	s2c     vault.ChannelKey
 	store   store.Store
 	tran    Transport
 
 	nowMs func() uint64
 
-	mu          sync.Mutex
-	pending     map[vault.EntryID]struct{}
-	lastTs      uint64              // monotonic-nondecreasing per-client write clock
-	registered  bool                // TOFU registration state with the current server
-	registerKey *vault.RegisterKey  // nil → no admin MAC; server must be in permissive mode
+	mu         sync.Mutex
+	lastTs     uint64
+	registered bool
+	hasReg     bool
+	regChan    vault.ChannelKey // K_reg, valid iff hasReg
+	dirty      bool
 }
 
 // New returns a Client backed by the given store and transport.
@@ -47,60 +54,67 @@ func New(rk vault.RootKey, s store.Store, t Transport) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	ak := vault.DeriveAuthKey(rk)
 	return &Client{
 		rk:      rk,
 		aead:    aead,
-		authKey: vault.DeriveAuthKey(rk),
+		authKey: ak,
 		vid:     vault.DeriveVaultID(rk),
+		c2s:     vault.DeriveC2S(ak),
+		s2c:     vault.DeriveS2C(ak),
 		store:   s,
 		tran:    t,
 		nowMs:   func() uint64 { return uint64(time.Now().UnixMilli()) },
-		pending: make(map[vault.EntryID]struct{}),
 	}, nil
 }
 
 // VaultID returns the public vault handle.
 func (c *Client) VaultID() vault.VaultID { return c.vid }
 
-// Store returns the backing store. Intended for read-only inspection
-// by callers that need to see canonical order or ladder state.
-// Mutating the store from outside the client voids the client's
-// pending-push tracking and should be avoided outside of tests.
+// Store returns the backing store (read-only inspection).
 func (c *Client) Store() store.Store { return c.store }
 
-// Registered reports whether the client believes it has registered
-// with the server (TOFU bit). The CLI persists this; in-process tests
-// typically ignore it.
+// Registered reports the client's belief that it has registered.
 func (c *Client) Registered() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.registered
 }
 
-// SetRegistered sets the TOFU bit. The CLI calls this after reading a
-// persisted marker file so the first Sync after restart does not
-// needlessly re-register.
+// SetRegistered sets the registration belief (the CLI persists it).
 func (c *Client) SetRegistered(v bool) {
 	c.mu.Lock()
 	c.registered = v
 	c.mu.Unlock()
 }
 
-// SetRegisterKey installs the server-side register-gate secret so the
-// next REGISTER request includes a valid admin MAC. Pass nil to
-// clear. A client with no register key is only compatible with a
-// server in legacy permissive TOFU mode; otherwise the server will
-// return BadMAC on REGISTER.
+// SetRegisterKey installs the register-gate secret used to seal a
+// REGISTER frame. Pass nil to clear.
 func (c *Client) SetRegisterKey(rk *vault.RegisterKey) {
 	c.mu.Lock()
-	c.registerKey = rk
+	if rk == nil {
+		c.hasReg = false
+		c.regChan = vault.ChannelKey{}
+	} else {
+		c.hasReg = true
+		c.regChan = vault.DeriveRegKey(*rk)
+	}
 	c.mu.Unlock()
 }
 
-// Put writes (key, value). An empty key is rejected.
+// --- local writes ---
+
+// Put writes (key, value). The stored value is tagged fmt(1)||value.
 func (c *Client) Put(key, value []byte) error {
+	if len(value) == 0 {
+		return errors.New("client: empty value is a tombstone; use Delete")
+	}
+	wrapped := make([]byte, 1+len(value))
+	wrapped[0] = fmtRaw
+	copy(wrapped[1:], value)
+
 	ts := c.nextTs()
-	e, err := vault.Seal(c.aead, ts, key, value)
+	e, err := vault.Seal(c.aead, ts, key, wrapped)
 	if err != nil {
 		return err
 	}
@@ -108,14 +122,28 @@ func (c *Client) Put(key, value []byte) error {
 		return err
 	}
 	c.mu.Lock()
-	c.pending[e.ID()] = struct{}{}
+	c.dirty = true
 	c.mu.Unlock()
 	return nil
 }
 
-// nextTs returns a strictly-increasing millisecond timestamp per
-// Client, so rapid Put/Delete pairs on the same key resolve in
-// program order under LWW merge.
+// Delete writes a tombstone (an empty value, with no fmt tag).
+func (c *Client) Delete(key []byte) error {
+	ts := c.nextTs()
+	e, err := vault.Seal(c.aead, ts, key, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := c.store.Add(e); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.dirty = true
+	c.mu.Unlock()
+	return nil
+}
+
+// nextTs returns a strictly-increasing millisecond timestamp per Client.
 func (c *Client) nextTs() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -127,31 +155,47 @@ func (c *Client) nextTs() uint64 {
 	return now
 }
 
-// Delete is shorthand for Put(key, nil): writes a tombstone entry.
-func (c *Client) Delete(key []byte) error {
-	return c.Put(key, nil)
+// --- reads (last-writer-wins merge) ---
+
+type keyValue struct {
+	value []byte
+	tomb  bool
 }
 
-// Get returns the current value for key. ok=false means the key has
-// never been written or has been tombstoned.
-func (c *Client) Get(key []byte) (value []byte, ok bool, err error) {
-	m, err := c.replay()
-	if err != nil {
-		return nil, false, err
+// replay decrypts every entry in canonical order; later entries override
+// earlier ones. An empty stored value is a tombstone; a non-empty one is
+// fmt(1)||payload, and payload is returned. Entries that fail to open are
+// silently skipped (they remain in the store so the set still matches
+// the server's).
+func (c *Client) replay() map[string]keyValue {
+	sorted := c.store.Sorted()
+	out := make(map[string]keyValue, len(sorted))
+	for _, e := range sorted {
+		k, sv, err := vault.Open(c.aead, e)
+		if err != nil {
+			continue
+		}
+		if len(sv) == 0 {
+			out[string(k)] = keyValue{tomb: true}
+			continue
+		}
+		out[string(k)] = keyValue{value: sv[1:]} // strip fmt tag
 	}
-	kv, found := m[string(key)]
+	return out
+}
+
+// Get returns the current value for key.
+func (c *Client) Get(key []byte) (value []byte, ok bool, err error) {
+	kv, found := c.replay()[string(key)]
 	if !found || kv.tomb {
 		return nil, false, nil
 	}
 	return kv.value, true, nil
 }
 
-// List returns the sorted list of live (non-tombstoned) keys.
+// List returns the sorted live keys.
 func (c *Client) List() ([]string, error) {
-	m, err := c.replay()
-	if err != nil {
-		return nil, err
-	}
+	m := c.replay()
 	out := make([]string, 0, len(m))
 	for k, kv := range m {
 		if !kv.tomb {
@@ -162,28 +206,20 @@ func (c *Client) List() ([]string, error) {
 	return out, nil
 }
 
-// LiveEntry is a live (non-tombstoned) key/value pair returned by
-// All. Values are held in plaintext in memory; callers are
-// responsible for scrubbing if that matters.
+// LiveEntry is a live (key, value) pair.
 type LiveEntry struct {
 	Key   []byte
 	Value []byte
 }
 
-// All returns every live (key, value) pair in the vault, sorted by
-// key. It replays and decrypts the full local store and is the basis
-// of client-side search. Tombstoned entries are omitted.
+// All returns every live (key, value) pair, sorted by key.
 func (c *Client) All() ([]LiveEntry, error) {
-	m, err := c.replay()
-	if err != nil {
-		return nil, err
-	}
+	m := c.replay()
 	keys := make([]string, 0, len(m))
 	for k, kv := range m {
-		if kv.tomb {
-			continue
+		if !kv.tomb {
+			keys = append(keys, k)
 		}
-		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	out := make([]LiveEntry, len(keys))
@@ -193,190 +229,211 @@ func (c *Client) All() ([]LiveEntry, error) {
 	return out, nil
 }
 
-// --- merge (LWW) ---
-
-type keyValue struct {
-	value []byte
-	tomb  bool
-}
-
-// replay decrypts every entry in canonical order; later entries
-// override earlier ones, and a zero-length value is a tombstone.
-// Entries that fail AEAD open are silently skipped — per PROTOCOL.txt
-// a failing entry is never a fatal condition. Callers get a clean map
-// of openable plaintexts.
-func (c *Client) replay() (map[string]keyValue, error) {
-	sorted := c.store.Sorted()
-	out := make(map[string]keyValue, len(sorted))
-	for _, e := range sorted {
-		k, v, err := vault.Open(c.aead, e)
-		if err != nil {
-			continue
-		}
-		out[string(k)] = keyValue{
-			value: v,
-			tomb:  len(v) == 0,
-		}
-	}
-	return out, nil
-}
-
 // --- sync ---
 
-// ErrSyncNotConverged is returned if Sync exceeds its round budget.
-var ErrSyncNotConverged = errors.New("client: sync did not converge within round budget")
+// ErrSyncStuck is returned if sync fails to converge within its round
+// budget (e.g. persistent concurrent churn, or a server that keeps
+// forgetting the registration).
+var ErrSyncStuck = errors.New("client: sync did not converge within round budget")
 
-// Sync performs sync rounds against the server until the server reports
-// window = 0 and the client has no pending pushes. Converges in one
-// round in the steady state and O(log N) rounds after a full server
-// wipe.
+// Sync reconciles the client's vault with the server: register if
+// needed, PROBE, and on divergence PULL the whole set then PUSH the
+// whole set (dedup-tolerant), looping until a PROBE matches.
 func (c *Client) Sync(ctx context.Context) error {
-	const maxRounds = 96 // log2(2^63) with headroom
+	const maxRounds = 64
 	for range maxRounds {
-		done, err := c.syncOnce(ctx)
+		c.mu.Lock()
+		registered := c.registered
+		c.mu.Unlock()
+
+		if !registered {
+			if err := c.register(ctx); err != nil {
+				return err
+			}
+		}
+
+		inSync, pre, err := c.probe(ctx)
 		if err != nil {
 			return err
 		}
-		if done {
-			return nil
-		}
-	}
-	return ErrSyncNotConverged
-}
-
-// syncOnce performs exactly one round trip.
-func (c *Client) syncOnce(ctx context.Context) (done bool, err error) {
-	sorted := c.store.Sorted()
-	n := uint32(len(sorted))
-	ladder := vault.ComputeLadder(sorted)
-	terminal := vault.TerminalHash(sorted)
-
-	// snapshot pending ids + registration bit + register key.
-	c.mu.Lock()
-	pushIDs := make([]vault.EntryID, 0, len(c.pending))
-	for id := range c.pending {
-		pushIDs = append(pushIDs, id)
-	}
-	registered := c.registered
-	var regKeySnap *vault.RegisterKey
-	if c.registerKey != nil {
-		rk := *c.registerKey
-		regKeySnap = &rk
-	}
-	c.mu.Unlock()
-
-	// resolve ids to entries using a quick map.
-	idx := make(map[vault.EntryID]vault.Entry, len(sorted))
-	for _, e := range sorted {
-		idx[e.ID()] = e
-	}
-	pushes := make([]vault.Entry, 0, len(pushIDs))
-	for _, id := range pushIDs {
-		if e, ok := idx[id]; ok {
-			pushes = append(pushes, e)
-		}
-	}
-
-	req := wire.Request{
-		VaultID:  c.vid,
-		N:        n,
-		Ladder:   ladder,
-		Terminal: terminal,
-		Pushes:   pushes,
-	}
-	if !registered {
-		req.Flags |= wire.FlagRegister
-		req.RegAuth = c.authKey
-		if regKeySnap != nil {
-			req.RegAdminMAC = vault.RegisterAdminMAC(*regKeySnap, c.authKey, c.vid)
-		}
-	}
-	reqBytes, err := wire.SignRequest(c.authKey, &req)
-	if err != nil {
-		return false, fmt.Errorf("client: sign request: %w", err)
-	}
-
-	respBytes, err := c.tran.Do(ctx, reqBytes)
-	if err != nil {
-		return false, err
-	}
-
-	resp, err := wire.UnmarshalResponse(respBytes)
-	if err != nil {
-		return false, fmt.Errorf("client: decode response: %w", err)
-	}
-
-	// UNKNOWN_VAULT: server has lost our registration (or we never had
-	// one). Reset our registered bit so the next syncOnce re-registers
-	// and call it not-done so Sync retries.
-	if resp.Status == wire.StatusUnknownVault {
-		c.mu.Lock()
-		c.registered = false
-		c.mu.Unlock()
-		if registered {
-			// We thought we were registered — retry now.
-			return false, nil
-		}
-		// We already tried to register and still got UNKNOWN_VAULT.
-		// Something is wrong on the server side.
-		return false, fmt.Errorf("client: server returned UNKNOWN_VAULT on registration attempt")
-	}
-
-	if resp.Status != wire.StatusOK {
-		return false, fmt.Errorf("client: server status: %s", wire.StatusText(resp.Status))
-	}
-
-	// Verify response MAC BEFORE ingesting anything.
-	if err := wire.VerifyResponseMAC(c.authKey, req.MAC, resp); err != nil {
-		return false, fmt.Errorf("client: verify response MAC: %w", err)
-	}
-
-	// Mark registered after first successful signed response.
-	if req.IsRegister() {
-		c.mu.Lock()
-		c.registered = true
-		c.mu.Unlock()
-	}
-
-	// Clear the entries we just pushed from pending — the server has
-	// them (either newly appended or dedup'd).
-	c.mu.Lock()
-	for _, id := range pushIDs {
-		delete(c.pending, id)
-	}
-	c.mu.Unlock()
-
-	if resp.Window == 0 {
-		return len(pushes) == 0, nil
-	}
-
-	// Ingest server's entries. Silently discard any entry that fails
-	// to open under our AEAD_Key — per PROTOCOL.txt that is never a
-	// fatal condition, just a bug or rare race.
-	serverIDs := make(map[vault.EntryID]struct{}, len(resp.Entries))
-	for _, e := range resp.Entries {
-		if _, _, err := vault.Open(c.aead, e); err != nil {
+		if pre == wire.ErrUnknownVault {
+			c.SetRegistered(false)
 			continue
 		}
-		id := e.ID()
-		serverIDs[id] = struct{}{}
-		if _, err := c.store.Add(e); err != nil {
-			return false, fmt.Errorf("client: ingest server entry: %w", err)
+		if pre != 0 {
+			return preChannelErr("probe", pre)
 		}
-	}
+		if inSync {
+			c.mu.Lock()
+			c.dirty = false
+			c.mu.Unlock()
+			return nil
+		}
 
-	// Diff client's post-ingest last-D against server's last-D.
-	after := c.store.Sorted()
-	d := min(resp.Window, uint32(len(after)))
-	tail := after[uint32(len(after))-d:]
+		if pre, err := c.pullAll(ctx); err != nil {
+			return err
+		} else if pre == wire.ErrUnknownVault {
+			c.SetRegistered(false)
+			continue
+		} else if pre != 0 {
+			return preChannelErr("pull", pre)
+		}
+
+		if pre, err := c.pushAll(ctx); err != nil {
+			return err
+		} else if pre == wire.ErrUnknownVault {
+			c.SetRegistered(false)
+			continue
+		} else if pre != 0 {
+			return preChannelErr("push", pre)
+		}
+		// Loop back to PROBE to confirm convergence (and catch any
+		// entries a concurrent writer added mid-walk).
+	}
+	return ErrSyncStuck
+}
+
+// register establishes the channel by adopting the client's AuthKey on
+// the server, sealed under K_reg.
+func (c *Client) register(ctx context.Context) error {
 	c.mu.Lock()
-	for _, e := range tail {
-		id := e.ID()
-		if _, have := serverIDs[id]; !have {
-			c.pending[id] = struct{}{}
+	hasReg := c.hasReg
+	regChan := c.regChan
+	c.mu.Unlock()
+	if !hasReg {
+		return errors.New("client: no register key; cannot register with a gated server")
+	}
+	resp, pre, err := c.roundtrip(ctx, wire.KindRegister, regChan, c.authKey[:])
+	if err != nil {
+		return err
+	}
+	if pre == wire.ErrBadAuth {
+		return errors.New("client: registration rejected — wrong register key")
+	}
+	if pre != 0 {
+		return preChannelErr("register", pre)
+	}
+	if resp.Status != wire.StatusOK {
+		return fmt.Errorf("client: register status %s", wire.StatusText(resp.Status))
+	}
+	c.SetRegistered(true)
+	return nil
+}
+
+func (c *Client) probe(ctx context.Context) (inSync bool, pre byte, err error) {
+	payload := wire.SyncReq{Op: wire.OpProbe, SetHash: c.store.SetHash()}.Marshal()
+	resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload)
+	if err != nil || pre != 0 {
+		return false, pre, err
+	}
+	switch resp.Status {
+	case wire.StatusOK:
+		return true, 0, nil
+	case wire.StatusDiffer:
+		return false, 0, nil
+	default:
+		return false, 0, fmt.Errorf("client: probe status %s", wire.StatusText(resp.Status))
+	}
+}
+
+// pullAll walks the server's set from the beginning, committing each
+// page. It stores every returned entry verbatim (even one that fails to
+// open) so the client's set matches the server's.
+func (c *Client) pullAll(ctx context.Context) (byte, error) {
+	var curTs uint64
+	var curID vault.EntryID
+	for {
+		payload := wire.SyncReq{Op: wire.OpPull, CurTs: curTs, CurID: curID}.Marshal()
+		resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload)
+		if err != nil || pre != 0 {
+			return pre, err
+		}
+		if resp.Status != wire.StatusOK {
+			return 0, fmt.Errorf("client: pull status %s", wire.StatusText(resp.Status))
+		}
+		if len(resp.Entries) == 0 {
+			return 0, nil
+		}
+		for _, e := range resp.Entries {
+			if _, err := c.store.Add(e); err != nil {
+				return 0, err
+			}
+		}
+		last := resp.Entries[len(resp.Entries)-1]
+		curTs, curID = last.TsMs, last.ID()
+	}
+}
+
+// pushAll walks the client's own set in byte-bounded batches and pushes
+// each. It is dedup-tolerant: the server drops what it already holds.
+func (c *Client) pushAll(ctx context.Context) (byte, error) {
+	sorted := c.store.Sorted()
+	i := 0
+	for i < len(sorted) {
+		batch := make([]vault.Entry, 0, 64)
+		used := 0
+		for i < len(sorted) {
+			sz := sorted[i].Size()
+			if len(batch) > 0 && used+sz > wire.PageBytes {
+				break
+			}
+			batch = append(batch, sorted[i])
+			used += sz
+			i++
+		}
+		payload := wire.SyncReq{Op: wire.OpPush, Entries: batch}.Marshal()
+		resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload)
+		if err != nil || pre != 0 {
+			return pre, err
+		}
+		if resp.Status != wire.StatusOK {
+			return 0, fmt.Errorf("client: push status %s", wire.StatusText(resp.Status))
 		}
 	}
-	c.mu.Unlock()
+	return 0, nil
+}
 
-	return false, nil
+// roundtrip seals a request frame under sealK, sends it, and opens the
+// response under K_s2c. It verifies the response echoes the request
+// nonce (anti-stitch) before returning. A 1-byte response is an
+// unauthenticated pre-channel error, returned in pre.
+func (c *Client) roundtrip(ctx context.Context, kind byte, sealK vault.ChannelKey, payload []byte) (resp wire.Resp, pre byte, err error) {
+	nonce, err := vault.FrameNonce(c.vid)
+	if err != nil {
+		return wire.Resp{}, 0, err
+	}
+	frame, err := wire.SealFrame(kind, c.vid, nonce, sealK, payload)
+	if err != nil {
+		return wire.Resp{}, 0, err
+	}
+	respBytes, err := c.tran.Do(ctx, frame)
+	if err != nil {
+		return wire.Resp{}, 0, err
+	}
+	if len(respBytes) == 1 {
+		return wire.Resp{}, respBytes[0], nil
+	}
+	rkind, rvid, rnonce, sealed, err := wire.ParseHeader(respBytes)
+	if err != nil {
+		return wire.Resp{}, 0, fmt.Errorf("client: parse response: %w", err)
+	}
+	if rkind != wire.KindResp || rvid != c.vid {
+		return wire.Resp{}, 0, errors.New("client: unexpected response frame")
+	}
+	rpayload, err := wire.OpenFrame(c.s2c, wire.KindResp, rvid, rnonce, sealed)
+	if err != nil {
+		return wire.Resp{}, 0, fmt.Errorf("client: response did not open: %w", err)
+	}
+	resp, err = wire.ParseResp(rpayload)
+	if err != nil {
+		return wire.Resp{}, 0, err
+	}
+	if resp.ReqNonce != nonce {
+		return wire.Resp{}, 0, errors.New("client: response nonce does not match request")
+	}
+	return resp, 0, nil
+}
+
+func preChannelErr(stage string, b byte) error {
+	return fmt.Errorf("client: %s: server returned %s", stage, wire.PreChannelText(b))
 }
