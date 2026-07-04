@@ -43,11 +43,13 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/pavlos/kv/client"
 	"github.com/pavlos/kv/store"
 	"github.com/pavlos/kv/vault"
 	"github.com/pavlos/kv/wire"
+	"golang.org/x/term"
 )
 
 const defaultHTTPTimeout = 60 * time.Second
@@ -151,6 +153,10 @@ Commands:
                       --value          match against values only
                       --keys-only      print bare keys, one per line
                       --case-sensitive exact-case match
+                      --wrap           wrap long values instead of truncating
+                      --width N        force table width (0 = auto/terminal)
+                    Long values are truncated to fit the terminal; piping
+                    the output prints full, untruncated values.
 
 Environment:
   KV_HOME           storage directory (default ~/.kv)
@@ -541,6 +547,8 @@ func runSearch(args []string) {
 	scopeValue := fs.Bool("value", false, "match against values only")
 	keysOnly := fs.Bool("keys-only", false, "print bare keys, one per line (no table)")
 	caseSensitive := fs.Bool("case-sensitive", false, "exact-case match (default is case-insensitive)")
+	wrap := fs.Bool("wrap", false, "wrap long values across lines instead of truncating")
+	width := fs.Int("width", 0, "table width (0 = auto/terminal)")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
 		fatal("usage: kv search [--regex] [--key|--value] [--keys-only] [--case-sensitive] <query>")
@@ -582,8 +590,7 @@ func runSearch(args []string) {
 
 	// Collect hits first so we know whether to even print a table
 	// header (avoid emitting a blank header when there are no hits).
-	type hit struct{ k, v string }
-	var hits []hit
+	var hits []kvRow
 	for _, e := range all {
 		k := string(e.Key)
 		v := string(e.Value)
@@ -597,7 +604,7 @@ func runSearch(args []string) {
 			ok = match(k) || match(v)
 		}
 		if ok {
-			hits = append(hits, hit{k, v})
+			hits = append(hits, kvRow{k, v})
 		}
 	}
 	if len(hits) == 0 {
@@ -606,24 +613,129 @@ func runSearch(args []string) {
 
 	if *keysOnly {
 		for _, h := range hits {
-			fmt.Println(h.k)
+			fmt.Println(h.key)
 		}
 		return
 	}
+	renderTable(hits, *wrap, *width)
+}
 
-	// Tabular output. tabwriter pads columns so the VALUE column
-	// aligns across rows. Multi-line values are emitted raw; the
-	// operator who put them there can deal with wrapping.
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "KEY\tVALUE")
-	for _, h := range hits {
-		// Collapse newlines in the value so a multi-line secret does
-		// not break table alignment. Original value is still
-		// retrievable via `kv get`.
-		v := strings.ReplaceAll(h.v, "\n", " ⏎ ")
-		fmt.Fprintf(tw, "%s\t%s\n", h.k, v)
+// --- KEY/VALUE table rendering ---
+
+type kvRow struct{ key, val string }
+
+// renderTable prints rows as an aligned KEY/VALUE table. On a terminal
+// (or when forcedWidth > 0) the value column is sized to the width and a
+// long value is truncated with an ellipsis, or wrapped across
+// continuation lines when wrap is set. When stdout is not a terminal and
+// no width is forced, full values are emitted tab-separated so pipes and
+// scripts get everything. Widths are measured in runes; wide (CJK) glyphs
+// are not double-counted.
+func renderTable(rows []kvRow, wrap bool, forcedWidth int) {
+	width := tableWidth(forcedWidth)
+	if width == 0 {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "KEY\tVALUE")
+		for _, r := range rows {
+			fmt.Fprintf(tw, "%s\t%s\n", r.key, collapseCell(r.val))
+		}
+		_ = tw.Flush()
+		return
 	}
-	_ = tw.Flush()
+	const gutter = "  "
+	keyW := len("KEY")
+	for _, r := range rows {
+		if n := utf8.RuneCountInString(r.key); n > keyW {
+			keyW = n
+		}
+	}
+	if keyW > 32 { // keep a pathologically long key from eating the row
+		keyW = 32
+	}
+	valW := width - keyW - len(gutter)
+	if valW < 8 {
+		valW = 8
+	}
+
+	fmt.Println(padRunes("KEY", keyW) + gutter + "VALUE")
+	for _, r := range rows {
+		key := truncRunes(r.key, keyW)
+		val := collapseCell(r.val)
+		if !wrap {
+			fmt.Println(padRunes(key, keyW) + gutter + truncRunes(val, valW))
+			continue
+		}
+		for i, ch := range chunkRunes(val, valW) {
+			first := ""
+			if i == 0 {
+				first = key
+			}
+			fmt.Println(padRunes(first, keyW) + gutter + ch)
+		}
+	}
+}
+
+// tableWidth resolves the render width: an explicit forcedWidth wins;
+// otherwise the terminal size (default 80 if a terminal but size is
+// unknown); 0 means "not a terminal — emit full untruncated output".
+func tableWidth(forced int) int {
+	if forced > 0 {
+		return forced
+	}
+	fd := int(os.Stdout.Fd())
+	if !term.IsTerminal(fd) {
+		return 0
+	}
+	if w, _, err := term.GetSize(fd); err == nil && w > 8 {
+		return w
+	}
+	return 80
+}
+
+// collapseCell makes a value safe for a single table cell: newlines
+// become a visible marker, tabs and CRs become spaces.
+func collapseCell(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\n", " ⏎ ")
+	s = strings.ReplaceAll(s, "\t", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return s
+}
+
+// padRunes left-aligns s to w columns (rune count).
+func padRunes(s string, w int) string {
+	if n := utf8.RuneCountInString(s); n < w {
+		return s + strings.Repeat(" ", w-n)
+	}
+	return s
+}
+
+// truncRunes shortens s to at most w runes, ending with an ellipsis when
+// it overflows.
+func truncRunes(s string, w int) string {
+	if utf8.RuneCountInString(s) <= w {
+		return s
+	}
+	r := []rune(s)
+	if w <= 1 {
+		return string(r[:w])
+	}
+	return string(r[:w-1]) + "…"
+}
+
+// chunkRunes splits s into runs of at most w runes.
+func chunkRunes(s string, w int) []string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return []string{""}
+	}
+	var out []string
+	for len(r) > 0 {
+		n := min(w, len(r))
+		out = append(out, string(r[:n]))
+		r = r[n:]
+	}
+	return out
 }
 
 func runPut(args []string) {
