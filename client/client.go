@@ -5,6 +5,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -336,13 +337,25 @@ func (c *Client) probe(ctx context.Context) (inSync bool, pre byte, err error) {
 	}
 }
 
+// maxPullPages bounds a single pull walk. Loop protection: an honest
+// server terminates the walk with an empty page once its set is
+// exhausted, and the cursor advances strictly on every page, so this cap
+// is only reached by a server fabricating an endless stream — an
+// absolute backstop against a hung client.
+const maxPullPages = 1 << 20
+
 // pullAll walks the server's set from the beginning, committing each
 // page. It stores every returned entry verbatim (even one that fails to
-// open) so the client's set matches the server's.
+// open) so the client's set matches the server's. The pull cursor MUST
+// advance on every non-empty page; a server that returns a page not
+// beyond the cursor is misbehaving and is rejected rather than looped on.
 func (c *Client) pullAll(ctx context.Context) (byte, error) {
 	var curTs uint64
 	var curID vault.EntryID
-	for {
+	for page := 0; ; page++ {
+		if page >= maxPullPages {
+			return 0, errors.New("client: pull exceeded page budget (misbehaving server)")
+		}
 		payload := wire.SyncReq{Op: wire.OpPull, CurTs: curTs, CurID: curID}.Marshal()
 		resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload)
 		if err != nil || pre != 0 {
@@ -354,14 +367,26 @@ func (c *Client) pullAll(ctx context.Context) (byte, error) {
 		if len(resp.Entries) == 0 {
 			return 0, nil
 		}
+		last := resp.Entries[len(resp.Entries)-1]
+		if !posAfter(last.TsMs, last.ID(), curTs, curID) {
+			return 0, errors.New("client: server pull did not advance the cursor")
+		}
 		for _, e := range resp.Entries {
 			if _, err := c.store.Add(e); err != nil {
 				return 0, err
 			}
 		}
-		last := resp.Entries[len(resp.Entries)-1]
 		curTs, curID = last.TsMs, last.ID()
 	}
+}
+
+// posAfter reports whether canonical position (ts, id) is strictly after
+// (baseTs, baseID).
+func posAfter(ts uint64, id vault.EntryID, baseTs uint64, baseID vault.EntryID) bool {
+	if ts != baseTs {
+		return ts > baseTs
+	}
+	return bytes.Compare(id[:], baseID[:]) > 0
 }
 
 // pushAll walks the client's own set in byte-bounded batches and pushes

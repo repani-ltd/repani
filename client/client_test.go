@@ -3,11 +3,13 @@ package client
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/pavlos/kv/server"
 	"github.com/pavlos/kv/store"
 	"github.com/pavlos/kv/vault"
+	"github.com/pavlos/kv/wire"
 )
 
 var testRegKey = vault.RegisterKey{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
@@ -159,6 +161,74 @@ func TestSync_GatedWrongKeyRejected(t *testing.T) {
 	c.SetRegisterKey(&wrong)
 	if err := c.Sync(context.Background()); err == nil {
 		t.Fatal("expected registration to fail with wrong register key")
+	}
+}
+
+// stuckServer is a minimal fake that seals valid responses but always
+// returns the SAME pull page, so its cursor never advances past the
+// first entry — exercising the client's pull loop protection.
+type stuckServer struct {
+	vid   vault.VaultID
+	c2s   vault.ChannelKey
+	s2c   vault.ChannelKey
+	reg   vault.ChannelKey
+	fixed vault.Entry
+}
+
+func (s *stuckServer) Do(_ context.Context, req []byte) ([]byte, error) {
+	kind, vid, nonce, sealed, err := wire.ParseHeader(req)
+	if err != nil {
+		return []byte{wire.ErrBadFrame}, nil
+	}
+	openK := s.c2s
+	if kind == wire.KindRegister {
+		openK = s.reg
+	}
+	payload, err := wire.OpenFrame(openK, kind, vid, nonce, sealed)
+	if err != nil {
+		return []byte{wire.ErrBadAuth}, nil
+	}
+	resp := wire.Resp{ReqNonce: nonce, Status: wire.StatusOK}
+	if kind == wire.KindSync {
+		sr, _ := wire.ParseSync(payload)
+		switch sr.Op {
+		case wire.OpProbe:
+			resp.Status = wire.StatusDiffer
+		case wire.OpPull:
+			resp.Entries = []vault.Entry{s.fixed} // never advances
+		}
+	}
+	rn, err := vault.FrameNonce(vid)
+	if err != nil {
+		return nil, err
+	}
+	return wire.SealFrame(wire.KindResp, vid, rn, s.s2c, resp.Marshal())
+}
+
+func TestSync_PullLoopProtection(t *testing.T) {
+	rk, _ := vault.NewRandomRootKey()
+	aead, _ := rk.AEAD()
+	fixed, _ := vault.Seal(aead, 1000, []byte("k"), []byte("\x00v"))
+	ak := vault.DeriveAuthKey(rk)
+	srv := &stuckServer{
+		vid:   vault.DeriveVaultID(rk),
+		c2s:   vault.DeriveC2S(ak),
+		s2c:   vault.DeriveS2C(ak),
+		reg:   vault.DeriveRegKey(testRegKey),
+		fixed: fixed,
+	}
+	c, err := New(rk, store.NewMemStore(), srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetRegisterKey(&testRegKey)
+
+	err = c.Sync(context.Background())
+	if err == nil {
+		t.Fatal("expected sync to error against a non-advancing server, not hang")
+	}
+	if !strings.Contains(err.Error(), "advance") {
+		t.Fatalf("expected a cursor-advance error, got: %v", err)
 	}
 }
 

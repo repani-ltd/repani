@@ -353,4 +353,12 @@
     the window, widens toward a full walk — and even that moves one
     page at a time, committing as it goes.
 
+    4. A client bounds its own sync. The PROBE/reconcile loop has a
+    round budget, and a PULL walk requires the cursor to advance
+    strictly on every page — a server that never returns an empty page,
+    or replays a non-advancing one, is rejected rather than looped on.
+    A misbehaving or hostile relay can stall availability but cannot
+    hang the client, and (per §Merge and the double seal) can never
+    corrupt or read its data.
+
   == This is it. ==
