@@ -1,474 +1,356 @@
-# ASCON-KV PROTOCOL
+# ASCON-KV PROTOCOL (v1)
 
-  ASCON-KV is a secrets key-value protocol focused on security and simplicity.
-  It offers end-to-end encrypted, authenticated synchronization of a personal
-  key-value store across a user's own devices. The protocol uses the ASCON
-  family (NIST SP 800-232) as its only cryptographic primitive: Ascon-AEAD128
-  for confidentiality and Ascon-XOF128 for hashing and key derivation. There
-  is no asymmetric cryptography, no central authority, and no account model
-  on the server beyond a per-vault authentication key established via
-  an operator-held register-gate secret that the server loads at
-  startup. Servers are blind relays that see only opaque ciphertext and
-  a public vault id.
+  ASCON-KV is an end-to-end encrypted, authenticated key-value store
+  synchronised across a user's own devices through a blind relay
+  server. Its one design idea: once two parties share a key, a secure
+  protocol is just an authenticated-encrypted envelope. Every frame —
+  request and response, in both directions — is a single Ascon-AEAD128
+  seal under a shared key. There are no separate MACs, no signatures,
+  no asymmetric crypto, and no plaintext protocol fields beyond the few
+  bytes needed to route and decrypt.
 
-  A vault is owned by one user across any number of devices that share a
-  single 32-byte RootKey. The RootKey is either generated at random on first
-  init or derived from a passphrase by iterated Ascon-XOF128. A device is
-  simply an instance of the client software that holds the RootKey; it has
-  no assigned identity and no local counter. Either side can recover from
-  data loss by syncing against the other: a client that has lost
-  everything but the RootKey syncs itself from the server, and a server
-  that has lost its database converges back to the union of what its
-  paired clients hold. The protocol uses the same primitives in both
-  directions.
-
-  ## Versioning
-
-  Every wire frame (request and response) begins with a 1-byte protocol
-  version. This document specifies version 0x01. A server receiving a
-  request with an unknown version MUST reject it without touching its
-  persistent state. A client receiving a response with a version other
-  than the one it sent MUST discard the response without ingestion.
+  The only primitives are Ascon-AEAD128 (encryption + authentication)
+  and Ascon-XOF128 (hashing + key derivation), both from NIST SP
+  800-232. All integers are little-endian.
 
   ## Keys
 
-  Domain separators are 8 bytes and always prefix the XOF input:
+  A vault is owned by one user across any number of devices sharing a
+  single 32-byte RootKey (random, or stretched from a passphrase by
+  iterated XOF). Everything else is derived by XOF over an 8-byte
+  domain prefix:
 
-    AEAD_Key  = XOF("kv/aead/" || RootKey, 16)   record encryption key
-    VaultID   = XOF("kv/vid1/" || RootKey, 16)   public vault handle
-    AuthKey   = XOF("kv/auth/" || RootKey, 16)   request / response MAC key
+    AEAD_Key = XOF("kv/aead/" || RootKey, 16)   per-entry encryption
+    VaultID  = XOF("kv/vid1/" || RootKey, 16)   public routing handle
+    AuthKey  = XOF("kv/auth/" || RootKey, 16)   shared channel root
 
-  The VaultID is the only key-derived value ever transmitted in the clear.
-  The AuthKey is shared with the server the first time a client registers
-  a new vault (see §Server authentication below); thereafter the server
-  holds it per VaultID and uses it to verify every request and to
-  authenticate every response.
+  AEAD_Key never leaves the devices; it keeps the server blind. VaultID
+  is public. AuthKey is handed to the server once, at registration, and
+  from it both sides derive directional channel keys so that each
+  direction has its own key and its own nonce space:
 
-  The server also holds a single 16-byte RegisterKey that is NOT
-  derived from any client's RootKey. The operator chooses it at server
-  initialization (typically 16 bytes from a cryptographic RNG) and
-  shares it out of band with any user authorized to create a new vault.
-  Every REGISTER request must carry a MAC under this key:
+    K_c2s = XOF("kv/c2s0/" || AuthKey, 16)       client -> server
+    K_s2c = XOF("kv/s2c0/" || AuthKey, 16)       server -> client
 
-    reg_admin_mac = XOF("kv/radm/" || RegisterKey || AuthKey || VaultID, 16)
+  The server also holds one operator secret, the 16-byte RegisterKey,
+  distributed out of band to anyone authorised to create a vault:
 
-  The MAC binds the specific (VaultID, AuthKey) pair being registered
-  so an attacker cannot replay a captured MAC to register a different
-  vault or rebind an existing one.
+    K_reg = XOF("kv/reg0/" || RegisterKey, 16)   registration gate
 
-  AuthKey and AEAD_Key are cryptographically independent by domain
-  separation. A compromise of AuthKey lets an attacker forge requests
-  and responses (a write/DoS capability) but not decrypt any stored
-  entry; per-entry AEAD authentication remains the ultimate safety net.
+  A compromise of AuthKey (e.g. a leaky server) permits frame forgery
+  against that one vault but never decryption: entry contents stay
+  sealed under AEAD_Key, which the server never holds.
 
   ## Entries
 
-  A vault is an unordered set of content-addressed entries. Each entry is a
-  self-contained, independently decryptable unit. The canonical layout is:
+  A vault is an unordered, content-addressed set of self-decrypting
+  entries. Each is an independent AEAD seal:
 
-    | ts_ms | nonce | ct_len | ciphertext |
+    | ts_ms(8) | nonce(16) | ct_len(2) | ciphertext |
+     \________ header, 26 bytes _______/
 
-  The 'ts_ms' is an 8-byte unsigned integer, Unix milliseconds at write
-  time. Devices must keep wall-clock time to within a few minutes of true
-  time for conflict resolution to behave intuitively. Servers SHOULD
-  reject entries whose ts_ms falls outside [now - SKEW, now + SKEW] with
-  SKEW = 24 hours; see §Server quotas.
+    ciphertext = AEAD(AEAD_Key,
+                      nonce = the header's nonce field,
+                      ad    = header = ts_ms || nonce || ct_len,
+                      pt    = key_len(1) || key || value_len(2) || value)
 
-  The 'nonce' is 16 bytes drawn from a cryptographic random source at
-  write time. With a 2^128 nonce space and AEAD_Key shared across a
-  personal vault, birthday collision is negligible at any realistic entry
-  volume.
+  The associated data is the ENTIRE 26-byte header, so the tag binds
+  the entry's timestamp, nonce, and declared length: none can be
+  altered without failing the open. Binding ts_ms in particular means a
+  relay cannot re-date an entry to shift last-writer-wins ordering.
+  ct_len is the length of ciphertext (plaintext + the trailing 16-byte
+  tag) and is known before sealing, so the whole header is fixed at
+  seal time. The plaintext holds only the key and value, and never
+  appears outside the ciphertext — the server cannot correlate two
+  writes to the same key. A zero-length value is a tombstone (deletion
+  of key); empty values are not otherwise stored. The value is opaque to
+  the protocol; a client may reserve its leading byte as a format tag
+  for its own use (raw, compressed, ...) — a convention that stays
+  inside the ciphertext, invisible to the server. See CLIENT.txt.
 
-  The 'ct_len' is a 4-byte unsigned integer giving the length of
-  'ciphertext'.
+  Field widths cap an entry so it always fits one frame: key_len is 1
+  byte (key is 1..255 bytes), value_len is 2 bytes, and the cleartext
+  ct_len is 2 bytes — so a ciphertext, and hence the whole entry, tops
+  out near 64 KiB. The marshaled entry (header + ciphertext) MUST be
+  under MAX_ENTRY_BYTES = 64 KiB; a value that would exceed that is
+  rejected at Put, before it enters the store. So a single entry is the
+  largest thing any party must move, and it always fits one frame (see
+  Sync).
 
-  The 'ciphertext' is Ascon-AEAD128(AEAD_Key, nonce, ad, pt) where the
-  associated data 'ad' is the 28-byte entry header (ts_ms..ct_len) and the
-  plaintext is:
+  ts_ms is the write time in Unix milliseconds; nonce is a 16-byte
+  hedged nonce (see Nonces). entry_id is computed on demand as
+  XOF("kv/eid1/" || entry_bytes, 16) over the whole entry, giving
+  automatic dedup: equal bytes yield equal ids.
 
-    | key_len(2) | key | value_len(4) | value |
+  ## Frame
 
-  A value_len of zero denotes a tombstone (deletion of 'key'). Empty
-  values are not permitted in stored data. There is no separate op byte.
+  One envelope carries every message:
 
-  The 'entry_id' is not stored in the entry; it is computed on demand as
-  XOF("kv/eid1/" || entire_entry_bytes, 16). Identical bytes produce
-  identical ids, which gives automatic deduplication on push and replay.
+    | ver(1) | kind(1) | vault_id(16) | nonce(16) | sealed |
+     \_________ header, 34 bytes _____________/
 
-  Keys are never exposed outside the ciphertext; the server cannot
-  correlate two writes to the same key.
+    sealed = AEAD(K,
+                  nonce = the header's nonce field,
+                  ad    = header = ver || kind || vault_id || nonce,
+                  pt    = payload)
+
+  The associated data is the ENTIRE 34-byte header, so the tag binds
+  every routing byte — version, kind, vault_id, nonce. A sealed body
+  cannot be lifted onto a different header (reassigned to another vault,
+  reflected in the other direction, or downgraded) without failing the
+  open. The rule is simply "AD = the whole header"; the nonce is also
+  the AEAD nonce, so binding it there too is belt-and-suspenders.
+
+  ver is 0x01. kind selects the opening key and, because it is in the
+  AD, cannot be flipped:
+
+    0x01 REGISTER   opened with K_reg   (client -> server, first sync)
+    0x02 SYNC       opened with K_c2s   (client -> server)
+    0x03 RESP       opened with K_s2c   (server -> client)
+
+  vault_id is cleartext because the server must pick a key before it
+  can decrypt; nonce is cleartext because nonces are public. The
+  payload — everything of substance — is the ciphertext. A frame that
+  fails to open is rejected with no side effects.
+
+  Entries pushed in a frame are thus sealed twice: once per-entry under
+  AEAD_Key (inner, its AD the 26-byte entry header) and once per-frame
+  under the channel key (outer, its AD the 34-byte frame header). The
+  outer layer hides entry sizes, counts, and ts_ms from an eavesdropper;
+  the inner layer hides contents from the server. Double sealing costs
+  one extra Ascon pass over a small body.
+
+  ## Nonces
+
+  Every nonce is hedged so that no single failure causes reuse:
+
+    frame: XOF("kv/rnon/" || VaultID || ts_highres || random16, 16)
+    entry: XOF("kv/enon/" || ts_highres || random16, 16)
+
+  random16 (from a cryptographic RNG) provides uniqueness; the
+  high-resolution timestamp is insurance against an RNG that repeats
+  (fork, early boot). The two cases differ in who generates them:
+
+    Frame nonces have a single generator per key — the client owns
+    every K_c2s / K_reg nonce, the server owns every K_s2c nonce — so
+    uniqueness is a one-party concern.
+
+    Entry nonces are made under AEAD_Key, which every device shares and
+    writes with independently. There is no coordinator, so the random
+    component is what keeps writes from colliding across devices, and
+    the timestamp hedge covers a device whose RNG has failed — a
+    collision here would leak the XOR of two secret values.
+
+  A nonce always travels with its ciphertext (in the frame header, or
+  in the entry header); the receiver never recomputes it.
+
+  ## Payloads
+
+  A REGISTER payload just adopts a channel key:
+
+    REGISTER : authkey(16)
+
+  A SYNC payload is one of three ops, all bounded so requests stay small:
+
+    SYNC : op(1) || body
+      op 0x00 PROBE : set_hash(16)
+      op 0x01 PULL  : cursor(24)              cursor = ts_ms(8) || entry_id(16)
+      op 0x02 PUSH  : push_count(4) || entries
+
+  A RESP answers the request that produced it:
+
+    RESP : status(1) || req_nonce(16) || push_count(4) || entries
+
+  entries self-frame via ct_len and appear only in a PULL page (a PROBE
+  or PUSH reply carries none). req_nonce echoes the request's frame
+  nonce, binding each response to the exact request that produced it, so
+  a captured response cannot be replayed against a later one. cursor is
+  a 24-byte canonical position (see Sync).
+
+  status lives inside the sealed RESP, so it is authenticated. It is
+  reached only once the frame has opened, and is one of:
+
+    0x00 OK          request accepted; a PULL's page (if any) follows
+    0x01 DIFFER      PROBE only: the sets differ, walk to reconcile
+    0x02 QUOTA       a PUSH would exceed a server limit
+    0x03 BAD_REQUEST frame opened but its payload is invalid (e.g. a
+                     PROBE carrying entries, or an unparsable entry)
+
+  ## Pre-channel errors
+
+  Some failures occur before the server can seal a RESP at all: the
+  frame will not parse, or its seal will not open, so no channel key is
+  available to authenticate any reply. In those cases the server
+  returns a SINGLE unauthenticated byte and nothing else. A valid RESP
+  is a full envelope, so a one-byte reply is unambiguous; the codes sit
+  in the 0xE0 range to stay visually distinct from sealed statuses:
+
+    0xE0 BAD_FRAME      header could not be parsed (short / bad length)
+    0xE1 BAD_VERSION    unsupported ver
+    0xE2 BAD_KIND       unknown kind
+    0xE3 UNKNOWN_VAULT  SYNC for a vault_id with no registration; the
+                        client should REGISTER. This cannot be a sealed
+                        status — with no registration there is no
+                        AuthKey to seal under.
+    0xE4 BAD_AUTH       the seal did not open: wrong RegisterKey on a
+                        REGISTER, or wrong AuthKey / forgery on a SYNC.
+                        (A SYNC that fails to open cannot be answered
+                        authentically either, since the sender's key
+                        does not match the one a RESP would use.)
+    0xE5 TRY_LATER      transient refusal (e.g. overload); retry later
+
+  These bytes are hints, not proofs: an on-path attacker can forge or
+  drop them. A client uses them only to choose local behaviour —
+  REGISTER on UNKNOWN_VAULT, back off on TRY_LATER, surface a failure
+  otherwise — and NEVER to mutate vault state. This is safe because no
+  pre-channel byte triggers a state change: the worst a forged one can
+  do is delay a sync or provoke an idempotent re-registration, and the
+  re-registration reveals nothing, since it reseals AuthKey under K_reg
+  which the forger does not hold.
 
   ## Sync
 
-  Client and server reconcile by exchanging a small ladder of suffix
-  hashes plus a terminal full-set hash. Both sides sort their entries
-  by (ts_ms asc, entry_id asc) — a total order derivable from the
-  entries themselves — and compute:
+  Reconciliation is a cheap equality probe backed by a paged walk.
+  Every request and every response stays small — the heavy data moves a
+  bounded page at a time — and the server keeps no session: it answers
+  only "entries after this cursor" and "add these", both stateless.
 
-    L_k = XOF("kv/lad1/" || u32(k) || concat(sorted entry_ids of last k), 16)
+  Set fingerprint. Either party hashes its whole set:
 
-  for window sizes k in {1, 2, 4, 8, …, 2^p}, where 2^p is the
-  largest power of two not greater than N. In addition, each party
-  computes a terminal "hash of everything I have" whose input binds
-  the party's actual entry count:
+    SetHash = XOF("kv/sset/" || u32(N) || concat(entry_ids in
+              canonical order), 16)
 
-    L_term = XOF("kv/ladT/" || u32(N_actual) || concat(sorted_all_entry_ids), 16)
+  where canonical order is (ts_ms asc, entry_id asc) and N is the count,
+  bound in. Two parties agree on SetHash iff they hold identical sets
+  (up to a negligible collision). SetHash is the single "are we done"
+  oracle: a PROBE that matches means fully in sync.
 
-  The terminal is what makes the comparison complete. The progressive
-  ladder probes the recent end at log-scale granularity; the terminal
-  fingerprints the whole set with the count baked in, so differences
-  outside the progressive window — including entries backdated below
-  the ladder floor, or a server holding entries the client has never
-  seen at all — cannot be missed. Two parties whose terminals agree
-  hold identical sets (up to a negligible hash collision).
+  The three ops behave as:
 
-  In the common case nothing has changed, both terminals match, both
-  ladders agree at every level, and the server replies with a
-  fully-authenticated "in sync" frame. When the terminal differs, the
-  server walks the progressive ladder to locate the finest-grained
-  divergent window and ships its entries in that window; if the
-  progressive levels all match but the terminal disagrees, the
-  divergence lies below the ladder floor and the server promotes the
-  window to the larger of the two counts so the client receives
-  everything it may be missing.
+    PROBE(set_hash)  OK if the server's SetHash matches, else DIFFER.
+                     Fixed-size, independent of vault size.
+    PULL(cursor)     the next whole entries in canonical order strictly
+                     after cursor that fit the page budget PAGE_BYTES —
+                     at least one, since every entry is < MAX_ENTRY_BYTES
+                     <= PAGE_BYTES. An empty page means the server holds
+                     nothing beyond cursor.
+    PUSH(entries)    the server adds any it does not already hold
+                     (idempotent, content-addressed) and acks.
 
-  The protocol is symmetric in the face of data loss. A fresh or
-  corrupted client sends id_count = 0 with no ladder and receives
-  the full vault. A server whose database is lost or restored from
-  an older backup converges back to the union of its paired clients'
-  sets through the same mechanism, with the divergence window
-  doubling on each round — O(log N) round trips for a full rebuild.
-  There is no distinct recovery mode.
+  The client loop:
 
-  ## Wire format
+    1. PROBE. If OK, done.
+    2. Otherwise walk a suffix window anchored a look-back delta below
+       the client's frontier — the newest canonical position in its
+       store:
+         - PULL forward from (frontier.ts_ms - delta, 0) a page at a
+           time, COMMITTING each page to the log before the next
+           request. Committing advances the frontier, so the next
+           cursor is re-derived from the store: the client keeps no
+           cursor in RAM, and a crash mid-walk simply resumes from the
+           log.
+         - PUSH the client's own entries over the same window, a page at
+           a time. This is dedup-tolerant — the client re-sends the
+           window's overlap and the server drops what it already holds,
+           so the client needs no record of what the server has.
+    3. PROBE again. If OK, done. If still DIFFER the divergence lies
+       below the window: grow delta (geometrically) and repeat from 2.
 
-  Clients exchange entries with servers over any reliable transport
-  (HTTPS is recommended; see §Transport). A single request carries the
-  client's ladder, its terminal hash, any entries it wishes to push,
-  an optional AuthKey for first-time registration, and a request MAC:
+  delta is purely client-local — it never appears on the wire and is no
+  server state, only which cursor the client chooses to send. Anchoring
+  the walk delta below the frontier re-examines recent history on every
+  attempt, so a concurrent or lightly-backdated write that landed behind
+  the frontier is caught without a full walk; growing delta reaches an
+  anchor of zero, a full walk that always converges.
 
-    | ver(1) | vault_id(16) | flags(1) | id_count(4) | ladder | terminal(16)
-    | push_count(2) | entries
-    | [reg_authkey(16) reg_admin_mac(16)]?  (iff REGISTER)
-    | mac(16) |
+  Why it converges: a PULL walk to an empty page leaves the client
+  holding every server entry in the window, and the dedup-tolerant PUSH
+  leaves the server holding every client entry in the window. If the
+  window spans the whole divergence the next PROBE matches; if not, a
+  wider one does, and anchor zero spans everything. Every step is a
+  bounded, log-committed page, so an interrupted sync loses nothing and
+  resumes from a more-complete store. The only transient client state is
+  delta, which is safe to lose — a restart just re-widens from the
+  frontier.
 
-  The 'ver' byte is 0x01.
+  Recovery is the same loop at anchor zero, not a distinct mode. A fresh
+  or wiped client has frontier zero, so its first walk is a full pull
+  that rebuilds it from the server; a wiped server is rebuilt from the
+  client's full-window PUSH. In steady state the PROBE matches and
+  nothing else is sent.
 
-  The 'vault_id' is the 16-byte VaultID.
+  ## Registration
 
-  The 'flags' byte is a bit set:
+  The first frame for a VaultID is a REGISTER sealed under K_reg,
+  carrying the AuthKey the server is to adopt. The server opens it with
+  its own K_reg — a bad RegisterKey means the seal will not open, which
+  IS the authorisation gate — records AuthKey for vault_id, and acks
+  under K_s2c. The client then syncs normally over the channel keys.
+  There is no permissionless registration.
 
-    bit 0 (REGISTER)  — reg_authkey and reg_admin_mac follow entries
-    bits 1..7         — reserved, MUST be zero
-
-  The 'id_count' is a 4-byte unsigned integer N: the number of
-  entries the client holds. It also determines the ladder length.
-
-  The 'ladder' is a concatenation of 16-byte hashes at window sizes
-  1, 2, 4, 8, …, 2^p, where 2^p is the largest power of two not
-  greater than N. Each hash is L_k as defined above over the client's
-  own last-k entries in canonical order. When N = 0 the ladder is
-  empty.
-
-  The 'terminal' is the 16-byte L_term hash defined above, computed
-  over the client's entire set with u32(N) bound into the domain.
-
-  The 'push_count' is a 2-byte unsigned integer M followed by M
-  entries the client wishes to append. Entries self-frame via their
-  ct_len.
-
-  The 'reg_authkey' field is present if and only if REGISTER is set;
-  it carries the client's 16-byte AuthKey. It is covered by the
-  request MAC like every other body byte.
-
-  The 'reg_admin_mac' field follows reg_authkey on any REGISTER
-  request. It is the 16-byte admin MAC
-  XOF("kv/radm/" || RegisterKey || reg_authkey || VaultID, 16). The
-  server computes the expected value under its loaded RegisterKey
-  and accepts the REGISTER only when the tags match in constant
-  time. A REGISTER without reg_admin_mac (zeros) or with a wrong
-  value is rejected with BAD_MAC.
-
-  The 'mac' is a 16-byte tag computed as
-  XOF("kv/rmac/" || AuthKey || body, 16) over all preceding bytes
-  (the full frame up to but not including the mac itself). The server
-  verifies this tag in constant time against the AuthKey it holds for
-  VaultID, or against reg_authkey on a registration request. A
-  request whose mac does not verify is rejected without side effects.
-
-  The server response is:
-
-    | ver(1) | status(1) | window(4) | push_count(2) | entries | resp_mac(16) |
-
-  The 'ver' byte is 0x01.
-
-  The 'status' byte is one of:
-
-    0x00 OK                          normal response, window and entries follow
-    0x01 UNKNOWN_VAULT               server has no registration; client should
-                                     retry with REGISTER set and reg_authkey
-    0x02 BAD_MAC                     request mac did not verify
-    0x03 QUOTA                       request would exceed a server-enforced limit
-    0x04 BAD_REQUEST                 frame is malformed (bad version, bad size,
-                                     ts_ms out of bounds, reserved bits set, etc.)
-
-  For non-OK status bytes, window and push_count are zero and entries
-  is empty; the response is ver(1) + status(1) + 0 + 0 + resp_mac(16)
-  = 24 bytes. A BAD_MAC response is still MAC'd under the server's
-  stored AuthKey when one exists for the VaultID; otherwise it is
-  MAC'd under a zero key (a client that was about to register cannot
-  validate this particular response, and treats a BAD_MAC + bad
-  response MAC as a hard transport failure).
-
-  The 'window' is a 4-byte unsigned integer D: the smallest ladder
-  size at which the client's and server's hashes disagree. D = 0 means
-  all levels matched and the client is fully in sync; in that case
-  push_count = 0 and the body is ver + status + window + push_count =
-  8 bytes plus the 16-byte MAC = 24 bytes.
-
-  If D > 0, 'push_count' is a 2-byte unsigned integer P followed by P
-  entries in canonical order: the server's last-D entries, or all of
-  them if the server holds fewer than D.
-
-  The 'resp_mac' is a 16-byte tag computed as
-  XOF("kv/rsmc/" || AuthKey || request_mac || response_body, 16),
-  where response_body is every preceding byte of the response and
-  request_mac is the client's 16-byte MAC from the request that
-  produced this response. Binding request_mac into the response tag
-  prevents an attacker from stitching a cached response to a new
-  request.
-
-  The client verifies resp_mac in constant time before any entry in
-  the response is ingested. A bad resp_mac means the entire response
-  is discarded.
-
-  ## Server authentication
-
-  The server holds a per-VaultID AuthKey that it uses to verify
-  requests and authenticate responses. It acquires AuthKey the first
-  time a client registers a fresh VaultID. Every REGISTER request
-  must be gated by the server's RegisterKey; there is no
-  permissionless (trust-on-first-use) path.
-
-    First sync for a VaultID:
-      - Client sets REGISTER, includes reg_authkey and reg_admin_mac
-        (XOF("kv/radm/" || RegisterKey || reg_authkey || VaultID, 16)).
-      - Server verifies reg_admin_mac against its loaded RegisterKey
-        in constant time; on mismatch the response is BAD_MAC.
-      - Server verifies the request mac under reg_authkey.
-      - Server records AuthKey := reg_authkey.
-      - Subsequent requests must MAC under the same AuthKey.
-
-    Subsequent syncs:
-      - REGISTER MUST be zero.
-      - Server verifies mac against its stored AuthKey.
-
-    Idempotent re-registration:
-      - A client may send REGISTER with reg_authkey on a vault the
-        server already knows about. The server accepts the request
-        if reg_authkey matches its stored AuthKey (constant-time
-        compare) and the request mac verifies; the admin MAC is
-        ignored on the idempotent re-register path because the
-        identity of the registrant is already fixed by the stored
-        AuthKey. The server rejects a mismatching reg_authkey with
-        BAD_MAC.
-
-    Server-side state loss:
-      - If the server loses its per-vault state (disk wipe, restore
-        from older backup) but retains the RegisterKey, any client
-        holding the RootKey AND the RegisterKey can re-register
-        under the same AuthKey and resume. If the server loses the
-        RegisterKey too, the operator MUST generate a new one and
-        distribute it to anyone authorized to re-register.
-
-  Because every REGISTER carries a fresh admin MAC, plaintext HTTP is
-  acceptable for steady-state traffic: AEAD_Key and RegisterKey never
-  appear on the wire, AuthKey never appears on the wire after the
-  first sync, and request/response integrity is protected by MAC and
-  per-entry AEAD tags. TLS is still RECOMMENDED in production to
-  limit metadata leakage (VaultID, request sizes, timing).
-
-  ## Server quotas
-
-  A server MUST enforce the following limits per VaultID to bound
-  adversarial amplification:
-
-    MAX_ENTRIES       entries per vault (default 1_000_000)
-    MAX_VAULT_BYTES   total entry bytes per vault (default 2^30)
-    TS_SKEW_MS        |ts_ms - now| cap for accepted entries
-                      (default 24 * 60 * 60 * 1000)
-
-  A request that would exceed MAX_ENTRIES or MAX_VAULT_BYTES is
-  rejected with QUOTA. An entry whose ts_ms is outside the skew
-  window is rejected with BAD_REQUEST (dropping the whole request so
-  a malicious pusher cannot mix valid and invalid entries to probe
-  server state).
-
-  Servers MAY also cap the number of vaults they are willing to
-  persist; the surplus is rejected with BAD_REQUEST on an
-  UNKNOWN_VAULT that would otherwise register. This is an
-  operational concern outside the wire protocol.
-
-  ## Transport
-
-  TLS is RECOMMENDED. The only wire field that names a specific
-  vault is the VaultID, which is already a one-way derivation of the
-  RootKey. With v2's MACs, plaintext HTTP is adequate for
-  steady-state; it leaks only the VaultID, request sizes, and
-  timing. The admin-MAC gate on REGISTER prevents an attacker from
-  ever creating a vault on the server: without knowledge of the
-  server's RegisterKey, a REGISTER request is rejected with BAD_MAC
-  and the server stores no state.
-
-  Clients MUST set a request timeout and a response body length cap.
-  The reference client caps bodies at 64 MiB and request/response
-  round trips at 60 s.
+  Re-registration is idempotent: a device presenting an AuthKey that
+  matches the stored one is accepted, a mismatch rejected. A server that
+  lost its state but kept RegisterKey lets any RootKey+RegisterKey holder
+  re-register under the same AuthKey and resume.
 
   ## Merge
 
-  A device's local state is derived by decrypting every known entry and
-  replaying them in the total order (ts_ms asc, entry_id asc). For each
-  plaintext key the latest surviving entry wins: a non-empty value
-  installs (key, value), an empty value removes the key. The client's
-  local storage is therefore an unordered set; order is a property of
-  the merge, not of the store. Because entries are content-addressed,
-  replay is idempotent and any two devices that reach the same entry
-  set reach the same merged view.
+  A device's view is derived by decrypting every entry and replaying it
+  in canonical order under last-writer-wins: a non-empty value installs
+  (key, value), an empty value removes the key. Replay is idempotent,
+  so any two devices holding the same set compute the same view. An
+  entry that fails to open under AEAD_Key is silently discarded — never
+  fatal, and not re-added on later syncs since it simply fails again.
 
-  Clients MUST silently discard any entry that fails to open under
-  their AEAD_Key. A failing entry signals either a protocol bug or a
-  rare race; it is never a fatal condition. The dropped entry is not
-  re-added on subsequent syncs because it simply fails to open again.
+  ## Quotas
 
-  ## Pairing
+  Per vault the server enforces MAX_ENTRIES, MAX_VAULT_BYTES, and
+  TS_SKEW_MS (|ts_ms - now|, default 24h); it may cap MAX_VAULTS. The
+  page budget PAGE_BYTES — the most a frame's payload may carry — MUST
+  be at least MAX_ENTRY_BYTES plus frame overhead, so any one entry fits
+  a single frame; paging then decouples vault size from the body cap, a
+  frame never carrying more than one page. Skew and quota are checked
+  only against entries the server does not already hold, so re-pushing
+  an accepted entry is a no-op and is never re-judged. A violation
+  rejects the offending frame (QUOTA or BAD_REQUEST) so a pusher cannot
+  mix valid and invalid entries in one PUSH.
 
-  A new device joins by receiving the RootKey out of band:
+  ## Pairing and rotation
 
-    blob = base32(RootKey)     (52 Crockford base32 characters)
+  A device joins by receiving the RootKey out of band as Crockford
+  base32 (52 chars); the RegisterKey travels the same channel (26
+  chars). The new device derives VaultID, AuthKey, and the channel keys
+  and registers. Rotation is out of band: to retire a device, generate
+  a fresh RootKey on a trusted device and re-pair the others. The old
+  vault becomes abandoned storage the retired device can still read but
+  not influence, ageing out under quota. There is no in-band ratchet: a
+  deterministic one would hand the old key's holder the new key, and a
+  random one would still need the pairing channel to carry the entropy.
 
-  The blob is transported by QR, clipboard, or hand. A mistyped blob
-  produces a RootKey that matches no vault on the server; the first
-  sync attempt fails with UNKNOWN_VAULT and — absent a valid
-  reg_admin_mac — the server refuses to register any fresh VaultID
-  the new device derives. The new device stores the RootKey, derives
-  VaultID and AuthKey, is handed the RegisterKey out of band (the
-  same channel used for pair transfer is sufficient), and begins
-  sync with REGISTER set. The server is not involved in pairing
-  itself and learns nothing about it beyond the AuthKey and admin
-  MAC that the first sync carries.
+  ## Transport
 
-  Paired devices that share a RootKey independently derive the same
-  AuthKey and the same VaultID; a new device's first sync presents
-  reg_authkey equal to whatever the server already holds, which
-  matches and is accepted as an idempotent re-registration.
-
-  ## Rotation
-
-  Rotation is out of band. To retire a compromised or lost device, the
-  user generates a fresh random 32-byte RootKey on a trusted device and
-  pairs the remaining trusted devices to it using the procedure above.
-  The new vault starts empty; the trusted device optionally seeds it by
-  writing the current state under the new RootKey. The old vault on the
-  server becomes abandoned storage that a compromised old device can
-  still read but cannot influence. Abandoned vaults age out under the
-  server's quota policy.
-
-  The protocol deliberately does not offer an in-band ratchet. A
-  deterministic ratchet would give any holder of the old RootKey the
-  new one, and a non-deterministic one would still need an out-of-band
-  channel to transport the fresh entropy — the same channel used for
-  pairing.
-
-  ## Server
-
-  The server stores, per VaultID, its entries in canonical order
-  along with cached terminal and ladder hashes (updated incrementally
-  as entries are appended) and the AuthKey established at pair time.
-  It also holds a single 16-byte RegisterKey, loaded from disk at
-  startup (Crockford base32 text, 26 chars; whitespace and dashes
-  are ignored on read), that gates every fresh REGISTER request. On
-  each request
-  the server:
-
-    1. Parses the version byte; rejects on mismatch.
-    2. Looks up the vault by VaultID.
-       - If absent and REGISTER is set: verify reg_admin_mac
-         against the server's RegisterKey in constant time; verify
-         the request mac under reg_authkey; on both successes,
-         persist AuthKey and proceed.
-       - If absent and REGISTER is clear: reply UNKNOWN_VAULT.
-       - If present and REGISTER is set: verify reg_authkey ==
-         stored AuthKey and the request mac verifies under it;
-         otherwise BAD_MAC. The admin MAC is not re-checked on the
-         idempotent re-register path because identity is already
-         fixed by the stored AuthKey.
-       - If present and REGISTER is clear: verify mac under
-         stored AuthKey; otherwise BAD_MAC.
-    3. Validates quotas and ts_ms bounds on every pushed entry;
-       rejects the entire request on violation.
-    4. Ingests pushes (deduplicating by entry_id).
-    5. Compares its terminal against the client's; if they disagree,
-       walks the progressive ladder to find the smallest divergent
-       window, promoting to max(N_client, N_server) if the progressive
-       levels all match.
-    6. Assembles the response body (status, window, entries).
-    7. Computes resp_mac and returns.
-
-  The server performs no decryption, no indexing of plaintext, and
-  no conflict resolution. A compliant server is small and fits
-  comfortably in under a thousand lines of code.
-
-  Because the server's state is a content-addressed set, restoring
-  the server from any paired client is a matter of replaying that
-  client's entries into an empty store. The recovery path is the
-  same ladder mechanism used in normal sync; convergence is
-  logarithmic in the number of entries.
+  Any reliable transport. On the wire a frame exposes only ver, kind,
+  vault_id, nonce, and its size and timing; the op, cursors, set_hash,
+  entry sizes and counts, ts_ms, status, and the AuthKey at registration
+  are all sealed. TLS is therefore optional and buys only the remaining
+  metadata (which vault, when, how big); the catastrophic leak — an
+  AuthKey captured in cleartext, enabling forgery — cannot happen.
+  Clients MUST set a request timeout and cap each response body to one
+  page.
 
   ## Notes
 
-    1. The only durable artefact a client must protect is the RootKey.
-    Every other local file is a cache that can be deleted or corrupted
-    with no loss of data and no security impact.
+    1. The only durable secret a device must protect is the RootKey.
+    Every other local file is a rebuildable cache.
 
-    2. Random 128-bit nonces replace any counter-based scheme. An
-    attacker cannot induce nonce reuse because the nonce does not
-    depend on any client state.
+    2. The server sees ciphertext sizes, timestamps, and per-vault
+    write rates — never plaintext keys, values, device identities, or
+    user count.
 
-    3. The server observes ciphertext sizes, timestamps, and per-vault
-    write rates. It does not observe plaintext keys, values, device
-    identities, or user count.
-
-    4. Passphrase-derived RootKeys should stretch with iterated
-    Ascon-XOF128 calibrated to at least 250ms on the target device.
-    Random RootKeys need no stretching.
-
-    5. Devices must keep reasonable wall-clock time. Clock skew
-    beyond TS_SKEW_MS causes the server to reject writes. Smaller
-    skew distorts LWW merge ordering but does not compromise
-    confidentiality or integrity.
-
-    6. Either side can recover from data loss by syncing against the
-    other. A fresh or corrupted client syncs itself from the server
-    with id_count = 0 (after re-registering if its local bit was
-    lost). A server that has lost its database replies
-    UNKNOWN_VAULT once, the client re-registers, and convergence
-    proceeds in O(log N) round trips as the divergence window
-    doubles.
-
-    7. In the steady state a sync is roughly log_2(N) * 16 bytes of
-    ladder in the request plus about 24 bytes of response (version,
-    status, zero window, zero push_count, response MAC). For a
-    thousand-entry vault that is under 250 bytes round trip,
-    supporting frequent polling at negligible cost.
-
-    8. All multi-byte integers on the wire and in entry headers are
-    encoded little-endian. This matches the byte order of every
-    modern deployment target and incurs no runtime byte-swap cost.
-    ASCON itself consumes byte strings and is unaffected by this
-    choice.
-
-    9. AuthKey compromise (e.g. a misbehaving server that leaks it)
-    enables write/DoS forgery but not decryption. Rotation requires
-    a fresh RootKey and re-pairing.
+    3. Steady-state polling is a fixed-size PROBE and reply. A change
+    costs a bounded paged walk of the recent window, not the whole
+    vault; only a fresh or wiped party, or a divergence backdated below
+    the window, widens toward a full walk — and even that moves one
+    page at a time, committing as it goes.
 
   == This is it. ==
