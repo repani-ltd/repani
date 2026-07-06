@@ -147,13 +147,22 @@ type SyncStats struct {
 
 // --- local writes ---
 
-// Put writes (key, value). The stored value is tagged fmt(1)||value.
+// Put writes (key, value) with the raw format tag. The stored value is
+// fmt(1)||value.
 func (c *Client) Put(key, value []byte) error {
+	return c.PutFmt(key, value, fmtRaw)
+}
+
+// PutFmt writes (key, value) under an explicit format tag (CLIENT.txt:
+// 0x00 is raw; 0x01..0xFF name application encodings). The tag is
+// stored inside the entry ciphertext and surfaces on reads as
+// LiveEntry.Fmt.
+func (c *Client) PutFmt(key, value []byte, fmtTag byte) error {
 	if len(value) == 0 {
 		return errors.New("client: empty value is a tombstone; use Delete")
 	}
 	wrapped := make([]byte, 1+len(value))
-	wrapped[0] = fmtRaw
+	wrapped[0] = fmtTag
 	copy(wrapped[1:], value)
 
 	ts := c.nextTs()
@@ -202,6 +211,7 @@ func (c *Client) nextTs() uint64 {
 
 type keyValue struct {
 	value []byte
+	fmt   byte
 	tomb  bool
 }
 
@@ -222,7 +232,7 @@ func (c *Client) replay() map[string]keyValue {
 			out[string(k)] = keyValue{tomb: true}
 			continue
 		}
-		out[string(k)] = keyValue{value: sv[1:]} // strip fmt tag
+		out[string(k)] = keyValue{value: sv[1:], fmt: sv[0]}
 	}
 	return out
 }
@@ -249,10 +259,12 @@ func (c *Client) List() ([]string, error) {
 	return out, nil
 }
 
-// LiveEntry is a live (key, value) pair.
+// LiveEntry is a live (key, value) pair. Fmt is the value's format tag
+// (CLIENT.txt); Value is the payload with the tag already stripped.
 type LiveEntry struct {
 	Key   []byte
 	Value []byte
+	Fmt   byte
 }
 
 // All returns every live (key, value) pair, sorted by key.
@@ -267,7 +279,7 @@ func (c *Client) All() ([]LiveEntry, error) {
 	sort.Strings(keys)
 	out := make([]LiveEntry, len(keys))
 	for i, k := range keys {
-		out[i] = LiveEntry{Key: []byte(k), Value: m[k].value}
+		out[i] = LiveEntry{Key: []byte(k), Value: m[k].value, Fmt: m[k].fmt}
 	}
 	return out, nil
 }

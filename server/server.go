@@ -42,14 +42,24 @@ func DefaultQuotas() Quotas {
 	}
 }
 
-// Options configure a Server. Exactly one of RegisterKey or
-// RegisterKeyFile must be set — there is no permissionless registration.
+// Options configure a Server. At most one of RegisterKey or
+// RegisterKeyFile may be set. If neither is set, in-band registration
+// is disabled: every REGISTER frame is rejected with BAD_AUTH, and
+// vaults can only be created by a co-resident owner via EnsureVault.
+// There is never permissionless registration.
 type Options struct {
 	DataDir         string
 	Quotas          Quotas
 	Clock           func() int64
 	RegisterKey     *vault.RegisterKey
 	RegisterKeyFile string
+
+	// OnPush, if non-nil, is called after a PUSH frame's entries have
+	// been validated and persisted, once per PUSH that added at least
+	// one new entry. It runs outside the vault locks, on the goroutine
+	// serving the frame, so it must not block for long. Entries added
+	// via AddEntries do NOT fire it.
+	OnPush func(vid vault.VaultID)
 }
 
 // Server is a vault-aware HTTP handler. Use NewWithOptions.
@@ -57,7 +67,9 @@ type Server struct {
 	dataDir string
 	quotas  Quotas
 	clock   func() int64
+	regOK   bool             // false = registration disabled
 	regKey  vault.ChannelKey // K_reg = XOF("kv/reg0/" || RegisterKey)
+	onPush  func(vault.VaultID)
 
 	mu     sync.Mutex
 	vaults map[vault.VaultID]*vaultState
@@ -73,27 +85,24 @@ type vaultState struct {
 	dir     string
 }
 
-// ErrNoRegisterKey is returned when neither RegisterKey nor
-// RegisterKeyFile is supplied.
-var ErrNoRegisterKey = errors.New("server: Options.RegisterKey or Options.RegisterKeyFile must be set")
-
 // NewWithOptions constructs a Server.
 func NewWithOptions(opt Options) (*Server, error) {
-	if opt.RegisterKey == nil && opt.RegisterKeyFile == "" {
-		return nil, ErrNoRegisterKey
-	}
 	if opt.RegisterKey != nil && opt.RegisterKeyFile != "" {
 		return nil, errors.New("server: RegisterKey and RegisterKeyFile are mutually exclusive")
 	}
+	regOK := true
 	var regKey vault.RegisterKey
-	if opt.RegisterKey != nil {
+	switch {
+	case opt.RegisterKey != nil:
 		regKey = *opt.RegisterKey
-	} else {
+	case opt.RegisterKeyFile != "":
 		loaded, err := loadRegisterKey(opt.RegisterKeyFile)
 		if err != nil {
 			return nil, err
 		}
 		regKey = loaded
+	default:
+		regOK = false // registration disabled
 	}
 
 	if opt.DataDir != "" {
@@ -113,8 +122,12 @@ func NewWithOptions(opt Options) (*Server, error) {
 		dataDir: opt.DataDir,
 		quotas:  q,
 		clock:   clk,
-		regKey:  vault.DeriveRegKey(regKey),
+		regOK:   regOK,
+		onPush:  opt.OnPush,
 		vaults:  make(map[vault.VaultID]*vaultState),
+	}
+	if regOK {
+		s.regKey = vault.DeriveRegKey(regKey)
 	}
 	regKey = vault.RegisterKey{} // scrub
 	if opt.DataDir != "" {
@@ -208,6 +221,9 @@ func (s *Server) HandleFrame(req []byte) ([]byte, error) {
 }
 
 func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, sealed []byte) ([]byte, error) {
+	if !s.regOK {
+		return []byte{wire.ErrBadAuth}, nil // registration disabled
+	}
 	payload, err := wire.OpenFrame(s.regKey, wire.KindRegister, vid, nonce, sealed)
 	if err != nil {
 		return []byte{wire.ErrBadAuth}, nil // gate: wrong RegisterKey
@@ -256,40 +272,54 @@ func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, seal
 		return s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
 	}
 
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	// The op runs under the vault lock; OnPush fires after it is
+	// released so the hook can safely call back into the server.
+	resp, pushedNew, err := func() ([]byte, bool, error) {
+		st.mu.Lock()
+		defer st.mu.Unlock()
 
-	switch req.Op {
-	case wire.OpProbe:
-		status := wire.StatusDiffer
-		if st.s.SetHash() == req.SetHash {
-			status = wire.StatusOK
-		}
-		return s.sealResp(vid, st.s2c, nonce, status, nil)
-
-	case wire.OpPull:
-		page := st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
-		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, page)
-
-	case wire.OpPush:
-		newEntries, status := s.validateNew(st, req.Entries)
-		if status != wire.StatusOK {
-			return s.sealResp(vid, st.s2c, nonce, status, nil)
-		}
-		for _, e := range newEntries {
-			added, err := st.s.Add(e)
-			if err != nil {
-				return nil, err
+		switch req.Op {
+		case wire.OpProbe:
+			status := wire.StatusDiffer
+			if st.s.SetHash() == req.SetHash {
+				status = wire.StatusOK
 			}
-			if added {
-				st.bytes += uint64(e.Size())
-			}
-		}
-		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
+			resp, err := s.sealResp(vid, st.s2c, nonce, status, nil)
+			return resp, false, err
 
-	default:
-		return s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
+		case wire.OpPull:
+			page := st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
+			resp, err := s.sealResp(vid, st.s2c, nonce, wire.StatusOK, page)
+			return resp, false, err
+
+		case wire.OpPush:
+			newEntries, status := s.validateNew(st, req.Entries)
+			if status != wire.StatusOK {
+				resp, err := s.sealResp(vid, st.s2c, nonce, status, nil)
+				return resp, false, err
+			}
+			pushed := 0
+			for _, e := range newEntries {
+				added, err := st.s.Add(e)
+				if err != nil {
+					return nil, false, err
+				}
+				if added {
+					st.bytes += uint64(e.Size())
+					pushed++
+				}
+			}
+			resp, err := s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
+			return resp, pushed > 0, err
+		default:
+			resp, err := s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
+			return resp, false, err
+		}
+	}()
+	if err == nil && pushedNew && s.onPush != nil {
+		s.onPush(vid)
 	}
+	return resp, err
 }
 
 // validateNew enforces skew and quota on the entries the server does not

@@ -4,6 +4,29 @@ All notable changes to ASCON-KV are recorded here. Versions follow
 semantic versioning; the protocol version carried on the wire is tracked
 separately in `PROTOCOL.txt`.
 
+## Unreleased
+
+Additions for embedding the server inside an owning process (the
+Quietcasting station is the first consumer). Wire and on-disk formats
+are unchanged.
+
+### Server
+- Registration is now optional: constructing a Server with neither
+  `RegisterKey` nor `RegisterKeyFile` disables in-band registration —
+  every REGISTER frame is rejected with `BAD_AUTH`. Vaults are then
+  created only by the owner via `EnsureVault`.
+- Owner API for a co-resident process (`server/owner.go`):
+  `EnsureVault`, `DropVault` (removes `auth.key`, archives the entry
+  log), `Entries` (canonical snapshot), and `AddEntries` (same
+  skew/quota validation as a PUSH; never fires `OnPush`).
+- `Options.OnPush`: notification hook fired after a PUSH persists at
+  least one new entry, outside the vault locks.
+
+### Client
+- `PutFmt` writes a value under an explicit format tag (CLIENT.txt
+  fmt byte); `Put` is now `PutFmt` with the raw tag. `LiveEntry`
+  gains `Fmt`.
+
 ## v1.0.0 — 2026-07-04
 
 First official release. End-to-end encrypted, authenticated key-value
