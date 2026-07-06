@@ -88,35 +88,43 @@ func TestLayoutHelpers_BadWidthErrors(t *testing.T) {
 
 func TestRound(t *testing.T) {
 	cases := []struct {
-		in   float64
+		in   any
 		want string
 	}{
 		{25.7, "26"},
 		{25.4, "25"},
 		{-1.5, "-2"},
-		{0, "0"},
-		{100, "100"},
+		{0.0, "0"},
+		{100.0, "100"},
+		{7, "7"},        // YAML whole numbers arrive as int
+		{int64(8), "8"}, // and sometimes int64
 	}
 	for _, c := range cases {
-		if got := round(c.in); got != c.want {
-			t.Errorf("round(%v) = %q, want %q", c.in, got, c.want)
+		got, err := round(c.in)
+		if err != nil || got != c.want {
+			t.Errorf("round(%v) = %q, %v; want %q", c.in, got, err, c.want)
 		}
+	}
+	if _, err := round("nope"); err == nil {
+		t.Error("round of a string should error")
 	}
 }
 
 func TestDecimal(t *testing.T) {
 	cases := []struct {
-		in   float64
+		in   any
 		n    int
 		want string
 	}{
 		{25.726, 1, "25.7"},
 		{25.0, 2, "25.00"},
-		{0, 3, "0.000"},
+		{0.0, 3, "0.000"},
+		{27, 1, "27.0"}, // int widens
 	}
 	for _, c := range cases {
-		if got := decimal(c.in, c.n); got != c.want {
-			t.Errorf("decimal(%v, %d) = %q, want %q", c.in, c.n, got, c.want)
+		got, err := decimal(c.in, c.n)
+		if err != nil || got != c.want {
+			t.Errorf("decimal(%v, %d) = %q, %v; want %q", c.in, c.n, got, err, c.want)
 		}
 	}
 }

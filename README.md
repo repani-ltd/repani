@@ -25,6 +25,14 @@ default to 40 columns unless the spec starts with a width
 (`.table 44 3L *L 4R`). Run `pica help` for the full helper list
 and the txtar input conventions.
 
+`example/` is a complete weather-bulletin page exercising the whole
+surface -- wrapped English and Greek prose, a justified outlook,
+formatters, a hard-cut METAR line, and tables at two widths:
+
+    pica render -txtar example/page.tmpl example/content.txtar
+
+The committed `example/expected.txt` is enforced by a golden test.
+
 ## Notes
 
 - Widths count runes, not display cells: double-width (CJK) glyphs

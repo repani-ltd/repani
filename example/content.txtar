@@ -1,0 +1,75 @@
+-- data.yaml --
+issued: "2026-07-10T05:45:00Z"
+issue: 187
+current:
+  observed: "2026-07-10T05:30:00Z"
+  temp: 26.437
+  feels: 28.9
+  humidity: 61.2
+  pressure: 1008.25
+  winddir: WNW
+  windkt: 11.6
+  sunshine: 95m
+metar: "LCRA 100550Z 29012KT 9999 FEW020 SCT250 27/19 Q1008 NOSIG RMK BLU BLU"
+daily:
+  - date: "2026-07-10"
+    summary: Sunny, light sea breeze after noon
+    hi: 31.2
+    lo: 22.1
+    rain: 0
+  - date: "2026-07-11"
+    summary: High cloud thickening late
+    hi: 30.4
+    lo: 22.8
+    rain: 10.2
+  - date: "2026-07-12"
+    summary: Isolated thunderstorms inland
+    hi: 28.9
+    lo: 21.5
+    rain: 45.8
+  - date: "2026-07-13"
+    summary: Clearing, gusty northwesterlies
+    hi: 27.3
+    lo: 20.2
+    rain: 15
+  - date: "2026-07-14"
+    summary: Settled and dry
+    hi: 29.6
+    lo: 21.0
+    rain: 0
+sea:
+  - spot: Akrotiri
+    temp: 27.84
+    wave: 0.6m
+  - spot: Kourion
+    temp: 27.31
+    wave: 1.1m
+  - spot: Marina
+    temp: 28.02
+    wave: 0.3m
+outlook: >-
+  Internationally sourced ensemble models agree on an unseasonably
+  unstable pattern for midweek, with cumulonimbus development over
+  the Troodos massif drifting coastward each afternoon before the
+  characteristically persistent northwesterly gradient reasserts
+  itself and temperatures return to seasonal values by the weekend.
+-- body.txt --
+Clear skies across the Limassol district this morning with excellent
+visibility along the entire southern coastline. Temperatures climb
+quickly after sunrise, reaching the low thirties inland by early
+afternoon while the seafront stays two to three degrees cooler under
+a developing sea breeze.
+
+Η θερμοκρασία στην Λεμεσό θα παρουσιάσει χαρακτηριστική
+σταθεροποίηση τις επόμενες ημέρες, με τους βορειοδυτικούς ανέμους
+να διατηρούνται μέτριοι στα παράλια και την υγρασία να περιορίζεται
+αισθητά μετά το μεσημέρι.
+
+Bathers should note that lifeguard coverage at Dasoudi and Lady's
+Mile begins at nine and ends at eighteen hundred; ultraviolet
+readings peak near index ten around midday, so shade and
+sunscreen are strongly recommended between eleven and fifteen.
+-- sources.txt --
+https://open-meteo.com
+https://aviationweather.gov/data/metar/?id=LCRA
+https://www.moa.gov.cy/moa/dm/dm.nsf/home_en/home_en

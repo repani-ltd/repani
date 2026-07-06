@@ -48,20 +48,48 @@ func layout(fn func(string, int) string) func(int, string) (string, error) {
 	}
 }
 
-// round formats a float as a rounded integer string.
+// toFloat widens any numeric template value to float64. JSON data
+// arrives as float64, but YAML (txtar mode) yields int for whole
+// numbers -- the numeric helpers accept both.
+func toFloat(v any) (float64, error) {
+	switch n := v.(type) {
+	case float64:
+		return n, nil
+	case float32:
+		return float64(n), nil
+	case int:
+		return float64(n), nil
+	case int64:
+		return float64(n), nil
+	case uint64:
+		return float64(n), nil
+	default:
+		return 0, fmt.Errorf("expected a number, got %T", v)
+	}
+}
+
+// round formats a number as a rounded integer string.
 //
 //	round(25.7)  -> "26"
 //	round(-1.5)  -> "-2"
-func round(f float64) string {
-	return strconv.FormatInt(int64(math.Round(f)), 10)
+func round(v any) (string, error) {
+	f, err := toFloat(v)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(int64(math.Round(f)), 10), nil
 }
 
-// decimal formats a float with n decimal places.
+// decimal formats a number with n decimal places.
 //
 //	decimal(25.726, 1)  -> "25.7"
 //	decimal(25.0, 2)    -> "25.00"
-func decimal(f float64, n int) string {
-	return strconv.FormatFloat(f, 'f', n, 64)
+func decimal(v any, n int) (string, error) {
+	f, err := toFloat(v)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatFloat(f, 'f', n, 64), nil
 }
 
 // trunc truncates a string to n runes.
