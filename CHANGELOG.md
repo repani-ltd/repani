@@ -26,6 +26,20 @@ are unchanged.
 - `PutFmt` writes a value under an explicit format tag (CLIENT.txt
   fmt byte); `Put` is now `PutFmt` with the raw tag. `LiveEntry`
   gains `Fmt`.
+- `HTTPTransport` is the exported canonical Transport (POST to
+  `<Base>/v1/sync`, response capped at `wire.MaxFrameBytes`); the
+  CLI and tests now use it instead of private copies.
+- `WrapValue`/`ParseValue` expose the CLIENT.txt `fmt(1)||value`
+  codec for owners that seal entries directly.
+- `ErrNoRegisterKey` is a sentinel (was an inline error), so
+  embedders can `errors.Is` the "vault not created by the owner
+  yet" condition.
+
+### Store
+- `LogStore.Rewrite` atomically replaces the log's contents via a
+  per-entry callback (temp file + fsync + rename, store stays
+  open). The primitive for owner-side log surgery such as a client
+  re-stamping stale queued entries.
 
 ## v1.0.0 — 2026-07-04
 

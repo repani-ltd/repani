@@ -278,48 +278,57 @@ func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, seal
 		st.mu.Lock()
 		defer st.mu.Unlock()
 
+		status := wire.StatusOK
+		var page []vault.Entry
+		pushed := 0
+
 		switch req.Op {
 		case wire.OpProbe:
-			status := wire.StatusDiffer
-			if st.s.SetHash() == req.SetHash {
-				status = wire.StatusOK
+			if st.s.SetHash() != req.SetHash {
+				status = wire.StatusDiffer
 			}
-			resp, err := s.sealResp(vid, st.s2c, nonce, status, nil)
-			return resp, false, err
-
 		case wire.OpPull:
-			page := st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
-			resp, err := s.sealResp(vid, st.s2c, nonce, wire.StatusOK, page)
-			return resp, false, err
-
+			page = st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
 		case wire.OpPush:
-			newEntries, status := s.validateNew(st, req.Entries)
-			if status != wire.StatusOK {
-				resp, err := s.sealResp(vid, st.s2c, nonce, status, nil)
-				return resp, false, err
-			}
-			pushed := 0
-			for _, e := range newEntries {
-				added, err := st.s.Add(e)
+			var newEntries []vault.Entry
+			newEntries, status = s.validateNew(st, req.Entries)
+			if status == wire.StatusOK {
+				var err error
+				pushed, err = addValidatedLocked(st, newEntries)
 				if err != nil {
 					return nil, false, err
 				}
-				if added {
-					st.bytes += uint64(e.Size())
-					pushed++
-				}
 			}
-			resp, err := s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
-			return resp, pushed > 0, err
 		default:
-			resp, err := s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
-			return resp, false, err
+			status = wire.StatusBadRequest
 		}
+
+		resp, err := s.sealResp(vid, st.s2c, nonce, status, page)
+		return resp, pushed > 0, err
 	}()
 	if err == nil && pushedNew && s.onPush != nil {
 		s.onPush(vid)
 	}
 	return resp, err
+}
+
+// addValidatedLocked adds entries that already passed validateNew,
+// updating the vault's byte accounting. st.mu held. Returns the
+// number actually added. Shared by the PUSH path and AddEntries so
+// quota accounting cannot diverge between them.
+func addValidatedLocked(st *vaultState, entries []vault.Entry) (int, error) {
+	added := 0
+	for _, e := range entries {
+		ok, err := st.s.Add(e)
+		if err != nil {
+			return added, err
+		}
+		if ok {
+			st.bytes += uint64(e.Size())
+			added++
+		}
+	}
+	return added, nil
 }
 
 // validateNew enforces skew and quota on the entries the server does not

@@ -148,3 +148,73 @@ func writeTruncatedHeader(path string) (int64, error) {
 	}
 	return f.Seek(0, io.SeekCurrent)
 }
+
+func TestLogStore_Rewrite(t *testing.T) {
+	rk, _ := vault.NewRandomRootKey()
+	path := filepath.Join(t.TempDir(), "entries.log")
+	ls, err := OpenLogStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep := mkEntry(t, rk, 100, "keep", "\x00v")
+	drop := mkEntry(t, rk, 200, "drop", "\x00v")
+	swap := mkEntry(t, rk, 300, "swap", "\x00old")
+	for _, e := range []vault.Entry{keep, drop, swap} {
+		if _, err := ls.Add(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A failing fn aborts with the log untouched.
+	sentinel := io.ErrUnexpectedEOF
+	err = ls.Rewrite(func(e vault.Entry) (vault.Entry, bool, error) {
+		return vault.Entry{}, false, sentinel
+	})
+	if err != sentinel {
+		t.Fatalf("aborting Rewrite: %v", err)
+	}
+	if ls.Len() != 3 {
+		t.Fatalf("aborted Rewrite changed the set: len=%d", ls.Len())
+	}
+
+	// Keep one, drop one, replace one.
+	swap2 := mkEntry(t, rk, 400, "swap", "\x00new")
+	err = ls.Rewrite(func(e vault.Entry) (vault.Entry, bool, error) {
+		switch e.ID() {
+		case drop.ID():
+			return vault.Entry{}, false, nil
+		case swap.ID():
+			return swap2, true, nil
+		default:
+			return e, true, nil
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ls.Len() != 2 || !ls.Has(keep.ID()) || !ls.Has(swap2.ID()) || ls.Has(drop.ID()) || ls.Has(swap.ID()) {
+		t.Fatalf("wrong membership after rewrite: len=%d", ls.Len())
+	}
+
+	// The store stays usable: a post-rewrite Add persists.
+	extra := mkEntry(t, rk, 500, "extra", "\x00v")
+	if _, err := ls.Add(extra); err != nil {
+		t.Fatal(err)
+	}
+	if err := ls.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ls2, err := OpenLogStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ls2.Close()
+	if ls2.Len() != 3 || !ls2.Has(keep.ID()) || !ls2.Has(swap2.ID()) || !ls2.Has(extra.ID()) {
+		t.Fatalf("reloaded: wrong membership: len=%d", ls2.Len())
+	}
+	if ls2.Has(drop.ID()) || ls2.Has(swap.ID()) {
+		t.Fatal("reloaded: rewritten-away entries resurrected")
+	}
+}

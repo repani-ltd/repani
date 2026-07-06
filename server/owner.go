@@ -102,16 +102,8 @@ func (s *Server) AddEntries(vid vault.VaultID, entries []vault.Entry) error {
 	case wire.StatusBadRequest:
 		return ErrEntrySkew
 	default:
-		return errors.New("server: unexpected validation status")
+		panic("server: validateNew returned unknown status")
 	}
-	for _, e := range newEntries {
-		added, err := st.s.Add(e)
-		if err != nil {
-			return err
-		}
-		if added {
-			st.bytes += uint64(e.Size())
-		}
-	}
-	return nil
+	_, err := addValidatedLocked(st, newEntries)
+	return err
 }

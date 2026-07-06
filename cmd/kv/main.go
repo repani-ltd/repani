@@ -36,7 +36,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,7 +47,6 @@ import (
 	"github.com/pavlos/kv/client"
 	"github.com/pavlos/kv/store"
 	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
 	"golang.org/x/term"
 )
 
@@ -266,7 +264,7 @@ func openClient() *client.Client {
 		fatal("open log: %v", err)
 	}
 	url := serverURL()
-	c, err := client.New(rk, ls, &httpTransport{url: url, timeout: httpTimeout()})
+	c, err := client.New(rk, ls, &cliTransport{client.HTTPTransport{Base: url, Timeout: httpTimeout()}})
 	if err != nil {
 		fatal("client init: %v", err)
 	}
@@ -931,36 +929,16 @@ func mustSync(c *client.Client) {
 
 // --- http transport ---
 
-type httpTransport struct {
-	url     string
-	timeout time.Duration
-}
+// cliTransport is client.HTTPTransport plus a friendlier error when
+// KV_SERVER is unset, deferred to first use so local-only commands
+// work offline.
+type cliTransport struct{ client.HTTPTransport }
 
-func (h *httpTransport) Do(ctx context.Context, req []byte) ([]byte, error) {
-	if h.url == "" {
+func (t *cliTransport) Do(ctx context.Context, req []byte) ([]byte, error) {
+	if t.Base == "" {
 		return nil, errors.New("no server URL configured (set KV_SERVER)")
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, h.timeout)
-	defer cancel()
-	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, h.url+"/v1/sync", bytes.NewReader(req))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/octet-stream")
-	client := &http.Client{Timeout: h.timeout}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxFrameBytes))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server %d", resp.StatusCode)
-	}
-	return body, nil
+	return t.HTTPTransport.Do(ctx, req)
 }
 
 // --- helpers ---

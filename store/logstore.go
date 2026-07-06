@@ -199,6 +199,71 @@ func (ls *LogStore) Add(e vault.Entry) (bool, error) {
 	return true, nil
 }
 
+// Rewrite atomically replaces the log's contents: fn is called once
+// per entry in canonical order and returns the entry to store in its
+// place (the same entry, or a substitute such as a re-sealed one) and
+// whether to keep it at all. The new log is written to a temp file,
+// synced, and renamed over the old one; the LogStore remains open and
+// usable, with its in-memory set rebuilt. A non-nil error from fn
+// aborts the rewrite with the log untouched.
+//
+// This is the primitive for owner-side log surgery (e.g. a client
+// re-stamping stale queued entries); it keeps the on-disk format and
+// the crash-safety dance inside this package.
+func (ls *LogStore) Rewrite(fn func(vault.Entry) (vault.Entry, bool, error)) error {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+
+	mem := NewMemStore()
+	tmpPath := ls.path + ".rewrite"
+	_ = os.Remove(tmpPath)
+	tmp, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	abort := func(err error) error {
+		tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if _, err := tmp.Write(logMagic); err != nil {
+		return abort(err)
+	}
+	for _, e := range ls.mem.Sorted() {
+		ne, keep, err := fn(e)
+		if err != nil {
+			return abort(err)
+		}
+		if !keep {
+			continue
+		}
+		if _, err := mem.Add(ne); err != nil {
+			return abort(err)
+		}
+		body := ne.Marshal()
+		var hdr [4]byte
+		binary.LittleEndian.PutUint32(hdr[:], uint32(len(body)))
+		if _, err := tmp.Write(hdr[:]); err != nil {
+			return abort(err)
+		}
+		if _, err := tmp.Write(body); err != nil {
+			return abort(err)
+		}
+	}
+	if err := tmp.Sync(); err != nil {
+		return abort(err)
+	}
+	if err := os.Rename(tmpPath, ls.path); err != nil {
+		return abort(err)
+	}
+	// Swap in the new state; the old handle now refers to the
+	// unlinked file and is simply closed.
+	_ = ls.f.Close()
+	ls.f = tmp
+	ls.mem = mem
+	return nil
+}
+
 func (ls *LogStore) Has(id vault.EntryID) bool { return ls.mem.Has(id) }
 func (ls *LogStore) Len() uint32               { return ls.mem.Len() }
 func (ls *LogStore) Sorted() []vault.Entry     { return ls.mem.Sorted() }

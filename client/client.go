@@ -22,6 +22,26 @@ import (
 // fmtRaw is the value-encoding tag for a verbatim value (CLIENT.txt).
 const fmtRaw = 0x00
 
+// WrapValue prepends the CLIENT.txt format tag to a value, producing
+// the bytes stored inside an entry. Exported for owners that seal
+// entries directly (vault.Seal) rather than through a Client.
+func WrapValue(fmtTag byte, value []byte) []byte {
+	wrapped := make([]byte, 1+len(value))
+	wrapped[0] = fmtTag
+	copy(wrapped[1:], value)
+	return wrapped
+}
+
+// ParseValue splits a stored entry value into its format tag and
+// payload. An empty stored value is a tombstone (no tag). The inverse
+// of WrapValue.
+func ParseValue(stored []byte) (fmtTag byte, value []byte, tomb bool) {
+	if len(stored) == 0 {
+		return 0, nil, true
+	}
+	return stored[0], stored[1:], false
+}
+
 // Transport sends a marshaled request frame and returns the response
 // bytes (a sealed RESP frame, or a single pre-channel error byte).
 type Transport interface {
@@ -161,9 +181,7 @@ func (c *Client) PutFmt(key, value []byte, fmtTag byte) error {
 	if len(value) == 0 {
 		return errors.New("client: empty value is a tombstone; use Delete")
 	}
-	wrapped := make([]byte, 1+len(value))
-	wrapped[0] = fmtTag
-	copy(wrapped[1:], value)
+	wrapped := WrapValue(fmtTag, value)
 
 	ts := c.nextTs()
 	e, err := vault.Seal(c.aead, ts, key, wrapped)
@@ -228,11 +246,8 @@ func (c *Client) replay() map[string]keyValue {
 		if err != nil {
 			continue
 		}
-		if len(sv) == 0 {
-			out[string(k)] = keyValue{tomb: true}
-			continue
-		}
-		out[string(k)] = keyValue{value: sv[1:], fmt: sv[0]}
+		fmtTag, value, tomb := ParseValue(sv)
+		out[string(k)] = keyValue{value: value, fmt: fmtTag, tomb: tomb}
 	}
 	return out
 }
@@ -290,6 +305,12 @@ func (c *Client) All() ([]LiveEntry, error) {
 // budget (e.g. persistent concurrent churn, or a server that keeps
 // forgetting the registration).
 var ErrSyncStuck = errors.New("client: sync did not converge within round budget")
+
+// ErrNoRegisterKey is returned when a sync needs to register (the
+// server does not know the vault) but no register key is installed.
+// On a registration-disabled server this means the vault has not been
+// created by the owner.
+var ErrNoRegisterKey = errors.New("client: no register key; cannot register with a gated server")
 
 // Sync reconciles the client's vault with the server. It registers if
 // needed, then:
@@ -405,7 +426,7 @@ func (c *Client) register(ctx context.Context, st *SyncStats) error {
 	regChan := c.regChan
 	c.mu.Unlock()
 	if !hasReg {
-		return errors.New("client: no register key; cannot register with a gated server")
+		return ErrNoRegisterKey
 	}
 	resp, pre, err := c.roundtrip(ctx, wire.KindRegister, regChan, c.authKey[:], st)
 	if err != nil {

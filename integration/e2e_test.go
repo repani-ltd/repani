@@ -7,8 +7,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -17,25 +15,9 @@ import (
 	"github.com/pavlos/kv/server"
 	"github.com/pavlos/kv/store"
 	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
 )
 
 var testRegKey = vault.RegisterKey{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
-
-type httpTran struct{ url string }
-
-func (t *httpTran) Do(ctx context.Context, body []byte) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url+"/v1/sync", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(io.LimitReader(resp.Body, wire.MaxFrameBytes))
-}
 
 func newServer(t *testing.T) (*server.Server, *httptest.Server) {
 	t.Helper()
@@ -50,7 +32,7 @@ func newServer(t *testing.T) (*server.Server, *httptest.Server) {
 // and server, wired with the register key.
 func device(t *testing.T, rk vault.RootKey, url string) *client.Client {
 	t.Helper()
-	c, err := client.New(rk, store.NewMemStore(), &httpTran{url: url})
+	c, err := client.New(rk, store.NewMemStore(), &client.HTTPTransport{Base: url})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +234,7 @@ func TestE2E_Recovery(t *testing.T) {
 	_ = srv
 	_, ts2 := newServer(t)
 	defer ts2.Close()
-	a3, err := client.New(rk, cloneStore(t, a.Store()), &httpTran{url: ts2.URL})
+	a3, err := client.New(rk, cloneStore(t, a.Store()), &client.HTTPTransport{Base: ts2.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
