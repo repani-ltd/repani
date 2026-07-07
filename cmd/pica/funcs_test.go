@@ -36,53 +36,11 @@ func TestFuncMap_Render(t *testing.T) {
 
 func TestFuncMap_AllFunctions(t *testing.T) {
 	fm := funcMap()
-	expected := []string{"round", "decimal", "trunc", "pad", "shortTime", "shortDate", "dur", "wrap", "justify", "truncl"}
+	expected := []string{"round", "decimal", "trunc", "pad", "shortTime", "shortDate", "dur"}
 	for _, name := range expected {
 		if _, ok := fm[name]; !ok {
 			t.Errorf("missing function %q in funcMap", name)
 		}
-	}
-}
-
-func TestLayoutHelpers_WidthFirstAndPipeline(t *testing.T) {
-	long := strings.Repeat("alpha beta gamma delta ", 5)
-	data := map[string]any{"body": long}
-
-	direct := render(t, `{{wrap 20 .body}}`, data)
-	piped := render(t, `{{.body | wrap 20}}`, data)
-	if direct != piped {
-		t.Error("direct and pipeline wrap calls differ")
-	}
-	for _, ln := range strings.Split(direct, "\n") {
-		if len([]rune(ln)) > 20 {
-			t.Errorf("wrapped line exceeds 20 runes: %q", ln)
-		}
-	}
-
-	justified := render(t, `{{justify 20 .body}}`, data)
-	lines := strings.Split(justified, "\n")
-	for _, ln := range lines[:len(lines)-1] {
-		if len([]rune(ln)) != 20 {
-			t.Errorf("justified line not 20 runes: %q", ln)
-		}
-	}
-
-	cut := render(t, `{{truncl 5 .body}}`, data)
-	for _, ln := range strings.Split(cut, "\n") {
-		if len([]rune(ln)) > 5 {
-			t.Errorf("truncl line exceeds 5 runes: %q", ln)
-		}
-	}
-}
-
-func TestLayoutHelpers_BadWidthErrors(t *testing.T) {
-	tmpl, err := template.New("t").Funcs(funcMap()).Parse(`{{wrap 0 .body}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var buf strings.Builder
-	if err := tmpl.Execute(&buf, map[string]any{"body": "x"}); err == nil {
-		t.Fatal("wrap 0 should be a template error")
 	}
 }
 

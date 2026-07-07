@@ -1,66 +1,40 @@
-// Command pica renders Go text/template files with typesetting
-// helpers into fixed-width monospace text.
+// Command pica renders typeset source documents (see the typeset
+// package for the language) for monospace surfaces.
 //
-// Usage:
+// Three orthogonal stages:
 //
-//	pica render <template> <data.json>
-//	pica render <template> -                      # data on stdin
+//	pica render <template> <data>   Go template + data -> source doc
+//	pica text   [file|-]            source doc -> fixed-width text page
+//	pica pdf    [file|-]            source doc -> N-column newspaper PDF
 //
-//	pica render -txtar <template> <data.txtar>    # txtar input format
-//	pica render -txtar <template> -               # txtar on stdin
+// A typical pipeline:
 //
-// The template executes with the helper functions below, then .table
-// blocks in the output are expanded into rendered tables (see the
-// typeset package for the block syntax).
+//	pica render page.tmpl data.json | pica text     > page.txt
+//	pica render page.tmpl data.json | pica pdf -o page.pdf
 //
-// # Template helpers
+// Documents are self-contained: width, paper, and columns come from
+// the document's layout trailer (.width/.paper/.cols), never from
+// flags, so the same source always produces the same output -- the
+// PDF byte-identically so.
 //
-// Layout -- width is the first argument, so both call styles work:
-// {{wrap 40 .body}} and {{.body | wrap 40}}.
+// # Templates
 //
-//	wrap W S      reflow S to W columns, ragged-right, hyphenated
-//	justify W S   reflow and justify S to W columns
-//	truncl W S    hard-truncate every line of S to W runes
+// render executes a Go text/template with value-formatting helpers
+// (round, decimal, trunc, pad, shortTime, shortDate, dur); the
+// template's OUTPUT is a typeset source document -- templates
+// contain no layout calls. Data is JSON (default) or, with -txtar,
+// a txtar archive:
 //
-// Value formatting:
-//
-//	round F       float to rounded integer string: 25.7 -> "26"
-//	decimal F N   float with N decimals: 25.726 1 -> "25.7"
-//	trunc S N     truncate S to N runes
-//	pad S N       right-pad (or truncate) S to exactly N runes
-//	shortTime S   HH:MM from an ISO 8601 or time string
-//	shortDate S   "Mon DD" from an ISO 8601 date or datetime
-//	dur S         compact duration: "90m" -> "1h" style single unit
-//
-// # Input formats
-//
-// Default: a JSON document representing the template's data
-// (object, array, or scalar). Same shape that the template
-// references via {{.Field}} expressions.
-//
-// With -txtar: a txtar archive (golang.org/x/tools/txtar) containing
-// up to three files with conventional names:
-//
-//	data.yaml     a YAML document; unmarshalled into the template
-//	              data map. Each top-level key becomes a template
-//	              field. Required (use an empty file -- "-- data.yaml --"
-//	              with no body -- if you have nothing structured).
-//	body.txt      plain prose text; injected as the "body" key in
-//	              the template data map. Optional. Trailing whitespace
-//	              is trimmed.
+//	data.yaml     a YAML document; each top-level key becomes a
+//	              template field. Required (may be empty).
+//	body.txt      plain prose; injected as the "body" key.
+//	              Optional. Trailing whitespace trimmed.
 //	sources.txt   one URL per line; injected as the "sources" key,
-//	              a []string. Empty lines are dropped, leading and
-//	              trailing whitespace per line is trimmed. Optional.
+//	              a []string. Optional; blank lines dropped.
 //
 // data.yaml MUST NOT contain top-level "body" or "sources" keys --
 // those are reserved for body.txt and sources.txt and a collision
-// is rejected at load time. The txtar archive may contain other
-// files; they are ignored. The order of files in the archive is
-// not significant.
-//
-// The template references all fields with the case the YAML keys
-// were written in (typically lowercase, e.g. {{.title}}, {{.tags}}),
-// plus {{.body}} and {{range .sources}} for the injected fields.
+// is rejected at load time. Other files in the archive are ignored.
 package main
 
 import (
@@ -88,6 +62,8 @@ func main() {
 	switch os.Args[1] {
 	case "render":
 		os.Exit(renderCmd(os.Args[2:]))
+	case "text":
+		os.Exit(textCmd(os.Args[2:]))
 	case "pdf":
 		os.Exit(pdfCmd(os.Args[2:]))
 	case "-h", "--help", "help":
@@ -101,41 +77,88 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `pica -- monospace text formatter
+	fmt.Fprint(os.Stderr, `pica -- monospace typesetting
 
 Usage:
-  pica render [flags] <template> <data.json>
-  pica render [flags] <template> -             # data on stdin
-  pica render -txtar [flags] <template> <data.txtar>
-  pica render -txtar [flags] <template> -      # txtar on stdin
-  pica pdf [flags] [file|-]                    # text -> newspaper PDF
+  pica render [-txtar] <template> <data|->   template -> source doc
+  pica text [file|-]                         source -> text page
+  pica pdf [-o FILE] [file|-]                source -> newspaper PDF
 
-Render flags:
-  -txtar         Parse the data file as a txtar archive instead of
-                 JSON. The archive must contain a data.yaml file
-                 (template fields), and may contain body.txt
-                 (injected as .body) and sources.txt (one URL per
-                 line, injected as .sources []string).
-
-PDF flags (input is monospace text, e.g. pica render output):
-  -o FILE        Output path (default stdout).
-  -cols N        Columns per page (default 3).
-  -paper SIZE    a4 (default), a5, or letter.
-  -pt N          Font size; default fits the widest input line to
-                 one column.
-  -title TEXT    Masthead text (default: first input line).
-  -nomast        No masthead; everything flows into columns.
-
-The PDF layout keeps blocks intact where possible: splits leave at
-least 2 lines on each side of a column break, single-line headings
-stay with what follows, and split tables repeat their header rows.
-
-Template helpers: wrap W S, justify W S, truncl W S (layout, width
-first: {{wrap 40 .body}}), round, decimal, trunc, pad, shortTime,
-shortDate, dur (formatting). .table blocks in the output are
-expanded into fixed-width tables.
+Layout (width, paper, columns) comes from the document's trailer
+(.width/.paper/.cols), not from flags. See the typeset package
+documentation for the source language.
 `)
 }
+
+// readInput reads the single optional positional input (default
+// stdin).
+func readInput(pos []string) ([]byte, error) {
+	if len(pos) == 0 || pos[0] == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	return os.ReadFile(pos[0])
+}
+
+// writeOutput writes data to path, or stdout when path is empty.
+func writeOutput(path string, data []byte) int {
+	var err error
+	if path == "" {
+		_, err = os.Stdout.Write(data)
+	} else {
+		err = os.WriteFile(path, data, 0o644)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pica: write: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// parseMixed parses args against fs, allowing flags before, between,
+// and after positional arguments (stdlib flag stops at the first
+// non-flag token, so it is re-invoked past each positional). Returns
+// the positionals in order.
+func parseMixed(fs *flag.FlagSet, args []string) []string {
+	var pos []string
+	fs.Parse(args)
+	rem := fs.Args()
+	for len(rem) > 0 {
+		pos = append(pos, rem[0])
+		fs.Parse(rem[1:])
+		rem = fs.Args()
+	}
+	return pos
+}
+
+// ── text ────────────────────────────────────────────────────────────
+
+func textCmd(args []string) int {
+	fs := flag.NewFlagSet("text", flag.ExitOnError)
+	out := fs.String("o", "", "output file (default stdout)")
+	pos := parseMixed(fs, args)
+	if len(pos) > 1 {
+		fmt.Fprintln(os.Stderr, "pica text: at most one input file (default stdin)")
+		return 1
+	}
+	src, err := readInput(pos)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pica text: %v\n", err)
+		return 1
+	}
+	doc, err := typeset.Parse(string(src))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pica text: %v\n", err)
+		return 1
+	}
+	page, err := doc.Text()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pica text: %v\n", err)
+		return 1
+	}
+	return writeOutput(*out, []byte(page))
+}
+
+// ── render ──────────────────────────────────────────────────────────
 
 func renderCmd(args []string) int {
 	fs := flag.NewFlagSet("render", flag.ContinueOnError)
@@ -151,14 +174,12 @@ func renderCmd(args []string) int {
 	tmplPath := rest[0]
 	dataPath := rest[1]
 
-	// Load template.
 	tmplBytes, err := os.ReadFile(tmplPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica: read template: %v\n", err)
 		return 1
 	}
 
-	// Load data (file or stdin).
 	var dataBytes []byte
 	if dataPath == "-" {
 		dataBytes, err = io.ReadAll(os.Stdin)
@@ -170,8 +191,6 @@ func renderCmd(args []string) int {
 		return 1
 	}
 
-	// Parse data into the template-data shape. Two paths:
-	// JSON (default) or txtar archive (-txtar flag).
 	var data any
 	if *useTxtar {
 		data, err = parseTxtar(dataBytes)
@@ -183,7 +202,6 @@ func renderCmd(args []string) int {
 		return 1
 	}
 
-	// Stage 1: Go text/template execution.
 	tmpl, err := template.New(tmplPath).
 		Option("missingkey=zero").
 		Funcs(funcMap()).
@@ -199,14 +217,6 @@ func renderCmd(args []string) int {
 		return 1
 	}
 	out := buf.String()
-
-	// Stage 2: expand .table blocks.
-	out, err = typeset.ExpandTables(out)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "pica: expand tables: %v\n", err)
-		return 1
-	}
-
 	fmt.Print(out)
 	if !strings.HasSuffix(out, "\n") {
 		fmt.Println()
@@ -214,22 +224,8 @@ func renderCmd(args []string) int {
 	return 0
 }
 
-// parseTxtar parses a txtar archive into a template data map.
-//
-// Conventional file names inside the archive:
-//
-//	data.yaml     YAML document; each top-level key becomes a
-//	              template field. Required.
-//	body.txt      plain prose; injected as the "body" key
-//	              (string). Optional. Trailing whitespace trimmed.
-//	sources.txt   one URL per line; injected as the "sources" key
-//	              ([]string). Optional. Empty lines dropped.
-//
-// data.yaml MUST NOT contain top-level "body" or "sources" keys --
-// those are reserved for body.txt and sources.txt and a collision
-// is rejected at load time.
-//
-// Other files in the archive are ignored.
+// parseTxtar parses a txtar archive into a template data map. See
+// the package comment for the file conventions.
 func parseTxtar(data []byte) (any, error) {
 	archive := txtar.Parse(data)
 	if archive == nil {

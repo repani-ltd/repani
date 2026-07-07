@@ -10,7 +10,6 @@ import (
 	_ "embed"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/pavlos/typeset/pdf/ttf"
 )
@@ -157,8 +156,9 @@ func (d *Doc) Bytes() []byte {
 	// 3. Resources shared by all pages.
 	resourcesID := b.add(pdfResources(len(b.objs), embedded, fontType0IDs))
 
-	// 4. Info.
-	infoID := b.add(pdfInfo(len(b.objs), time.Now().Format("20060102150405"), d.Creator, d.Title))
+	// 4. Info. No CreationDate: identical input must produce
+	// byte-identical PDFs, and the date is optional in the spec.
+	infoID := b.add(pdfInfo(len(b.objs), d.Creator, d.Title))
 
 	// 5. Page/stream pairs.
 	kids := make([]int, len(d.pages))
@@ -259,9 +259,8 @@ func pdfCatalog(id, openActionRef, pagesRef int) []byte {
 	return o.bytes()
 }
 
-func pdfInfo(id int, date, creator, title string) []byte {
+func pdfInfo(id int, creator, title string) []byte {
 	o := newObj(id)
-	o.field("CreationDate", fmt.Sprintf("(D:%s)", date))
 	if creator != "" {
 		o.field("Creator", fmt.Sprintf("(%s)", creator))
 	}

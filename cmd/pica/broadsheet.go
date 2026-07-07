@@ -1,11 +1,12 @@
-// The pdf subcommand: lay rendered monospace text into an N-column
-// newspaper-style PDF with orphan/widow control.
+// The pdf subcommand: render a typeset source document as an
+// N-column newspaper. Geometry comes entirely from the document's
+// layout trailer (self-contained: same source, same PDF bytes); the
+// body point size is derived from column width and .width.
 package main
 
 import (
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -13,236 +14,186 @@ import (
 	"github.com/pavlos/typeset/pdf"
 )
 
-// Layout constants (points). Text sizing is derived from the input:
-// the font size is chosen so the widest line exactly fills a column
-// (unless -pt overrides it).
+// Writer identity constants (points). These are the gazette's
+// typography, not document attributes.
 const (
 	sheetMargin = 40.0
 	sheetGutter = 16.0
 	lineSpacing = 1.25 // line height in ems
-	minPt       = 4.5
-	maxPt       = 14.0
+	minPs       = 4.5  // readability floor for the derived body size
+	emWidth     = 0.6  // Fira Mono advance per rune, in ems
 )
 
 // minKeep is the orphan/widow threshold: a split never leaves fewer
-// than minKeep lines of a block on either side of a column break.
+// than minKeep segments of a block on either side of a column break.
 const minKeep = 2
-
-// parseMixed parses args against fs, allowing flags before, between,
-// and after positional arguments (stdlib flag stops at the first
-// non-flag token, so it is re-invoked past each positional). Returns
-// the positionals in order.
-func parseMixed(fs *flag.FlagSet, args []string) []string {
-	var pos []string
-	fs.Parse(args)
-	rem := fs.Args()
-	for len(rem) > 0 {
-		pos = append(pos, rem[0])
-		fs.Parse(rem[1:])
-		rem = fs.Args()
-	}
-	return pos
-}
 
 func pdfCmd(args []string) int {
 	fs := flag.NewFlagSet("pdf", flag.ExitOnError)
 	out := fs.String("o", "", "output file (default stdout)")
-	cols := fs.Int("cols", 3, "columns per page")
-	paper := fs.String("paper", "a4", "paper size: a4, a5, or letter")
-	ptFlag := fs.Float64("pt", 0, "font size in points (default: fit widest line to column)")
-	title := fs.String("title", "", "masthead text (default: first line of input)")
-	nomast := fs.Bool("nomast", false, "no masthead; all input flows into columns")
 	pos := parseMixed(fs, args)
 	if len(pos) > 1 {
 		fmt.Fprintln(os.Stderr, "pica pdf: at most one input file (default stdin)")
 		return 1
 	}
 
-	var (
-		text []byte
-		err  error
-	)
-	if len(pos) == 0 || pos[0] == "-" {
-		text, err = io.ReadAll(os.Stdin)
-	} else {
-		text, err = os.ReadFile(pos[0])
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "pica: read input: %v\n", err)
-		return 1
-	}
-
-	var size pdf.PageSize
-	switch *paper {
-	case "a4":
-		size = pdf.PageA4
-	case "a5":
-		size = pdf.PageA5
-	case "letter":
-		size = pdf.PageLetter
-	default:
-		fmt.Fprintf(os.Stderr, "pica pdf: unknown paper %q\n", *paper)
-		return 1
-	}
-	if *cols < 1 || *cols > 6 {
-		fmt.Fprintln(os.Stderr, "pica pdf: -cols must be 1..6")
-		return 1
-	}
-
-	masthead, body := splitMasthead(string(text), *title, *nomast)
-	doc, err := broadsheet(masthead, body, size, *cols, *ptFlag)
+	src, err := readInput(pos)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica pdf: %v\n", err)
 		return 1
 	}
-
-	if *out == "" {
-		if _, err := os.Stdout.Write(doc); err != nil {
-			fmt.Fprintf(os.Stderr, "pica pdf: write: %v\n", err)
-			return 1
-		}
-		return 0
-	}
-	if err := os.WriteFile(*out, doc, 0o644); err != nil {
+	doc, err := typeset.Parse(string(src))
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica pdf: %v\n", err)
 		return 1
 	}
-	return 0
+	bytes, err := broadsheet(doc)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pica pdf: %v\n", err)
+		return 1
+	}
+	return writeOutput(*out, bytes)
 }
 
-// splitMasthead resolves the masthead text and the body lines. By
-// default the first non-blank input line becomes the masthead;
-// -title overrides it (keeping the whole input as body) and -nomast
-// disables the masthead entirely.
-func splitMasthead(text, title string, nomast bool) (string, []string) {
-	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	if nomast {
-		return "", lines
+// ── Styled lines and flow blocks ────────────────────────────────────
+
+type style byte
+
+const (
+	styleBody style = iota
+	styleBold       // headings
+	styleGray       // link metadata
+	styleRule       // drawn as a hairline, occupies one line slot
+)
+
+// sline is one composed output line with its drawing style.
+type sline struct {
+	text  string
+	style style
+}
+
+// seg is an atomic run of lines: a paragraph line, a table row (all
+// its wrapped lines), a whole .pre block, ...
+type seg struct {
+	lines []sline
+}
+
+func (s seg) height() int { return len(s.lines) }
+
+// fblock is a flowable block: segments that may be split between
+// (never inside), with optional repeated lead-in after a split.
+type fblock struct {
+	segs     []seg
+	repeat   int  // leading segments repeated after a split (table header, .pre N)
+	atomic   bool // never split unless taller than a whole column
+	keepNext bool // heading: keep with the following block
+	tight    bool // no blank separator before this block
+}
+
+func (b fblock) height() int {
+	h := 0
+	for _, s := range b.segs {
+		h += s.height()
 	}
-	if title != "" {
-		return title, lines
-	}
-	for i, ln := range lines {
-		if strings.TrimSpace(ln) != "" {
-			body := lines[i+1:]
-			for len(body) > 0 && strings.TrimSpace(body[0]) == "" {
-				body = body[1:]
+	return h
+}
+
+// compose renders the document's blocks into flow blocks at the
+// document width. This is where writer identity applies: justified
+// paragraphs, bold headings without their marker, gray links.
+func compose(doc *typeset.Doc) ([]fblock, error) {
+	width := doc.Layout.Width
+	var out []fblock
+	for i, blk := range doc.Blocks {
+		fb := fblock{tight: blk.Tight}
+		switch blk.Kind {
+		case typeset.Para:
+			for _, ln := range strings.Split(typeset.Justify(blk.Text, width), "\n") {
+				fb.segs = append(fb.segs, seg{lines: []sline{{text: ln}}})
 			}
-			return strings.TrimSpace(ln), body
+
+		case typeset.Heading:
+			fb.segs = []seg{{lines: []sline{{text: truncRunes(blk.Text, width), style: styleBold}}}}
+			fb.keepNext = i+1 < len(doc.Blocks)
+			fb.atomic = true
+
+		case typeset.RuleBlk:
+			fb.segs = []seg{{lines: []sline{{style: styleRule}}}}
+			fb.atomic = true
+
+		case typeset.LinkBlk:
+			fb.segs = []seg{{lines: []sline{{text: truncRunes(blk.Text, width), style: styleGray}}}}
+			fb.atomic = true
+
+		case typeset.TableBlk:
+			w := width
+			if blk.Width > 0 && blk.Width < width {
+				w = blk.Width
+			}
+			tl, err := blk.Table.Layout(w)
+			if err != nil {
+				return nil, err
+			}
+			if len(tl.Header) > 0 {
+				fb.segs = append(fb.segs, seg{lines: toSlines(tl.Header)})
+				fb.repeat = 1
+			}
+			for _, row := range tl.Rows {
+				fb.segs = append(fb.segs, seg{lines: toSlines(row)})
+			}
+
+		case typeset.Pre:
+			lines := make([]sline, len(blk.Lines))
+			for j, ln := range blk.Lines {
+				lines[j] = sline{text: truncRunes(ln, width)}
+			}
+			if blk.Repeat > 0 && blk.Repeat < len(lines) {
+				// Repeated lead-in becomes its own segment; the rest
+				// split line-wise.
+				fb.segs = append(fb.segs, seg{lines: lines[:blk.Repeat]})
+				fb.repeat = 1
+				for _, ln := range lines[blk.Repeat:] {
+					fb.segs = append(fb.segs, seg{lines: []sline{ln}})
+				}
+			} else {
+				fb.segs = []seg{{lines: lines}}
+				fb.atomic = true
+			}
+		}
+		if len(fb.segs) > 0 {
+			out = append(out, fb)
 		}
 	}
-	return "", nil
+	return out, nil
 }
 
-// ── Blocks ──────────────────────────────────────────────────────────
-
-// block is a run of consecutive non-blank lines: the atomic unit the
-// column flow tries to keep together.
-type block struct {
-	lines   []string
-	heading bool // single line with a following block: keep with next
-	table   bool // second line is a table separator: splits repeat the header
+func toSlines(lines []string) []sline {
+	out := make([]sline, len(lines))
+	for i, ln := range lines {
+		out[i] = sline{text: ln}
+	}
+	return out
 }
 
-// parseBlocks splits body lines into blocks at blank lines.
-func parseBlocks(lines []string) []block {
-	var blocks []block
-	var cur []string
-	flush := func() {
-		if len(cur) > 0 {
-			blocks = append(blocks, block{lines: cur})
-			cur = nil
-		}
+func truncRunes(s string, width int) string {
+	r := []rune(s)
+	if len(r) <= width {
+		return s
 	}
-	for _, ln := range lines {
-		if strings.TrimSpace(ln) == "" {
-			flush()
-			continue
-		}
-		cur = append(cur, ln)
-	}
-	flush()
-	for i := range blocks {
-		blocks[i].heading = len(blocks[i].lines) == 1 && i+1 < len(blocks)
-		blocks[i].table = isTableBlock(blocks[i].lines)
-	}
-	return blocks
-}
-
-// isTableBlock reports whether lines look like a rendered table:
-// a header row followed by a dashes-and-spaces separator row.
-func isTableBlock(lines []string) bool {
-	if len(lines) < 3 {
-		return false
-	}
-	sep := strings.TrimRight(lines[1], " ")
-	if !strings.Contains(sep, "-") {
-		return false
-	}
-	for _, r := range sep {
-		if r != '-' && r != ' ' {
-			return false
-		}
-	}
-	return true
-}
-
-// splitPoint returns how many lines of b to place into a slot of
-// avail lines, honoring orphan/widow constraints, or 0 when no
-// acceptable split exists (the block should move as a whole).
-func splitPoint(b block, avail int) int {
-	n := len(b.lines)
-	if b.table {
-		// First part keeps the 2 header lines plus >= minKeep data
-		// rows; the remainder must retain >= minKeep data rows (the
-		// header is re-attached to the remainder separately).
-		k := min(avail, n-minKeep)
-		if k < 2+minKeep {
-			return 0
-		}
-		return k
-	}
-	if n < 2*minKeep {
-		return 0 // too small to split acceptably
-	}
-	k := min(avail, n-minKeep)
-	if k < minKeep {
-		return 0
-	}
-	return k
-}
-
-// rest returns the unplaced remainder of a block split at k. Table
-// remainders get the header rows re-attached so every continuation
-// column repeats them.
-func (b block) rest(k int) block {
-	if b.table {
-		hdr := b.lines[:2]
-		remainder := append(append([]string{}, hdr...), b.lines[k:]...)
-		return block{lines: remainder, table: true}
-	}
-	return block{lines: b.lines[k:]}
+	return string(r[:width])
 }
 
 // ── Column flow ─────────────────────────────────────────────────────
 
-// flow distributes blocks into columns. capacity(i) is the line
-// capacity of the i-th column overall (page-one columns can be
-// shorter than later pages' because of the masthead). Rules:
-//
-//   - blocks are separated by one blank line within a column
-//   - a heading is never left alone at a column bottom: it needs
-//     room for itself plus minKeep lines of the next block
-//   - a split leaves at least minKeep lines on both sides (no
-//     orphans at column bottoms, no widows at column tops)
-//   - blocks of fewer than 2*minKeep lines never split
-//   - a table split re-draws the header rows in the next column
-//
-// A block taller than an entire fresh column is force-split as a
-// last resort.
-func flow(blocks []block, capacity func(int) int) [][]string {
-	var out [][]string
-	var cur []string
+// flow distributes blocks into columns of capacity(i) lines each.
+// Splits happen only between segments, leaving at least minKeep
+// segments on both sides; the repeated lead-in (table headers,
+// .pre N) is re-emitted after each split. Atomic blocks move whole
+// unless taller than an entire fresh column. A heading is never
+// left at a column bottom without minKeep segments of what follows.
+func flow(blocks []fblock, capacity func(int) int) [][]sline {
+	var out [][]sline
+	var cur []sline
 	colIdx := 0
 
 	closeCol := func() {
@@ -250,11 +201,13 @@ func flow(blocks []block, capacity func(int) int) [][]string {
 		cur = nil
 		colIdx++
 	}
-	place := func(lines []string) {
-		if len(cur) > 0 {
-			cur = append(cur, "")
+	place := func(b fblock, upto int) {
+		if len(cur) > 0 && !b.tight {
+			cur = append(cur, sline{})
 		}
-		cur = append(cur, lines...)
+		for _, s := range b.segs[:upto] {
+			cur = append(cur, s.lines...)
+		}
 	}
 
 	for i := 0; i < len(blocks); i++ {
@@ -262,43 +215,44 @@ func flow(blocks []block, capacity func(int) int) [][]string {
 		for {
 			cap := capacity(colIdx)
 			sep := 0
-			if len(cur) > 0 {
+			if len(cur) > 0 && !b.tight {
 				sep = 1
 			}
 			avail := cap - len(cur) - sep
-			n := len(b.lines)
+			h := b.height()
 
-			// Keep-with-next: a heading must fit together with the
-			// first minKeep lines of what follows.
-			if b.heading && i+1 < len(blocks) && len(cur) > 0 {
-				needNext := n + 1 + min(minKeep, len(blocks[i+1].lines))
-				if avail < needNext {
+			// Keep-with-next: the heading and the first minKeep
+			// segments of the next block must fit together.
+			if b.keepNext && i+1 < len(blocks) && len(cur) > 0 {
+				next := blocks[i+1]
+				need := h + 1
+				for _, s := range next.segs[:min(minKeep, len(next.segs))] {
+					need += s.height()
+				}
+				if avail < need {
 					closeCol()
 					continue
 				}
 			}
 
-			if n <= avail {
-				place(b.lines)
+			if h <= avail {
+				place(b, len(b.segs))
 				break
 			}
 
-			k := splitPoint(b, avail)
+			k := splitSegs(b, avail)
 			if k <= 0 {
 				if len(cur) > 0 {
 					closeCol()
 					continue
 				}
 				// Top of an empty column and still no acceptable
-				// split: the block is taller than a full column.
-				// Force-split to keep making progress.
-				k = min(avail, n-1)
-				if k < 1 {
-					k = 1
-				}
+				// split: force progress.
+				k = forceSplit(b, avail)
 			}
-			place(b.lines[:k])
+			place(b, k)
 			b = b.rest(k)
+			b.tight = false
 			closeCol()
 		}
 	}
@@ -308,58 +262,112 @@ func flow(blocks []block, capacity func(int) int) [][]string {
 	return out
 }
 
+// splitSegs returns how many leading segments of b fit in avail
+// lines under the orphan/widow rules, or 0 for "move whole".
+func splitSegs(b fblock, avail int) int {
+	if b.atomic {
+		return 0
+	}
+	n := len(b.segs)
+	// The first part must keep the repeated lead-in plus minKeep
+	// content segments; the remainder keeps minKeep content segments.
+	k, lines := 0, 0
+	for k < n && lines+b.segs[k].height() <= avail {
+		lines += b.segs[k].height()
+		k++
+	}
+	if k > n-minKeep {
+		k = n - minKeep
+	}
+	if k < b.repeat+minKeep {
+		return 0
+	}
+	return k
+}
+
+// forceSplit fits as many segments as possible into an empty column,
+// ignoring the keep rules; at least one segment (or, for an atomic
+// block taller than the column, the whole block, overflowing).
+func forceSplit(b fblock, avail int) int {
+	if b.atomic || len(b.segs) == 1 {
+		return len(b.segs)
+	}
+	k, lines := 0, 0
+	for k < len(b.segs) && lines+b.segs[k].height() <= avail {
+		lines += b.segs[k].height()
+		k++
+	}
+	return max(k, 1)
+}
+
+// rest returns the unplaced remainder after splitting at k, with the
+// repeated lead-in re-attached.
+func (b fblock) rest(k int) fblock {
+	segs := append(append([]seg{}, b.segs[:b.repeat]...), b.segs[k:]...)
+	return fblock{segs: segs, repeat: b.repeat}
+}
+
 // ── Drawing ─────────────────────────────────────────────────────────
 
-// broadsheet renders masthead + body into an N-column PDF.
-func broadsheet(masthead string, body []string, size pdf.PageSize, ncols int, ptOverride float64) ([]byte, error) {
+// paperSize maps the document attribute to a pdf.PageSize.
+func paperSize(paper string) pdf.PageSize {
+	switch paper {
+	case "a5":
+		return pdf.PageA5
+	case "letter":
+		return pdf.PageLetter
+	default:
+		return pdf.PageA4
+	}
+}
+
+// broadsheet renders a parsed document as the newspaper PDF.
+func broadsheet(doc *typeset.Doc) ([]byte, error) {
+	ncols := doc.Layout.Cols
+	width := doc.Layout.Width
+	size := paperSize(doc.Layout.Paper)
 	pageW, pageH := size.Dimensions()
 	usableW := pageW - 2*sheetMargin
 	colW := (usableW - float64(ncols-1)*sheetGutter) / float64(ncols)
 
-	// Font size: fit the widest body line to the column width
-	// (monospace: one rune is 0.6 em).
-	pt := ptOverride
-	if pt == 0 {
-		widest := typeset.MaxLineWidth(strings.Join(body, "\n"))
-		if widest < 10 {
-			widest = 10
-		}
-		pt = colW / (0.6 * float64(widest))
-		pt = max(minPt, min(maxPt, pt))
+	// Derived body size: the column holds exactly .width runes.
+	ps := colW / (emWidth * float64(width))
+	if ps < minPs {
+		return nil, fmt.Errorf(
+			"derived body size %.1fpt is below %.1fpt: .width %d with .cols %d on %s leaves columns too narrow",
+			ps, minPs, width, ncols, doc.Layout.Paper)
 	}
-	lineH := pt * lineSpacing
+	lineH := ps * lineSpacing
 
 	// Masthead band on page one.
 	topY := pageH - sheetMargin
+	title := doc.Title
+	mastPt := usableW / (emWidth * float64(max(len([]rune(title)), 8)))
+	mastPt = max(12, min(30, mastPt))
+	colTopFirst := topY - mastPt*1.35 - 10
 	colTopRest := topY
-	colTopFirst := topY
-	var mastPt float64
-	if masthead != "" {
-		mastPt = usableW / (0.6 * float64(max(len([]rune(masthead)), 8)))
-		mastPt = max(12, min(30, mastPt))
-		colTopFirst = topY - mastPt*1.35 - 10
-	}
 	colBottom := sheetMargin
 
 	linesFirst := int((colTopFirst - colBottom) / lineH)
 	linesRest := int((colTopRest - colBottom) / lineH)
-	if linesFirst < 2*minKeep+2 || linesRest < 2*minKeep+2 {
-		return nil, fmt.Errorf("page too small for %d columns at %.1fpt", ncols, pt)
+	if linesFirst < 2*minKeep+2 {
+		return nil, fmt.Errorf("page too small for %d columns at %.1fpt", ncols, ps)
 	}
 
+	blocks, err := compose(doc)
+	if err != nil {
+		return nil, err
+	}
 	capacity := func(col int) int {
 		if col < ncols {
 			return linesFirst
 		}
 		return linesRest
 	}
-	blocks := parseBlocks(body)
 	columns := flow(blocks, capacity)
 
-	// Balance a single underfull page: find the smallest uniform
-	// capacity that still fits the content in ncols columns, so
-	// short content spreads across the page instead of stacking in
-	// the first column. Multi-page documents keep full columns.
+	// Balance a single underfull page: the smallest uniform capacity
+	// that still fits ncols columns.
 	if len(columns) <= ncols {
 		lo, hi, best := 2*minKeep+2, linesFirst, linesFirst
 		for lo <= hi {
@@ -373,47 +381,33 @@ func broadsheet(masthead string, body []string, size pdf.PageSize, ncols int, pt
 		columns = flow(blocks, func(int) int { return best })
 	}
 
-	doc := &pdf.Doc{Title: masthead, Creator: "pica", PageSize: size, Compress: true}
+	pdoc := &pdf.Doc{Title: title, Creator: "pica", PageSize: size, Compress: true}
 	for pg := 0; pg*ncols < len(columns) || pg == 0; pg++ {
 		var p pdf.Page
 		colTop := colTopRest
-		if pg == 0 && masthead != "" {
+		if pg == 0 {
 			colTop = colTopFirst
-			// Centered bold masthead with a rule underneath.
 			p.SetFont(pdf.Bold, mastPt)
-			w := pdf.Width(masthead, pdf.Bold, mastPt)
-			p.Text((pageW-w)/2, topY-mastPt, masthead)
+			w := pdf.Width(title, pdf.Bold, mastPt)
+			p.Text((pageW-w)/2, topY-mastPt, title)
 			p.StrokeGray(0)
 			p.Line(sheetMargin, colTop+lineH*0.6, pageW-sheetMargin, colTop+lineH*0.6, 1.0)
 		}
 
-		// Column text.
-		p.SetFont(pdf.Regular, pt)
+		deepest := 0
 		for c := 0; c < ncols; c++ {
 			idx := pg*ncols + c
 			if idx >= len(columns) {
 				break
 			}
-			x := sheetMargin + float64(c)*(colW+sheetGutter)
-			tb := p.BeginText()
-			tb.Move(x, colTop-pt)
-			for _, ln := range columns[idx] {
-				if strings.TrimSpace(ln) != "" {
-					tb.Show(ln)
-				}
-				tb.MoveRel(0, -lineH)
-			}
-			tb.End()
-		}
-
-		// Hairline rules centered in the gutters, running to the
-		// depth of the page's deepest column.
-		deepest := 0
-		for c := 0; c < ncols; c++ {
-			if idx := pg*ncols + c; idx < len(columns) && len(columns[idx]) > deepest {
+			if len(columns[idx]) > deepest {
 				deepest = len(columns[idx])
 			}
+			x := sheetMargin + float64(c)*(colW+sheetGutter)
+			drawColumn(&p, columns[idx], x, colTop, colW, ps, lineH)
 		}
+
+		// Hairline rules centered in the gutters, to content depth.
 		ruleBottom := max(colTop-float64(deepest)*lineH, colBottom)
 		p.StrokeGray(0.55)
 		for c := 1; c < ncols; c++ {
@@ -422,16 +416,42 @@ func broadsheet(masthead string, body []string, size pdf.PageSize, ncols int, pt
 		}
 
 		// Page number, centered in the bottom margin.
-		p.SetFont(pdf.Regular, pt*0.9)
+		p.SetFont(pdf.Regular, ps*0.9)
 		p.Gray(0.4)
 		num := fmt.Sprintf("- %d -", pg+1)
-		p.Text((pageW-pdf.Width(num, pdf.Regular, pt*0.9))/2, sheetMargin/2-2, num)
+		p.Text((pageW-pdf.Width(num, pdf.Regular, ps*0.9))/2, sheetMargin/2-2, num)
 		p.Gray(0)
 
-		doc.Add(&p)
+		pdoc.Add(&p)
 		if (pg+1)*ncols >= len(columns) {
 			break
 		}
 	}
-	return doc.Bytes(), nil
+	return pdoc.Bytes(), nil
+}
+
+// drawColumn renders one column's styled lines.
+func drawColumn(p *pdf.Page, lines []sline, x, top, colW, ps, lineH float64) {
+	y := top - ps
+	for _, ln := range lines {
+		switch {
+		case ln.style == styleRule:
+			p.StrokeGray(0.3)
+			p.Line(x, y+ps*0.35, x+colW, y+ps*0.35, 0.5)
+		case ln.text != "":
+			font := pdf.Regular
+			if ln.style == styleBold {
+				font = pdf.Bold
+			}
+			if ln.style == styleGray {
+				p.Gray(0.45)
+			}
+			p.SetFont(font, ps)
+			p.Text(x, y, ln.text)
+			if ln.style == styleGray {
+				p.Gray(0)
+			}
+		}
+		y -= lineH
+	}
 }

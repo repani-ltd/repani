@@ -1,16 +1,12 @@
-// Knuth-Plass optimal line breaking with hyphenation. The public
-// API and special-line semantics are documented in doc.go.
+// Knuth-Plass optimal line breaking with hyphenation, plus the
+// exported prose utilities Wrap, Justify, and TruncLines. The
+// public API and conventions are documented in doc.go.
 package typeset
 
 import (
 	"fmt"
 	"strings"
 )
-
-// DefaultWidth is the width used for .table blocks that do not
-// specify their own (see ExpandTables). The wrapping functions take
-// an explicit width and have no default.
-const DefaultWidth = 40
 
 // checkWidth guards the layout entry points: a non-positive width is
 // a programmer error, not an input condition.
@@ -20,11 +16,13 @@ func checkWidth(width int) {
 	}
 }
 
-// Wrap reflows blank-line-separated paragraphs to fit width, using
-// optimal (Knuth-Plass) line breaking with hyphenation. Lines are
-// left ragged-right. Lines containing 2+ consecutive internal spaces
-// are treated as preformatted (column-aligned key/value pairs,
-// simple tables) and are passed through unchanged.
+// Wrap reflows blank-line-separated paragraphs of PROSE to fit
+// width, using optimal (Knuth-Plass) line breaking with hyphenation.
+// Lines are left ragged-right; lines containing 2+ consecutive
+// internal spaces are treated as preformatted and pass through
+// unchanged. Structured documents (headings, tables, verbatim
+// blocks) belong in the Parse -> Doc pipeline instead: Wrap cannot
+// tell a narrow table row from prose.
 func Wrap(text string, width int) string {
 	checkWidth(width)
 	return reflow(text, width, wrapParagraph)
@@ -39,27 +37,27 @@ func Wrap(text string, width int) string {
 // left-aligned. Preformatted lines pass through as in Wrap.
 func Justify(text string, width int) string {
 	checkWidth(width)
-	return reflow(text, width, func(para string, width int) []string {
-		lines := wrapParagraphJustify(para, width)
-		for i := 0; i < len(lines)-1; i++ {
-			lines[i] = justifyLine(lines[i], width)
-		}
-		return lines
-	})
+	return reflow(text, width, justifyParagraph)
+}
+
+// justifyParagraph wraps one paragraph with the gap-aware breaker
+// and flushes every non-final line.
+func justifyParagraph(para string, width int) []string {
+	lines := wrapParagraphJustify(para, width)
+	for i := 0; i < len(lines)-1; i++ {
+		lines[i] = justifyLine(lines[i], width)
+	}
+	return lines
 }
 
 // TruncLines truncates every line in text to width runes. Lines
 // already within the limit pass through unchanged. No reflow, no
-// hyphenation -- just a cut. Useful for preformatted content that
-// must not exceed the display width but should not be reflowed.
+// hyphenation -- just a cut.
 func TruncLines(text string, width int) string {
 	checkWidth(width)
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
-		r := []rune(line)
-		if len(r) > width {
-			lines[i] = string(r[:width])
-		}
+		lines[i] = truncLine(line, width)
 	}
 	return strings.Join(lines, "\n")
 }

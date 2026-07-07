@@ -5,23 +5,32 @@ import (
 	"testing"
 )
 
-// mustTable is a test helper: NewTable that fails the test on error.
-func mustTable(t *testing.T, spec string, width int) *Table {
+// render is a test helper: Render that fails the test on error.
+func render(t *testing.T, tbl *Table, width int) string {
 	t.Helper()
-	tbl, err := NewTable(spec, width)
+	s, err := tbl.Render(width)
 	if err != nil {
-		t.Fatalf("NewTable(%q, %d): %v", spec, width, err)
+		t.Fatalf("Render(%d): %v", width, err)
+	}
+	return s
+}
+
+func mustTable(t *testing.T, spec string) *Table {
+	t.Helper()
+	tbl, err := NewTable(spec)
+	if err != nil {
+		t.Fatalf("NewTable(%q): %v", spec, err)
 	}
 	return tbl
 }
 
 func TestTable_Basic(t *testing.T) {
-	tbl := mustTable(t, "3L 5L 4R", 40)
+	tbl := mustTable(t, "3L 5L 4R")
 	tbl.Header("Day", "Time", "Temp")
 	tbl.Row("Mon", "09:00", "25")
 	tbl.Row("Tue", "14:30", "22")
 
-	got := tbl.Render()
+	got := render(t, tbl, 40)
 	want := strings.Join([]string{
 		"Day Time  Temp",
 		"--- ----- ----",
@@ -35,56 +44,101 @@ func TestTable_Basic(t *testing.T) {
 
 func TestTable_AutoSpan(t *testing.T) {
 	// 3 + 1 + auto + 1 + 4 = 40 -> auto = 31
-	tbl := mustTable(t, "3L *L 4R", 40)
+	tbl := mustTable(t, "3L *L 4R")
 	tbl.Header("Day", "Forecast", "Temp")
 	tbl.Row("Mon", "Sunny", "25")
 
-	lines := strings.Split(tbl.Render(), "\n")
-	for _, ln := range lines {
-		if len([]rune(ln)) != 40 {
-			t.Errorf("line not 40 chars: %q (len=%d)", ln, len([]rune(ln)))
+	for _, ln := range strings.Split(render(t, tbl, 40), "\n") {
+		if len([]rune(ln)) > 40 {
+			t.Errorf("line exceeds 40 chars: %q", ln)
+		}
+	}
+	// The same table lays out at another width.
+	for _, ln := range strings.Split(render(t, tbl, 28), "\n") {
+		if len([]rune(ln)) > 28 {
+			t.Errorf("line exceeds 28 chars: %q", ln)
 		}
 	}
 }
 
-func TestTable_AutoSpanMiddle(t *testing.T) {
-	// 5 + 1 + auto + 1 + 4 + 1 + 6 = 40 -> auto = 22
-	tbl := mustTable(t, "5L *L 4R 6R", 40)
-	tbl.Header("Date", "Title", "Temp", "Wind")
-	tbl.Row("Mon", "Sunny day in Limassol", "25", "12 NW")
+func TestTable_CellsWrapByDefault(t *testing.T) {
+	tbl := mustTable(t, "6L *L 4R")
+	tbl.Header("Day", "Conditions", "Temp")
+	tbl.Row("Sat 11", "High cloud thickening late in the day", "30")
+	tbl.Row("Sun 12", "Clear", "29")
 
-	lines := strings.Split(tbl.Render(), "\n")
-	for _, ln := range lines {
-		if len([]rune(ln)) != 40 {
-			t.Errorf("line not 40 chars: %q (len=%d)", ln, len([]rune(ln)))
+	tl, err := tbl.Layout(30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Row 0 wraps: multiple lines, continuation cells blank, no
+	// content lost.
+	if len(tl.Rows[0]) < 2 {
+		t.Fatalf("expected wrapped row, got %v", tl.Rows[0])
+	}
+	joined := strings.Join(tl.Rows[0], " ")
+	for _, word := range []string{"High", "cloud", "thickening", "late", "day", "30"} {
+		if !strings.Contains(joined, word) {
+			t.Errorf("wrapped row lost %q:\n%s", word, strings.Join(tl.Rows[0], "\n"))
+		}
+	}
+	// Continuation lines leave the other columns blank.
+	cont := tl.Rows[0][1]
+	if !strings.HasPrefix(cont, strings.Repeat(" ", 7)) {
+		t.Errorf("continuation does not blank the first column: %q", cont)
+	}
+	// Unwrapped row stays single-line.
+	if len(tl.Rows[1]) != 1 {
+		t.Errorf("short row wrapped: %v", tl.Rows[1])
+	}
+	// Every line fits.
+	for _, ln := range tl.Lines() {
+		if len([]rune(ln)) > 30 {
+			t.Errorf("line exceeds width: %q", ln)
 		}
 	}
 }
 
-func TestTable_Truncation(t *testing.T) {
-	tbl := mustTable(t, "5L", 5)
-	tbl.Row("This is too long")
-	got := tbl.Render()
-	if got != "This " {
-		t.Errorf("got %q, want %q", got, "This ")
+func TestTable_ClipModifier(t *testing.T) {
+	tbl := mustTable(t, "6L! 4R")
+	tbl.Row("This is far too long", "25")
+	got := render(t, tbl, 12)
+	if got != "This i   25" {
+		t.Errorf("got %q", got)
+	}
+	if strings.Contains(got, "\n") {
+		t.Error("clipped cell should not wrap")
+	}
+}
+
+func TestTable_LongWordHardCut(t *testing.T) {
+	tbl := mustTable(t, "5L")
+	tbl.Row("abcdefghij")
+	tl, err := tbl.Layout(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Rows[0]) != 2 || strings.TrimSpace(tl.Rows[0][0]) != "abcde" || strings.TrimSpace(tl.Rows[0][1]) != "fghij" {
+		t.Errorf("hard cut wrong: %v", tl.Rows[0])
 	}
 }
 
 func TestTable_Alignment(t *testing.T) {
-	tbl := mustTable(t, "5L 5R 5C", 17)
+	tbl := mustTable(t, "5L 5R 5C")
 	tbl.Row("L", "R", "C")
-	got := tbl.Render()
-	want := "L         R   C  "
+	got := render(t, tbl, 17)
+	// Trailing pad is trimmed.
+	want := "L         R   C"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
 func TestTable_NoHeader(t *testing.T) {
-	tbl := mustTable(t, "3L 4R", 8)
+	tbl := mustTable(t, "3L 4R")
 	tbl.Row("Mon", "25")
 	tbl.Row("Tue", "22")
-	got := tbl.Render()
+	got := render(t, tbl, 8)
 	want := "Mon   25\nTue   22"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -92,36 +146,35 @@ func TestTable_NoHeader(t *testing.T) {
 }
 
 func TestTable_InvalidSpec(t *testing.T) {
-	cases := []string{
+	for _, spec := range []string{
 		"",
 		"3X",       // bad align
 		"abc",      // bad width
 		"3L *L *R", // two auto-span
-		"50L 50L",  // doesn't fit in 40
-	}
-	for _, spec := range cases {
+	} {
 		t.Run(spec, func(t *testing.T) {
-			if _, err := NewTable(spec, 40); err == nil {
+			if _, err := NewTable(spec); err == nil {
 				t.Errorf("expected error for spec %q", spec)
 			}
 		})
+	}
+	// Fit errors surface at layout time.
+	tbl := mustTable(t, "50L 50L")
+	if _, err := tbl.Layout(40); err == nil {
+		t.Error("expected overflow error at Layout")
 	}
 }
 
 func TestTable_RuneAware(t *testing.T) {
 	// "λεμεσός" is 7 runes.
-	tbl := mustTable(t, "7L", 7)
+	tbl := mustTable(t, "7L")
 	tbl.Row("λεμεσός")
-	got := tbl.Render()
-	if got != "λεμεσός" {
-		t.Errorf("got %q, want %q", got, "λεμεσός")
+	if got := render(t, tbl, 7); got != "λεμεσός" {
+		t.Errorf("got %q", got)
 	}
-
-	// Truncate to 4 runes.
-	tbl = mustTable(t, "4L", 4)
-	tbl.Row("λεμεσός")
-	got = tbl.Render()
-	if got != "λεμε" {
-		t.Errorf("got %q, want %q", got, "λεμε")
+	tbl2 := mustTable(t, "4L!")
+	tbl2.Row("λεμεσός")
+	if got := render(t, tbl2, 4); got != "λεμε" {
+		t.Errorf("got %q", got)
 	}
 }

@@ -1,21 +1,23 @@
 {{/*
-Weather bulletin example. Exercises the full pica template
-surface: wrap/justify/truncl (width-parameterized layout), the
-value formatters, and .table blocks at the default and an
-explicit width. Rendered with:
+Weather bulletin example: the template emits a typeset SOURCE
+document (see the typeset package doc for the language). No layout
+calls -- widths, wrapping, and justification belong to the writers.
+Render:
 
-    pica render -txtar page.tmpl content.txtar
+    pica render -txtar page.tmpl content.txtar | pica text
+    pica render -txtar page.tmpl content.txtar | pica pdf -o page.pdf
 
-The txtar archive supplies data.yaml (structured fields),
-body.txt (the synopsis prose, injected as .body) and sources.txt
-(injected as .sources).
+The txtar archive supplies data.yaml (structured fields), body.txt
+(the synopsis prose, injected as .body) and sources.txt (injected
+as .sources).
 */ -}}
 LIMASSOL WEATHER BULLETIN
-{{shortDate .issued}} {{shortTime .issued}} · issue {{.issue}}
+
+{{shortDate .issued}} {{shortTime .issued}} issue {{.issue}}
 
 # Synopsis
 
-{{wrap 40 .body}}
+{{.body}}
 
 # Now ({{shortTime .current.observed}})
 
@@ -25,8 +27,9 @@ Pressure  {{decimal .current.pressure 1}} hPa
 Wind      {{pad .current.winddir 3}} {{round .current.windkt}} kt
 Sunshine  {{dur .current.sunshine}} since dawn
 
-Raw METAR (cut to page width):
-{{truncl 40 .metar}}
+.pre
+{{.metar}}
+.end
 
 # 5-day Forecast
 
@@ -35,7 +38,7 @@ Day | Conditions | Hi | Lo | Rain
 {{range .daily}}{{shortDate .date}} | {{.summary}} | {{round .hi}} | {{round .lo}} | {{round .rain}}%
 {{end}}.end
 
-# Sea (compact, 28-column box)
+# Sea
 
 .table 28 9L 6R *R
 Water | Temp | Waves
@@ -44,8 +47,11 @@ Water | Temp | Waves
 
 # Outlook
 
-{{justify 40 .outlook}}
+{{.outlook}}
 
-Sources:
-{{range .sources}}  {{trunc . 38}}
+---
+
+{{range .sources}}.link {{.}}
 {{end}}
+.width 40
+.cols 3

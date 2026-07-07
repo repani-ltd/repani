@@ -1,5 +1,5 @@
-// Table renderer. Column spec syntax and rendering rules live
-// in doc.go.
+// Table renderer: wrapped cells by default, "!" clips a column.
+// Spec syntax and rendering rules live in doc.go.
 package typeset
 
 import (
@@ -19,10 +19,11 @@ var (
 	ErrTableOverflow     = errors.New("typeset: column widths exceed table width")
 )
 
-// Table is a fixed-width table builder.
+// Table is a fixed-width table builder. The column spec is parsed at
+// construction; the total width is supplied at Layout time, so the
+// same table can be laid out for different output widths.
 type Table struct {
 	cols   []colSpec
-	width  int
 	header []string
 	rows   [][]string
 }
@@ -30,23 +31,26 @@ type Table struct {
 type colSpec struct {
 	width int
 	align byte // 'L', 'R', 'C'
-	auto  bool // true if width is computed from remaining space
+	auto  bool // width computed from remaining space
+	clip  bool // truncate instead of wrapping ("!" suffix)
 }
 
-// NewTable parses a column spec and returns a table that fits in
-// width total columns, or an error if the spec is malformed or does
-// not fit.
-func NewTable(spec string, width int) (*Table, error) {
+// NewTable parses a column spec ("3L *L 4R!") and returns an empty
+// table, or an error if the spec is malformed. Whether the columns
+// fit is checked at Layout, where the total width is known.
+func NewTable(spec string) (*Table, error) {
 	tokens := strings.Fields(spec)
 	if len(tokens) == 0 {
 		return nil, ErrTableEmptySpec
 	}
 
 	cols := make([]colSpec, len(tokens))
-	autoIdx := -1
-	fixedSum := 0
-
+	autoSeen := false
 	for i, tok := range tokens {
+		if clipped, ok := strings.CutSuffix(tok, "!"); ok {
+			cols[i].clip = true
+			tok = clipped
+		}
 		if len(tok) < 2 {
 			return nil, fmt.Errorf("%w: %q", ErrTableInvalidToken, tok)
 		}
@@ -58,10 +62,10 @@ func NewTable(spec string, width int) (*Table, error) {
 
 		widthPart := tok[:len(tok)-1]
 		if widthPart == "*" {
-			if autoIdx >= 0 {
+			if autoSeen {
 				return nil, ErrTableAutoConflict
 			}
-			autoIdx = i
+			autoSeen = true
 			cols[i].auto = true
 			continue
 		}
@@ -70,24 +74,8 @@ func NewTable(spec string, width int) (*Table, error) {
 			return nil, fmt.Errorf("%w: %q", ErrTableInvalidWidth, tok)
 		}
 		cols[i].width = w
-		fixedSum += w
 	}
-
-	// Compute auto-span column width.
-	separators := len(cols) - 1
-	if autoIdx >= 0 {
-		remaining := width - fixedSum - separators
-		if remaining < 1 {
-			return nil, ErrTableAutoNoRoom
-		}
-		cols[autoIdx].width = remaining
-	} else {
-		if fixedSum+separators > width {
-			return nil, ErrTableOverflow
-		}
-	}
-
-	return &Table{cols: cols, width: width}, nil
+	return &Table{cols: cols}, nil
 }
 
 // Header sets the header row.
@@ -103,43 +91,161 @@ func (t *Table) Row(cells ...string) *Table {
 }
 
 // separatorRune is the character used to draw header underline rows.
-// ASCII "-" guarantees exact monospace alignment in any viewer
-// (Unicode box-drawing chars like U+2500 may be rendered slightly
-// wider than monospace by some text editors and terminals).
+// ASCII "-" guarantees exact monospace alignment in any viewer.
 const separatorRune = "-"
 
-// Render produces the formatted table as a string with newline-separated
-// lines. The header (if set) is followed by a separator row drawn with
-// separatorRune.
-func (t *Table) Render() string {
-	var out []string
-
-	if t.header != nil {
-		out = append(out, t.formatRow(t.header))
-		out = append(out, t.separator())
-	}
-	for _, row := range t.rows {
-		out = append(out, t.formatRow(row))
-	}
-
-	return strings.Join(out, "\n")
+// TableLayout is a table laid out at a concrete width. Header holds
+// the header lines plus the separator row; each element of Rows is
+// one data row's lines (more than one when a cell wrapped). A
+// column-splitting writer treats each row as atomic and repeats
+// Header after a split.
+type TableLayout struct {
+	Header []string
+	Rows   [][]string
 }
 
-func (t *Table) formatRow(cells []string) string {
-	parts := make([]string, len(t.cols))
-	for i, col := range t.cols {
+// Lines flattens the layout in order.
+func (tl *TableLayout) Lines() []string {
+	out := append([]string{}, tl.Header...)
+	for _, r := range tl.Rows {
+		out = append(out, r...)
+	}
+	return out
+}
+
+// Layout lays the table out to fit in width total runes. Errors when
+// the fixed columns exceed width or an auto-span column has no room.
+func (t *Table) Layout(width int) (*TableLayout, error) {
+	cols, err := t.fit(width)
+	if err != nil {
+		return nil, err
+	}
+	tl := &TableLayout{}
+	if t.header != nil {
+		tl.Header = formatRow(cols, t.header)
+		tl.Header = append(tl.Header, separatorLine(cols))
+	}
+	for _, row := range t.rows {
+		tl.Rows = append(tl.Rows, formatRow(cols, row))
+	}
+	return tl, nil
+}
+
+// Render lays the table out and returns it as newline-joined text.
+func (t *Table) Render(width int) (string, error) {
+	tl, err := t.Layout(width)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(tl.Lines(), "\n"), nil
+}
+
+// fit resolves the auto-span column against the total width and
+// verifies the fixed columns fit.
+func (t *Table) fit(width int) ([]colSpec, error) {
+	cols := make([]colSpec, len(t.cols))
+	copy(cols, t.cols)
+
+	fixedSum := 0
+	autoIdx := -1
+	for i, c := range cols {
+		if c.auto {
+			autoIdx = i
+			continue
+		}
+		fixedSum += c.width
+	}
+	separators := len(cols) - 1
+	if autoIdx >= 0 {
+		remaining := width - fixedSum - separators
+		if remaining < 1 {
+			return nil, ErrTableAutoNoRoom
+		}
+		cols[autoIdx].width = remaining
+	} else if fixedSum+separators > width {
+		return nil, ErrTableOverflow
+	}
+	return cols, nil
+}
+
+// formatRow renders one logical row, wrapping cells to their column
+// widths; the result is one or more physical lines.
+func formatRow(cols []colSpec, cells []string) []string {
+	// Wrap (or clip) each cell into its column's line stack.
+	stacks := make([][]string, len(cols))
+	height := 1
+	for i, col := range cols {
 		var s string
 		if i < len(cells) {
 			s = cells[i]
 		}
-		parts[i] = formatCell(s, col.width, col.align)
+		if col.clip {
+			stacks[i] = []string{s}
+		} else {
+			stacks[i] = wrapCell(s, col.width)
+		}
+		if len(stacks[i]) > height {
+			height = len(stacks[i])
+		}
 	}
-	return strings.Join(parts, " ")
+
+	lines := make([]string, height)
+	for h := 0; h < height; h++ {
+		parts := make([]string, len(cols))
+		for i, col := range cols {
+			var s string
+			if h < len(stacks[i]) {
+				s = stacks[i][h]
+			}
+			parts[i] = formatCell(s, col.width, col.align)
+		}
+		lines[h] = strings.TrimRight(strings.Join(parts, " "), " ")
+	}
+	return lines
 }
 
-func (t *Table) separator() string {
-	parts := make([]string, len(t.cols))
-	for i, col := range t.cols {
+// wrapCell greedily wraps a cell's words to width; a single word
+// longer than width is hard-cut into chunks.
+func wrapCell(s string, width int) []string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	var lines []string
+	cur := ""
+	emit := func() {
+		if cur != "" {
+			lines = append(lines, cur)
+			cur = ""
+		}
+	}
+	for _, w := range words {
+		for runeLen(w) > width {
+			emit()
+			r := []rune(w)
+			lines = append(lines, string(r[:width]))
+			w = string(r[width:])
+		}
+		if w == "" {
+			continue
+		}
+		switch {
+		case cur == "":
+			cur = w
+		case runeLen(cur)+1+runeLen(w) <= width:
+			cur += " " + w
+		default:
+			emit()
+			cur = w
+		}
+	}
+	emit()
+	return lines
+}
+
+func separatorLine(cols []colSpec) string {
+	parts := make([]string, len(cols))
+	for i, col := range cols {
 		parts[i] = strings.Repeat(separatorRune, col.width)
 	}
 	return strings.Join(parts, " ")

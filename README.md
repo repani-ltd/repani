@@ -1,60 +1,66 @@
 # typeset
 
-Text shaping for fixed-width monospace display: Knuth-Liang
-hyphenation (English + Greek patterns embedded), Knuth-Plass optimal
-line wrapping and justification tuned for monospace output, and
-fixed-width table layout. Output is plain text; the intended
-consumers are systems that store or transmit preformatted monospace
-content and display it verbatim.
+A minimal, troff-inspired source language and typesetter for
+monospace surfaces. Documents are parsed once into a typed block
+model and exported by writers: a fixed-width text page (for
+byte-frugal transports like Quietcasting) and an N-column
+newspaper-style PDF.
 
-See `doc.go` for the library API and conventions.
+The design center is the language (see `doc.go` for the spec):
+
+- **Fill mode by default.** Plain lines are paragraphs; the writer
+  owns wrapping, hyphenation (Knuth-Liang, English + Greek
+  embedded), and justification (Knuth-Plass with a monospace
+  gap-aware cost). Authors never state widths in content.
+- **Explicit structure, closed vocabulary.** `# heading`, `---`
+  rules, `.table … .end` (cells wrap by default, `!` clips),
+  `.pre [N] … .end` verbatim blocks, `.link` wire metadata. Unknown
+  dot commands are parse errors, never silent passthrough.
+- **Self-contained documents.** Width, paper, and columns live in a
+  layout trailer (`.width` / `.paper` / `.cols`, defaults 40/a4/3).
+  No formatting flags anywhere: the same source always produces the
+  same output -- the PDF byte-identically (no timestamps).
+- **Zero wire cost.** Every typeset command is consumed at
+  typesetting time; a rendered text page carries only content plus
+  the wire's own markup.
 
 ## pica
 
-`cmd/pica` is the command-line renderer and the reference consumer:
-it executes a Go text/template with the typesetting helpers, then
-expands `.table` blocks in the result.
+`cmd/pica` is the toolchain: three orthogonal stages.
 
-    pica render page.tmpl data.json
-    pica render -txtar page.tmpl content.txtar
-    echo '{"body":"..."}' | pica render page.tmpl -
+    pica render page.tmpl data.json     # Go template -> source doc
+    pica render ... | pica text         # source -> text page
+    pica render ... | pica pdf -o p.pdf # source -> newspaper PDF
 
-Template helpers take the width as their first argument
-(`{{wrap 40 .body}}`, `{{.body | justify 32}}`); `.table` blocks
-default to 40 columns unless the spec starts with a width
-(`.table 44 3L *L 4R`). Run `pica help` for the full helper list
-and the txtar input conventions.
+`render` executes Go text/templates with value formatters only
+(round, decimal, trunc, pad, shortTime, shortDate, dur) -- no
+layout functions exist. `pdf` derives its body point size from the
+document geometry (columnWidth / 0.6em / `.width`), so a text page
+and a PDF column are the same typographic object; it renders
+justified columns with orphan/widow control (splits keep >= 2
+lines on each side), headings bold and kept with their story,
+split tables repeating their headers, `.pre` blocks atomic, and a
+single underfull page balanced across its columns.
 
-`example/` is a complete weather-bulletin page exercising the whole
-surface -- wrapped English and Greek prose, a justified outlook,
-formatters, a hard-cut METAR line, and tables at two widths:
+`example/` is a complete bulletin: wrapped English and Greek
+prose, tables at two widths, a `.pre` METAR line, `.link` sources.
 
-    pica render -txtar example/page.tmpl example/content.txtar
+    pica render -txtar example/page.tmpl example/content.txtar | pica text
 
 The committed `example/expected.txt` is enforced by a golden test.
 
-## Newspaper PDFs
+## pdf/
 
-`pica pdf` lays rendered monospace text into an N-column,
-newspaper-style PDF (package `pdf/`: a minimal zero-dependency PDF
-writer with subset-embedded Fira Mono, covering Latin, Greek, and
-Cyrillic):
-
-    pica render -txtar page.tmpl content.txtar | pica pdf -o page.pdf
-    pica pdf -cols 3 -paper a4 -o out.pdf input.txt
-
-The first input line becomes the masthead (override with -title,
-disable with -nomast); the font size defaults to fitting the widest
-line to one column. Layout quality rules: column breaks never leave
-fewer than 2 lines of a block on either side (no orphans or
-widows), single-line headings stay with what follows, split tables
-repeat their header rows, and a single underfull page is balanced
-across its columns.
+A zero-dependency PDF 1.3 writer: subset-embedded TrueType (Fira
+Mono Regular/Bold -- SIL OFL, see `pdf/fonts/README.md` -- Latin,
+Greek, and Cyrillic at a uniform 600/1000 em), ToUnicode CMaps for
+selectable text, positioned text, hairlines, grayscale. Nothing
+else.
 
 ## Notes
 
 - Widths count runes, not display cells: double-width (CJK) glyphs
-  will misalign. The package targets scripts where one rune is one
+  misalign. The package targets scripts where one rune is one
   monospace cell.
-- The hyphenation pattern files under `patterns/` derive from the
-  TeX hyphenation patterns; see `patterns/README.md`.
+- The hyphenation patterns under `patterns/` derive from the TeX
+  patterns; see `patterns/README.md`.

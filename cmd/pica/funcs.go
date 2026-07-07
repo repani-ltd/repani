@@ -1,5 +1,5 @@
-// Template helper functions: layout (width-first, so they compose
-// with pipelines) and value formatting. Documented in main.go.
+// Template helper functions: value formatting only -- layout belongs
+// to the writers, never to templates. Documented in main.go.
 package main
 
 import (
@@ -9,8 +9,6 @@ import (
 	"strings"
 	"text/template"
 	"time"
-
-	"github.com/pavlos/typeset"
 )
 
 // funcMap returns the pica template function set.
@@ -28,23 +26,6 @@ func funcMap() template.FuncMap {
 		"shortTime": shortTime,
 		"shortDate": shortDate,
 		"dur":       dur,
-
-		// Layout. Width first: {{wrap 40 .body}} or {{.body | wrap 40}}.
-		"wrap":    layout(typeset.Wrap),
-		"justify": layout(typeset.Justify),
-		"truncl":  layout(typeset.TruncLines),
-	}
-}
-
-// layout adapts a typeset layout function into a width-first
-// template helper that rejects nonsense widths with a template
-// error instead of a panic.
-func layout(fn func(string, int) string) func(int, string) (string, error) {
-	return func(width int, s string) (string, error) {
-		if width < 1 {
-			return "", fmt.Errorf("width must be positive, got %d", width)
-		}
-		return fn(s, width), nil
 	}
 }
 
