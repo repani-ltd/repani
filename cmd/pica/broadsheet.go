@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/pavlos/typeset"
 	"github.com/pavlos/typeset/pdf"
@@ -21,8 +20,11 @@ const (
 	sheetGutter = 16.0
 	lineSpacing = 1.25 // line height in ems
 	minPs       = 4.5  // readability floor for the derived body size
-	emWidth     = 0.6  // Fira Mono advance per rune, in ems
 )
+
+// emWidth is the body font's advance per rune in ems -- a metric of
+// the embedded font, not a style choice.
+var emWidth = pdf.EmWidth(pdf.Regular)
 
 // minKeep is the orphan/widow threshold: a split never leaves fewer
 // than minKeep segments of a block on either side of a column break.
@@ -104,17 +106,17 @@ func (b fblock) height() int {
 func compose(doc *typeset.Doc) ([]fblock, error) {
 	width := doc.Layout.Width
 	var out []fblock
-	for i, blk := range doc.Blocks {
+	for _, blk := range doc.Blocks {
 		fb := fblock{tight: blk.Tight}
 		switch blk.Kind {
 		case typeset.Para:
-			for _, ln := range strings.Split(typeset.Justify(blk.Text, width), "\n") {
+			for _, ln := range typeset.JustifyParagraph(blk.Text, width) {
 				fb.segs = append(fb.segs, seg{lines: []sline{{text: ln}}})
 			}
 
 		case typeset.Heading:
-			fb.segs = []seg{{lines: []sline{{text: truncRunes(blk.Text, width), style: styleBold}}}}
-			fb.keepNext = i+1 < len(doc.Blocks)
+			fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, width), style: styleBold}}}}
+			fb.keepNext = true // flow guards the no-next-block case
 			fb.atomic = true
 
 		case typeset.RuleBlk:
@@ -122,15 +124,11 @@ func compose(doc *typeset.Doc) ([]fblock, error) {
 			fb.atomic = true
 
 		case typeset.LinkBlk:
-			fb.segs = []seg{{lines: []sline{{text: truncRunes(blk.Text, width), style: styleGray}}}}
+			fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, width), style: styleGray}}}}
 			fb.atomic = true
 
 		case typeset.TableBlk:
-			w := width
-			if blk.Width > 0 && blk.Width < width {
-				w = blk.Width
-			}
-			tl, err := blk.Table.Layout(w)
+			tl, err := blk.Table.Layout(blk.TableWidth(width))
 			if err != nil {
 				return nil, err
 			}
@@ -145,7 +143,7 @@ func compose(doc *typeset.Doc) ([]fblock, error) {
 		case typeset.Pre:
 			lines := make([]sline, len(blk.Lines))
 			for j, ln := range blk.Lines {
-				lines[j] = sline{text: truncRunes(ln, width)}
+				lines[j] = sline{text: trunc(ln, width)}
 			}
 			if blk.Repeat > 0 && blk.Repeat < len(lines) {
 				// Repeated lead-in becomes its own segment; the rest
@@ -173,14 +171,6 @@ func toSlines(lines []string) []sline {
 		out[i] = sline{text: ln}
 	}
 	return out
-}
-
-func truncRunes(s string, width int) string {
-	r := []rune(s)
-	if len(r) <= width {
-		return s
-	}
-	return string(r[:width])
 }
 
 // ── Column flow ─────────────────────────────────────────────────────
@@ -254,12 +244,25 @@ func flow(blocks []fblock, capacity func(int) int) [][]sline {
 			b = b.rest(k)
 			b.tight = false
 			closeCol()
+			if len(b.segs) == 0 {
+				break
+			}
 		}
 	}
 	if len(cur) > 0 || len(out) == 0 {
 		out = append(out, cur)
 	}
 	return out
+}
+
+// fitSegs returns how many leading segments of b fit in avail lines.
+func fitSegs(b fblock, avail int) int {
+	k, lines := 0, 0
+	for k < len(b.segs) && lines+b.segs[k].height() <= avail {
+		lines += b.segs[k].height()
+		k++
+	}
+	return k
 }
 
 // splitSegs returns how many leading segments of b fit in avail
@@ -271,14 +274,7 @@ func splitSegs(b fblock, avail int) int {
 	n := len(b.segs)
 	// The first part must keep the repeated lead-in plus minKeep
 	// content segments; the remainder keeps minKeep content segments.
-	k, lines := 0, 0
-	for k < n && lines+b.segs[k].height() <= avail {
-		lines += b.segs[k].height()
-		k++
-	}
-	if k > n-minKeep {
-		k = n - minKeep
-	}
+	k := min(fitSegs(b, avail), n-minKeep)
 	if k < b.repeat+minKeep {
 		return 0
 	}
@@ -286,38 +282,44 @@ func splitSegs(b fblock, avail int) int {
 }
 
 // forceSplit fits as many segments as possible into an empty column,
-// ignoring the keep rules; at least one segment (or, for an atomic
-// block taller than the column, the whole block, overflowing).
+// ignoring the keep rules. It always makes progress: at least one
+// segment beyond the repeated lead-in goes down (otherwise rest()
+// would reconstruct the identical block and flow would loop), and an
+// atomic block taller than the column places whole, overflowing.
 func forceSplit(b fblock, avail int) int {
 	if b.atomic || len(b.segs) == 1 {
 		return len(b.segs)
 	}
-	k, lines := 0, 0
-	for k < len(b.segs) && lines+b.segs[k].height() <= avail {
-		lines += b.segs[k].height()
-		k++
-	}
-	return max(k, 1)
+	k := max(fitSegs(b, avail), b.repeat+1)
+	return min(k, len(b.segs))
 }
 
 // rest returns the unplaced remainder after splitting at k, with the
-// repeated lead-in re-attached.
+// repeated lead-in re-attached. A block consumed to its end has no
+// remainder (re-attaching the lead-in alone would loop forever).
 func (b fblock) rest(k int) fblock {
+	if k >= len(b.segs) {
+		return fblock{}
+	}
 	segs := append(append([]seg{}, b.segs[:b.repeat]...), b.segs[k:]...)
 	return fblock{segs: segs, repeat: b.repeat}
 }
 
 // ── Drawing ─────────────────────────────────────────────────────────
 
-// paperSize maps the document attribute to a pdf.PageSize.
+// paperSize maps the document attribute to a pdf.PageSize. Parse
+// validates the vocabulary; a value it does not know reaching here
+// is a bug, not a fallback case.
 func paperSize(paper string) pdf.PageSize {
 	switch paper {
+	case "a4":
+		return pdf.PageA4
 	case "a5":
 		return pdf.PageA5
 	case "letter":
 		return pdf.PageLetter
 	default:
-		return pdf.PageA4
+		panic(fmt.Sprintf("pica: paper %q escaped Parse validation", paper))
 	}
 }
 
@@ -381,8 +383,10 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		columns = flow(blocks, func(int) int { return best })
 	}
 
+	// flow always returns at least one column, so the loop runs at
+	// least once.
 	pdoc := &pdf.Doc{Title: title, Creator: "pica", PageSize: size, Compress: true}
-	for pg := 0; pg*ncols < len(columns) || pg == 0; pg++ {
+	for pg := 0; pg*ncols < len(columns); pg++ {
 		var p pdf.Page
 		colTop := colTopRest
 		if pg == 0 {
@@ -423,9 +427,6 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		p.Gray(0)
 
 		pdoc.Add(&p)
-		if (pg+1)*ncols >= len(columns) {
-			break
-		}
 	}
 	return pdoc.Bytes(), nil
 }

@@ -54,21 +54,6 @@ func TestHyphenateGreek(t *testing.T) {
 
 // --- Width utilities ---
 
-func TestFitsWidth(t *testing.T) {
-	if !FitsWidth("hello\nworld", 10) {
-		t.Error("should fit")
-	}
-	if FitsWidth("hello world this is long", 10) {
-		t.Error("should not fit")
-	}
-}
-
-func TestMaxLineWidth(t *testing.T) {
-	if w := MaxLineWidth("hello\nworld!!\nhi"); w != 7 {
-		t.Errorf("got %d, want 7", w)
-	}
-}
-
 func TestTruncLines(t *testing.T) {
 	in := "short\nthis line is longer than ten runes"
 	out := TruncLines(in, 10)
@@ -91,8 +76,10 @@ func TestWidthPanics(t *testing.T) {
 func TestWrapFitsAndPreserves(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies.\n\nSecond paragraph follows after a blank line."
 	out := Wrap(input, testWidth)
-	if !FitsWidth(out, testWidth) {
-		t.Errorf("wrapped output exceeds width:\n%s", out)
+	for _, ln := range strings.Split(out, "\n") {
+		if len([]rune(ln)) > testWidth {
+			t.Errorf("wrapped line exceeds width: %q", ln)
+		}
 	}
 	if !strings.Contains(out, "\n\n") {
 		t.Error("paragraph separation lost")

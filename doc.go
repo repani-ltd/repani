@@ -23,7 +23,9 @@ A document is UTF-8 text, structured by line:
 	---              a horizontal rule (3+ dashes, nothing else)
 	.table [W] SPEC  a table block: rows follow, first row is the
 	  a | b | c      header, cells separated by "|"; ends with .end.
-	.end             W (optional) fixes the table's width in runes.
+	.end             W (optional) fixes the table's width in runes;
+	                 it applies only when smaller than the document
+	                 width (see Block.TableWidth).
 	.pre [N]         a verbatim block: the writer never refills it,
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a
@@ -38,6 +40,9 @@ to the typesetter and are never split by wrapping.
 The dot-command vocabulary is CLOSED: a line that lexes as a dot
 command (dot followed by a lowercase letter; ". " and ".." begin
 ordinary text) but is not in the registry is a parse error. The
+lexing rule matches the wire's, with one authoring-side tolerance:
+leading whitespace is ignored here, while the wire lexes at
+column 0. The
 registry has two classes: typeset commands, consumed here and
 never reaching the output (.table, .pre, .end, and the layout
 commands below), and wire commands, typed and re-emitted for the

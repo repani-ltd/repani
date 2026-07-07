@@ -52,7 +52,7 @@ func renderBlock(b Block, width int) ([]string, error) {
 		return []string{".link " + b.Text}, nil
 
 	case TableBlk:
-		tl, err := b.Table.Layout(tableWidth(b, width))
+		tl, err := b.Table.Layout(b.TableWidth(width))
 		if err != nil {
 			return nil, err
 		}
@@ -70,17 +70,12 @@ func renderBlock(b Block, width int) ([]string, error) {
 	}
 }
 
-// tableWidth resolves a table block's layout width against the
-// document width.
-func tableWidth(b Block, width int) int {
-	if b.Width > 0 && b.Width < width {
-		return b.Width
-	}
-	return width
-}
-
-// truncLine hard-cuts a line to width runes.
+// truncLine hard-cuts a line to width runes. Byte length bounds rune
+// length, so most lines return without allocating.
 func truncLine(s string, width int) string {
+	if len(s) <= width {
+		return s
+	}
 	r := []rune(s)
 	if len(r) <= width {
 		return s

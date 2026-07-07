@@ -161,31 +161,22 @@ func textCmd(args []string) int {
 // ── render ──────────────────────────────────────────────────────────
 
 func renderCmd(args []string) int {
-	fs := flag.NewFlagSet("render", flag.ContinueOnError)
+	fs := flag.NewFlagSet("render", flag.ExitOnError)
 	useTxtar := fs.Bool("txtar", false, "parse data as a txtar archive (data.yaml + body.txt + sources.txt) instead of JSON")
-	if err := fs.Parse(args); err != nil {
-		return 1
-	}
+	fs.Parse(args)
 	rest := fs.Args()
 	if len(rest) != 2 {
 		fmt.Fprintln(os.Stderr, "pica render: need <template> <data>")
 		return 1
 	}
 	tmplPath := rest[0]
-	dataPath := rest[1]
 
 	tmplBytes, err := os.ReadFile(tmplPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica: read template: %v\n", err)
 		return 1
 	}
-
-	var dataBytes []byte
-	if dataPath == "-" {
-		dataBytes, err = io.ReadAll(os.Stdin)
-	} else {
-		dataBytes, err = os.ReadFile(dataPath)
-	}
+	dataBytes, err := readInput(rest[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica: read data: %v\n", err)
 		return 1

@@ -131,15 +131,6 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 	return tl, nil
 }
 
-// Render lays the table out and returns it as newline-joined text.
-func (t *Table) Render(width int) (string, error) {
-	tl, err := t.Layout(width)
-	if err != nil {
-		return "", err
-	}
-	return strings.Join(tl.Lines(), "\n"), nil
-}
-
 // fit resolves the auto-span column against the total width and
 // verifies the fixed columns fit.
 func (t *Table) fit(width int) ([]colSpec, error) {

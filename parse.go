@@ -34,6 +34,17 @@ type Block struct {
 	Tight bool
 }
 
+// TableWidth resolves a table block's layout width against the
+// document width: the spec's fixed width applies only when it is
+// smaller (a wider request cannot be honored on a narrower page).
+// Both writers use this, so text and PDF always agree.
+func (b Block) TableWidth(docWidth int) int {
+	if b.Width > 0 && b.Width < docWidth {
+		return b.Width
+	}
+	return docWidth
+}
+
 // Layout holds the document-global attributes from the layout
 // trailer, with defaults applied.
 type Layout struct {
@@ -90,9 +101,13 @@ type parser struct {
 	para     []string // accumulating prose lines
 	verb     []string // accumulating contiguous bare verbatim lines
 	blankRun bool     // a blank line precedes the next block
-	inTrail  bool     // a layout command has been seen
 	attrs    map[string]bool
 }
+
+// inTrail reports whether the layout trailer has started (a layout
+// command has been seen), after which only layout commands may
+// follow.
+func (p *parser) inTrail() bool { return len(p.attrs) > 0 }
 
 // Parse turns source text into a Doc.
 func Parse(src string) (*Doc, error) {
@@ -134,7 +149,7 @@ func Parse(src string) (*Doc, error) {
 			continue
 		}
 
-		if p.inTrail {
+		if p.inTrail() {
 			return nil, fmt.Errorf("%w (line %d)", ErrContentAfterTrail, n)
 		}
 
@@ -147,7 +162,7 @@ func Parse(src string) (*Doc, error) {
 			p.flush()
 			p.add(Block{Kind: Heading, Text: strings.TrimSpace(trimmed[2:])})
 
-		case strings.Contains(trimmed, "  "):
+		case isVerbatimLine(trimmed):
 			// Column-aligned line: verbatim without ceremony.
 			// Contiguous ones group into a single block.
 			p.flushPara()
@@ -170,22 +185,11 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 	word, rest, _ := strings.Cut(trimmed, " ")
 	rest = strings.TrimSpace(rest)
 
-	// Layout trailer commands.
-	switch word {
-	case ".width", ".paper", ".cols":
-		p.flush()
-		if p.attrs[word] {
-			return 0, fmt.Errorf("%w: %s (line %d)", ErrDuplicateAttr, word, n)
-		}
-		p.attrs[word] = true
-		p.inTrail = true
-		if err := p.setAttr(word, rest, n); err != nil {
-			return 0, err
-		}
-		return i, nil
+	if handled, err := p.layoutCommand(word, rest, n); handled || err != nil {
+		return i, err
 	}
 
-	if p.inTrail {
+	if p.inTrail() {
 		return 0, fmt.Errorf("%w (line %d)", ErrContentAfterTrail, n)
 	}
 
@@ -232,22 +236,35 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 	return 0, fmt.Errorf("%w: %s (line %d)", ErrUnknownCommand, word, n)
 }
 
-// setAttr applies one layout command.
-func (p *parser) setAttr(word, rest string, n int) error {
-	bad := func() error {
-		return fmt.Errorf("%w: %s %q (line %d)", ErrBadAttr, word, rest, n)
+// layoutCommand recognizes and applies a layout trailer command,
+// owning the whole trailer mechanism (vocabulary, duplicate check,
+// validation) in one place. Returns handled == false for words that
+// are not layout commands.
+func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err error) {
+	bad := func() (bool, error) {
+		return true, fmt.Errorf("%w: %s %q (line %d)", ErrBadAttr, word, rest, n)
 	}
+	set := func(apply func()) (bool, error) {
+		p.flush()
+		if p.attrs[word] {
+			return true, fmt.Errorf("%w: %s (line %d)", ErrDuplicateAttr, word, n)
+		}
+		p.attrs[word] = true
+		apply()
+		return true, nil
+	}
+
 	switch word {
 	case ".width":
 		v, err := strconv.Atoi(rest)
 		if err != nil || v < 10 || v > 200 {
 			return bad()
 		}
-		p.doc.Layout.Width = v
+		return set(func() { p.doc.Layout.Width = v })
 	case ".paper":
 		switch rest {
 		case "a4", "a5", "letter":
-			p.doc.Layout.Paper = rest
+			return set(func() { p.doc.Layout.Paper = rest })
 		default:
 			return bad()
 		}
@@ -256,9 +273,9 @@ func (p *parser) setAttr(word, rest string, n int) error {
 		if err != nil || v < 1 || v > 6 {
 			return bad()
 		}
-		p.doc.Layout.Cols = v
+		return set(func() { p.doc.Layout.Cols = v })
 	}
-	return nil
+	return false, nil
 }
 
 func (p *parser) add(b Block) {

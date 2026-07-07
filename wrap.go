@@ -37,12 +37,16 @@ func Wrap(text string, width int) string {
 // left-aligned. Preformatted lines pass through as in Wrap.
 func Justify(text string, width int) string {
 	checkWidth(width)
-	return reflow(text, width, justifyParagraph)
+	return reflow(text, width, JustifyParagraph)
 }
 
-// justifyParagraph wraps one paragraph with the gap-aware breaker
-// and flushes every non-final line.
-func justifyParagraph(para string, width int) []string {
+// JustifyParagraph wraps ONE paragraph of prose with the gap-aware
+// breaker and flushes every non-final line, returning the lines.
+// This is the paragraph-level primitive for writers that already
+// hold parsed Para blocks (the pica gazette); Justify is the
+// document-level convenience over raw prose.
+func JustifyParagraph(para string, width int) []string {
+	checkWidth(width)
 	lines := wrapParagraphJustify(para, width)
 	for i := 0; i < len(lines)-1; i++ {
 		lines[i] = justifyLine(lines[i], width)
@@ -72,10 +76,9 @@ func reflow(text string, width int, perPara func(string, int) []string) string {
 			out = append(out, "")
 			continue
 		}
-		// Preformatted lines (2+ consecutive internal spaces) come
-		// through splitBlankSeparated as standalone single-line
-		// entries; never reflow them.
-		if strings.Contains(para, "  ") {
+		// Preformatted lines come through splitBlankSeparated as
+		// standalone single-line entries; never reflow them.
+		if isVerbatimLine(para) {
 			out = append(out, para)
 			continue
 		}
@@ -119,26 +122,12 @@ func justifyLine(line string, width int) string {
 	return b.String()
 }
 
-// FitsWidth returns true if every line in text fits within width.
-func FitsWidth(text string, width int) bool {
-	for _, line := range strings.Split(text, "\n") {
-		if runeLen(line) > width {
-			return false
-		}
-	}
-	return true
-}
-
-// MaxLineWidth returns the width of the longest line in runes.
-func MaxLineWidth(text string) int {
-	m := 0
-	for _, line := range strings.Split(text, "\n") {
-		w := runeLen(line)
-		if w > m {
-			m = w
-		}
-	}
-	return m
+// isVerbatimLine is the language's per-line verbatim convention: a
+// line containing 2+ consecutive internal spaces (column-aligned
+// content) is never refilled. Shared by Parse and the prose
+// utilities so the rule has exactly one home.
+func isVerbatimLine(trimmed string) bool {
+	return strings.Contains(trimmed, "  ")
 }
 
 // splitBlankSeparated returns paragraphs separated by blank lines.
@@ -165,7 +154,7 @@ func splitBlankSeparated(text string) []string {
 			continue
 		}
 		// Preformatted lines (column-aligned content) are kept as-is.
-		if strings.Contains(trimmed, "  ") {
+		if isVerbatimLine(trimmed) {
 			flush()
 			paragraphs = append(paragraphs, line)
 			continue

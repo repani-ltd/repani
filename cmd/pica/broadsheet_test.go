@@ -214,3 +214,31 @@ func TestBroadsheet_DerivedSizeFloor(t *testing.T) {
 		t.Fatal("expected readability-floor error for a5/4col/width40")
 	}
 }
+
+// TestFlow_RepeatTallerThanColumnTerminates is the regression for a
+// non-progress loop: a repeated lead-in as tall as the column used to
+// make rest() reconstruct the identical block forever.
+func TestFlow_RepeatTallerThanColumnTerminates(t *testing.T) {
+	header := seg{lines: toSlines([]string{"h1", "h2", "h3", "h4", "h5", "h6"})}
+	blocks := []fblock{{
+		segs:   append([]seg{header}, mkSegs("row", 4)...),
+		repeat: 1,
+	}}
+	// Capacity smaller than the header alone: must terminate and
+	// keep every data row exactly once.
+	cols := flow(blocks, fixedCap(4))
+	rows := 0
+	for _, col := range cols {
+		for _, ln := range col {
+			if strings.HasPrefix(ln.text, "row") {
+				rows++
+			}
+		}
+	}
+	if rows != 4 {
+		t.Fatalf("data rows survived = %d, want 4", rows)
+	}
+	if len(cols) > 12 {
+		t.Fatalf("suspiciously many columns (%d): non-progress split?", len(cols))
+	}
+}

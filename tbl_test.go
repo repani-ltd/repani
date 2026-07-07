@@ -5,14 +5,15 @@ import (
 	"testing"
 )
 
-// render is a test helper: Render that fails the test on error.
+// render is a test helper: Layout joined to text, failing the test
+// on error.
 func render(t *testing.T, tbl *Table, width int) string {
 	t.Helper()
-	s, err := tbl.Render(width)
+	tl, err := tbl.Layout(width)
 	if err != nil {
-		t.Fatalf("Render(%d): %v", width, err)
+		t.Fatalf("Layout(%d): %v", width, err)
 	}
-	return s
+	return strings.Join(tl.Lines(), "\n")
 }
 
 func mustTable(t *testing.T, spec string) *Table {
