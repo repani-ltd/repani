@@ -33,6 +33,24 @@ formatters, a hard-cut METAR line, and tables at two widths:
 
 The committed `example/expected.txt` is enforced by a golden test.
 
+## Newspaper PDFs
+
+`pica pdf` lays rendered monospace text into an N-column,
+newspaper-style PDF (package `pdf/`: a minimal zero-dependency PDF
+writer with subset-embedded Fira Mono, covering Latin, Greek, and
+Cyrillic):
+
+    pica render -txtar page.tmpl content.txtar | pica pdf -o page.pdf
+    pica pdf -cols 3 -paper a4 -o out.pdf input.txt
+
+The first input line becomes the masthead (override with -title,
+disable with -nomast); the font size defaults to fitting the widest
+line to one column. Layout quality rules: column breaks never leave
+fewer than 2 lines of a block on either side (no orphans or
+widows), single-line headings stay with what follows, split tables
+repeat their header rows, and a single underfull page is balanced
+across its columns.
+
 ## Notes
 
 - Widths count runes, not display cells: double-width (CJK) glyphs

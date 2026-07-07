@@ -88,6 +88,8 @@ func main() {
 	switch os.Args[1] {
 	case "render":
 		os.Exit(renderCmd(os.Args[2:]))
+	case "pdf":
+		os.Exit(pdfCmd(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 		os.Exit(0)
@@ -106,13 +108,27 @@ Usage:
   pica render [flags] <template> -             # data on stdin
   pica render -txtar [flags] <template> <data.txtar>
   pica render -txtar [flags] <template> -      # txtar on stdin
+  pica pdf [flags] [file|-]                    # text -> newspaper PDF
 
-Flags:
+Render flags:
   -txtar         Parse the data file as a txtar archive instead of
                  JSON. The archive must contain a data.yaml file
                  (template fields), and may contain body.txt
                  (injected as .body) and sources.txt (one URL per
                  line, injected as .sources []string).
+
+PDF flags (input is monospace text, e.g. pica render output):
+  -o FILE        Output path (default stdout).
+  -cols N        Columns per page (default 3).
+  -paper SIZE    a4 (default), a5, or letter.
+  -pt N          Font size; default fits the widest input line to
+                 one column.
+  -title TEXT    Masthead text (default: first input line).
+  -nomast        No masthead; everything flows into columns.
+
+The PDF layout keeps blocks intact where possible: splits leave at
+least 2 lines on each side of a column break, single-line headings
+stay with what follows, and split tables repeat their header rows.
 
 Template helpers: wrap W S, justify W S, truncl W S (layout, width
 first: {{wrap 40 .body}}), round, decimal, trunc, pad, shortTime,
