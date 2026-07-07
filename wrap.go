@@ -193,7 +193,22 @@ func (w word) hyphenPrefixLen(pi int) int {
 	return w.points[pi] + 1 // +1 for the "-"
 }
 
+// hyphenPenaltyProse is the cost of a hyphen break in ragged
+// paragraphs: high, because at prose widths a hyphen is rarely worth
+// it. Narrow surfaces (table cells) use hyphenPenaltyCell, where the
+// alternative -- one word per line -- costs far more vertically.
+const (
+	hyphenPenaltyProse = 100
+	hyphenPenaltyCell  = 25
+)
+
 func wrapParagraph(para string, width int) []string {
+	return wrapRagged(para, width, hyphenPenaltyProse)
+}
+
+// wrapRagged is the ragged-right Knuth-Plass breaker with the
+// hyphen penalty as a parameter.
+func wrapRagged(para string, width int, penalty float64) []string {
 	tokens := strings.Fields(para)
 	if len(tokens) == 0 {
 		return nil
@@ -213,8 +228,54 @@ func wrapParagraph(para string, width int) []string {
 	hyph := make([]int, n)
 
 	cost[n] = 0
+	raggedDP(words, 0, n, width, penalty, cost, next, hyph)
 
-	for i := n - 1; i >= 0; i-- {
+	// Reconstruct lines from the DP solution. When a hyphen
+	// substitutes a suffix, recompute the break at that position so
+	// the next line accounts for the shorter token instead of the
+	// stale DP entry for the full word.
+	var lines []string
+	i := 0
+	for i < n {
+		j := next[i]
+		h := hyph[i]
+		var parts []string
+
+		if h > 0 {
+			// Words [i..j) followed by the prefix of words[j].
+			for k := i; k < j; k++ {
+				parts = append(parts, words[k].text)
+			}
+			prefix, suffix := words[j].hyphenParts(h - 1)
+			parts = append(parts, prefix)
+			words[j] = word{
+				text:   suffix,
+				points: defaultHyphenator.Hyphenate(suffix),
+			}
+			raggedDP(words, j, min(j+1, n), width, penalty, cost, next, hyph)
+			i = j
+		} else {
+			// Words [i..j) form a complete line.
+			for k := i; k < j; k++ {
+				parts = append(parts, words[k].text)
+			}
+			i = j
+		}
+
+		lines = append(lines, strings.Join(parts, " "))
+	}
+
+	return lines
+}
+
+// raggedDP runs the backward dynamic-programming pass for positions
+// [start, end), filling cost, next, and hyph with the slack^2
+// ragged-right cost model. Positions >= end keep their existing
+// entries, which is what lets the reconstruction recompute a single
+// position after a hyphen substitution.
+func raggedDP(words []word, start, end, width int, penalty float64, cost []float64, next, hyph []int) {
+	n := len(words)
+	for i := end - 1; i >= start; i-- {
 		bestCost := 1e18
 		bestJ := i + 1
 		bestHyph := -1
@@ -239,7 +300,7 @@ func wrapParagraph(para string, width int) []string {
 					break
 				}
 				if len(words[j].points) > 0 && j > i {
-					if hc, ok := tryHyphenAt(words[j], lineLen-wLen-1, width, 100, cost[j]); ok && hc.cost < bestCost {
+					if hc, ok := tryHyphenAt(words[j], lineLen-wLen-1, width, penalty, cost[j]); ok && hc.cost < bestCost {
 						bestCost = hc.cost
 						bestJ = j
 						bestHyph = hc.point
@@ -267,40 +328,6 @@ func wrapParagraph(para string, width int) []string {
 		next[i] = bestJ
 		hyph[i] = bestHyph
 	}
-
-	// Reconstruct lines from the DP solution. Each iteration
-	// emits one line; the index i always advances by at least
-	// one word (next[i] >= i+1 with hyph[i] == -1, or by zero
-	// when h > 0 -- in which case the next iteration consumes
-	// the suffix).
-	var lines []string
-	i := 0
-	for i < n {
-		j := next[i]
-		h := hyph[i]
-		var parts []string
-
-		if h > 0 {
-			// Words [i..j) followed by the prefix of words[j].
-			for k := i; k < j; k++ {
-				parts = append(parts, words[k].text)
-			}
-			prefix, suffix := words[j].hyphenParts(h - 1)
-			parts = append(parts, prefix)
-			words[j] = word{text: suffix} // remainder participates in next line
-			i = j
-		} else {
-			// Words [i..j) form a complete line.
-			for k := i; k < j; k++ {
-				parts = append(parts, words[k].text)
-			}
-			i = j
-		}
-
-		lines = append(lines, strings.Join(parts, " "))
-	}
-
-	return lines
 }
 
 // hyphenChoice is the result of evaluating a hyphenation point.

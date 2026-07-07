@@ -77,11 +77,13 @@ func TestTable_CellsWrapByDefault(t *testing.T) {
 	if len(tl.Rows[0]) < 2 {
 		t.Fatalf("expected wrapped row, got %v", tl.Rows[0])
 	}
-	joined := strings.Join(tl.Rows[0], " ")
-	for _, word := range []string{"High", "cloud", "thickening", "late", "day", "30"} {
-		if !strings.Contains(joined, word) {
-			t.Errorf("wrapped row lost %q:\n%s", word, strings.Join(tl.Rows[0], "\n"))
-		}
+	// Content preservation, checked at the cell level (row lines
+	// interleave other columns' cells): rejoining the wrapped cell
+	// and undoing hyphen breaks recovers the original text.
+	cell := strings.Join(wrapCell("High cloud thickening late in the day", 18), " ")
+	cell = strings.ReplaceAll(cell, "- ", "")
+	if cell != "High cloud thickening late in the day" {
+		t.Errorf("wrapped cell does not rejoin to original: %q", cell)
 	}
 	// Continuation lines leave the other columns blank.
 	cont := tl.Rows[0][1]
@@ -177,5 +179,28 @@ func TestTable_RuneAware(t *testing.T) {
 	tbl2.Row("λεμεσός")
 	if got := render(t, tbl2, 4); got != "λεμε" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestTable_CellsHyphenate(t *testing.T) {
+	// At 17 runes, greedy wrapping needed 3 lines (Isolated /
+	// thunderstorms / inland); Knuth-Plass with hyphenation fits 2.
+	tbl := mustTable(t, "17L")
+	tbl.Row("Isolated thunderstorms inland")
+	tl, err := tbl.Layout(17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Rows[0]) != 2 {
+		t.Fatalf("cell set in %d lines, want 2 (hyphenated):\n%s",
+			len(tl.Rows[0]), strings.Join(tl.Rows[0], "\n"))
+	}
+	if !strings.Contains(tl.Rows[0][0], "-") {
+		t.Errorf("expected a hyphen break: %q", tl.Rows[0][0])
+	}
+	for _, ln := range tl.Rows[0] {
+		if len([]rune(ln)) > 17 {
+			t.Errorf("line exceeds cell width: %q", ln)
+		}
 	}
 }

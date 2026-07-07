@@ -195,43 +195,27 @@ func formatRow(cols []colSpec, cells []string) []string {
 	return lines
 }
 
-// wrapCell greedily wraps a cell's words to width; a single word
-// longer than width is hard-cut into chunks.
+// wrapCell wraps a cell's text to width with the same Knuth-Plass
+// breaker paragraphs get, but with the cell-tuned hyphen penalty:
+// in a narrow column, "Isolated thunder-" / "storms inland" beats
+// one word per line. A word that is longer than the column even
+// after hyphenation is hard-cut into chunks.
 func wrapCell(s string, width int) []string {
-	words := strings.Fields(s)
-	if len(words) == 0 {
+	var out []string
+	for _, ln := range wrapRagged(s, width, hyphenPenaltyCell) {
+		for runeLen(ln) > width {
+			r := []rune(ln)
+			out = append(out, string(r[:width]))
+			ln = string(r[width:])
+		}
+		if ln != "" {
+			out = append(out, ln)
+		}
+	}
+	if len(out) == 0 {
 		return []string{""}
 	}
-	var lines []string
-	cur := ""
-	emit := func() {
-		if cur != "" {
-			lines = append(lines, cur)
-			cur = ""
-		}
-	}
-	for _, w := range words {
-		for runeLen(w) > width {
-			emit()
-			r := []rune(w)
-			lines = append(lines, string(r[:width]))
-			w = string(r[width:])
-		}
-		if w == "" {
-			continue
-		}
-		switch {
-		case cur == "":
-			cur = w
-		case runeLen(cur)+1+runeLen(w) <= width:
-			cur += " " + w
-		default:
-			emit()
-			cur = w
-		}
-	}
-	emit()
-	return lines
+	return out
 }
 
 func separatorLine(cols []colSpec) string {

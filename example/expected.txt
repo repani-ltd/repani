@@ -44,11 +44,10 @@ Day    Conditions          Hi   Lo  Rain
 ------ ----------------- ---- ---- -----
 Fri 10 Sunny, light sea    31   22    0%
        breeze after noon
-Sat 11 High cloud          30   23   10%
-       thickening late
-Sun 12 Isolated            29   22   46%
-       thunderstorms
-       inland
+Sat 11 High cloud thick-   30   23   10%
+       ening late
+Sun 12 Isolated thunder-   29   22   46%
+       storms inland
 Mon 13 Clearing, gusty     27   20   15%
        northwesterlies
 Tue 14 Settled and dry     30   21    0%
