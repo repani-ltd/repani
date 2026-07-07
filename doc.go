@@ -33,13 +33,12 @@ A document is UTF-8 text, structured by line:
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a
 	                 column-splitting writer repeats after a split.
-	.link URL        wire metadata, passed through to text output
-	.set KEY VALUE   wire metadata: an opaque key-value setting,
-	                 passed through to text output. KEY is the first
+	.link URL        a link reference
+	.set KEY VALUE   an opaque key-value setting: KEY is the first
 	                 word (no spaces); VALUE is the rest of the line
 	                 verbatim and may be empty. typeset never
 	                 interprets keys -- their meaning belongs to the
-	                 consuming layer (e.g. a station's site settings)
+	                 consumer (e.g. a station's site settings)
 
 Inline forms (@NN page references, #word tags) are ordinary words
 to the typesetter and are never split by wrapping.
@@ -49,11 +48,19 @@ command (dot followed by a lowercase letter; ". " and ".." begin
 ordinary text) but is not in the registry is a parse error. The
 lexing rule matches the wire's, with one authoring-side tolerance:
 leading whitespace is ignored here, while the wire lexes at
-column 0. The
-registry has two classes: typeset commands, consumed here and
-never reaching the output (.table, .pre, .end, and the layout
-commands below), and wire commands, typed and re-emitted for the
-next layer (.link, .set).
+column 0.
+
+Every command is part of the typesetting language: Parse types each
+into a Doc block, and each writer decides that block's rendering in
+its own output format. The text writer's target format is the
+quietcasting wire markup, so it serializes Heading as "# text" and
+LinkBlk/SetBlk as ".link"/".set" meta lines (which wire clients
+hide); the pdf writer renders headings bold and metadata gray. A
+consumer that wants the data rather than a rendering walks
+Doc.Blocks directly. One rule binds all writers: every block
+occupies the same line count in each, so a text page and a PDF
+column stay the same object. Structural commands (.table, .pre,
+.end) and the layout trailer never appear in any output.
 
 # Layout trailer
 
