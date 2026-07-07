@@ -18,14 +18,14 @@ const pdfHeader = "%PDF-1.3\n%\xA5\xB1\xEB\n"
 
 // Page dimensions in points.
 const (
-	A4W = 595.28
-	A4H = 841.89
+	a4W = 595.28
+	a4H = 841.89
 
-	LetterW = 612.0
-	LetterH = 792.0
+	letterW = 612.0
+	letterH = 792.0
 
-	A5W = 419.53
-	A5H = 595.28
+	a5W = 419.53
+	a5H = 595.28
 )
 
 // PageSize identifies the paper size for a document.
@@ -41,11 +41,11 @@ const (
 func (ps PageSize) Dimensions() (w, h float64) {
 	switch ps {
 	case PageLetter:
-		return LetterW, LetterH
+		return letterW, letterH
 	case PageA5:
-		return A5W, A5H
+		return a5W, a5H
 	default:
-		return A4W, A4H
+		return a4W, a4H
 	}
 }
 

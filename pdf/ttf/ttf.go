@@ -244,7 +244,6 @@ type SubsetResult struct {
 	Data     []byte      // subset TTF bytes (only used glyphs)
 	CIDToGID []byte      // binary CID→GID map for used codepoints
 	Widths   map[int]int // per-CID widths for used codepoints only
-	MaxCID   int         // highest used codepoint
 }
 
 // Subset creates a per-document font subset containing only the glyphs
@@ -324,7 +323,6 @@ func (f *TTFont) Subset(used map[rune]bool) (*SubsetResult, error) {
 		Data:     subData,
 		CIDToGID: cidToGID,
 		Widths:   widths,
-		MaxCID:   maxCID,
 	}, nil
 }
 

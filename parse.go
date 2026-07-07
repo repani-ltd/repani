@@ -274,7 +274,8 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 }
 
 func (p *parser) add(b Block) {
-	b.Tight = !p.blankRun && len(p.doc.Blocks) > 0
+	// blankRun starts true, so the first block is never Tight.
+	b.Tight = !p.blankRun
 	p.doc.Blocks = append(p.doc.Blocks, b)
 	p.blankRun = false
 }

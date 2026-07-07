@@ -17,12 +17,8 @@ func buildTwoPageDoc(t *testing.T) []byte {
 	p1.StrokeGray(0.5)
 	p1.Line(72, 774, 300, 774, 0.6)
 	p1.SetFont(Regular, 8)
-	tb := p1.BeginText()
-	tb.Move(72, 760)
-	tb.Show("first line with Greek: αβγ")
-	tb.MoveRel(0, -10)
-	tb.Show("second line")
-	tb.End()
+	p1.Text(72, 760, "first line with Greek: αβγ")
+	p1.Text(72, 750, "second line")
 
 	var p2 Page
 	p2.SetFont(Regular, 8)

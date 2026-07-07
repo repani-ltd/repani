@@ -13,10 +13,7 @@ Usage:
 
 	var p pdf.Page
 	p.SetFont(pdf.Regular, 8)
-	tb := p.BeginText()
-	tb.Move(72, 770)
-	tb.Show("Hello, page one")
-	tb.End()
+	p.Text(72, 770, "Hello, page one")
 
 	doc := &pdf.Doc{Title: "demo", Compress: true}
 	doc.Add(&p)
