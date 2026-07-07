@@ -18,7 +18,10 @@ A document is UTF-8 text, structured by line:
 
 	TITLE            the first non-blank line is the title, no prefix
 	prose            consecutive plain lines form one paragraph;
-	                 a blank line ends it; the writer wraps it
+	                 a blank line ends it; the writer wraps it.
+	                 EVERY unmarked line is prose (fill mode, as in
+	                 troff): structure is never inferred from
+	                 spacing, so aligned content must use .pre
 	# heading        a section heading (one level, as on the wire)
 	---              a horizontal rule (3+ dashes, nothing else)
 	.table [W] SPEC  a table block: rows follow, first row is the
@@ -31,8 +34,6 @@ A document is UTF-8 text, structured by line:
 	.end             N (optional) is the number of leading lines a
 	                 column-splitting writer repeats after a split.
 	.link URL        wire metadata, passed through to text output
-	KEY   VALUE      a line with 2+ consecutive internal spaces is
-	                 a single verbatim line, no .pre needed
 
 Inline forms (@NN page references, #word tags) are ordinary words
 to the typesetter and are never split by wrapping.
@@ -83,9 +84,9 @@ Paragraph filling is Knuth-Plass optimal line breaking with
 Knuth-Liang hyphenation (embedded TeX patterns for English and
 Greek). Justification uses a gap-aware cost model that prefers
 hyphenation over wide inter-word gaps, since monospace output
-distributes slack as whole spaces. Wrap, Justify, and TruncLines
-are exported as prose utilities; structured documents go through
-Parse.
+distributes slack as whole spaces. JustifyParagraph is the
+paragraph-level primitive for writers holding parsed Para blocks;
+all document structure goes through Parse.
 
 Widths count runes, not display cells: double-width (CJK) glyphs
 misalign. The package targets scripts where one rune is one

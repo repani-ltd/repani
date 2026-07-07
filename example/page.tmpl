@@ -21,11 +21,13 @@ LIMASSOL WEATHER BULLETIN
 
 # Now ({{shortTime .current.observed}})
 
+.pre
 Temp      {{decimal .current.temp 1}} C ({{round .current.feels}} C feels)
 Humidity  {{round .current.humidity}}%
 Pressure  {{decimal .current.pressure 1}} hPa
 Wind      {{pad .current.winddir 3}} {{round .current.windkt}} kt
 Sunshine  {{dur .current.sunshine}} since dawn
+.end
 
 .pre
 {{.metar}}

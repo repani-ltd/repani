@@ -54,43 +54,23 @@ func TestHyphenateGreek(t *testing.T) {
 
 // --- Width utilities ---
 
-func TestTruncLines(t *testing.T) {
-	in := "short\nthis line is longer than ten runes"
-	out := TruncLines(in, 10)
-	if out != "short\nthis line " {
-		t.Errorf("TruncLines = %q", out)
-	}
-}
-
 func TestWidthPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {
-			t.Fatal("Wrap with width 0 did not panic")
+			t.Fatal("JustifyParagraph with width 0 did not panic")
 		}
 	}()
-	Wrap("hello", 0)
+	JustifyParagraph("hello", 0)
 }
 
 // --- Wrap ---
 
-func TestWrapFitsAndPreserves(t *testing.T) {
-	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies.\n\nSecond paragraph follows after a blank line."
-	out := Wrap(input, testWidth)
-	for _, ln := range strings.Split(out, "\n") {
+func TestWrapParagraphFits(t *testing.T) {
+	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies."
+	for _, ln := range wrapParagraph(input, testWidth) {
 		if len([]rune(ln)) > testWidth {
 			t.Errorf("wrapped line exceeds width: %q", ln)
 		}
-	}
-	if !strings.Contains(out, "\n\n") {
-		t.Error("paragraph separation lost")
-	}
-}
-
-func TestWrapPreformattedPassthrough(t *testing.T) {
-	input := "Normal paragraph here.\n\nKey  Value\nFoo  Bar"
-	out := Wrap(input, testWidth)
-	if !strings.Contains(out, "Key  Value") || !strings.Contains(out, "Foo  Bar") {
-		t.Errorf("preformatted line modified: %q", out)
 	}
 }
 
@@ -123,8 +103,7 @@ func TestJustifyGapCost(t *testing.T) {
 
 func TestJustify_FlushLines(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies"
-	out := Justify(input, testWidth)
-	lines := strings.Split(out, "\n")
+	lines := JustifyParagraph(input, testWidth)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -159,8 +138,7 @@ func maxConsecutiveSpaces(s string) int {
 func TestJustify_MaxGap(t *testing.T) {
 	// With enough words, no justified gap should exceed 3 spaces.
 	input := "The unprecedented international collaboration has fundamentally transformed the interconnected Mediterranean communities over the past several decades of cooperation"
-	out := Justify(input, testWidth)
-	lines := strings.Split(out, "\n")
+	lines := JustifyParagraph(input, testWidth)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -178,8 +156,7 @@ func TestJustify_PrefersHyphenOverWideGaps(t *testing.T) {
 	// without hyphenation. The algorithm should hyphenate to keep
 	// inter-word gaps narrow.
 	input := "Transformation internationally recognized and comprehensive collaboration"
-	out := Justify(input, testWidth)
-	lines := strings.Split(out, "\n")
+	lines := JustifyParagraph(input, testWidth)
 	for i, ln := range lines[:len(lines)-1] {
 		gap := maxConsecutiveSpaces(ln)
 		if gap > 3 {
@@ -213,21 +190,10 @@ func TestJustifyLine(t *testing.T) {
 
 func TestWrapVsJustify_Differ(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	ragged := Wrap(input, testWidth)
-	justified := Justify(input, testWidth)
+	ragged := strings.Join(wrapParagraph(input, testWidth), "\n")
+	justified := strings.Join(JustifyParagraph(input, testWidth), "\n")
 	if ragged == justified {
 		t.Error("ragged and justified output should differ")
 	}
 }
 
-func TestJustify_PreformattedPassthrough(t *testing.T) {
-	// Lines with 2+ consecutive spaces are preformatted.
-	input := "Normal paragraph here.\n\nKey  Value\nFoo  Bar"
-	out := Justify(input, testWidth)
-	if !strings.Contains(out, "Key  Value") {
-		t.Errorf("preformatted line modified: %q", out)
-	}
-	if !strings.Contains(out, "Foo  Bar") {
-		t.Errorf("preformatted line modified: %q", out)
-	}
-}

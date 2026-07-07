@@ -38,8 +38,10 @@ continues here.
 
 ---
 
+.pre
 Temp   26.4 C
 Wind   WNW 12
+.end
 
 .pre 1
 LCRA 100550Z 29012KT
@@ -75,7 +77,7 @@ Mon | 31
 		t.Errorf("para text = %q", d.Blocks[1].Text)
 	}
 	if got := d.Blocks[3].Lines; len(got) != 2 || !strings.Contains(got[0], "Temp") {
-		t.Errorf("bare verbatim lines = %v", got)
+		t.Errorf("pre lines = %v", got)
 	}
 	if d.Blocks[4].Repeat != 1 || len(d.Blocks[4].Lines) != 2 {
 		t.Errorf("pre block = %+v", d.Blocks[4])
@@ -139,14 +141,27 @@ func TestParse_BlockErrors(t *testing.T) {
 }
 
 func TestParse_TightRuns(t *testing.T) {
-	// A prose label directly above an aligned line: contiguous in
+	// A prose label directly above a .pre block: contiguous in
 	// source, so contiguous in output.
-	d := mustParse(t, "T\n\nLabel line:\nKey   Value\n\nNext para.\n")
+	d := mustParse(t, "T\n\nLabel line:\n.pre\nKey   Value\n.end\n\nNext para.\n")
 	if len(d.Blocks) != 3 {
 		t.Fatalf("blocks = %+v", d.Blocks)
 	}
 	if d.Blocks[0].Tight || !d.Blocks[1].Tight || d.Blocks[2].Tight {
 		t.Errorf("tight flags = %v %v %v", d.Blocks[0].Tight, d.Blocks[1].Tight, d.Blocks[2].Tight)
+	}
+}
+
+func TestParse_NoStructureFromSpacing(t *testing.T) {
+	// The parser never infers structure from spacing: an aligned-
+	// looking line without .pre is prose and gets filled like any
+	// other, including double spaces after sentences.
+	d := mustParse(t, "T\n\nKey   Value\nend of sentence.  Next one.\n")
+	if len(d.Blocks) != 1 || d.Blocks[0].Kind != Para {
+		t.Fatalf("blocks = %+v, want one Para", d.Blocks)
+	}
+	if d.Blocks[0].Text != "Key   Value end of sentence.  Next one." {
+		t.Errorf("para text = %q", d.Blocks[0].Text)
 	}
 }
 
@@ -162,9 +177,8 @@ Day | Conditions | Temp
 Mon | Sunny with a fresh westerly breeze | 25
 .end
 
-Temp   26.4 C
-
 .pre
+Temp   26.4 C
 LCRA 100550Z 29012KT 9999 FEW020 SCT250 27/19 Q1008 NOSIG
 .end
 
@@ -213,7 +227,7 @@ LCRA 100550Z 29012KT 9999 FEW020 SCT250 27/19 Q1008 NOSIG
 }
 
 func TestText_TightPreservesAdjacency(t *testing.T) {
-	d := mustParse(t, "T\n\nLabel:\nKey   Value\n")
+	d := mustParse(t, "T\n\nLabel:\n.pre\nKey   Value\n.end\n")
 	out, err := d.Text()
 	if err != nil {
 		t.Fatal(err)

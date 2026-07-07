@@ -1,6 +1,6 @@
-// Knuth-Plass optimal line breaking with hyphenation, plus the
-// exported prose utilities Wrap, Justify, and TruncLines. The
-// public API and conventions are documented in doc.go.
+// Knuth-Plass optimal line breaking with hyphenation: the ragged
+// and justified paragraph breakers used by the writers. Documented
+// in doc.go.
 package typeset
 
 import (
@@ -16,30 +16,6 @@ func checkWidth(width int) {
 	}
 }
 
-// Wrap reflows blank-line-separated paragraphs of PROSE to fit
-// width, using optimal (Knuth-Plass) line breaking with hyphenation.
-// Lines are left ragged-right; lines containing 2+ consecutive
-// internal spaces are treated as preformatted and pass through
-// unchanged. Structured documents (headings, tables, verbatim
-// blocks) belong in the Parse -> Doc pipeline instead: Wrap cannot
-// tell a narrow table row from prose.
-func Wrap(text string, width int) string {
-	checkWidth(width)
-	return reflow(text, width, wrapParagraph)
-}
-
-// Justify reflows paragraphs like Wrap, then distributes extra
-// spaces on each non-final line so both edges are flush. The line
-// breaker uses a gap-aware cost model: it evaluates the actual
-// inter-word gap widths after justification and prefers hyphenation
-// over wide gaps, since monospace output cannot hide fractional
-// space adjustments. The last line of each paragraph stays
-// left-aligned. Preformatted lines pass through as in Wrap.
-func Justify(text string, width int) string {
-	checkWidth(width)
-	return reflow(text, width, JustifyParagraph)
-}
-
 // JustifyParagraph wraps ONE paragraph of prose with the gap-aware
 // breaker and flushes every non-final line, returning the lines.
 // This is the paragraph-level primitive for writers that already
@@ -52,39 +28,6 @@ func JustifyParagraph(para string, width int) []string {
 		lines[i] = justifyLine(lines[i], width)
 	}
 	return lines
-}
-
-// TruncLines truncates every line in text to width runes. Lines
-// already within the limit pass through unchanged. No reflow, no
-// hyphenation -- just a cut.
-func TruncLines(text string, width int) string {
-	checkWidth(width)
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		lines[i] = truncLine(line, width)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// reflow applies perPara to every prose paragraph of text, passing
-// blank lines and preformatted lines through unchanged.
-func reflow(text string, width int, perPara func(string, int) []string) string {
-	paragraphs := splitBlankSeparated(text)
-	var out []string
-	for _, para := range paragraphs {
-		if para == "" {
-			out = append(out, "")
-			continue
-		}
-		// Preformatted lines come through splitBlankSeparated as
-		// standalone single-line entries; never reflow them.
-		if isVerbatimLine(para) {
-			out = append(out, para)
-			continue
-		}
-		out = append(out, perPara(para, width)...)
-	}
-	return strings.Join(out, "\n")
 }
 
 // justifyLine distributes extra spaces between words so the line
@@ -120,49 +63,6 @@ func justifyLine(line string, width int) string {
 		}
 	}
 	return b.String()
-}
-
-// isVerbatimLine is the language's per-line verbatim convention: a
-// line containing 2+ consecutive internal spaces (column-aligned
-// content) is never refilled. Shared by Parse and the prose
-// utilities so the rule has exactly one home.
-func isVerbatimLine(trimmed string) bool {
-	return strings.Contains(trimmed, "  ")
-}
-
-// splitBlankSeparated returns paragraphs separated by blank lines.
-// Each prose paragraph is the lines joined by single spaces.
-// Blank lines and preformatted lines (containing 2+ consecutive
-// spaces) are represented as standalone entries.
-func splitBlankSeparated(text string) []string {
-	lines := strings.Split(text, "\n")
-	var paragraphs []string
-	var current []string
-
-	flush := func() {
-		if len(current) > 0 {
-			paragraphs = append(paragraphs, strings.Join(current, " "))
-			current = nil
-		}
-	}
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			flush()
-			paragraphs = append(paragraphs, "")
-			continue
-		}
-		// Preformatted lines (column-aligned content) are kept as-is.
-		if isVerbatimLine(trimmed) {
-			flush()
-			paragraphs = append(paragraphs, line)
-			continue
-		}
-		current = append(current, trimmed)
-	}
-	flush()
-	return paragraphs
 }
 
 // word holds a token plus its hyphenation breakpoints (rune

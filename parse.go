@@ -99,7 +99,6 @@ func isRule(trimmed string) bool {
 type parser struct {
 	doc      *Doc
 	para     []string // accumulating prose lines
-	verb     []string // accumulating contiguous bare verbatim lines
 	blankRun bool     // a blank line precedes the next block
 	attrs    map[string]bool
 }
@@ -162,14 +161,10 @@ func Parse(src string) (*Doc, error) {
 			p.flush()
 			p.add(Block{Kind: Heading, Text: strings.TrimSpace(trimmed[2:])})
 
-		case isVerbatimLine(trimmed):
-			// Column-aligned line: verbatim without ceremony.
-			// Contiguous ones group into a single block.
-			p.flushPara()
-			p.verb = append(p.verb, line)
-
 		default:
-			p.flushVerb()
+			// Everything unmarked is prose -- fill mode, as in
+			// troff. Aligned or preformatted content must say .pre;
+			// the parser never infers structure from spacing.
 			p.para = append(p.para, trimmed)
 		}
 	}
@@ -284,21 +279,13 @@ func (p *parser) add(b Block) {
 	p.blankRun = false
 }
 
-func (p *parser) flushPara() {
+// flush closes the accumulating paragraph, if any.
+func (p *parser) flush() {
 	if len(p.para) > 0 {
 		p.add(Block{Kind: Para, Text: strings.Join(p.para, " ")})
 		p.para = nil
 	}
 }
-
-func (p *parser) flushVerb() {
-	if len(p.verb) > 0 {
-		p.add(Block{Kind: Pre, Lines: p.verb})
-		p.verb = nil
-	}
-}
-
-func (p *parser) flush() { p.flushPara(); p.flushVerb() }
 
 // collectUntilEnd gathers lines from start until a lone ".end",
 // returning the body and the index of the .end line.
