@@ -34,6 +34,12 @@ A document is UTF-8 text, structured by line:
 	.end             N (optional) is the number of leading lines a
 	                 column-splitting writer repeats after a split.
 	.link URL        wire metadata, passed through to text output
+	.set KEY VALUE   wire metadata: an opaque key-value setting,
+	                 passed through to text output. KEY is the first
+	                 word (no spaces); VALUE is the rest of the line
+	                 verbatim and may be empty. typeset never
+	                 interprets keys -- their meaning belongs to the
+	                 consuming layer (e.g. a station's site settings)
 
 Inline forms (@NN page references, #word tags) are ordinary words
 to the typesetter and are never split by wrapping.
@@ -47,7 +53,7 @@ column 0. The
 registry has two classes: typeset commands, consumed here and
 never reaching the output (.table, .pre, .end, and the layout
 commands below), and wire commands, typed and re-emitted for the
-next layer (.link).
+next layer (.link, .set).
 
 # Layout trailer
 

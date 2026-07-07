@@ -19,12 +19,13 @@ const (
 	Pre                       // verbatim lines; atomic for column flow
 	RuleBlk                   // horizontal rule
 	LinkBlk                   // .link wire metadata
+	SetBlk                    // .set wire metadata (opaque key-value)
 )
 
 // Block is one element of a parsed document.
 type Block struct {
 	Kind   BlockKind
-	Text   string   // Para: unwrapped prose. Heading: text. LinkBlk: URL.
+	Text   string   // Para: unwrapped prose. Heading: text. LinkBlk: URL. SetBlk: "KEY VALUE".
 	Table  *Table   // TableBlk
 	Width  int      // TableBlk: fixed width from the spec (0 = document width)
 	Lines  []string // Pre
@@ -71,7 +72,7 @@ var (
 	ErrStrayEnd          = errors.New("typeset: .end without an open block")
 	ErrContentAfterTrail = errors.New("typeset: content after a layout command")
 	ErrDuplicateAttr     = errors.New("typeset: duplicate layout command")
-	ErrBadAttr           = errors.New("typeset: invalid layout command value")
+	ErrBadAttr           = errors.New("typeset: invalid command value")
 )
 
 // isDotCommand applies the wire lexing rule: a dot followed by a
@@ -225,6 +226,17 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 	case ".link":
 		p.flush()
 		p.add(Block{Kind: LinkBlk, Text: rest})
+		return i, nil
+
+	case ".set":
+		// Opaque key-value wire metadata: the first word of rest is
+		// the key, everything after it the value (may be empty).
+		// typeset validates the shape only, never interprets keys.
+		if rest == "" {
+			return 0, fmt.Errorf("%w: .set needs a key (line %d)", ErrBadAttr, n)
+		}
+		p.flush()
+		p.add(Block{Kind: SetBlk, Text: rest})
 		return i, nil
 	}
 

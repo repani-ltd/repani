@@ -236,3 +236,39 @@ func TestText_TightPreservesAdjacency(t *testing.T) {
 		t.Errorf("tight blocks separated:\n%s", out)
 	}
 }
+
+func TestParse_Set(t *testing.T) {
+	d := mustParse(t, "T\n\n.set site.title Limasoul Radio\n.set site.home 5\n.set flag\n")
+	if len(d.Blocks) != 3 {
+		t.Fatalf("blocks = %+v", d.Blocks)
+	}
+	want := []string{"site.title Limasoul Radio", "site.home 5", "flag"}
+	for i, w := range want {
+		if d.Blocks[i].Kind != SetBlk || d.Blocks[i].Text != w {
+			t.Errorf("block %d = %+v, want SetBlk %q", i, d.Blocks[i], w)
+		}
+	}
+
+	// A key is required.
+	if _, err := Parse("T\n\n.set\n"); !errors.Is(err, ErrBadAttr) {
+		t.Errorf(".set without key: err = %v, want ErrBadAttr", err)
+	}
+	// After the layout trailer, .set is content and therefore an error.
+	if _, err := Parse("T\n\nbody\n\n.width 40\n.set k v\n"); !errors.Is(err, ErrContentAfterTrail) {
+		t.Errorf(".set after trailer: err = %v, want ErrContentAfterTrail", err)
+	}
+}
+
+func TestText_SetPassthrough(t *testing.T) {
+	// .set survives to the wire verbatim and, like .link, is exempt
+	// from the width budget.
+	long := strings.Repeat("v", 60)
+	d := mustParse(t, "T\n\n.set site.motd "+long+"\n")
+	out, err := d.Text()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, ".set site.motd "+long) {
+		t.Errorf(".set corrupted:\n%s", out)
+	}
+}

@@ -51,6 +51,11 @@ func renderBlock(b Block, width int) ([]string, error) {
 		// from the width budget (truncation would corrupt the URL).
 		return []string{".link " + b.Text}, nil
 
+	case SetBlk:
+		// Wire metadata, same exemption (truncation would corrupt
+		// the value).
+		return []string{".set " + b.Text}, nil
+
 	case TableBlk:
 		tl, err := b.Table.Layout(b.TableWidth(width))
 		if err != nil {

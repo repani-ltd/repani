@@ -127,6 +127,10 @@ func compose(doc *typeset.Doc) ([]fblock, error) {
 			fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, width), style: styleGray}}}}
 			fb.atomic = true
 
+		case typeset.SetBlk:
+			fb.segs = []seg{{lines: []sline{{text: trunc(".set "+blk.Text, width), style: styleGray}}}}
+			fb.atomic = true
+
 		case typeset.TableBlk:
 			tl, err := blk.Table.Layout(blk.TableWidth(width))
 			if err != nil {
