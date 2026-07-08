@@ -38,9 +38,6 @@ A document is UTF-8 text, structured by line:
 	                 links render a real one with T (or the URL) as
 	                 the anchor text
 
-Inline forms (@NN page references, #word tags) are ordinary words
-to the typesetter and are never split by wrapping.
-
 The dot-command vocabulary is CLOSED: a line that lexes as a dot
 command (dot followed by a lowercase letter; ". " and ".." begin
 ordinary text) but is not in the registry is a parse error. The
