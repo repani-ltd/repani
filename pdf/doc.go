@@ -26,7 +26,7 @@ codepoint as CID; codepoints above the Basic Multilingual Plane are
 replaced with U+FFFD.
 
 The writer originates from an internal reporting tool and was
-trimmed to this surface: no images, no links, no outlines, no
-colors beyond grayscale.
+trimmed to this surface: subset text, hairlines, grayscale, and
+link annotations (Page.Link) -- no images, no outlines, no colors.
 */
 package pdf

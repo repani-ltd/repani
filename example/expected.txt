@@ -77,3 +77,4 @@ values by the weekend.
 .link https://open-meteo.com
 .link https://aviationweather.gov/data/metar/?id=LCRA
 .link https://www.moa.gov.cy/moa/dm/dm.nsf/home_en/home_en
+.link https://limasoul.com limasoul

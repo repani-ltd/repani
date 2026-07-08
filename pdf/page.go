@@ -10,10 +10,23 @@ import (
 // Page builds one PDF page content stream. Get pages into a document
 // with Doc.Add. Zero value is ready to use.
 type Page struct {
-	buf  strings.Builder
-	font Font
-	size float64
-	used map[Font]map[rune]bool
+	buf    strings.Builder
+	font   Font
+	size   float64
+	used   map[Font]map[rune]bool
+	annots []linkAnnot
+}
+
+// linkAnnot is a clickable URI region on the page.
+type linkAnnot struct {
+	x0, y0, x1, y1 float64
+	url            string
+}
+
+// Link makes the rectangle (x0,y0)-(x1,y1) a clickable link to url.
+// It draws nothing; pair it with Text for the visible anchor.
+func (p *Page) Link(x0, y0, x1, y1 float64, url string) {
+	p.annots = append(p.annots, linkAnnot{x0, y0, x1, y1, url})
 }
 
 // SetFont selects the font and size for subsequent text operations.

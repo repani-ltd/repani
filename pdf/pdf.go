@@ -10,6 +10,7 @@ import (
 	_ "embed"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/pavlos/typeset/pdf/ttf"
 )
@@ -97,14 +98,21 @@ type Doc struct {
 	PageSize PageSize
 	Compress bool
 
-	pages [][]byte
+	pages []pageData
 	used  map[Font]map[rune]bool
+}
+
+// pageData is a finished page: its content stream plus any link
+// annotations.
+type pageData struct {
+	content []byte
+	annots  []linkAnnot
 }
 
 // Add appends a finished page to the document, absorbing its
 // rune-usage bookkeeping for font subsetting.
 func (d *Doc) Add(p *Page) {
-	d.pages = append(d.pages, p.Bytes())
+	d.pages = append(d.pages, pageData{content: p.Bytes(), annots: p.annots})
 	if d.used == nil {
 		d.used = make(map[Font]map[rune]bool)
 	}
@@ -160,11 +168,15 @@ func (d *Doc) Bytes() []byte {
 	// byte-identical PDFs, and the date is optional in the spec.
 	infoID := b.add(pdfInfo(len(b.objs), d.Creator, d.Title))
 
-	// 5. Page/stream pairs.
+	// 5. Page/stream pairs, plus link annotations per page.
 	kids := make([]int, len(d.pages))
-	for i, content := range d.pages {
-		streamID := b.add(pdfStream(len(b.objs), content, d.Compress))
-		kids[i] = b.add(pdfPage(len(b.objs), streamID, pagesID, resourcesID))
+	for i, pg := range d.pages {
+		streamID := b.add(pdfStream(len(b.objs), pg.content, d.Compress))
+		annotIDs := make([]int, len(pg.annots))
+		for j, a := range pg.annots {
+			annotIDs[j] = b.add(pdfLinkAnnot(len(b.objs), a))
+		}
+		kids[i] = b.add(pdfPage(len(b.objs), streamID, pagesID, resourcesID, annotIDs))
 	}
 
 	// 6. Fill in the reserved pages tree and catalog.
@@ -279,13 +291,34 @@ func pdfPages(id, pageCount int, kids []int, mediaBox string) []byte {
 	return o.bytes()
 }
 
-func pdfPage(id, contentID, parentID, resourcesID int) []byte {
+func pdfPage(id, contentID, parentID, resourcesID int, annotIDs []int) []byte {
 	o := newObj(id)
+	if len(annotIDs) > 0 {
+		o.field("Annots", string(pdfKids(annotIDs)))
+	}
 	o.field("Contents", fmt.Sprintf("%d 0 R", contentID))
 	o.field("Parent", fmt.Sprintf("%d 0 R", parentID))
 	o.field("Resources", fmt.Sprintf("%d 0 R", resourcesID))
 	o.field("Type", "/Page")
 	return o.bytes()
+}
+
+// pdfLinkAnnot builds a /Link annotation with a URI action and no
+// visible border.
+func pdfLinkAnnot(id int, a linkAnnot) []byte {
+	o := newObj(id)
+	o.field("A", fmt.Sprintf("<< /S /URI /URI (%s) >>", escapeString(a.url)))
+	o.field("Border", "[ 0 0 0 ]")
+	o.field("Rect", fmt.Sprintf("[ %s %s %s %s ]", ff(a.x0), ff(a.y0), ff(a.x1), ff(a.y1)))
+	o.field("Subtype", "/Link")
+	o.field("Type", "/Annot")
+	return o.bytes()
+}
+
+// escapeString escapes a PDF literal string's special characters.
+func escapeString(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `(`, `\(`, `)`, `\)`)
+	return r.Replace(s)
 }
 
 func pdfStream(id int, content []byte, compress bool) []byte {

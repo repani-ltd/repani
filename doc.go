@@ -33,12 +33,10 @@ A document is UTF-8 text, structured by line:
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a
 	                 column-splitting writer repeats after a split.
-	.link URL        a link reference
-	.set KEY VALUE   an opaque key-value setting: KEY is the first
-	                 word (no spaces); VALUE is the rest of the line
-	                 verbatim and may be empty. typeset never
-	                 interprets keys -- their meaning belongs to the
-	                 consumer (e.g. a station's site settings)
+	.link URL [T]    a link reference: URL plus an optional single-
+	                 word title T. Writers whose medium supports
+	                 links render a real one with T (or the URL) as
+	                 the anchor text
 
 Inline forms (@NN page references, #word tags) are ordinary words
 to the typesetter and are never split by wrapping.
@@ -54,13 +52,14 @@ Every command is part of the typesetting language: Parse types each
 into a Doc block, and each writer decides that block's rendering in
 its own output format. The text writer's target format is the
 quietcasting wire markup, so it serializes Heading as "# text" and
-LinkBlk/SetBlk as ".link"/".set" meta lines (which wire clients
-hide); the pdf writer renders headings bold and metadata gray. A
-consumer that wants the data rather than a rendering walks
-Doc.Blocks directly. One rule binds all writers: every block
-occupies the same line count in each, so a text page and a PDF
-column stay the same object. Structural commands (.table, .pre,
-.end) and the layout trailer never appear in any output.
+LinkBlk as a ".link" meta line (which wire clients render as a
+proper link); the pdf writer renders headings bold and links as
+gray anchor text carrying a clickable annotation. A consumer that
+wants the data rather than a rendering walks Doc.Blocks directly.
+One rule binds all writers: every block occupies the same line
+count in each, so a text page and a PDF column stay the same
+object. Structural commands (.table, .pre, .end) and the layout
+trailer never appear in any output.
 
 # Layout trailer
 

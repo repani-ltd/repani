@@ -91,3 +91,22 @@ func TestWidthMonospace(t *testing.T) {
 		t.Errorf("Width = %v, want 60", w)
 	}
 }
+
+func TestLinkAnnotation(t *testing.T) {
+	var p Page
+	p.SetFont(Regular, 8)
+	p.Text(72, 700, "example")
+	p.Link(72, 698, 120, 708, "https://x.example/a(b)")
+	doc := &Doc{}
+	doc.Add(&p)
+	s := string(doc.Bytes())
+	for _, want := range []string{
+		"/Subtype /Link",
+		"/A << /S /URI /URI (https://x.example/a\\(b\\)) >>",
+		"/Annots [ ",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in PDF", want)
+		}
+	}
+}

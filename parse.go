@@ -18,14 +18,13 @@ const (
 	TableBlk                  // structured table
 	Pre                       // verbatim lines; atomic for column flow
 	RuleBlk                   // horizontal rule
-	LinkBlk                   // .link wire metadata
-	SetBlk                    // .set wire metadata (opaque key-value)
+	LinkBlk                   // .link reference: URL and optional title
 )
 
 // Block is one element of a parsed document.
 type Block struct {
 	Kind   BlockKind
-	Text   string   // Para: unwrapped prose. Heading: text. LinkBlk: URL. SetBlk: "KEY VALUE".
+	Text   string   // Para: unwrapped prose. Heading: text. LinkBlk: "URL [TITLE]".
 	Table  *Table   // TableBlk
 	Width  int      // TableBlk: fixed width from the spec (0 = document width)
 	Lines  []string // Pre
@@ -224,19 +223,14 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		return next, nil
 
 	case ".link":
-		p.flush()
-		p.add(Block{Kind: LinkBlk, Text: rest})
-		return i, nil
-
-	case ".set":
-		// Opaque key-value wire metadata: the first word of rest is
-		// the key, everything after it the value (may be empty).
-		// typeset validates the shape only, never interprets keys.
-		if rest == "" {
-			return 0, fmt.Errorf("%w: .set needs a key (line %d)", ErrBadAttr, n)
+		// .link URL [TITLE]: TITLE is a single word; writers that
+		// can render real links show it as the anchor text.
+		fields := strings.Fields(rest)
+		if len(fields) == 0 || len(fields) > 2 {
+			return 0, fmt.Errorf("%w: .link wants URL [TITLE] (line %d)", ErrBadAttr, n)
 		}
 		p.flush()
-		p.add(Block{Kind: SetBlk, Text: rest})
+		p.add(Block{Kind: LinkBlk, Text: strings.Join(fields, " ")})
 		return i, nil
 	}
 

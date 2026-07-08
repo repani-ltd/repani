@@ -14,8 +14,8 @@ The design center is the language (see `doc.go` for the spec):
   gap-aware cost). Authors never state widths in content.
 - **Explicit structure, closed vocabulary.** `# heading`, `---`
   rules, `.table … .end` (cells wrap by default, `!` clips),
-  `.pre [N] … .end` verbatim blocks, `.link` and `.set KEY VALUE`
-  wire metadata. Unknown
+  `.pre [N] … .end` verbatim blocks, `.link URL [TITLE]` link
+  references (clickable in the PDF). Unknown
   dot commands are parse errors, never silent passthrough.
 - **Self-contained documents.** Width, paper, and columns live in a
   layout trailer (`.width` / `.paper` / `.cols`, defaults 40/a4/3).

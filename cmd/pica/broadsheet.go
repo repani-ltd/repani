@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/pavlos/typeset"
 	"github.com/pavlos/typeset/pdf"
@@ -72,6 +73,7 @@ const (
 type sline struct {
 	text  string
 	style style
+	href  string // non-empty: the line is a clickable link target
 }
 
 // seg is an atomic run of lines: a paragraph line, a table row (all
@@ -124,11 +126,12 @@ func compose(doc *typeset.Doc) ([]fblock, error) {
 			fb.atomic = true
 
 		case typeset.LinkBlk:
-			fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, width), style: styleGray}}}}
-			fb.atomic = true
-
-		case typeset.SetBlk:
-			fb.segs = []seg{{lines: []sline{{text: trunc(".set "+blk.Text, width), style: styleGray}}}}
+			url, title, _ := strings.Cut(blk.Text, " ")
+			label := title
+			if label == "" {
+				label = url
+			}
+			fb.segs = []seg{{lines: []sline{{text: trunc(label, width), style: styleGray, href: url}}}}
 			fb.atomic = true
 
 		case typeset.TableBlk:
@@ -455,6 +458,10 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW, ps, lineH float64) {
 			p.Text(x, y, ln.text)
 			if ln.style == styleGray {
 				p.Gray(0)
+			}
+			if ln.href != "" {
+				w := pdf.Width(ln.text, font, ps)
+				p.Link(x, y-ps*0.25, x+w, y+ps, ln.href)
 			}
 		}
 		y -= lineH
