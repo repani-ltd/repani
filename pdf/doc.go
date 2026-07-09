@@ -28,5 +28,28 @@ replaced with U+FFFD.
 The writer originates from an internal reporting tool and was
 trimmed to this surface: subset text, hairlines, grayscale, and
 link annotations (Page.Link) -- no images, no outlines, no colors.
+
+# Press readiness (PDF/X-1a)
+
+The output is already offset-friendly in substance: fonts embedded,
+pure vector, DeviceGray only, no transparency or encryption, and
+PDF/X-1a:2001 is itself based on PDF 1.3. Formal compliance, should
+a print shop require it, needs a "press profile" adding roughly
+100-200 lines:
+
+  - an OutputIntent (/S /GTS_PDFX) with an embedded grayscale ICC
+    profile (a dot-gain gray profile is a few hundred bytes)
+  - TrimBox on every page (equal to MediaBox; nothing bleeds)
+  - Info keys: /GTS_PDFXVersion (PDF/X-1a:2001), /Trapped /False,
+    /Title, and the REQUIRED CreationDate/ModDate -- stamp a fixed
+    epoch date to keep byte-determinism
+  - omit link annotations (PDF/X wants annotations outside the trim
+    area; URIs are meaningless on paper)
+  - validate with veraPDF
+
+Envelope metadata only -- the rendered marks stay byte-identical --
+so a flag or option on Doc would not violate the self-contained-
+document rule. Imposition, crop marks, and bleed remain the print
+shop's job.
 */
 package pdf
