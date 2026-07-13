@@ -33,8 +33,10 @@ The design center is the language (see `doc.go` for the spec):
     pica render ... | pica text         # source -> text page
     pica render ... | pica pdf -o p.pdf # source -> newspaper PDF
 
-`render` executes Go text/templates with value formatters only
-(round, decimal, trunc, pad, shortTime, shortDate, dur) -- no
+`render` executes Go text/templates with value formatters (round,
+decimal, trunc, pad, shortTime, shortDate, dur) and one structure
+helper, `table`, which emits a `.table` block from a rows slice
+plus field names (sparing templates the range boilerplate) -- no
 layout functions exist. `pdf` derives its body point size from the
 document geometry (columnWidth / 0.6em / `.width`), so a text page
 and a PDF column are the same typographic object; it renders

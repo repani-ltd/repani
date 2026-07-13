@@ -20,9 +20,10 @@
 // # Templates
 //
 // render executes a Go text/template with value-formatting helpers
-// (round, decimal, trunc, pad, shortTime, shortDate, dur); the
-// template's OUTPUT is a typeset source document -- templates
-// contain no layout calls. Data is JSON (default) or, with -txtar,
+// (round, decimal, trunc, pad, shortTime, shortDate, dur) and the
+// data-driven "table" helper (emits a .table block from a rows
+// slice plus field names); the template's OUTPUT is a typeset
+// source document -- templates contain no layout calls. Data is JSON (default) or, with -txtar,
 // a txtar archive:
 //
 //	data.yaml     a YAML document; each top-level key becomes a

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/pavlos/typeset"
+
 	"strings"
 	"testing"
 	"text/template"
@@ -164,5 +166,70 @@ func TestPad(t *testing.T) {
 		if got := pad(c.in, c.n); got != c.want {
 			t.Errorf("pad(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
 		}
+	}
+}
+
+func TestTable_DataDriven(t *testing.T) {
+	rows := []any{
+		map[string]any{"Spot": "Akrotiri", "When": "Sat 14:00", "Kind": "High"},
+		map[string]any{"Spot": "Kourion", "When": "Sun 06:00", "Kind": "Low"},
+	}
+	got, err := table("9L 9L 5L", "Spot | When | Level", rows, "Spot", "When", "Kind")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ".table 9L 9L 5L\n" +
+		"Spot | When | Level\n" +
+		"Akrotiri | Sat 14:00 | High\n" +
+		"Kourion | Sun 06:00 | Low\n" +
+		".end"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Headerless: "-" spec plus empty header.
+	got, err = table("- 9L 5R", "", rows, "Spot", "Kind")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "Level") || !strings.HasPrefix(got, ".table - 9L 5R\nAkrotiri") {
+		t.Errorf("headerless form wrong:\n%s", got)
+	}
+
+	// Numbers format via %v (JSON floats included).
+	nrows := []any{map[string]any{"Rank": float64(1), "Pts": 25}}
+	got, err = table("2R 3R", "# | Pts", nrows, "Rank", "Pts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "1 | 25") {
+		t.Errorf("numeric cells wrong:\n%s", got)
+	}
+
+	// Errors are loud.
+	if _, err := table("2R", "h", rows, "Nope"); err == nil {
+		t.Error("missing field should error")
+	}
+	if _, err := table("2R", "h", "not-a-slice", "F"); err == nil {
+		t.Error("non-slice rows should error")
+	}
+	if _, err := table("2R", "h", rows); err == nil {
+		t.Error("no fields should error")
+	}
+}
+
+func TestTable_EndToEndThroughLanguage(t *testing.T) {
+	// The helper's output must parse as a valid .table block.
+	rows := []any{map[string]any{"A": "x", "B": "longer cell value here"}}
+	blk, err := table("4L *L", "A | B", rows, "A", "B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := typeset.Parse("T\n\n" + blk + "\n")
+	if err != nil {
+		t.Fatalf("helper emitted unparseable block: %v", err)
+	}
+	if _, err := doc.Text(); err != nil {
+		t.Fatal(err)
 	}
 }
