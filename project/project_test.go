@@ -1,0 +1,136 @@
+package project
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"flat/fact"
+)
+
+const bankSrc = `package bank
+
+import "errors"
+
+// Poster posts amounts to a ledger.
+type Poster interface {
+	Post(amount int) error
+}
+
+// MemLedger is an in-memory ledger.
+type MemLedger struct {
+	Balance int
+}
+
+func (m *MemLedger) Post(amount int) error {
+	m.Balance += amount
+	return nil
+}
+
+// Submit validates and posts an amount.
+func Submit(l Poster, amount int) error {
+	if amount <= 0 {
+		return errors.New("bad amount")
+	}
+	return l.Post(amount)
+}
+`
+
+// writeBankModule lays out bankSrc as a tiny standalone module.
+func writeBankModule(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, src := range map[string]string{
+		"go.mod":  "module bank\n\ngo 1.25\n",
+		"bank.go": bankSrc,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestProjectGoPackage(t *testing.T) {
+	dir := writeBankModule(t)
+	lines, err := Lines(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The projection must itself be valid FACT.
+	facts, errs := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
+	errs = append(errs, fact.Validate(facts)...)
+	for _, e := range errs {
+		t.Errorf("projection is invalid FACT: %s", e.Error())
+	}
+	canonical := string(fact.Canonical(facts))
+
+	want := []string{
+		`pkg.path: str = "bank"`,
+		`imports: list(str) = ["errors"]`,
+		`type:Poster.kind: enum(struct|iface|basic) = iface`,
+		`type:Poster.method_Post_sig: str = "func(amount int) error"`,
+		`type:MemLedger.kind: enum(struct|iface|basic) = struct`,
+		`type:MemLedger.fields: list(str) = ["Balance"]`,
+		`type:MemLedger.field_Balance_type: str = "int"`,
+		`type:MemLedger.methods: list(str) = ["Post"]`,
+		// The killer query (SPEC §12.1): computed interface satisfaction.
+		`type:MemLedger.implements: list(ref(type)) = [type:Poster]`,
+		`method:MemLedger_Post.receiver: str = "MemLedger"`,
+		`func:Submit.sig: str = "func(l Poster, amount int) error"`,
+		`func:Submit.exported: bool = true`,
+		// All-str call edges (SPEC §6.4): static callee through the interface,
+		// external symbol as source-qualified string.
+		`func:Submit.calls: list(str) = ["Poster.Post", "errors.New"]`,
+		`func:Submit.loc: str = "bank.go:21"`,
+	}
+	for _, w := range want {
+		if !strings.Contains(canonical, w+"\n") {
+			t.Errorf("projection missing fact:\n  %s", w)
+		}
+	}
+	if t.Failed() {
+		t.Logf("full projection:\n%s", canonical)
+	}
+}
+
+// Regression: packages importing other module-local packages must project
+// (the stdlib source importer could not resolve them; go/packages can).
+func TestProjectPackageWithLocalImports(t *testing.T) {
+	lines, err := Lines("../cmd/fact") // imports flat/fact and flat/project
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, errs := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
+	errs = append(errs, fact.Validate(facts)...)
+	for _, e := range errs {
+		t.Errorf("projection is invalid FACT: %s", e.Error())
+	}
+	canonical := string(fact.Canonical(facts))
+	for _, w := range []string{
+		"func:main.exported: bool = false\n",
+		`pkg.path: str = "flat/cmd/fact"` + "\n",
+		`"flat/fact", "flat/project"`,
+	} {
+		if !strings.Contains(canonical, w) {
+			t.Errorf("projection missing %q\nfull projection:\n%s", w, canonical)
+		}
+	}
+}
+
+func TestProjectionIsDeterministic(t *testing.T) {
+	dir := writeBankModule(t)
+	canon := func() string {
+		lines, err := Lines(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		facts, _ := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
+		return string(fact.Canonical(facts))
+	}
+	if canon() != canon() {
+		t.Error("regenerating an unchanged package is not byte-identical")
+	}
+}
