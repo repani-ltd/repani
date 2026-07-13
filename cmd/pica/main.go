@@ -23,19 +23,24 @@
 // (round, decimal, trunc, pad, shortTime, shortDate, dur) and the
 // data-driven "table" helper (emits a .table block from a rows
 // slice plus field names); the template's OUTPUT is a typeset
-// source document -- templates contain no layout calls. Data is JSON (default) or, with -txtar,
-// a txtar archive:
+// source document -- templates contain no layout calls.
 //
-//	data.yaml     a YAML document; each top-level key becomes a
-//	              template field. Required (may be empty).
-//	body.txt      plain prose; injected as the "body" key.
-//	              Optional. Trailing whitespace trimmed.
-//	sources.txt   one URL per line; injected as the "sources" key,
-//	              a []string. Optional; blank lines dropped.
+// Data is FACT (a *.fact file or -fact), JSON (default otherwise),
+// or, with -txtar, a txtar archive pairing facts with prose:
 //
-// data.yaml MUST NOT contain top-level "body" or "sources" keys --
-// those are reserved for body.txt and sources.txt and a collision
-// is rejected at load time. Other files in the archive are ignored.
+//	data.fact     a FACT document (typed key: type = value lines);
+//	              keys bind to template fields -- dotted keys nest,
+//	              kind:id instances become rows, list(ref(kind))
+//	              binds an ordered row slice for range. Required
+//	              (may be empty).
+//	*.txt         any other .txt member is plain content, injected
+//	              verbatim as a string field named after the file
+//	              ("body.txt" -> .body). Trailing whitespace
+//	              trimmed. Facts are data; prose is content.
+//
+// A .txt member whose name collides with a data.fact key is rejected
+// at load time (the FACT duplicate rule, extended to the archive).
+// Non-.txt members other than data.fact are ignored.
 package main
 
 import (
@@ -48,8 +53,7 @@ import (
 	"strings"
 	"text/template"
 
-	"golang.org/x/tools/txtar"
-	"gopkg.in/yaml.v3"
+	"flat/fact"
 
 	"github.com/pavlos/typeset"
 )
@@ -163,7 +167,8 @@ func textCmd(args []string) int {
 
 func renderCmd(args []string) int {
 	fs := flag.NewFlagSet("render", flag.ExitOnError)
-	useTxtar := fs.Bool("txtar", false, "parse data as a txtar archive (data.yaml + body.txt + sources.txt) instead of JSON")
+	useTxtar := fs.Bool("txtar", false, "parse data as a txtar archive (data.fact + *.txt content members)")
+	useFact := fs.Bool("fact", false, "parse data as FACT (implied by a .fact data filename)")
 	fs.Parse(args)
 	rest := fs.Args()
 	if len(rest) != 2 {
@@ -184,9 +189,12 @@ func renderCmd(args []string) int {
 	}
 
 	var data any
-	if *useTxtar {
+	switch {
+	case *useTxtar:
 		data, err = parseTxtar(dataBytes)
-	} else {
+	case *useFact || strings.HasSuffix(rest[1], ".fact"):
+		data, err = bindFacts(dataBytes)
+	default:
 		err = json.Unmarshal(dataBytes, &data)
 	}
 	if err != nil {
@@ -216,68 +224,64 @@ func renderCmd(args []string) int {
 	return 0
 }
 
+// bindFacts parses, validates, and binds a FACT document into
+// template data. All three stages are loud: a malformed line, a bad
+// value, a dangling ref, or a duplicate key fails the render.
+func bindFacts(src []byte) (map[string]any, error) {
+	facts, errs := fact.Parse(src)
+	errs = append(errs, fact.Validate(facts)...)
+	if len(errs) > 0 {
+		msgs := make([]string, len(errs))
+		for i, e := range errs {
+			msgs[i] = e.Error()
+		}
+		return nil, errors.New("data.fact: " + strings.Join(msgs, "; "))
+	}
+	return fact.Bind(facts)
+}
+
 // parseTxtar parses a txtar archive into a template data map. See
-// the package comment for the file conventions.
+// the package comment for the member conventions: data.fact carries
+// the facts, every other .txt member is content injected as a string
+// field named after the file.
 func parseTxtar(data []byte) (any, error) {
-	archive := txtar.Parse(data)
-	if archive == nil {
+	files := parseArchive(string(data))
+	if len(files) == 0 {
 		return nil, errors.New("txtar parse: empty archive")
 	}
 
-	var (
-		dataYAMLPresent bool
-		dataYAML        []byte
-		bodyPresent     bool
-		body            string
-		sourcesPresent  bool
-		sources         []string
-	)
-	for _, f := range archive.Files {
-		switch f.Name {
-		case "data.yaml":
-			dataYAMLPresent = true
-			dataYAML = f.Data
-		case "body.txt":
-			bodyPresent = true
-			body = strings.TrimRight(string(f.Data), " \t\r\n")
-		case "sources.txt":
-			sourcesPresent = true
-			for _, line := range strings.Split(string(f.Data), "\n") {
-				line = strings.TrimSpace(line)
-				if line == "" {
-					continue
-				}
-				sources = append(sources, line)
+	var factSrc []byte
+	factPresent := false
+	content := map[string]string{}
+	for _, f := range files {
+		switch {
+		case f.name == "data.fact":
+			factPresent = true
+			factSrc = []byte(f.data)
+		case strings.HasSuffix(f.name, ".txt"):
+			key := strings.TrimSuffix(f.name, ".txt")
+			if _, dup := content[key]; dup {
+				return nil, fmt.Errorf("txtar: duplicate member %q", f.name)
 			}
+			content[key] = strings.TrimRight(f.data, " \t\r\n")
 		}
 	}
-
-	if !dataYAMLPresent {
-		return nil, errors.New("txtar: missing required file data.yaml")
+	if !factPresent {
+		return nil, errors.New("txtar: missing required file data.fact")
 	}
 
-	out := map[string]any{}
-	if len(dataYAML) > 0 {
-		if err := yaml.Unmarshal(dataYAML, &out); err != nil {
-			return nil, fmt.Errorf("txtar: parse data.yaml: %w", err)
+	out, err := bindFacts(factSrc)
+	if err != nil {
+		return nil, fmt.Errorf("txtar: %w", err)
+	}
+
+	// Content members own their keys; data.fact may not also set
+	// them (the FACT duplicate rule, extended to the archive).
+	for key, text := range content {
+		if _, exists := out[key]; exists {
+			return nil, fmt.Errorf("txtar: data.fact has %q key but %s.txt is also present", key, key)
 		}
+		out[key] = text
 	}
-
-	// Reserved-key collision check. body.txt and sources.txt own
-	// the "body" and "sources" keys; data.yaml may not also set
-	// them.
-	if bodyPresent {
-		if _, exists := out["body"]; exists {
-			return nil, errors.New("txtar: data.yaml has 'body' key but body.txt is also present")
-		}
-		out["body"] = body
-	}
-	if sourcesPresent {
-		if _, exists := out["sources"]; exists {
-			return nil, errors.New("txtar: data.yaml has 'sources' key but sources.txt is also present")
-		}
-		out["sources"] = sources
-	}
-
 	return out, nil
 }

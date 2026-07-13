@@ -1,228 +1,157 @@
 package main
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestParseTxtar_AllThreeFiles(t *testing.T) {
-	input := `-- data.yaml --
-title: Cyprus News
-date: 2026-04-11T17:30:00+03:00
-tags:
-  - news
-  - cyprus
+func TestParseTxtar_FactsAndContent(t *testing.T) {
+	input := `-- data.fact --
+title: str = "Weather"
+issue: int = 187
+current.temp: float = 26.4
+tags: list(str) = ["news", "cyprus"]
+sources: list(str) = ["https://a", "https://b"]
+daily: list(ref(day)) = [day:d0, day:d1]
+day:d0.hi: float = 31.2
+day:d1.hi: float = 30.4
 -- body.txt --
-First paragraph of news prose.
+first para
 
-Second paragraph with more detail.
--- sources.txt --
-https://cyprus-mail.com/article/one
-https://philenews.com/article/two
-https://kathimerini.com.cy/article/three
+second para
 `
 	got, err := parseTxtar([]byte(input))
 	if err != nil {
-		t.Fatalf("parseTxtar: %v", err)
-	}
-	m, ok := got.(map[string]any)
-	if !ok {
-		t.Fatalf("want map[string]any, got %T", got)
-	}
-
-	if m["title"] != "Cyprus News" {
-		t.Errorf("title = %v, want %q", m["title"], "Cyprus News")
-	}
-	wantTags := []any{"news", "cyprus"}
-	if !reflect.DeepEqual(m["tags"], wantTags) {
-		t.Errorf("tags = %v, want %v", m["tags"], wantTags)
-	}
-	wantBody := "First paragraph of news prose.\n\nSecond paragraph with more detail."
-	if m["body"] != wantBody {
-		t.Errorf("body = %q, want %q", m["body"], wantBody)
-	}
-	wantSources := []string{
-		"https://cyprus-mail.com/article/one",
-		"https://philenews.com/article/two",
-		"https://kathimerini.com.cy/article/three",
-	}
-	if !reflect.DeepEqual(m["sources"], wantSources) {
-		t.Errorf("sources = %v, want %v", m["sources"], wantSources)
-	}
-}
-
-func TestParseTxtar_OnlyDataYAML(t *testing.T) {
-	// Static editors that have all their data in YAML and no
-	// separate body / sources still work.
-	input := `-- data.yaml --
-title: Limassol Weather
-temp: 22
-`
-	got, err := parseTxtar([]byte(input))
-	if err != nil {
-		t.Fatalf("parseTxtar: %v", err)
+		t.Fatal(err)
 	}
 	m := got.(map[string]any)
-	if m["title"] != "Limassol Weather" {
-		t.Errorf("title = %v", m["title"])
+	if m["title"] != "Weather" || m["issue"] != int64(187) {
+		t.Errorf("scalar facts wrong: %+v", m)
 	}
-	if _, ok := m["body"]; ok {
-		t.Errorf("body should not be set when body.txt is absent")
+	if m["current"].(map[string]any)["temp"] != 26.4 {
+		t.Errorf("nested fact wrong: %+v", m["current"])
 	}
-	if _, ok := m["sources"]; ok {
-		t.Errorf("sources should not be set when sources.txt is absent")
+	if !reflect.DeepEqual(m["tags"], []any{"news", "cyprus"}) {
+		t.Errorf("tags = %#v", m["tags"])
+	}
+	if !reflect.DeepEqual(m["sources"], []any{"https://a", "https://b"}) {
+		t.Errorf("sources = %#v", m["sources"])
+	}
+	rows := m["daily"].([]any)
+	if len(rows) != 2 || rows[0].(map[string]any)["hi"] != 31.2 {
+		t.Errorf("ordered rows wrong: %#v", m["daily"])
+	}
+	if m["body"] != "first para\n\nsecond para" {
+		t.Errorf("body content wrong: %q", m["body"])
 	}
 }
 
-func TestParseTxtar_EmptyDataYAML(t *testing.T) {
-	// data.yaml is required but its content may be empty.
-	input := `-- data.yaml --
--- body.txt --
-just a body, no metadata
-`
+func TestParseTxtar_EmptyDataFact(t *testing.T) {
+	// data.fact is required but its content may be empty.
+	input := "-- data.fact --\n-- body.txt --\nhello\n"
 	got, err := parseTxtar([]byte(input))
 	if err != nil {
-		t.Fatalf("parseTxtar: %v", err)
+		t.Fatal(err)
 	}
-	m := got.(map[string]any)
-	if m["body"] != "just a body, no metadata" {
-		t.Errorf("body = %v", m["body"])
+	want := map[string]any{"body": "hello"}
+	if !reflect.DeepEqual(got, map[string]any(want)) {
+		t.Errorf("got %#v, want %#v", got, want)
 	}
 }
 
-func TestParseTxtar_MissingDataYAML(t *testing.T) {
-	// data.yaml is required.
-	input := `-- body.txt --
-hello
-`
+func TestParseTxtar_MissingDataFact(t *testing.T) {
+	_, err := parseTxtar([]byte("-- body.txt --\nx\n"))
+	if err == nil || !strings.Contains(err.Error(), "data.fact") {
+		t.Fatalf("want missing-data.fact error, got %v", err)
+	}
+}
+
+func TestParseTxtar_ContentKeyCollision(t *testing.T) {
+	// A .txt member whose key data.fact also defines is rejected --
+	// the FACT duplicate rule extended to the archive.
+	input := "-- data.fact --\nbody: str = \"inline\"\n-- body.txt --\nprose\n"
 	_, err := parseTxtar([]byte(input))
-	if err == nil {
-		t.Fatal("expected error for missing data.yaml")
-	}
-	if !strings.Contains(err.Error(), "data.yaml") {
-		t.Errorf("error should mention data.yaml: %v", err)
+	if err == nil || !strings.Contains(err.Error(), `"body"`) {
+		t.Fatalf("want body collision error, got %v", err)
 	}
 }
 
-func TestParseTxtar_BodyKeyCollision(t *testing.T) {
-	// data.yaml owning "body" while body.txt is also present
-	// is rejected (ambiguous which wins).
-	input := `-- data.yaml --
-title: Test
-body: this is wrong
--- body.txt --
-this is also wrong
-`
-	_, err := parseTxtar([]byte(input))
-	if err == nil {
-		t.Fatal("expected collision error")
-	}
-	if !strings.Contains(err.Error(), "body") {
-		t.Errorf("error should mention body: %v", err)
-	}
-}
-
-func TestParseTxtar_SourcesKeyCollision(t *testing.T) {
-	input := `-- data.yaml --
-title: Test
-sources:
-  - https://wrong-place.example/
--- sources.txt --
-https://right-place.example/
-`
-	_, err := parseTxtar([]byte(input))
-	if err == nil {
-		t.Fatal("expected collision error")
-	}
-	if !strings.Contains(err.Error(), "sources") {
-		t.Errorf("error should mention sources: %v", err)
-	}
-}
-
-func TestParseTxtar_SourcesEmptyAndBlankLinesDropped(t *testing.T) {
-	input := "-- data.yaml --\ntitle: Test\n-- sources.txt --\n\nhttps://example.com/one\n   \nhttps://example.com/two\n\n"
+func TestParseTxtar_AnyTxtMemberInjected(t *testing.T) {
+	input := "-- data.fact --\nx: int = 1\n-- synopsis.txt --\nshort\n-- outlook.txt --\nlong view\n"
 	got, err := parseTxtar([]byte(input))
 	if err != nil {
-		t.Fatalf("parseTxtar: %v", err)
+		t.Fatal(err)
 	}
 	m := got.(map[string]any)
-	want := []string{"https://example.com/one", "https://example.com/two"}
-	if !reflect.DeepEqual(m["sources"], want) {
-		t.Errorf("sources = %v, want %v", m["sources"], want)
+	if m["synopsis"] != "short" || m["outlook"] != "long view" {
+		t.Errorf("txt members not injected: %+v", m)
 	}
 }
 
-func TestParseTxtar_SourcesPerLineTrimmed(t *testing.T) {
-	input := "-- data.yaml --\nx: 1\n-- sources.txt --\n  https://example.com/spaces  \n"
-	got, err := parseTxtar([]byte(input))
-	if err != nil {
-		t.Fatalf("parseTxtar: %v", err)
+func TestParseTxtar_InvalidFactsRejected(t *testing.T) {
+	cases := []string{
+		"-- data.fact --\nx: uint32 = 1\n",             // E004 illegal type
+		"-- data.fact --\nx: int = 1\nx: int = 2\n",    // E007 duplicate
+		"-- data.fact --\nx: ref(day) = day:missing\n", // E008 dangling ref
+		"-- data.fact --\nnot a fact line at all\n",    // E001
 	}
-	m := got.(map[string]any)
-	want := []string{"https://example.com/spaces"}
-	if !reflect.DeepEqual(m["sources"], want) {
-		t.Errorf("sources = %v, want %v", m["sources"], want)
+	for _, input := range cases {
+		if _, err := parseTxtar([]byte(input)); err == nil {
+			t.Errorf("want error for %q", input)
+		}
 	}
 }
 
 func TestParseTxtar_BodyTrailingWhitespaceTrimmed(t *testing.T) {
-	// We trim trailing whitespace (including newlines) but preserve
-	// internal blank lines (paragraph separators).
-	input := "-- data.yaml --\nx: 1\n-- body.txt --\nfirst para\n\nsecond para\n\n\n\n"
+	input := "-- data.fact --\nx: int = 1\n-- body.txt --\nfirst para\n\nsecond para\n\n\n\n"
 	got, err := parseTxtar([]byte(input))
 	if err != nil {
-		t.Fatalf("parseTxtar: %v", err)
+		t.Fatal(err)
 	}
 	m := got.(map[string]any)
-	want := "first para\n\nsecond para"
-	if m["body"] != want {
-		t.Errorf("body = %q, want %q", m["body"], want)
+	if m["body"] != "first para\n\nsecond para" {
+		t.Errorf("body not trimmed: %q", m["body"])
 	}
 }
 
 func TestParseTxtar_UnknownFilesIgnored(t *testing.T) {
-	// Forward compatibility: extra files in the archive must be
-	// silently ignored, not rejected.
-	input := `-- data.yaml --
-title: Test
--- body.txt --
-hello
--- future.txt --
-some future thing we don't know about yet
-`
+	input := "-- data.fact --\nx: int = 1\n-- notes.md --\nignored\n"
 	got, err := parseTxtar([]byte(input))
 	if err != nil {
-		t.Fatalf("parseTxtar: %v", err)
+		t.Fatal(err)
 	}
 	m := got.(map[string]any)
-	if m["title"] != "Test" {
-		t.Errorf("title = %v", m["title"])
-	}
-	if _, ok := m["future"]; ok {
-		t.Errorf("unknown file should not appear in template data")
+	if _, exists := m["notes"]; exists {
+		t.Errorf("non-.txt member should be ignored: %+v", m)
 	}
 }
 
-func TestParseTxtar_MalformedYAML(t *testing.T) {
-	input := "-- data.yaml --\nthis: is: not: valid: yaml\n  - oops\n"
-	_, err := parseTxtar([]byte(input))
-	if err == nil {
-		t.Fatal("expected YAML parse error")
+func TestParseTxtar_EmptyArchive(t *testing.T) {
+	if _, err := parseTxtar(nil); err == nil {
+		t.Fatal("expected error for empty archive")
 	}
 }
 
-// Sanity check that errors.Is patterns still work for callers that
-// might want to distinguish parseTxtar failures.
-func TestParseTxtar_ErrorsAreErrors(t *testing.T) {
-	_, err := parseTxtar([]byte("-- body.txt --\nx\n"))
-	if err == nil {
-		t.Fatal("expected error")
+func TestBindFacts_Plain(t *testing.T) {
+	got, err := bindFacts([]byte("a.b: int = 1\nflag: bool = true\n"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Just smoke-test that the returned value is an error.
-	var e error = err
-	if !errors.Is(e, e) {
-		t.Errorf("err should satisfy errors.Is(err, err)")
+	if got["a"].(map[string]any)["b"] != int64(1) || got["flag"] != true {
+		t.Errorf("bindFacts wrong: %+v", got)
+	}
+}
+
+func TestParseArchive(t *testing.T) {
+	files := parseArchive("comment ignored\n-- a.txt --\nline\n-- b.txt --\n")
+	if len(files) != 2 || files[0].name != "a.txt" || files[0].data != "line\n" || files[1].data != "" {
+		t.Errorf("parseArchive wrong: %#v", files)
+	}
+	if _, ok := markerName("-- x --"); !ok {
+		t.Error("marker not recognized")
+	}
+	if _, ok := markerName("--x--"); ok {
+		t.Error("non-marker recognized")
 	}
 }
