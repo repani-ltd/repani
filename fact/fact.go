@@ -420,13 +420,20 @@ func canonString(tok string) (string, bool) {
 	if err := json.Unmarshal([]byte(tok), &s); err != nil || !strings.HasPrefix(tok, `"`) {
 		return "", false
 	}
+	return Quote(s), true
+}
+
+// Quote renders s as a canonical FACT str value token (a JSON string
+// literal, deterministic escaping, HTML escaping off). For programs
+// that generate fact lines.
+func Quote(s string) string {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	if err := enc.Encode(s); err != nil {
-		return "", false
+	if err := enc.Encode(s); err != nil { // strings never fail to encode
+		panic("fact.Quote: " + err.Error())
 	}
-	return strings.TrimSuffix(buf.String(), "\n"), true
+	return strings.TrimSuffix(buf.String(), "\n")
 }
 
 // Validate runs the set-level checks (SPEC §9 steps 5-6): duplicates (E007),

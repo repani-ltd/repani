@@ -130,7 +130,8 @@ func TestProjectionIsDeterministic(t *testing.T) {
 		facts, _ := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
 		return string(fact.Canonical(facts))
 	}
-	if canon() != canon() {
+	first, second := canon(), canon()
+	if first != second {
 		t.Error("regenerating an unchanged package is not byte-identical")
 	}
 }

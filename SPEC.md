@@ -179,6 +179,8 @@ This boundary was discovered in simulation: call-edge facts emitted as `list(ref
 - `none` is legal **only** when the type carries `?`.
 - Canonical list separator: `, ` (comma-space). Trailing commas illegal.
 
+**The content boundary.** Prose and blobs are not facts. A `str` value holds a short, single-conceptual-unit string (a path, a name, a signature, a one-line message); multi-paragraph prose, documents, and binary content live *outside* the fact set — as a sibling file, an archive member, or a store entry — and the fact set references or is paired with them by name. This is the same division of labor the projection profile makes for function bodies (§1.1, §11.3: declarations are facts, bodies are computation, `loc` is the handoff): structured data are facts, content is content, and the boundary is a handoff, not an encoding problem. Forcing prose into an escaped one-line `str` is legal but wrong for anything a human diffs or edits; adding multi-line values to the grammar is prohibited (Appendix A).
+
 ---
 
 ## 8. Canonical Form
@@ -416,6 +418,7 @@ Tested and **rejected** (do not re-litigate without new evidence):
 | Nested wrappers | **Adopted ban** | Type grammar finite (18 shapes), non-recursive all the way down |
 | Canonical form | **Adopted** | Hash equality; clean diffs; projection-diff-as-impact-analysis |
 | Last-wins duplicates | Rejected | Silent override hides bugs from agents |
+| Multi-line string values (heredocs, continuations) | **Rejected** | Every load-bearing property hangs on one line = one fact: bytewise line sorting for canonical form, stateless line-local lexing, grep hits being complete facts, the single-line edit primitive. Prose crosses the content boundary (§7) as a sibling file/archive member, never as grammar |
 | Defaults by key absence | Rejected | Absent vs asserted-none = investigate vs trust |
 | Lowercase-only keys (v0.1) | **Reversed in v0.2** | Projected identifiers are case-sensitive and case is semantic (Go exportedness); an actual extractor violated the rule on first run |
 | Full Go-source conversion (bodies as facts) | Rejected | Reinvents compiler IR at ~8× tokens while discarding model fluency in Go; declarations are facts, bodies are computation |
