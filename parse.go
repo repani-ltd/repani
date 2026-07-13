@@ -306,8 +306,9 @@ func collectUntilEnd(lines []string, start int, kind string) ([]string, int, err
 }
 
 // parseTableBlock builds a TableBlk from a .table spec (with
-// optional leading fixed width) and its |-separated rows. The first
-// non-empty row is the header.
+// optional leading fixed width, then an optional "-" for a
+// headerless table) and its |-separated rows. Unless "-" is given,
+// the first non-empty row is the header.
 func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
 	fixed := 0
 	if first, rest, ok := strings.Cut(spec, " "); ok {
@@ -316,19 +317,23 @@ func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
 			spec = rest
 		}
 	}
+	header := true
+	if rest, ok := strings.CutPrefix(spec, "- "); ok {
+		header = false
+		spec = rest
+	}
 	tbl, err := NewTable(spec)
 	if err != nil {
 		return Block{}, fmt.Errorf("%w (line %d)", err, atLine)
 	}
-	first := true
 	for _, line := range body {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		cells := splitCells(line)
-		if first {
+		if header {
 			tbl.Header(cells...)
-			first = false
+			header = false
 		} else {
 			tbl.Row(cells...)
 		}

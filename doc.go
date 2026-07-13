@@ -28,7 +28,9 @@ A document is UTF-8 text, structured by line:
 	  a | b | c      header, cells separated by "|"; ends with .end.
 	.end             W (optional) fixes the table's width in runes;
 	                 it applies only when smaller than the document
-	                 width (see Block.TableWidth).
+	                 width (see Block.TableWidth). A "-" before
+	                 SPEC makes the table headerless: every row is
+	                 data, no separator rule.
 	.pre [N]         a verbatim block: the writer never refills it,
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a

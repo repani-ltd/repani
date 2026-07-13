@@ -259,3 +259,22 @@ func TestParse_Link(t *testing.T) {
 		t.Errorf("multi-word title: err = %v, want ErrBadAttr", err)
 	}
 }
+
+func TestParse_TableHeaderless(t *testing.T) {
+	d := mustParse(t, "T\n\n.table - 6L 3C *R\nAPOEL | 2-1 | AEL\nAEK | 0-0 | Omonoia\n.end\n")
+	out, err := d.Text()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "---") {
+		t.Errorf("headerless table grew a separator:\n%s", out)
+	}
+	if !strings.Contains(out, "APOEL") || !strings.Contains(out, "Omonoia") {
+		t.Errorf("rows lost:\n%s", out)
+	}
+	// Width variant: ".table 30 - SPEC".
+	d2 := mustParse(t, "T\n\n.table 30 - 6L *R\nA | 1\n.end\n")
+	if d2.Blocks[0].Width != 30 {
+		t.Errorf("fixed width lost with headerless marker")
+	}
+}
