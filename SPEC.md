@@ -21,15 +21,15 @@ Agents working on a codebase spend most of their context budget on *navigation a
 - **The unit of text is not the unit of meaning.** A struct's full story (fields, methods, satisfactions, callers of its methods) is scattered across files. Assembling it requires either loading whole packages into context or invoking heavyweight tooling per question.
 - **Bodies dominate token cost.** Real packages are body-dominated (typically 5–10:1 over declarations), but most navigation questions are answered entirely by the declaration layer.
 
-FACT solves this by **spending semantic analysis once, at generation time**. A generator (e.g., `go/ast` + `go/types`) type-checks the module and emits every declaration-layer fact — signatures, fields, method sets, computed interface satisfactions, resolved call edges, source locations — as self-contained FACT lines. Thereafter:
+FACT solves this by **spending semantic analysis once, at generation time**. A generator (e.g., `go/ast` + `go/types`) type-checks the module and emits every declaration-layer fact — signatures, fields, method sets, computed interface satisfactions, resolved call edges, defining files — as self-contained FACT lines. Thereafter:
 
 - Every navigation question is a prefix grep. "Everything about `Service`" = `grep '^type:Service\.' transfer/pkg.fact`. "What implements `Poster`?" = `grep 'implements.*Poster' pkg.fact`. "Who calls `validate`?" = `grep 'calls.*validate' pkg.fact`. Module-wide, the same queries run as `grep -r --include=pkg.fact`, where the printed file path supplies the package namespace (§11.1: the projection lives in the package directory, so the path is the qualifier).
 - The projection is **read-only and regenerated on save** — a lens, never a second source of truth.
 - Because serialization is canonical (§8), **the diff of the regenerated projection is the impact analysis** of a source edit: rename a function and the projection diff is exactly the renamed facts plus every updated caller list, with zero noise.
 
-The resulting two-layer workflow: *navigate and scope on facts → follow `loc` pointers into the one relevant source region → edit source (where model priors are strongest) → regenerate → read the fact-diff as the impact report.*
+The resulting two-layer workflow: *navigate and scope on facts → follow `file` facts into the one relevant source file → edit source (where model priors are strongest) → regenerate → read the fact-diff as the impact report.*
 
-FACT deliberately projects only the **declaration layer**. Function bodies are computation, not facts: flattening them (SSA-style) was evaluated and rejected — it multiplies token cost, reinvents compiler IR, and discards model fluency in the source language. Statement-level questions ("where is this field assigned?") are answered by the `loc` handoff, not by the projection. This division of labor is a design decision, not a limitation to be fixed.
+FACT deliberately projects only the **declaration layer**. Function bodies are computation, not facts: flattening them (SSA-style) was evaluated and rejected — it multiplies token cost, reinvents compiler IR, and discards model fluency in the source language. Statement-level questions ("where is this field assigned?") are answered by the `file` handoff, not by the projection. This division of labor is a design decision, not a limitation to be fixed.
 
 ### 1.2 The secondary purpose: configuration
 
@@ -179,7 +179,7 @@ This boundary was discovered in simulation: call-edge facts emitted as `list(ref
 - `none` is legal **only** when the type carries `?`.
 - Canonical list separator: `, ` (comma-space). Trailing commas illegal.
 
-**The content boundary.** Prose and blobs are not facts. A `str` value holds a short, single-conceptual-unit string (a path, a name, a signature, a one-line message); multi-paragraph prose, documents, and binary content live *outside* the fact set — as a sibling file, an archive member, or a store entry — and the fact set references or is paired with them by name. This is the same division of labor the projection profile makes for function bodies (§1.1, §11.3: declarations are facts, bodies are computation, `loc` is the handoff): structured data are facts, content is content, and the boundary is a handoff, not an encoding problem. Forcing prose into an escaped one-line `str` is legal but wrong for anything a human diffs or edits; adding multi-line values to the grammar is prohibited (Appendix A).
+**The content boundary.** Prose and blobs are not facts. A `str` value holds a short, single-conceptual-unit string (a path, a name, a signature, a one-line message); multi-paragraph prose, documents, and binary content live *outside* the fact set — as a sibling file, an archive member, or a store entry — and the fact set references or is paired with them by name. This is the same division of labor the projection profile makes for function bodies (§1.1, §11.3: declarations are facts, bodies are computation, `file` is the handoff): structured data are facts, content is content, and the boundary is a handoff, not an encoding problem. Forcing prose into an escaped one-line `str` is legal but wrong for anything a human diffs or edits; adding multi-line values to the grammar is prohibited (Appendix A).
 
 ---
 
@@ -267,24 +267,26 @@ Within a package file, the package namespace is the singleton root (no `pkg:` ma
 | `pkg.version` | `str` | Module version (`"v1.2.3"`); emitted only when the projected package belongs to a versioned module (third-party, §11.5) |
 | `imports` | `list(str)` | Import paths, sorted |
 | `type:T.kind` | `enum(struct|iface|basic)` | Underlying kind |
-| `type:T.loc` | `str` | `"file.go:line"` — the handoff pointer into source |
+| `type:T.file` | `str` | `"file.go"` — the defining file; with the symbol name, the handoff into source |
 | `type:T.fields` | `list(str)` | Field names, declaration order |
 | `type:T.field_F_type` | `str` | Field F's type, source-qualified |
 | `type:T.methods` | `list(str)` | Method set (pointer-receiver superset), sorted |
 | `type:T.implements` | `list(ref(type))` | **Computed** satisfactions (via `types.Implements`) against all in-scope interfaces — the query grep cannot answer from source |
 | `type:T.method_M_sig` | `str` | Interface method signature (iface kinds) |
 | `func:F.sig` / `method:R_M.sig` | `str` | Full signature, source-qualified |
-| `func:F.loc` / `method:R_M.loc` | `str` | Definition site |
+| `func:F.file` / `method:R_M.file` | `str` | Defining file |
 | `func:F.exported` | `bool` | Case-derived; projected explicitly so agents need not apply Go rules |
 | `func:F.calls` | `list(str)` | Resolved callees (through interfaces: the *static* callee, e.g. `"ledger.Poster.Post"`), sorted, deduplicated. See §6.4 for the str-vs-ref choice |
 | `method:R_M.receiver` | `str` | Receiver type name |
 
 *(Compound ids like `field_F_type` and `method:R_M` exist because keys admit only one marker (§3); nested identity is flattened into the id. This is deliberate: it preserves the one-grep-per-entity property — `grep '^type:Service\.'` returns fields, methods, satisfactions, everything.)*
 
+**The churn invariant.** Every fact in the vocabulary derives from the declared contract: an edit that does not change the declaration layer — body edits, comment changes, reordering declarations within a file — MUST regenerate byte-identically. This is why the handoff is a `file` fact and not a `"file.go:line"` location: line numbers are contract-independent data that churn under unrelated edits, polluting the diff §11.1 makes the impact report. A declaration is located in source by its defining file plus its name — one grep in one file.
+
 ### 11.3 Division of labor (normative intent)
 
 - The projection answers **navigation** questions: what exists, what shape it has, what relates to what, where it lives.
-- The projection does **not** answer **statement-level** questions (where is a field assigned, what does this branch do). Its answer to those is the `loc` pointer. Agents edit source, not facts.
+- The projection does **not** answer **statement-level** questions (where is a field assigned, what does this branch do). Its answer to those is the `file` handoff: open the named file, grep the symbol. Agents edit source, not facts.
 - After any source edit: regenerate, and read the projection diff as the impact report.
 
 ### 11.4 Token economics (measured, honest)
@@ -320,7 +322,7 @@ A real extractor (`go/ast` + `go/types`, ~250 lines) was run against a realistic
 3. **Call edges hit the external-reference boundary immediately** (`fmt.Errorf` has no facts). *(→ §6.4)*
 4. **Canonical regeneration diff = impact analysis.** A rename produced exactly the semantic blast radius as a 10-line diff. *(→ §8)*
 5. **Token economics invert on decl-heavy code.** *(→ §11.4)*
-6. **The body blind spot behaved as designed** — assignment-site questions correctly fall through to `loc`. *(→ §11.3)*
+6. **The body blind spot behaved as designed** — assignment-site questions correctly fall through to the `file` handoff. *(→ §11.3)*
 
 ---
 
@@ -423,6 +425,7 @@ Tested and **rejected** (do not re-litigate without new evidence):
 | Lowercase-only keys (v0.1) | **Reversed in v0.2** | Projected identifiers are case-sensitive and case is semantic (Go exportedness); an actual extractor violated the rule on first run |
 | Full Go-source conversion (bodies as facts) | Rejected | Reinvents compiler IR at ~8× tokens while discarding model fluency in Go; declarations are facts, bodies are computation |
 | `list(ref(func))` for call edges | Deferred (§6.4) | External symbols break resolution; per-generator choice between all-str and stub-facts |
+| Line numbers in the source handoff (`loc = "file.go:line"`) | **Reversed** | Line numbers are the only contract-independent data the projection carried: any edit above a declaration churned them, polluting the regeneration diff that §11.1 makes the impact report. Replaced by `file` — the defining file plus the symbol name locates a declaration in one grep, and the projection now changes iff the declaration layer changes (§11.2 churn invariant) |
 | Package-qualified keys (one leading `pkg:` marker; module-relative mangled ids; module = validation set) | **Deferred** | Would make per-package files concatenatable, enable module-wide validation, and make cross-package refs expressible (incl. config→code refs, and qualified ref values) — at a per-line token tax on every projection. Unneeded by interactive agents: grep's printed file path already qualifies (§1.1), and the compiler plus freshness gate already guarantee cross-package integrity (§6.2). **Adopt if/when fine-tune training-corpus generation begins** — a format baked into model weights cannot be changed afterwards, and that is the one consumer for whom self-contained module-wide lines, single-artifact module diffs, and a millisecond module-wide validator (hallucination gate) pay for the tax |
 
 ## Appendix B — Naming

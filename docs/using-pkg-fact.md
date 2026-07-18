@@ -11,7 +11,7 @@ generated `pkg.fact` files. Copy everything below the line.
 Some package directories contain a generated `pkg.fact` file: a flat,
 greppable index of that package's declaration layer — types, fields, method
 sets, computed interface satisfactions, signatures, resolved call edges, and
-source locations. **Check it before reading source**: navigation questions
+defining files. **Check it before reading source**: navigation questions
 ("what implements this?", "who calls this?", "what shape is this type?") are
 one grep against pkg.fact, and some are unanswerable by grepping source at
 all (interface satisfaction in Go is structural — implementing types never
@@ -29,13 +29,14 @@ instance — `type:Service`, `func:Submit`, `method:Service_Settle`.
 | What implements interface `Poster`? | `grep 'implements.*type:Poster' pkg.fact` |
 | Who calls `Errorf`? | `grep 'calls.*Errorf' pkg.fact` |
 | Signature of `Submit` | `grep '^func:Submit\.sig' pkg.fact` |
-| Where is `Service` defined? | `grep '^type:Service\.loc' pkg.fact` |
+| Which file defines `Service`? | `grep '^type:Service\.file' pkg.fact` |
 | All exported functions | `grep '\.exported: bool = true' pkg.fact` |
 | Same question, whole module | `grep -r --include=pkg.fact 'implements.*Poster' .` |
 
-`loc` values are `"file.go:line"` — the handoff pointer. The projection
-covers declarations only; for statement-level questions (where is this field
-assigned, what does this branch do) follow `.loc` into the source file.
+`file` values name the defining source file — together with the symbol name,
+that is the handoff into source (open the file, grep the name). The
+projection covers declarations only; for statement-level questions (where is
+this field assigned, what does this branch do) follow `.file` into source.
 
 ### Dependency facts
 

@@ -6,7 +6,7 @@ read it before changing parser/validator/generator behavior.
 
 FACT's primary use case is **code projection**: `fact project` type-checks a
 Go package and emits its declaration layer (signatures, fields, method sets,
-computed interface satisfactions, call edges, `loc` pointers) as a flat,
+computed interface satisfactions, call edges, `file` facts) as a flat,
 greppable, canonical `.fact` file. Config files are the degenerate case.
 
 ## Commands

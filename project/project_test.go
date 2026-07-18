@@ -84,7 +84,7 @@ func TestProjectGoPackage(t *testing.T) {
 		// All-str call edges (SPEC §6.4): static callee through the interface,
 		// external symbol as source-qualified string.
 		`func:Submit.calls: list(str) = ["Poster.Post", "errors.New"]`,
-		`func:Submit.loc: str = "bank.go:21"`,
+		`func:Submit.file: str = "bank.go"`,
 	}
 	for _, w := range want {
 		if !strings.Contains(canonical, w+"\n") {
@@ -120,18 +120,40 @@ func TestProjectPackageWithLocalImports(t *testing.T) {
 	}
 }
 
+// canonProjection regenerates dir's projection in canonical form.
+func canonProjection(t *testing.T, dir string) string {
+	t.Helper()
+	lines, err := Lines(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, _ := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
+	return string(fact.Canonical(facts))
+}
+
 func TestProjectionIsDeterministic(t *testing.T) {
 	dir := writeBankModule(t)
-	canon := func() string {
-		lines, err := Lines(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		facts, _ := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
-		return string(fact.Canonical(facts))
-	}
-	first, second := canon(), canon()
+	first, second := canonProjection(t, dir), canonProjection(t, dir)
 	if first != second {
 		t.Error("regenerating an unchanged package is not byte-identical")
+	}
+}
+
+// The churn invariant (SPEC §11.2): edits that do not change the declaration
+// layer regenerate byte-identically. The edit below shifts every line after
+// it, so this fails for any projection carrying line numbers.
+func TestProjectionIgnoresNonDeclarationEdits(t *testing.T) {
+	dir := writeBankModule(t)
+	before := canonProjection(t, dir)
+	edited := strings.Replace(bankSrc, "\tm.Balance += amount",
+		"\t// comment inside a body\n\n\tm.Balance += amount", 1)
+	if edited == bankSrc {
+		t.Fatal("edit did not apply")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bank.go"), []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if after := canonProjection(t, dir); after != before {
+		t.Errorf("body-only edit changed the projection:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }

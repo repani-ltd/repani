@@ -1,7 +1,7 @@
 // Package project generates the FACT projection of a Go package's
 // declaration layer (SPEC §11). The projection is a read-only lens over
 // source: navigation questions are answered by grep over the facts, and
-// loc facts hand off to source for everything statement-level.
+// file facts hand off to source for everything statement-level.
 //
 // Per SPEC §6.4 this generator takes the all-str choice for call edges:
 // func:F.calls is list(str) with callees written as the source qualifies
@@ -121,9 +121,11 @@ func (g *gen) qual(p *types.Package) string {
 	return p.Name()
 }
 
-func (g *gen) loc(pos token.Pos) string {
-	p := g.fset.Position(pos)
-	return fmt.Sprintf("%s:%d", filepath.Base(p.Filename), p.Line)
+// file names the source file declaring pos. Deliberately no line number:
+// the churn invariant (SPEC §11.2) requires the projection to change iff
+// the declaration layer changes, and line numbers churn under body edits.
+func (g *gen) file(pos token.Pos) string {
+	return filepath.Base(g.fset.Position(pos).Filename)
 }
 
 // collect emits the imports fact and indexes function bodies for call edges.
@@ -157,7 +159,7 @@ func (g *gen) typeFacts(n *types.Named, ifaces []*types.Named) {
 		kind = "iface"
 	}
 	g.fact(k+".kind", "enum(struct|iface|basic)", kind)
-	g.fact(k+".loc", "str", jstr(g.loc(n.Obj().Pos())))
+	g.fact(k+".file", "str", jstr(g.file(n.Obj().Pos())))
 
 	if st, ok := under.(*types.Struct); ok {
 		var fields []string
@@ -222,7 +224,7 @@ func (g *gen) methodFacts(n *types.Named) {
 		}
 		k := "method:" + name + "_" + m.Name()
 		g.fact(k+".sig", "str", jstr(types.TypeString(m.Type(), g.qual)))
-		g.fact(k+".loc", "str", jstr(g.loc(m.Pos())))
+		g.fact(k+".file", "str", jstr(g.file(m.Pos())))
 		g.fact(k+".receiver", "str", jstr(name))
 	}
 }
@@ -230,7 +232,7 @@ func (g *gen) methodFacts(n *types.Named) {
 func (g *gen) funcFacts(f *types.Func) {
 	k := "func:" + f.Name()
 	g.fact(k+".sig", "str", jstr(types.TypeString(f.Type(), g.qual)))
-	g.fact(k+".loc", "str", jstr(g.loc(f.Pos())))
+	g.fact(k+".file", "str", jstr(g.file(f.Pos())))
 	g.fact(k+".exported", "bool", strconv.FormatBool(f.Exported()))
 	g.fact(k+".calls", "list(str)", strList(g.calls(g.bodies[f])))
 }
