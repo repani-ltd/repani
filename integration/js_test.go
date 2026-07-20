@@ -49,8 +49,10 @@ func jsVectors(t *testing.T) map[string]any {
 		"authKey":     h(ak[:]),
 		"c2s":         h(c2s[:]),
 		"s2c":         h(s2c[:]),
-		"reg":         h(reg[:]),
-		"rootKeyBlob": vault.EncodeRootKey(rk),
+		"reg":             h(reg[:]),
+		"rootKeyBlob":     vault.EncodeRootKey(rk),
+		"registerKeyBlob": vault.EncodeRegisterKey(regk),
+		"backupBlob":      vault.EncodeBackup(rk, &regk),
 	}
 
 	xe := ascon.Sum16(nil)
@@ -116,6 +118,10 @@ func jsVectors(t *testing.T) map[string]any {
 	out["pullCursorTs"] = 12345
 	pull := wire.SyncReq{Op: wire.OpPull, CurTs: 12345, CurID: e1.ID()}.Marshal()
 	out["pullPayload"] = h(pull)
+	// Push payload in original (unsorted) entry order, matching the
+	// order of out["entries"].
+	push := wire.SyncReq{Op: wire.OpPush, Entries: []vault.Entry{e1, e2, e3}}.Marshal()
+	out["pushPayload"] = h(push)
 
 	var fn [16]byte
 	for i := range fn {
@@ -197,9 +203,9 @@ func TestJSClient(t *testing.T) {
 	defer timer.Stop()
 
 	replies := bufio.NewScanner(stdout)
-	step := func(expect map[string]string, probeOnly bool) {
+	send := func(cmd map[string]any) {
 		t.Helper()
-		req, err := json.Marshal(map[string]any{"cmd": "sync", "expect": expect, "probeOnly": probeOnly})
+		req, err := json.Marshal(cmd)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -213,6 +219,10 @@ func TestJSClient(t *testing.T) {
 			t.Fatalf("js harness: %s", reply)
 		}
 	}
+	step := func(expect map[string]string, probeOnly bool) {
+		t.Helper()
+		send(map[string]any{"cmd": "sync", "expect": expect, "probeOnly": probeOnly})
+	}
 
 	// Fresh full sync, then a steady-state probe-only sync.
 	step(map[string]string{"p/001": "hello from go", "p/002": "second page"}, false)
@@ -225,6 +235,55 @@ func TestJSClient(t *testing.T) {
 	}
 	mustSync(t, dev)
 	step(map[string]string{"p/001": "hello from go", "p/003": "third page"}, false)
+
+	// --- write path: a JS-owned vault ---
+
+	// The JS client registers a fresh vault and pushes its own writes
+	// (fast path: put, put, tombstone, then one sync).
+	rk2 := vault.RootKey{7}
+	send(map[string]any{
+		"cmd":         "vault2",
+		"rootKey":     vault.EncodeRootKey(rk2),
+		"registerKey": vault.EncodeRegisterKey(testRegKey),
+	})
+	send(map[string]any{"cmd": "put", "key": "js/a", "value": "from js"})
+	send(map[string]any{"cmd": "put", "key": "js/tmp", "value": "temporary"})
+	send(map[string]any{"cmd": "del", "key": "js/tmp"})
+	step(map[string]string{"js/a": "from js"}, false)
+
+	// A Go device on the same vault must see exactly the JS writes.
+	dev2 := device(t, rk2, ts.URL)
+	mustSync(t, dev2)
+	assertState(t, dev2, map[string]string{"js/a": "from js"})
+
+	// Bidirectional: Go writes, JS deletes, both converge.
+	if err := dev2.Put([]byte("go/x"), []byte("from go")); err != nil {
+		t.Fatal(err)
+	}
+	mustSync(t, dev2)
+	send(map[string]any{"cmd": "del", "key": "js/a"})
+	step(map[string]string{"go/x": "from go"}, false)
+	mustSync(t, dev2)
+	assertState(t, dev2, map[string]string{"go/x": "from go"})
+
+	// Steady state on the JS-owned vault.
+	step(map[string]string{"go/x": "from go"}, true)
+
+	// --- failure paths ---
+
+	// A wrong register key is rejected at the registration gate.
+	var wrongReg vault.RegisterKey
+	wrongReg[0] = 0xFF
+	send(map[string]any{
+		"cmd":         "vault2",
+		"rootKey":     vault.EncodeRootKey(vault.RootKey{9}),
+		"registerKey": vault.EncodeRegisterKey(wrongReg),
+	})
+	send(map[string]any{"cmd": "sync", "expectError": "wrong register key"})
+
+	// A keyless client on an unregistered vault fails cleanly.
+	send(map[string]any{"cmd": "vault2", "rootKey": vault.EncodeRootKey(vault.RootKey{11})})
+	send(map[string]any{"cmd": "sync", "expectError": "no register key installed"})
 
 	if _, err := io.WriteString(stdin, `{"cmd":"end"}`+"\n"); err != nil {
 		t.Fatalf("write to js harness: %v", err)

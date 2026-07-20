@@ -5,12 +5,14 @@
 // and client. ES module; runs in browsers and Node (needs BigInt,
 // DataView, and globalThis.crypto.getRandomValues).
 //
-// Phase 1 scope: the read path. The client syncs with PROBE + PULL
-// and serves the merged live view; PUSH and REGISTER are not yet
-// implemented (local writes and vault creation need them). All lower
-// layers -- key derivation, entry seal/open, frame seal/open, the
-// canonical order and set hash -- are complete and exact, so the write
-// path is additive.
+// The full client protocol is implemented: REGISTER, and PROBE / PULL
+// / PUSH reconciliation with the reference client's fast-path push and
+// windowed walk, plus local Put/Delete writes and the merged live
+// view. One deliberate difference from the Go client: registration is
+// reactive when no register key is installed -- a keyless client syncs
+// optimistically against an already-registered vault instead of
+// failing, and only errors if the server answers UNKNOWN_VAULT
+// (PROTOCOL.txt blesses REGISTER-on-UNKNOWN_VAULT as the recovery).
 //
 // All integers on the wire are little-endian. Byte parameters and
 // results are Uint8Array unless stated otherwise; ts_ms values are
@@ -201,6 +203,7 @@ function checkAEADArgs(key, nonce) {
 // Key derivation and nonces (vault/keys.go, vault/nonce.go).
 
 export const ROOT_KEY_SIZE = 32;
+export const REGISTER_KEY_SIZE = 16;
 export const VAULT_ID_SIZE = 16;
 export const ENTRY_ID_SIZE = 16;
 export const NONCE_SIZE = 16;
@@ -524,7 +527,11 @@ export function preChannelText(b) {
 //
 // Contract: add(entry) -> bool (false if already present);
 // has(idHex) -> bool; len() -> number; sortedPairs() -> [{entry, id}]
-// in canonical order (callers must not mutate); setHash() -> Uint8Array(16).
+// in canonical order (callers must not mutate); setHash() ->
+// Uint8Array(16); entriesAfter(afterTs, afterID, budget) -> [{entry,
+// id}] strictly after the cursor in canonical order, accumulating
+// until the next entry would exceed budget bytes but always at least
+// one if any remain.
 
 function idHex(id) {
   let s = "";
@@ -560,6 +567,25 @@ export class MemStore {
     if (this.hash === null) this.hash = setHash(this.sortedPairs());
     return this.hash;
   }
+  entriesAfter(afterTs, afterID, budget) {
+    const sorted = this.sortedPairs();
+    // Binary search for the first position strictly after the cursor.
+    let lo = 0, hi = sorted.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (posAfter(sorted[mid].entry.tsMs, sorted[mid].id, afterTs, afterID)) hi = mid;
+      else lo = mid + 1;
+    }
+    const out = [];
+    let used = 0;
+    for (let i = lo; i < sorted.length; i++) {
+      const sz = entrySize(sorted[i].entry);
+      if (out.length > 0 && used + sz > budget) break;
+      out.push(sorted[i]);
+      used += sz;
+    }
+    return out;
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -581,9 +607,8 @@ export function parseValue(stored) {
 }
 
 // ---------------------------------------------------------------------
-// Client (client/client.go), phase 1: PROBE + PULL sync and the merged
-// live view. No local writes, no REGISTER: a vault must already exist
-// on the server.
+// Client (client/client.go): local Put/Delete on the store, REGISTER,
+// the full PROBE / PULL / PUSH sync, and the merged live view.
 
 // defaultSyncWindowMs is the reconcile look-back: on a plain sync the
 // client walks [frontier - window, inf).
@@ -597,6 +622,10 @@ const MAX_ROUNDS = 64;
 
 const ZERO_ID = new Uint8Array(ENTRY_ID_SIZE);
 
+function preChannelError(stage, pre) {
+  return new Error("kv: " + stage + ": server returned " + preChannelText(pre));
+}
+
 export class Client {
   // rootKey: Uint8Array(32). store: see the Store contract above.
   // transport: async (frameBytes) -> responseBytes.
@@ -605,32 +634,109 @@ export class Client {
     if (rootKey.length !== ROOT_KEY_SIZE) throw new Error("kv: root key must be 32 bytes");
     this.aeadKey = deriveAEADKey(rootKey);
     this.vaultID = deriveVaultID(rootKey);
-    const authKey = deriveAuthKey(rootKey);
-    this.c2s = deriveC2S(authKey);
-    this.s2c = deriveS2C(authKey);
+    this.authKey = deriveAuthKey(rootKey);
+    this.c2s = deriveC2S(this.authKey);
+    this.s2c = deriveS2C(this.authKey);
     this.store = store;
     this.transport = transport;
     this.windowMs = opts.syncWindowMs || DEFAULT_SYNC_WINDOW_MS;
     this.lastStats = null;
     this.trace = opts.trace || null; // optional (msg: string) -> void
+    this.registered = false; // belief; embedders may persist and restore it
+    this.hasReg = false;
+    this.regChan = null; // K_reg, valid iff hasReg
+    this.recent = []; // entries written since the last sync (fast-path push)
+    this.lastTs = 0n;
   }
 
   tracef(msg) { if (this.trace) this.trace(msg); }
 
-  // sync reconciles the local store with the server: PROBE, and if the
-  // sets differ, a paged PULL walk from a look-back anchor, widening to
-  // a full walk, until a PROBE matches. Returns {roundTrips, reqBytes,
-  // respBytes, pulled, pulledBytes}. Because this client never writes,
-  // a completed pull walk always reaches set equality with an honest
-  // server; the round budget is a backstop.
+  // setRegisterKey installs the register-gate secret used to seal a
+  // REGISTER frame. Pass null to clear.
+  setRegisterKey(registerKey) {
+    if (registerKey === null) {
+      this.hasReg = false;
+      this.regChan = null;
+    } else {
+      this.hasReg = true;
+      this.regChan = deriveRegKey(registerKey);
+    }
+  }
+
+  // --- local writes ---
+
+  // nextTs returns a strictly-increasing millisecond timestamp.
+  nextTs() {
+    let now = BigInt(Date.now());
+    if (now <= this.lastTs) now = this.lastTs + 1n;
+    this.lastTs = now;
+    return now;
+  }
+
+  // put writes (key, value) with the raw format tag; strings are UTF-8
+  // encoded. The stored value is fmt(1)||value.
+  async put(key, value) { return this.putFmt(key, value, FMT_RAW); }
+
+  // putFmt writes (key, value) under an explicit CLIENT.txt format tag.
+  async putFmt(key, value, fmtTag) {
+    if (typeof key === "string") key = te.encode(key);
+    if (typeof value === "string") value = te.encode(value);
+    if (value.length === 0) throw new Error("kv: empty value is a tombstone; use delete()");
+    await this.record(sealEntry(this.aeadKey, this.nextTs(), key, wrapValue(fmtTag, value)));
+  }
+
+  // delete writes a tombstone (an empty value, with no fmt tag).
+  async delete(key) {
+    if (typeof key === "string") key = te.encode(key);
+    await this.record(sealEntry(this.aeadKey, this.nextTs(), key, null));
+  }
+
+  // record adds a locally-created entry to the store and remembers it
+  // for the next sync's fast-path push.
+  async record(e) {
+    await this.store.add(e);
+    this.recent.push(e);
+  }
+
+  // --- sync ---
+
+  // sync reconciles the local store with the server. It registers if
+  // needed (given a register key), then: fast path -- push exactly the
+  // entries written since the last sync and PROBE; otherwise walk a
+  // suffix window (PULL then dedup-tolerant PUSH), widening from a
+  // recent window to a full walk across rounds until a PROBE matches.
+  // Returns {roundTrips, reqBytes, respBytes, pushed, pushedBytes,
+  // pulled, pulledBytes}.
   async sync() {
-    const st = { roundTrips: 0, reqBytes: 0, respBytes: 0, pulled: 0, pulledBytes: 0 };
+    const st = { roundTrips: 0, reqBytes: 0, respBytes: 0, pushed: 0, pushedBytes: 0, pulled: 0, pulledBytes: 0 };
+    const recent = this.recent;
+    this.recent = [];
     try {
       for (let round = 0; round < MAX_ROUNDS; round++) {
-        if (await this.probe(st)) return st;
+        if (!this.registered && this.hasReg) await this.register(st);
+
+        // Fast path: push just-written entries before the first probe.
+        if (round === 0 && recent.length > 0) {
+          const pre = await this.pushEntries(recent, "PUSH(new)", st);
+          if (pre === ERR_UNKNOWN_VAULT) { this.unknownVault(); continue; }
+          if (pre !== 0) throw preChannelError("push", pre);
+        }
+
+        const p = await this.probe(st);
+        if (p.pre === ERR_UNKNOWN_VAULT) { this.unknownVault(); continue; }
+        if (p.pre !== 0) throw preChannelError("probe", p.pre);
+        if (p.inSync) return st;
+
         const anchor = await this.reconcileAnchor(round);
         this.tracef("RECONCILE round " + round + ": window from ts=" + anchor.ts);
-        await this.pullFrom(anchor.ts, anchor.id, st);
+
+        let pre = await this.pullFrom(anchor.ts, anchor.id, st);
+        if (pre === ERR_UNKNOWN_VAULT) { this.unknownVault(); continue; }
+        if (pre !== 0) throw preChannelError("pull", pre);
+
+        pre = await this.pushFrom(anchor.ts, anchor.id, st);
+        if (pre === ERR_UNKNOWN_VAULT) { this.unknownVault(); continue; }
+        if (pre !== 0) throw preChannelError("push", pre);
         // Loop back to PROBE to confirm convergence (and catch entries
         // a concurrent writer added mid-walk).
       }
@@ -638,6 +744,24 @@ export class Client {
     } finally {
       this.lastStats = st;
     }
+  }
+
+  // unknownVault handles a pre-channel UNKNOWN_VAULT: re-register on
+  // the next round when a register key is available, otherwise fail.
+  unknownVault() {
+    if (!this.hasReg) throw new Error("kv: vault not registered on server and no register key installed");
+    this.registered = false;
+  }
+
+  // register establishes the channel by adopting the client's AuthKey
+  // on the server, sealed under K_reg.
+  async register(st) {
+    const { pre, resp } = await this.roundtrip(KIND_REGISTER, this.regChan, this.authKey, st);
+    if (pre === ERR_BAD_AUTH) throw new Error("kv: registration rejected - wrong register key");
+    if (pre !== 0) throw preChannelError("register", pre);
+    if (resp.status !== STATUS_OK) throw new Error("kv: register status " + statusText(resp.status));
+    this.tracef("REGISTER -> ok");
+    this.registered = true;
   }
 
   // reconcileAnchor returns the walk anchor for a round: round 0 looks
@@ -653,33 +777,38 @@ export class Client {
     return { ts: 0n, id: ZERO_ID };
   }
 
+  // probe returns {inSync, pre}: whether the set hashes match, or the
+  // pre-channel error byte when the server sent one.
   async probe(st) {
     const payload = marshalSync({ op: OP_PROBE, setHash: await this.store.setHash() });
-    const resp = await this.roundtrip(KIND_SYNC, payload, st);
+    const { pre, resp } = await this.roundtrip(KIND_SYNC, this.c2s, payload, st);
+    if (pre !== 0) return { inSync: false, pre };
     switch (resp.status) {
       case STATUS_OK:
         this.tracef("PROBE -> in sync");
-        return true;
+        return { inSync: true, pre: 0 };
       case STATUS_DIFFER:
         this.tracef("PROBE -> differ");
-        return false;
+        return { inSync: false, pre: 0 };
       default:
         throw new Error("kv: probe status " + statusText(resp.status));
     }
   }
 
   // pullFrom walks the server's set from the anchor cursor, committing
-  // each page to the store. Every returned entry is stored verbatim
-  // (even one that fails to open) so the local set matches the
-  // server's. The cursor must advance strictly on every page.
+  // each page to the store, and returns a pre-channel byte (0 = none).
+  // Every returned entry is stored verbatim (even one that fails to
+  // open) so the local set matches the server's. The cursor must
+  // advance strictly on every page.
   async pullFrom(anchorTs, anchorID, st) {
     let curTs = anchorTs, curID = anchorID;
     for (let page = 0; ; page++) {
       if (page >= MAX_PULL_PAGES) throw new Error("kv: pull exceeded page budget (misbehaving server)");
       const payload = marshalSync({ op: OP_PULL, curTs, curID });
-      const resp = await this.roundtrip(KIND_SYNC, payload, st);
+      const { pre, resp } = await this.roundtrip(KIND_SYNC, this.c2s, payload, st);
+      if (pre !== 0) return pre;
       if (resp.status !== STATUS_OK) throw new Error("kv: pull status " + statusText(resp.status));
-      if (resp.entries.length === 0) return;
+      if (resp.entries.length === 0) return 0;
       const last = resp.entries[resp.entries.length - 1];
       const lastID = entryID(last);
       if (!posAfter(last.tsMs, lastID, curTs, curID)) {
@@ -698,18 +827,69 @@ export class Client {
     }
   }
 
-  // roundtrip seals a request frame, sends it, and opens the response
-  // under K_s2c, verifying the echoed request nonce (anti-stitch). A
-  // 1-byte response is an unauthenticated pre-channel error and throws.
-  async roundtrip(kind, payload, st) {
+  // pushFrom walks the client's own entries from the anchor cursor in
+  // byte-bounded batches and pushes each; dedup-tolerant, the server
+  // drops what it already holds. Returns a pre-channel byte (0 = none).
+  async pushFrom(anchorTs, anchorID, st) {
+    let curTs = anchorTs, curID = anchorID;
+    for (;;) {
+      const batch = await this.store.entriesAfter(curTs, curID, PAGE_BYTES);
+      if (batch.length === 0) return 0;
+      const pre = await this.sendPush(batch.map((p) => p.entry), "PUSH", st);
+      if (pre !== 0) return pre;
+      const last = batch[batch.length - 1];
+      curTs = last.entry.tsMs;
+      curID = last.id;
+    }
+  }
+
+  // pushEntries pushes an explicit list of entries in byte-bounded
+  // batches -- the fast path for freshly-written local entries.
+  async pushEntries(entries, label, st) {
+    let i = 0;
+    while (i < entries.length) {
+      const batch = [];
+      let used = 0;
+      while (i < entries.length) {
+        const sz = entrySize(entries[i]);
+        if (batch.length > 0 && used + sz > PAGE_BYTES) break;
+        batch.push(entries[i]);
+        used += sz;
+        i++;
+      }
+      const pre = await this.sendPush(batch, label, st);
+      if (pre !== 0) return pre;
+    }
+    return 0;
+  }
+
+  // sendPush pushes one batch, accounting and tracing it.
+  async sendPush(batch, label, st) {
+    const payload = marshalSync({ op: OP_PUSH, entries: batch });
+    const { pre, resp } = await this.roundtrip(KIND_SYNC, this.c2s, payload, st);
+    if (pre !== 0) return pre;
+    if (resp.status !== STATUS_OK) throw new Error("kv: push status " + statusText(resp.status));
+    let bytesOut = 0;
+    for (const e of batch) bytesOut += entrySize(e);
+    st.pushed += batch.length;
+    st.pushedBytes += bytesOut;
+    this.tracef(label + " -> " + batch.length + " entries (" + bytesOut + " B)");
+    return 0;
+  }
+
+  // roundtrip seals a request frame under sealKey, sends it, and opens
+  // the response under K_s2c, verifying the echoed request nonce
+  // (anti-stitch). Returns {pre, resp}: a 1-byte response is an
+  // unauthenticated pre-channel error surfaced in pre (resp null).
+  async roundtrip(kind, sealKey, payload, st) {
     const nonce = frameNonce(this.vaultID);
-    const frame = sealFrame(kind, this.vaultID, nonce, this.c2s, payload);
+    const frame = sealFrame(kind, this.vaultID, nonce, sealKey, payload);
     const respBytes = await this.transport(frame);
     st.roundTrips++;
     st.reqBytes += frame.length;
     st.respBytes += respBytes.length;
     if (respBytes.length === 1) {
-      throw new Error("kv: server returned " + preChannelText(respBytes[0]));
+      return { pre: respBytes[0], resp: null };
     }
     const h = parseFrameHeader(respBytes);
     if (h.kind !== KIND_RESP || bytesCompare(h.vaultID, this.vaultID) !== 0) {
@@ -721,7 +901,7 @@ export class Client {
     if (bytesCompare(resp.reqNonce, nonce) !== 0) {
       throw new Error("kv: response nonce does not match request");
     }
-    return resp;
+    return { pre: 0, resp };
   }
 
   // --- reads (last-writer-wins merge, client/client.go §replay) ---
@@ -823,45 +1003,96 @@ const CROCKFORD_DEC = (() => {
   return m;
 })();
 
-// encodeRootKey returns the Crockford base32 encoding of a 32-byte
-// RootKey (52 chars; 4 trailing padding bits truncated).
-export function encodeRootKey(rk) {
-  if (rk.length !== ROOT_KEY_SIZE) throw new Error("kv: root key must be 32 bytes");
+// crockfordEncode encodes bytes as Crockford base32: 8 chars per full
+// 5-byte group, then the tail bytes MSB-aligned with the trailing
+// padding bits truncated. Matches vault/pairing.go for both key sizes.
+function crockfordEncode(b) {
   let out = "";
-  for (let g = 0; g < 6; g++) {
+  const full = Math.floor(b.length / 5);
+  for (let g = 0; g < full; g++) {
     let v = 0n;
-    for (let i = 0; i < 5; i++) v = (v << 8n) | BigInt(rk[g * 5 + i]);
+    for (let i = 0; i < 5; i++) v = (v << 8n) | BigInt(b[g * 5 + i]);
     for (let i = 7; i >= 0; i--) out += CROCKFORD[Number((v >> BigInt(i * 5)) & 0x1Fn)];
   }
-  let v = ((rk[30] << 8) | rk[31]) << 4; // pad 16 bits to 20
-  for (let i = 3; i >= 0; i--) out += CROCKFORD[(v >> (i * 5)) & 0x1F];
+  const r = b.length - full * 5;
+  if (r > 0) {
+    const chars = Math.ceil(r * 8 / 5);
+    let v = 0n;
+    for (let i = 0; i < r; i++) v = (v << 8n) | BigInt(b[full * 5 + i]);
+    v <<= BigInt(chars * 5 - r * 8); // MSB-align into the char grid
+    for (let i = chars - 1; i >= 0; i--) out += CROCKFORD[Number((v >> BigInt(i * 5)) & 0x1Fn)];
+  }
   return out;
 }
 
-// decodeRootKey parses the 52-char Crockford base32 form. Whitespace
-// and dashes are ignored; the 4 padding bits must be zero.
-export function decodeRootKey(s) {
+// crockfordDecode parses a Crockford base32 string into byteLen bytes.
+// Whitespace and dashes are ignored; the padding bits must be zero.
+function crockfordDecode(s, byteLen) {
   const raw = s.replace(/[\s-]/g, "");
-  if (raw.length !== 52) throw new Error("kv: malformed pairing blob");
-  const rk = new Uint8Array(ROOT_KEY_SIZE);
-  for (let g = 0; g < 6; g++) {
-    let v = 0n;
-    for (let i = 0; i < 8; i++) {
-      const d = CROCKFORD_DEC[raw.charCodeAt(g * 8 + i)] ?? -1;
-      if (d < 0) throw new Error("kv: malformed pairing blob");
-      v = (v << 5n) | BigInt(d);
-    }
-    for (let i = 0; i < 5; i++) rk[g * 5 + i] = Number((v >> BigInt((4 - i) * 8)) & 0xFFn);
-  }
-  let v = 0;
-  for (let i = 0; i < 4; i++) {
-    const d = CROCKFORD_DEC[raw.charCodeAt(48 + i)] ?? -1;
+  const full = Math.floor(byteLen / 5);
+  const r = byteLen - full * 5;
+  const tailChars = r > 0 ? Math.ceil(r * 8 / 5) : 0;
+  if (raw.length !== full * 8 + tailChars) throw new Error("kv: malformed pairing blob");
+  const dec = (i) => {
+    const d = CROCKFORD_DEC[raw.charCodeAt(i)] ?? -1;
     if (d < 0) throw new Error("kv: malformed pairing blob");
-    v = (v << 5) | d;
+    return d;
+  };
+  const out = new Uint8Array(byteLen);
+  for (let g = 0; g < full; g++) {
+    let v = 0n;
+    for (let i = 0; i < 8; i++) v = (v << 5n) | BigInt(dec(g * 8 + i));
+    for (let i = 0; i < 5; i++) out[g * 5 + i] = Number((v >> BigInt((4 - i) * 8)) & 0xFFn);
   }
-  if ((v & 0xF) !== 0) throw new Error("kv: malformed pairing blob");
-  v >>= 4;
-  rk[30] = (v >> 8) & 0xFF;
-  rk[31] = v & 0xFF;
-  return rk;
+  if (r > 0) {
+    let v = 0n;
+    for (let i = 0; i < tailChars; i++) v = (v << 5n) | BigInt(dec(full * 8 + i));
+    const pad = BigInt(tailChars * 5 - r * 8);
+    if ((v & ((1n << pad) - 1n)) !== 0n) throw new Error("kv: malformed pairing blob");
+    v >>= pad;
+    for (let i = 0; i < r; i++) out[full * 5 + i] = Number((v >> BigInt((r - 1 - i) * 8)) & 0xFFn);
+  }
+  return out;
+}
+
+// encodeRootKey returns the Crockford base32 encoding of a 32-byte
+// RootKey (52 chars).
+export function encodeRootKey(rk) {
+  if (rk.length !== ROOT_KEY_SIZE) throw new Error("kv: root key must be 32 bytes");
+  return crockfordEncode(rk);
+}
+
+// decodeRootKey parses the 52-char Crockford base32 RootKey form.
+export function decodeRootKey(s) { return crockfordDecode(s, ROOT_KEY_SIZE); }
+
+// encodeRegisterKey returns the Crockford base32 encoding of a 16-byte
+// RegisterKey (26 chars).
+export function encodeRegisterKey(rk) {
+  if (rk.length !== REGISTER_KEY_SIZE) throw new Error("kv: register key must be 16 bytes");
+  return crockfordEncode(rk);
+}
+
+// decodeRegisterKey parses the 26-char Crockford base32 RegisterKey
+// form.
+export function decodeRegisterKey(s) { return crockfordDecode(s, REGISTER_KEY_SIZE); }
+
+// encodeBackup packs a RootKey and optional RegisterKey into a single
+// blob: 52 chars alone, 78 chars combined.
+export function encodeBackup(rootKey, registerKey = null) {
+  if (registerKey === null) return encodeRootKey(rootKey);
+  return encodeRootKey(rootKey) + encodeRegisterKey(registerKey);
+}
+
+// decodeBackup parses either backup shape, returning {rootKey,
+// registerKey} with registerKey null when the blob had none.
+export function decodeBackup(s) {
+  const raw = s.replace(/[\s-]/g, "");
+  switch (raw.length) {
+    case 52:
+      return { rootKey: decodeRootKey(raw), registerKey: null };
+    case 78:
+      return { rootKey: decodeRootKey(raw.slice(0, 52)), registerKey: decodeRegisterKey(raw.slice(52)) };
+    default:
+      throw new Error("kv: malformed pairing blob");
+  }
 }

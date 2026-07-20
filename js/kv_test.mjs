@@ -5,13 +5,18 @@
 //   node js/kv_test.mjs <vectors.json>                       vectors only
 //   node js/kv_test.mjs <vectors.json> <serverURL> <blob>    + live phases
 //
-// In live mode the driver sends one JSON command per stdin line:
+// In live mode the driver sends one JSON command per stdin line and
+// reads one reply line per command ("OK" or "FAIL <reason>"):
 //
 //   {"cmd":"sync","expect":{"key":"value",...},"probeOnly":true|false}
+//   {"cmd":"sync","expectError":"substring"}   sync must fail matching
+//   {"cmd":"put","key":K,"value":V}
+//   {"cmd":"del","key":K}
+//   {"cmd":"vault2","rootKey":blob,"registerKey":blob}   switch to a
+//       fresh client+store on that RootKey (register key installed)
 //   {"cmd":"end"}
 //
-// and reads one reply line per command: "OK" or "FAIL <reason>". The
-// process exit code is 0 iff every vector and live check passed.
+// The process exit code is 0 iff every vector and live check passed.
 import * as kv from "./kv.js";
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -48,6 +53,15 @@ eq("xofMsg40", kv.xof(te.encode(V.xofMsg), 40), V.xofMsg40);
 
 eq("encodeRootKey", kv.encodeRootKey(rk), V.rootKeyBlob);
 eq("decodeRootKey", kv.decodeRootKey(V.rootKeyBlob), V.rootKey);
+eq("encodeRegisterKey", kv.encodeRegisterKey(unhex(V.registerKey)), V.registerKeyBlob);
+eq("decodeRegisterKey", kv.decodeRegisterKey(V.registerKeyBlob), V.registerKey);
+eq("encodeBackup", kv.encodeBackup(rk, unhex(V.registerKey)), V.backupBlob);
+{
+  const b = kv.decodeBackup(V.backupBlob);
+  eq("backup rootKey", b.rootKey, V.rootKey);
+  eq("backup registerKey", b.registerKey, V.registerKey);
+  eq("backup bare", String(kv.decodeBackup(V.rootKeyBlob).registerKey === null), "true");
+}
 
 const aeadKey = kv.deriveAEADKey(rk);
 const entries = [];
@@ -83,6 +97,7 @@ eq("memstore len", String(vecStore.len()), "3");
 
 eq("probePayload", kv.marshalSync({ op: kv.OP_PROBE, setHash: unhex(V.setHash) }), V.probePayload);
 eq("pullPayload", kv.marshalSync({ op: kv.OP_PULL, curTs: BigInt(V.pullCursorTs), curID: unhex(V.entryIDs[0]) }), V.pullPayload);
+eq("pushPayload", kv.marshalSync({ op: kv.OP_PUSH, entries }), V.pushPayload);
 
 const vid = kv.deriveVaultID(rk);
 const fn = unhex(V.frameNonce);
@@ -112,9 +127,8 @@ eq("probeFrame", kv.sealFrame(kv.KIND_SYNC, vid, fn, kv.deriveC2S(ak), unhex(V.p
 // --- live phases (optional) ---
 
 if (process.argv[3]) {
-  const liveRK = kv.decodeRootKey(process.argv[4]);
-  const store = new kv.MemStore();
-  const client = new kv.Client(liveRK, store, kv.httpTransport(process.argv[3]));
+  const serverURL = process.argv[3];
+  let client = new kv.Client(kv.decodeRootKey(process.argv[4]), new kv.MemStore(), kv.httpTransport(serverURL));
 
   const rl = createInterface({ input: process.stdin });
   for await (const line of rl) {
@@ -122,16 +136,42 @@ if (process.argv[3]) {
     if (cmd.cmd === "end") break;
     let reply = "OK";
     try {
-      const st = await client.sync();
-      if (cmd.probeOnly && (st.roundTrips !== 1 || st.pulled !== 0)) {
-        reply = "FAIL steady-state sync did work: " + JSON.stringify(st);
-      } else {
-        const got = {};
-        for (const p of await client.all()) got[td.decode(p.key)] = td.decode(p.value);
-        const want = cmd.expect;
-        const gs = JSON.stringify(Object.entries(got).sort());
-        const ws = JSON.stringify(Object.entries(want).sort());
-        if (gs !== ws) reply = "FAIL state " + gs + " want " + ws;
+      switch (cmd.cmd) {
+        case "vault2": {
+          client = new kv.Client(kv.decodeRootKey(cmd.rootKey), new kv.MemStore(), kv.httpTransport(serverURL));
+          if (cmd.registerKey) client.setRegisterKey(kv.decodeRegisterKey(cmd.registerKey));
+          break;
+        }
+        case "put":
+          await client.put(cmd.key, cmd.value);
+          break;
+        case "del":
+          await client.delete(cmd.key);
+          break;
+        case "sync": {
+          if (cmd.expectError) {
+            try {
+              await client.sync();
+              reply = "FAIL expected error, sync succeeded";
+            } catch (err) {
+              if (!err.message.includes(cmd.expectError)) reply = "FAIL error " + err.message;
+            }
+            break;
+          }
+          const st = await client.sync();
+          if (cmd.probeOnly && (st.roundTrips !== 1 || st.pulled !== 0 || st.pushed !== 0)) {
+            reply = "FAIL steady-state sync did work: " + JSON.stringify(st);
+            break;
+          }
+          const got = {};
+          for (const p of await client.all()) got[td.decode(p.key)] = td.decode(p.value);
+          const gs = JSON.stringify(Object.entries(got).sort());
+          const ws = JSON.stringify(Object.entries(cmd.expect).sort());
+          if (gs !== ws) reply = "FAIL state " + gs + " want " + ws;
+          break;
+        }
+        default:
+          reply = "FAIL unknown command " + cmd.cmd;
       }
     } catch (err) {
       reply = "FAIL " + err.message;
