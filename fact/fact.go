@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-// BaseKind enumerates the six base types of SPEC §4.1.
+// BaseKind enumerates the seven base types of SPEC §4.1.
 type BaseKind int
 
 const (
@@ -23,11 +23,12 @@ const (
 	Int
 	Float
 	Str
+	Datetime
 	Enum
 	Ref
 )
 
-// Type is one of the eighteen legal type shapes of SPEC §4.2.
+// Type is one of the twenty-one legal type shapes of SPEC §4.2.
 type Type struct {
 	Raw      string   // exact (canonical) type expression, e.g. "list(ref(step))"
 	Base     BaseKind
@@ -187,10 +188,10 @@ func keyMarker(key string) (marker, prefix string) {
 	return "", ""
 }
 
-// parseType recognizes the eighteen legal shapes and rejects everything else.
+// parseType recognizes the twenty-one legal shapes and rejects everything else.
 func parseType(s string, n int) (Type, *Error) {
 	bad := func() *Error {
-		return &Error{n, "E004", fmt.Sprintf("%q is not one of the eighteen legal type shapes (wrappers do not compose)", s)}
+		return &Error{n, "E004", fmt.Sprintf("%q is not one of the twenty-one legal type shapes (wrappers do not compose)", s)}
 	}
 	t := Type{Raw: s}
 	inner := s
@@ -211,6 +212,8 @@ func parseType(s string, n int) (Type, *Error) {
 		t.Base = Float
 	case inner == "str":
 		t.Base = Str
+	case inner == "datetime":
+		t.Base = Datetime
 	case strings.HasPrefix(inner, "enum(") && strings.HasSuffix(inner, ")"):
 		t.Base = Enum
 		t.Symbols = strings.Split(inner[len("enum("):len(inner)-1], "|")
@@ -338,6 +341,13 @@ func checkScalar(t Type, tok string, n int) (string, *Error) {
 		if c, ok := canonString(tok); ok {
 			return c, nil
 		}
+	case Datetime:
+		if isDatetime(tok) {
+			return tok, nil
+		}
+		if datetimeZoneDefect(tok) {
+			return "", &Error{n, "E005", fmt.Sprintf("%q — datetime is UTC only (write Z)", tok)}
+		}
 	case Enum:
 		if slices.Contains(t.Symbols, tok) {
 			return tok, nil
@@ -354,6 +364,71 @@ func checkScalar(t Type, tok string, n int) (string, *Error) {
 		return tok, nil
 	}
 	return "", bad()
+}
+
+// isDatetime reports whether tok is a legal datetime value (SPEC §4.1):
+// "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SSZ", calendar-valid, years 0001-9999,
+// no offsets, no fractional seconds. Both forms are canonical as written.
+func isDatetime(tok string) bool {
+	if len(tok) == 10 {
+		return validFullDate(tok)
+	}
+	return len(tok) == 20 && validFullDate(tok[:10]) && tok[10] == 'T' &&
+		validClock(tok[11:19]) && tok[19] == 'Z'
+}
+
+// datetimeZoneDefect reports whether tok is a well-formed date-time whose
+// only defect is the zone suffix (missing Z, lowercase z, or a numeric
+// offset) — the mistake worth a specific message.
+func datetimeZoneDefect(tok string) bool {
+	if len(tok) < 19 || !validFullDate(tok[:10]) || tok[10] != 'T' || !validClock(tok[11:19]) {
+		return false
+	}
+	rest := tok[19:]
+	return rest == "" || rest == "z" || rest[0] == '+' || rest[0] == '-'
+}
+
+// validFullDate checks "YYYY-MM-DD": digits in place, year 0001-9999,
+// Gregorian month lengths, leap years honored.
+func validFullDate(s string) bool {
+	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+		return false
+	}
+	y, ok1 := atoiFixed(s[0:4])
+	m, ok2 := atoiFixed(s[5:7])
+	d, ok3 := atoiFixed(s[8:10])
+	if !ok1 || !ok2 || !ok3 || y == 0 || m < 1 || m > 12 || d < 1 {
+		return false
+	}
+	days := [13]int{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}[m]
+	if m == 2 && y%4 == 0 && (y%100 != 0 || y%400 == 0) {
+		days = 29
+	}
+	return d <= days
+}
+
+// validClock checks "HH:MM:SS": hours 00-23, minutes and seconds 00-59
+// (no leap second 60).
+func validClock(s string) bool {
+	if len(s) != 8 || s[2] != ':' || s[5] != ':' {
+		return false
+	}
+	h, ok1 := atoiFixed(s[0:2])
+	mi, ok2 := atoiFixed(s[3:5])
+	se, ok3 := atoiFixed(s[6:8])
+	return ok1 && ok2 && ok3 && h <= 23 && mi <= 59 && se <= 59
+}
+
+// atoiFixed parses an all-digit string (leading zeros expected).
+func atoiFixed(s string) (int, bool) {
+	v := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+		v = v*10 + int(s[i]-'0')
+	}
+	return v, true
 }
 
 // isJSONInt reports whether s is JSON integer syntax: -?(0|[1-9][0-9]*).

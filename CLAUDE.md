@@ -45,7 +45,7 @@ greppable, canonical `.fact` file. Config files are the degenerate case.
 - **Case-sensitive segments** (`[a-zA-Z][a-zA-Z0-9_]*`, v0.2): projected Go
   identifiers keep their casing — case is semantic (exportedness). Never
   normalize case.
-- The type grammar is finite: exactly 18 legal shapes (6 base types × {plain,
+- The type grammar is finite: exactly 21 legal shapes (7 base types × {plain,
   `?`, `list()`}). Reject everything else with `E004`.
 - Errors use the normative codes/messages of SPEC §14, one error per line,
   no cascading.

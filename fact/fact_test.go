@@ -122,6 +122,11 @@ func TestValueCanonicalization(t *testing.T) {
 		{`x.l: list(int) = [1,2 , 3]`, `x.l: list(int) = [1, 2, 3]`},
 		{`x.l: list(str) = []`, `x.l: list(str) = []`},
 		{`x.o: int? = none`, `x.o: int? = none`},
+		{`x.d: datetime = 2026-07-20`, `x.d: datetime = 2026-07-20`},
+		{`x.d: datetime = 2026-09-01T09:30:00Z`, `x.d: datetime = 2026-09-01T09:30:00Z`},
+		{`x.d: datetime = 2028-02-29T23:59:59Z`, `x.d: datetime = 2028-02-29T23:59:59Z`},
+		{`x.d: datetime? = none`, `x.d: datetime? = none`},
+		{`x.d: list(datetime) = [2026-01-01, 2026-04-01T00:00:00Z]`, `x.d: list(datetime) = [2026-01-01, 2026-04-01T00:00:00Z]`},
 	}
 	for _, c := range cases {
 		facts, errs := Parse([]byte(c.in + "\n"))
@@ -153,6 +158,19 @@ func TestErrors(t *testing.T) {
 		{"E005 inline comment", `x.a: int = 1 # nope` + "\n", "E005"},
 		{"E005 trailing comma", `x.a: list(int) = [1, 2,]` + "\n", "E005"},
 		{"E005 unquoted string", `x.a: str = hello` + "\n", "E005"},
+		{"E005 datetime offset", `x.a: datetime = 2026-09-01T09:30:00+02:00` + "\n", "E005"},
+		{"E005 datetime zero offset", `x.a: datetime = 2026-09-01T09:30:00+00:00` + "\n", "E005"},
+		{"E005 datetime missing Z", `x.a: datetime = 2026-09-01T09:30:00` + "\n", "E005"},
+		{"E005 datetime lowercase z", `x.a: datetime = 2026-09-01T09:30:00z` + "\n", "E005"},
+		{"E005 datetime fractional seconds", `x.a: datetime = 2026-09-01T09:30:00.5Z` + "\n", "E005"},
+		{"E005 datetime Feb 30", `x.a: datetime = 2026-02-30` + "\n", "E005"},
+		{"E005 datetime non-leap Feb 29", `x.a: datetime = 2027-02-29` + "\n", "E005"},
+		{"E005 datetime month 13", `x.a: datetime = 2026-13-01` + "\n", "E005"},
+		{"E005 datetime hour 24", `x.a: datetime = 2026-09-01T24:00:00Z` + "\n", "E005"},
+		{"E005 datetime leap second", `x.a: datetime = 2026-06-30T23:59:60Z` + "\n", "E005"},
+		{"E005 datetime year 0000", `x.a: datetime = 0000-01-01` + "\n", "E005"},
+		{"E005 datetime unpadded", `x.a: datetime = 2026-7-20` + "\n", "E005"},
+		{"E005 datetime quoted", `x.a: datetime = "2026-07-20"` + "\n", "E005"},
 		{"E006 none on required", `x.a: int = none` + "\n", "E006"},
 		{"E007 duplicate key", "x.a: int = 1\nx.a: int = 2\n", "E007"},
 		{"E008 unresolved ref", `x.a: ref(policy) = policy:ghost` + "\n", "E008"},
@@ -201,6 +219,40 @@ func:submit.exported: bool = false
 	}
 	if !bytes.Equal(Canonical(decoded), Canonical(facts)) {
 		t.Error("projection-profile facts do not round-trip through JSON")
+	}
+}
+
+// v0.3: datetime values round-trip through JSON as strings, and the zone
+// mistake gets its specific normative message (SPEC §14 E005).
+func TestDatetime(t *testing.T) {
+	src := `cert.expires: datetime = 2026-09-01T09:30:00Z
+release.date: datetime = 2026-07-20
+audit.windows: list(datetime) = [2026-01-01, 2026-04-01, 2026-07-01]
+build.deployed: datetime? = none
+`
+	facts := mustParse(t, src)
+	enc, err := EncodeJSON(facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, errs := DecodeJSON(enc)
+	if len(errs) > 0 {
+		t.Fatalf("decode: %s", errs[0].Error())
+	}
+	if !bytes.Equal(Canonical(decoded), Canonical(facts)) {
+		t.Error("datetime facts do not round-trip through JSON")
+	}
+
+	_, perrs := Parse([]byte("x.a: datetime = 2026-09-01T09:30:00+02:00\n"))
+	if len(perrs) != 1 || !strings.Contains(perrs[0].Msg, "datetime is UTC only (write Z)") {
+		t.Errorf("offset value should get the UTC-only message, got %+v", perrs)
+	}
+
+	// Day precision and midnight are distinct values, so both survive in
+	// one set and sort chronologically (bytewise = chronological).
+	both := mustParse(t, "x.a: datetime = 2026-07-20\nx.b: datetime = 2026-07-20T00:00:00Z\n")
+	if len(both) != 2 {
+		t.Errorf("date and midnight forms must be distinct values, got %d facts", len(both))
 	}
 }
 

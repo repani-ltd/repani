@@ -48,11 +48,11 @@ func valueJSON(f Fact) json.RawMessage {
 }
 
 // scalarJSON maps a canonical scalar token to its JSON encoding. Canonical
-// bool/int/float/str tokens are already valid JSON; enum symbols and ref
-// markers become JSON strings.
+// bool/int/float/str tokens are already valid JSON; enum symbols, ref
+// markers, and datetime tokens become JSON strings.
 func scalarJSON(b BaseKind, tok string) string {
-	if b == Enum || b == Ref {
-		quoted, _ := json.Marshal(tok) // tokens are [a-z0-9_:]+, never escaped
+	if b == Enum || b == Ref || b == Datetime {
+		quoted, _ := json.Marshal(tok) // tokens never need escaping
 		return string(quoted)
 	}
 	return tok
@@ -121,7 +121,7 @@ func jsonValueToken(t Type, raw json.RawMessage) (string, bool) {
 
 func jsonScalarToken(b BaseKind, raw json.RawMessage) (string, bool) {
 	raw = bytes.TrimSpace(raw)
-	if b == Enum || b == Ref {
+	if b == Enum || b == Ref || b == Datetime {
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
 			return "", false

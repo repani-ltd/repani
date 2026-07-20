@@ -1,4 +1,4 @@
-# FACT — Format Specification v0.2
+# FACT — Format Specification v0.3
 
 **FACT** is a line-oriented format for *facts about systems*, designed for AI agents rather than humans. A FACT file is an unordered set of lines, where each line is one complete, self-contained, typed fact. There is no nesting, no significant whitespace, no inter-line dependence, and no external schema: **the file is the schema.**
 
@@ -8,6 +8,8 @@ Recommended file extension: `.fact`
 MIME type (provisional): `text/x-fact`
 
 **Changes from v0.1:** segments and enum symbols are now case-sensitive `[a-zA-Z0-9_]` (§3, §4.1) — required because projected identifiers (Go) are case-sensitive and case is semantic; primary-purpose reframing (§1); projection profile added (§11); storage and commit convention for projections (§11.1); validation scope fixed to one file per package for projections (§5, §6.2 — per-package files share singleton keys and must not be concatenated for validation); third-party projection convention (§11.5); external-reference boundary rule (§6.4); findings from a real Go extraction simulation incorporated (§12).
+
+**Changes from v0.2:** `datetime` added as a seventh base type (§4.1) — a strict RFC 3339 subset, UTC only, two unquoted literal forms (`2026-07-20`, `2026-09-01T09:30:00Z`), both canonical as written; the type grammar grows to twenty-one shapes (§4.2, §13); JSON encoding maps datetime to string with the existing type-field disambiguation (§10); rejected design variants recorded (Appendix A).
 
 ---
 
@@ -94,16 +96,29 @@ pkg_transfer.type:Service.fields            → legal alternative...
 
 ## 4. Types
 
-### 4.1 Base Types (six)
+### 4.1 Base Types (seven)
 
 | Type | Values | Notes |
 |---|---|---|
-| `bool` | `true`, `false` | Sugar for `enum(true|false)`; semantically there are five base types |
+| `bool` | `true`, `false` | Sugar for `enum(true|false)`; semantically there are six base types |
 | `int` | JSON integer syntax, 64-bit signed range | No width variants; the value is the truth |
 | `float` | JSON number syntax with `.` or exponent | IEEE 754 double |
 | `str` | JSON string syntax, double-quoted | JSON escaping rules exactly (`\"`, `\\`, `\n`, `\t`, `\uXXXX`) |
+| `datetime` | `2026-07-20` or `2026-09-01T09:30:00Z`, unquoted | Strict RFC 3339 subset, UTC only; two forms, both canonical as written; see below *(new in v0.3)* |
 | `enum(a|b|c)` | One of the listed bare symbols | Symbols follow segment rules (`[a-zA-Z0-9_]`, start with letter, case-sensitive); at least one symbol; written unquoted in the value |
 | `ref(kind)` | The instance marker of an instance of `kind`, written `kind:id` | See §6 |
+
+**The `datetime` type** *(new in v0.3)*. A UTC point in time or a calendar date, written unquoted in exactly two forms:
+
+```
+2026-07-20              full-date   (day precision)
+2026-07-20T09:30:00Z    date-time   (second precision, UTC)
+```
+
+- **Strict RFC 3339 subset.** Fixed-width zero-padded fields; uppercase `T` and `Z` only. No offsets — `+02:00`, and even `+00:00`, are E005: FACT datetimes are UTC by definition, and the `Z` travels with the token so that consumers who never read this spec parse it as UTC rather than local time (a `Z`-less date-time token reads as *local* time across mainstream ecosystems). No fractional seconds. Values must be calendar-valid: Gregorian month lengths, leap years honored, hours `00`–`23`, minutes and seconds `00`–`59` (no leap second `60`), years `0001`–`9999`. Every violation is E005.
+- **Both forms are canonical as written.** A full-date does not normalize to midnight: `2026-07-20` and `2026-07-20T00:00:00Z` are distinct values — a day is not an instant. One annotation deliberately admits both precisions: per the annotation-as-edit-domain rule (§4.3), a `datetime` key tells an editing agent that widening a date to a timestamp (or narrowing back) is a legal edit.
+- **Bytewise order is chronological order**, within and across both forms — a consequence of fixed-width big-endian fields with no fractions. Datetime values therefore inherit canonical-form determinism (§8) with zero normalization rules, and a value grep such as `'= 2026-07'` is a temporal range query.
+- **Semantics stop at the token.** FACT defines the value space and nothing more: no datetime arithmetic, no equality across precisions, no durations, no time zones. Interpretation belongs to the consumer's datetime library, which every host language provides. This is what keeps the type's semantics closed — no tzdata dependency, no political time — the test every other semantic-type candidate fails (§4.3).
 
 ### 4.2 Wrappers (two, non-composing)
 
@@ -112,11 +127,11 @@ pkg_transfer.type:Service.fields            → legal alternative...
 | `T?` | Optional: value may be `none` | `T` must be a **base type**. `list(T)?` is illegal — the empty list `[]` is the "none of lists"; two spellings of absence are forbidden |
 | `list(T)` | Ordered list, written `[v1, v2, ...]` | `T` must be a **base type**. `list(list(T))` is illegal. Empty list `[]` is valid |
 
-**The type grammar is deliberately non-recursive.** The complete set of legal type expressions: six base types, six optional base types, six list-of-base types. Eighteen shapes total. Hard grammar rule, not style.
+**The type grammar is deliberately non-recursive.** The complete set of legal type expressions: seven base types, seven optional base types, seven list-of-base types. Twenty-one shapes total. Hard grammar rule, not style.
 
 ### 4.3 Deliberate exclusions
 
-- **Integer widths, semantic string types (`path`, `url`, `duration`)**: conventions live in key names (`timeout_ms`, `cert_path`), not the grammar.
+- **Integer widths, semantic string types (`path`, `url`, `duration`)**: conventions live in key names (`timeout_ms`, `cert_path`), not the grammar. `datetime` (v0.3) is the deliberate exception: alone among semantic-type candidates its value space has a closed, finite, canonicalizable grammar with no external dependency, so it passes the same test the original six base types pass and `path`/`url`/`duration` fail.
 - **Maps/objects as values**: structure is expressed with instances and refs. The only compound value is the flat list.
 - **Type inference**: forbidden. The annotation is the **domain of legal edits** — what a value may become — not a classifier of the current value. An agent editing a line it has never seen before must learn the legal replacements from that line alone.
 - **Declared/named enum types**: enums are restated at every use site. Drift between copies is a one-pass lint; a central declaration would reintroduce inter-line dependence — the original sin this format exists to kill.
@@ -171,6 +186,7 @@ This boundary was discovered in simulation: call-edge facts emitted as `list(ref
 | `int` | `8443`, `-5` |
 | `float` | `0.1`, `1.5e-3` |
 | `str` | `"/etc/certs/server.pem"`, `"func(ctx context.Context) error"` |
+| `datetime` | `2026-07-20`, `2026-09-01T09:30:00Z` (unquoted; two forms, §4.1) |
 | `enum(...)` | `struct` (bare symbol, unquoted) |
 | `ref(kind)` | `type:Poster` |
 | `T?` | any value of `T`, or the bare word `none` |
@@ -200,8 +216,8 @@ Consequences: independently materialized equal fact sets are **byte-identical**;
 
 1. **Lex** each line independently (fact/comment/blank; split fact into key, type, value). Failures are per-line with line numbers; no cascading errors — a property of the stateless grammar.
 2. **Key check:** segment rules (`[a-zA-Z0-9_]`, letter-first); at most one marker; consistent marker position per instance.
-3. **Type check:** the expression is one of the eighteen legal shapes.
-4. **Value check:** value inhabits the type's domain (enum symbol listed; `none` only under `?`; list elements inhabit the base type; JSON scalar syntax valid).
+3. **Type check:** the expression is one of the twenty-one legal shapes.
+4. **Value check:** value inhabits the type's domain (enum symbol listed; `none` only under `?`; list elements inhabit the base type; JSON scalar syntax valid; datetime form, calendar validity, and `Z` per §4.1).
 5. **Duplicate check:** no key twice in the validation set.
 6. **Ref check:** every `ref(kind)` resolves within the validation set (§6.2).
 7. *(Optional)*: cycle detection; enum-drift lint; canonical-form check.
@@ -218,6 +234,7 @@ A FACT file maps to a JSON array of fact objects, sorted by `key`:
 
 ```json
 [
+  {"key": "cert.expires", "type": "datetime", "value": "2026-09-01T09:30:00Z"},
   {"key": "pkg.imports", "type": "list(str)", "value": ["context", "errors"]},
   {"key": "type:Poster.kind", "type": "enum(struct|iface|basic)", "value": "iface"},
   {"key": "type:MemLedger.implements", "type": "list(ref(type))", "value": ["type:Poster"]},
@@ -225,8 +242,8 @@ A FACT file maps to a JSON array of fact objects, sorted by `key`:
 ]
 ```
 
-- `key`/`type` are the exact fact-line strings. `value` maps: `bool`→boolean, `int`/`float`→number, `str`/enum symbol/ref marker→string, `none`→`null`, `list(T)`→array.
-- The `type` field disambiguates decoding (a JSON string decodes as ref vs str vs enum according to the declared type).
+- `key`/`type` are the exact fact-line strings. `value` maps: `bool`→boolean, `int`/`float`→number, `str`/enum symbol/ref marker/`datetime`→string, `none`→`null`, `list(T)`→array.
+- The `type` field disambiguates decoding (a JSON string decodes as ref vs str vs enum vs datetime according to the declared type).
 - Round-trip guarantee: `decode(encode(F))` is canonically identical to `F`.
 
 ---
@@ -345,7 +362,7 @@ segment       = letter , { letter | digit | "_" } ;
 type          = base_type
               | base_type , "?"
               | "list(" , base_type , ")" ;
-base_type     = "bool" | "int" | "float" | "str"
+base_type     = "bool" | "int" | "float" | "str" | "datetime"
               | "enum(" , symbol , { "|" , symbol } , ")"
               | "ref(" , segment , ")" ;
 symbol        = letter , { letter | digit | "_" } ;
@@ -356,7 +373,14 @@ value         = scalar | "none" | list_value ;
 list_value    = "[" , ws , [ scalar , { ws , "," , ws , scalar } ] , ws , "]" ;
 scalar        = json_bool | json_int | json_float | json_string
               | symbol            (* enum value *)
-              | marker ;          (* ref value: kind:id *)
+              | marker            (* ref value: kind:id *)
+              | datetime_lit ;
+
+datetime_lit  = full_date , [ "T" , clock , "Z" ] ;
+                (* calendar-valid, UTC only; see §4.1 *)
+full_date     = digit , digit , digit , digit , "-" ,
+                digit , digit , "-" , digit , digit ;
+clock         = digit , digit , ":" , digit , digit , ":" , digit , digit ;
 
 letter        = "a" | ... | "z" | "A" | ... | "Z" ;   (* v0.2: case-sensitive *)
 digit         = "0" | ... | "9" ;
@@ -376,7 +400,7 @@ No recursive production exists: `type` does not reference itself, list elements 
 | `E002` | Invalid key segment | `line 3: segment "9lives" must start with a letter` |
 | `E003` | Multiple instance markers | `line 7: key contains two markers ("pkg:transfer" and "type:Service")` |
 | `E004` | Illegal type expression | `line 9: "list(list(int))" — wrappers do not compose` |
-| `E005` | Value outside type domain | `line 5: "put" is not in enum(get|post)` |
+| `E005` | Value outside type domain | `line 5: "put" is not in enum(get|post)`<br>`line 6: "2026-09-01T09:30:00+02:00" — datetime is UTC only (write Z)` |
 | `E006` | `none` on non-optional type | `line 8: none requires optional type (add "?")` |
 | `E007` | Duplicate fact | `line 15: duplicate of key "server.port" (first at line 2)` |
 | `E008` | Unresolved reference | `line 11: ref(policy) "policy:makerr" — no such instance` |
@@ -392,8 +416,8 @@ No recursive production exists: `type` does not reference itself, list elements 
 For an agent implementing FACT support (suggested order):
 
 1. **Lexer/parser** — line classifier + fact-line splitter. Stateless; lines processed independently.
-2. **Type-expression parser** — eighteen legal shapes; reject everything else.
-3. **Value checker** — per-type domain validation, JSON-compatible scalars.
+2. **Type-expression parser** — twenty-one legal shapes; reject everything else.
+3. **Value checker** — per-type domain validation, JSON-compatible scalars, datetime calendar/UTC check (§4.1).
 4. **Set validator** — duplicates (E007), marker consistency (E010), ref resolution (E008/E009) over the validation set.
 5. **Canonical serializer** — sort, strip, normalize (§8).
 6. **JSON encoder/decoder** — bijective (§10), with round-trip property test.
@@ -417,7 +441,7 @@ Tested and **rejected** (do not re-litigate without new evidence):
 | Drop `ref(kind)` parameter | Rejected | Value names today's inhabitant; parameter names tomorrow's legal edits |
 | Normalize lists into back-refs | Rejected | Ordered membership is one atomic fact |
 | Drop `bool` | Rejected (kept as sugar) | Files exist millions of times, the spec once |
-| Nested wrappers | **Adopted ban** | Type grammar finite (18 shapes), non-recursive all the way down |
+| Nested wrappers | **Adopted ban** | Type grammar finite (21 shapes), non-recursive all the way down |
 | Canonical form | **Adopted** | Hash equality; clean diffs; projection-diff-as-impact-analysis |
 | Last-wins duplicates | Rejected | Silent override hides bugs from agents |
 | Multi-line string values (heredocs, continuations) | **Rejected** | Every load-bearing property hangs on one line = one fact: bytewise line sorting for canonical form, stateless line-local lexing, grep hits being complete facts, the single-line edit primitive. Prose crosses the content boundary (§7) as a sibling file/archive member, never as grammar |
@@ -426,6 +450,9 @@ Tested and **rejected** (do not re-litigate without new evidence):
 | Full Go-source conversion (bodies as facts) | Rejected | Reinvents compiler IR at ~8× tokens while discarding model fluency in Go; declarations are facts, bodies are computation |
 | `list(ref(func))` for call edges | Deferred (§6.4) | External symbols break resolution; per-generator choice between all-str and stub-facts |
 | Line numbers in the source handoff (`loc = "file.go:line"`) | **Reversed** | Line numbers are the only contract-independent data the projection carried: any edit above a declaration churned them, polluting the regeneration diff that §11.1 makes the impact report. Replaced by `file` — the defining file plus the symbol name locates a declaration in one grep, and the projection now changes iff the declaration layer changes (§11.2 churn invariant) |
+| `date` and `datetime` as two base types | Rejected (v0.3) | One `datetime` annotation whose domain spans both precisions is the annotation-as-edit-domain rule at work; two types would force every key author to predict whether precision will ever be needed |
+| Full-date normalizes to midnight (`2026-07-20` → `2026-07-20T00:00:00Z`) | Rejected (v0.3) | Meaning-changing, unlike float normalization (`5.0`→`5`): a due date is a day, not an instant. Both forms are canonical as written |
+| Datetime offsets, local date-times, fractional seconds | Rejected (v0.3) | Offsets and local forms import tzdata and political time — the open semantics that keep datetime out of every minimal format; a `Z`-less token parses as *local* time across ecosystems, so the `Z` must travel with the value; fractions would break bytewise-order = chronological-order |
 | Package-qualified keys (one leading `pkg:` marker; module-relative mangled ids; module = validation set) | **Deferred** | Would make per-package files concatenatable, enable module-wide validation, and make cross-package refs expressible (incl. config→code refs, and qualified ref values) — at a per-line token tax on every projection. Unneeded by interactive agents: grep's printed file path already qualifies (§1.1), and the compiler plus freshness gate already guarantee cross-package integrity (§6.2). **Adopt if/when fine-tune training-corpus generation begins** — a format baked into model weights cannot be changed afterwards, and that is the one consumer for whom self-contained module-wide lines, single-artifact module diffs, and a millisecond module-wide validator (hallucination gate) pay for the tax |
 
 ## Appendix B — Naming
@@ -434,4 +461,4 @@ Tested and **rejected** (do not re-litigate without new evidence):
 
 ---
 
-*Spec v0.2. Open items for v0.3: include/overlay mechanism for config environment variants (likely canonical-set union with explicit override markers, not implicit layering); §6.4 resolution after field experience with stub facts; package-qualified keys remain deferred with an explicit trigger condition (Appendix A) — the per-file validation scope of §6.2 is the resolution until a training-corpus consumer exists; projection vocabularies for further fact sources (SQL schemas, OpenAPI, protobuf — each is a declaration layer awaiting projection); formal test-vector suite.*
+*Spec v0.3. Open items for v0.4: include/overlay mechanism for config environment variants (likely canonical-set union with explicit override markers, not implicit layering); §6.4 resolution after field experience with stub facts; package-qualified keys remain deferred with an explicit trigger condition (Appendix A) — the per-file validation scope of §6.2 is the resolution until a training-corpus consumer exists; projection vocabularies for further fact sources (SQL schemas, OpenAPI, protobuf — each is a declaration layer awaiting projection); formal test-vector suite.*
