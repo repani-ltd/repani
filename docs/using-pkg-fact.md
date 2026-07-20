@@ -31,7 +31,19 @@ instance — `type:Service`, `func:Submit`, `method:Service_Settle`.
 | Signature of `Submit` | `grep '^func:Submit\.sig' pkg.fact` |
 | Which file defines `Service`? | `grep '^type:Service\.file' pkg.fact` |
 | All exported functions | `grep '\.exported: bool = true' pkg.fact` |
+| All methods of `Service`, with signatures | `grep '^method:Service_' pkg.fact` |
+| Fields of `Service` and their types | `grep '^type:Service\.field' pkg.fact` |
 | Same question, whole module | `grep -r --include=pkg.fact 'implements.*Poster' .` |
+| Who calls `Service.Settle`, module-wide? | `grep -r --include=pkg.fact 'calls.*"Service.Settle"' .` |
+| Which package declares `Marshal`? | `grep -rl --include=pkg.fact '^func:Marshal\.' .` |
+| Which packages import `mymod/ledger`? | `grep -r --include=pkg.fact 'imports.*"mymod/ledger"' .` |
+| Exported API of a dependency | `grep '\.sig' facts/<import-path>/pkg.fact` |
+
+In module-wide (`-r`) hits the printed path is the qualifier: the projection
+lives in its package directory, so `ledger/pkg.fact:...` means package
+`ledger`. Callees in `calls` are source-qualified strings — grep for
+`"pkg.Func"` or `"pkg.Type.Method"` exactly as a call site would write it
+(interface calls appear as the static callee, e.g. `"ledger.Poster.Post"`).
 
 `file` values name the defining source file — together with the symbol name,
 that is the handoff into source (open the file, grep the name). The
@@ -91,12 +103,34 @@ as `pkg.version` — and redirect output into the `facts/` mirror:
 fact project -o facts/github.com/shopspring/decimal/pkg.fact github.com/shopspring/decimal
 ```
 
-Wire it in twice:
+Wire it in three places:
 
-1. **Pre-commit** (or editor-on-save): regenerate the projections of the
+1. **Claude Code hook** (agent sessions): a `PostToolUse` hook keeps every
+   projection fresh as the agent edits, and feeds the projection diff back
+   to the agent as the impact report of each edit. In `.claude/settings.json`:
+
+   ```json
+   {
+     "hooks": {
+       "PostToolUse": [
+         {
+           "matcher": "Edit|Write",
+           "hooks": [{ "type": "command", "command": "fact hook" }]
+         }
+       ]
+     }
+   }
+   ```
+
+   `fact hook` reads the hook payload on stdin; it acts only when the edited
+   file is a non-test `.go` file in a package that carries a `pkg.fact`, and
+   stays silent when the edit was declaration-neutral. It never blocks an
+   edit: if the package does not compile mid-edit, the CI gate catches any
+   staleness later.
+2. **Pre-commit** (or editor-on-save): regenerate the projections of the
    packages you touched, so pkg.fact travels in the same commit as the
    source change it reflects.
-2. **CI**: `fact project -check <pkg-dir>` for each projected package —
+3. **CI**: `fact project -check <pkg-dir>` for each projected package —
    exits 1 if a committed pkg.fact is stale. Staleness is a byte-exact
    comparison, so the gate never false-positives on a clean tree.
 

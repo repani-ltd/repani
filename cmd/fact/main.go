@@ -3,13 +3,13 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"flat/fact"
 	"flat/project"
@@ -31,6 +31,10 @@ commands:
                  an import path projects a dependency resolved through this
                  module's go.mod — use with -o, e.g.
                  fact project -o facts/<import-path>/pkg.fact <import-path>)
+  hook           Claude Code PostToolUse hook: reads the hook payload on
+                 stdin; after an edit to a .go file in a package carrying a
+                 pkg.fact, regenerates it and reports the projection diff
+                 to the agent as the impact report
 `
 
 func main() {
@@ -60,16 +64,11 @@ func run(args []string) int {
 			fmt.Fprint(os.Stderr, usage)
 			return 2
 		}
-		lines, err := project.Lines(dir)
+		out, err := project.File(dir)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "fact:", err)
 			return 1
 		}
-		facts, errs := parseAll([]byte(strings.Join(lines, "\n") + "\n"))
-		if report(errs) { // a generator bug, not a user error
-			return 1
-		}
-		out := append([]byte(project.Header+"\n"), fact.Canonical(facts)...)
 		target := filepath.Join(dir, "pkg.fact")
 		if *outPath != "" {
 			target = *outPath
@@ -99,6 +98,31 @@ func run(args []string) int {
 				return 1
 			}
 		default:
+			os.Stdout.Write(out)
+		}
+		return 0
+	}
+
+	if cmd == "hook" {
+		payload, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "fact:", err)
+			return 0
+		}
+		ctx, err := project.Hook(payload)
+		if err != nil {
+			// Never block the edit: mid-edit packages legitimately fail to
+			// load; the -check gate catches any resulting staleness.
+			fmt.Fprintln(os.Stderr, "fact: hook:", err)
+			return 0
+		}
+		if ctx != "" {
+			out, _ := json.Marshal(map[string]any{
+				"hookSpecificOutput": map[string]any{
+					"hookEventName":     "PostToolUse",
+					"additionalContext": ctx,
+				},
+			})
 			os.Stdout.Write(out)
 		}
 		return 0
