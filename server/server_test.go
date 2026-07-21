@@ -258,6 +258,11 @@ func TestPersistence_ReloadsVaultAndEntries(t *testing.T) {
 		t.Fatalf("expected 1 persistent log, got %v", logs)
 	}
 
+	// Release srv1's file handles/locks, as a real restart would.
+	if err := srv1.Close(); err != nil {
+		t.Fatalf("close srv1: %v", err)
+	}
+
 	// A second server on the same dir replays AuthKey + entries and
 	// serves a non-registering pull.
 	srv2 := mustNew(t, dir)

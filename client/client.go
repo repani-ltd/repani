@@ -115,14 +115,9 @@ func (c *Client) VaultID() vault.VaultID { return c.vid }
 // Store returns the backing store (read-only inspection).
 func (c *Client) Store() store.Store { return c.store }
 
-// Registered reports the client's belief that it has registered.
-func (c *Client) Registered() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.registered
-}
-
-// SetRegistered sets the registration belief (the CLI persists it).
+// SetRegistered sets the client's belief that the server already knows
+// this vault. A caller sets it true to skip a REGISTER and go straight to
+// PROBE/PUSH; Sync clears it on an UNKNOWN_VAULT reply and registers.
 func (c *Client) SetRegistered(v bool) {
 	c.mu.Lock()
 	c.registered = v

@@ -134,7 +134,9 @@ chmod 700 /opt/kvserve/data
 # left a zero-byte file does not prevent regeneration.
 if [ ! -s /opt/kvserve/register.key ]; then
     rm -f /opt/kvserve/register.key
-    /opt/kvserve/kvserve gen-register-key > /opt/kvserve/register.key
+    # Create the file 0600 from the outset (umask in a subshell) so the
+    # secret is never world-readable, not even in the window before chmod.
+    ( umask 077; /opt/kvserve/kvserve gen-register-key > /opt/kvserve/register.key )
     chown kvserve:kvserve /opt/kvserve/register.key
     chmod 600 /opt/kvserve/register.key
     echo "  generated /opt/kvserve/register.key"

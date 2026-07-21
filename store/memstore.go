@@ -91,7 +91,8 @@ func (m *MemStore) SetHash() [16]byte {
 		return m.setHash
 	}
 	m.ensureSortedLocked()
-	m.setHash = vault.SetHash(m.sorted)
+	// Reuse the canonical id index rather than re-hashing every entry.
+	m.setHash = vault.SetHashIDs(m.sortedIDs)
 	m.hashSet = true
 	return m.setHash
 }
@@ -124,13 +125,4 @@ func (m *MemStore) EntriesAfter(afterTs uint64, afterID vault.EntryID, budget in
 		used += sz
 	}
 	return out
-}
-
-// NewMemStoreFromEntries builds a MemStore from a slice of entries.
-func NewMemStoreFromEntries(entries []vault.Entry) *MemStore {
-	m := NewMemStore()
-	for _, e := range entries {
-		_, _ = m.Add(e)
-	}
-	return m
 }

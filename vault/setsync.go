@@ -8,18 +8,6 @@ import (
 	"github.com/pavlos/kv/ascon"
 )
 
-// CanonicalLess reports whether a sorts before b under the protocol's
-// canonical order: TsMs ascending, then EntryID ascending. This is the
-// slow form (it computes both IDs); use SortCanonical for large sets.
-func CanonicalLess(a, b Entry) bool {
-	if a.TsMs != b.TsMs {
-		return a.TsMs < b.TsMs
-	}
-	ai := a.ID()
-	bi := b.ID()
-	return bytes.Compare(ai[:], bi[:]) < 0
-}
-
 // SortCanonical sorts entries in place by (TsMs asc, EntryID asc),
 // precomputing IDs once so comparisons are O(1). This order drives the
 // last-writer-wins merge and the paged sync cursor.
@@ -61,13 +49,22 @@ func (s *canonicalSort) Swap(i, j int) {
 // negligible collision). The sync protocol uses it only as a cheap
 // equality probe. sortedEntries must be in canonical order.
 func SetHash(sortedEntries []Entry) [16]byte {
-	n := uint32(len(sortedEntries))
-	buf := make([]byte, 0, len(domSet)+4+int(n)*EntryIDSize)
+	ids := make([]EntryID, len(sortedEntries))
+	for i, e := range sortedEntries {
+		ids[i] = e.ID()
+	}
+	return SetHashIDs(ids)
+}
+
+// SetHashIDs is SetHash computed from entry ids already in canonical
+// order, avoiding a re-hash of every entry's bytes. Callers that keep a
+// cached id index (e.g. store.MemStore) use this directly.
+func SetHashIDs(ids []EntryID) [16]byte {
+	buf := make([]byte, 0, len(domSet)+4+len(ids)*EntryIDSize)
 	buf = append(buf, domSet...)
-	buf = binary.LittleEndian.AppendUint32(buf, n)
-	for _, e := range sortedEntries {
-		id := e.ID()
-		buf = append(buf, id[:]...)
+	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(ids)))
+	for i := range ids {
+		buf = append(buf, ids[i][:]...)
 	}
 	var out [16]byte
 	ascon.XOF(buf, out[:])

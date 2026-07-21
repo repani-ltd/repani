@@ -55,15 +55,19 @@ func (s *Server) DropVault(vid vault.VaultID) error {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	// Always close the store (releasing its file lock) even if removing
+	// auth.key fails, so a partial failure never leaks the handle. The
+	// auth.key removal error is surfaced but reported after the close.
+	var rmErr error
 	if st.dir != "" {
-		if err := os.Remove(authKeyPath(st.dir)); err != nil {
-			return err
-		}
+		rmErr = os.Remove(authKeyPath(st.dir))
 	}
 	if c, ok := st.s.(io.Closer); ok {
-		return c.Close()
+		if err := c.Close(); err != nil && rmErr == nil {
+			rmErr = err
+		}
 	}
-	return nil
+	return rmErr
 }
 
 // Entries returns a canonical-order snapshot of the vault's entry set.

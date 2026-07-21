@@ -55,11 +55,17 @@ func (e Entry) Marshal() []byte {
 
 // MarshalTo writes e into buf (>= Size()) and returns bytes written.
 func (e Entry) MarshalTo(buf []byte) int {
+	e.putHeader(buf)
+	copy(buf[EntryHeaderSize:], e.Ct)
+	return e.Size()
+}
+
+// putHeader writes the 26-byte entry header (ts_ms || nonce || ct_len)
+// into buf[:EntryHeaderSize].
+func (e Entry) putHeader(buf []byte) {
 	binary.LittleEndian.PutUint64(buf[0:8], e.TsMs)
 	copy(buf[8:8+NonceSize], e.Nonce[:])
 	binary.LittleEndian.PutUint16(buf[8+NonceSize:EntryHeaderSize], uint16(len(e.Ct)))
-	copy(buf[EntryHeaderSize:], e.Ct)
-	return e.Size()
 }
 
 // UnmarshalEntry parses one entry from b, returning it and the number
@@ -72,7 +78,17 @@ func UnmarshalEntry(b []byte) (Entry, int, error) {
 	e.TsMs = binary.LittleEndian.Uint64(b[0:8])
 	copy(e.Nonce[:], b[8:8+NonceSize])
 	ctLen := int(binary.LittleEndian.Uint16(b[8+NonceSize : EntryHeaderSize]))
+	// A ciphertext must contain at least the AEAD tag; anything shorter is
+	// provably junk. The whole entry must fit MaxEntryBytes — enforced here
+	// so the server rejects a spec-violating PUSH at parse time and the
+	// client rejects an oversized entry from a hostile relay on ingest.
+	if ctLen < ascon.AEADTagSize {
+		return Entry{}, 0, ErrEntryCorrupt
+	}
 	total := EntryHeaderSize + ctLen
+	if total > MaxEntryBytes {
+		return Entry{}, 0, ErrEntryTooLarge
+	}
 	if len(b) < total {
 		return Entry{}, 0, fmt.Errorf("%w: want %d bytes, have %d", ErrEntryCorrupt, total, len(b))
 	}
@@ -84,9 +100,7 @@ func UnmarshalEntry(b []byte) (Entry, int, error) {
 // Header returns the 26-byte entry header used as AEAD associated data.
 func (e Entry) Header() []byte {
 	h := make([]byte, EntryHeaderSize)
-	binary.LittleEndian.PutUint64(h[0:8], e.TsMs)
-	copy(h[8:8+NonceSize], e.Nonce[:])
-	binary.LittleEndian.PutUint16(h[8+NonceSize:EntryHeaderSize], uint16(len(e.Ct)))
+	e.putHeader(h)
 	return h
 }
 

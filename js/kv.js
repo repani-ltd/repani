@@ -238,7 +238,14 @@ function hedgedNonce(dom, context) {
   const r = new Uint8Array(16);
   globalThis.crypto.getRandomValues(r);
   const ts = new Uint8Array(8);
-  st64(ts, 0, BigInt(Date.now()) * 1000000n);
+  // Fill the low nanosecond bits from a sub-millisecond monotonic clock so
+  // the timestamp advances within a single millisecond. Date.now() alone
+  // has ms granularity, which would defeat the RNG-failure hedge that
+  // PROTOCOL.txt §Nonces relies on for entry nonces (a collision there
+  // leaks the XOR of two secret values). random16 stays the primary guard.
+  const frac = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
+  const subNs = BigInt(Math.floor((frac - Math.floor(frac)) * 1e6)); // 0..999999
+  st64(ts, 0, BigInt(Date.now()) * 1000000n + subNs);
   return xof(concatBytes(te.encode(dom), context, ts, r), 16);
 }
 
@@ -630,10 +637,16 @@ export class IDBStore {
       const cur = tx.objectStore("entries").openCursor();
       cur.onsuccess = () => {
         const c = cur.result;
-        if (c) {
+        if (!c) return;
+        // Skip a corrupt row rather than letting the throw stall the
+        // cursor and silently resolve with a truncated store. A dropped
+        // entry is re-fetched on the next sync; a truncated load is not.
+        try {
           mem.add(unmarshalEntry(new Uint8Array(c.value)).entry);
-          c.continue();
+        } catch (e) {
+          if (typeof console !== "undefined") console.warn("kv: skipping corrupt stored entry:", e);
         }
+        c.continue();
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -896,6 +909,12 @@ export class Client {
       }
       let bytesIn = 0;
       for (const e of resp.entries) {
+        // Enforce the entry-size invariant on ingest: an honest server
+        // never holds an oversized entry, so a larger one is a hostile
+        // or corrupt relay.
+        if (entrySize(e) > MAX_ENTRY_BYTES) {
+          throw new Error("kv: pulled entry exceeds MAX_ENTRY_BYTES");
+        }
         bytesIn += entrySize(e);
         await this.store.add(e);
       }
@@ -1056,9 +1075,14 @@ export function httpTransport(base, opts = {}) {
         body: frame,
         signal: ctl.signal,
       });
+      if (!resp.ok) throw new Error("kv: server returned HTTP " + resp.status);
+      // Reject an over-cap body by its declared length before buffering it.
+      const clen = resp.headers.get("content-length");
+      if (clen !== null && Number(clen) > MAX_FRAME_BYTES) {
+        throw new Error("kv: response exceeds frame cap");
+      }
       const body = new Uint8Array(await resp.arrayBuffer());
       if (body.length > MAX_FRAME_BYTES) throw new Error("kv: response exceeds frame cap");
-      if (!resp.ok) throw new Error("kv: server returned HTTP " + resp.status);
       return body;
     } finally {
       clearTimeout(timer);

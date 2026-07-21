@@ -66,6 +66,10 @@ func addVerboseFlag(fs *flag.FlagSet) {
 }
 
 func main() {
+	// KV_VERBOSE seeds the single verbose flag; a global or per-subcommand
+	// -v/--verbose can still turn it on. Reading it once here means the
+	// rest of the program only ever consults `verbose`.
+	verbose = os.Getenv("KV_VERBOSE") != ""
 	rest := os.Args[1:]
 	// Accept a global -v/--verbose before the subcommand, in addition to
 	// the per-subcommand flag — so `kv -v put k v` and `kv put -v k v`
@@ -181,7 +185,6 @@ func homeDir() string {
 
 func vaultKeyPath() string    { return filepath.Join(homeDir(), "vault.key") }
 func entriesPath() string     { return filepath.Join(homeDir(), "entries.log") }
-func registeredPath() string  { return filepath.Join(homeDir(), "registered") }
 func registerKeyPath() string { return filepath.Join(homeDir(), "register.key") }
 
 func loadRootKey() vault.RootKey {
@@ -211,41 +214,6 @@ func httpTimeout() time.Duration {
 	return defaultHTTPTimeout
 }
 
-// --- registration bit (per server URL) ---
-
-// registeredFor reports whether we have recorded a successful
-// registration for the given server URL. The file stores one
-// line per registered URL.
-func registeredFor(url string) bool {
-	b, err := os.ReadFile(registeredPath())
-	if err != nil {
-		return false
-	}
-	target := strings.TrimSpace(url)
-	for _, line := range strings.Split(string(b), "\n") {
-		if strings.TrimSpace(line) == target {
-			return true
-		}
-	}
-	return false
-}
-
-func markRegistered(url string) error {
-	if url == "" {
-		return nil
-	}
-	if registeredFor(url) {
-		return nil
-	}
-	f, err := os.OpenFile(registeredPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = fmt.Fprintln(f, url)
-	return err
-}
-
 // --- client open ---
 
 func openClient() *client.Client {
@@ -264,19 +232,22 @@ func openClient() *client.Client {
 		fatal("open log: %v", err)
 	}
 	url := serverURL()
-	c, err := client.New(rk, ls, &cliTransport{client.HTTPTransport{Base: url, Timeout: httpTimeout()}})
+	c, err := client.New(rk, ls, &client.HTTPTransport{Base: url, Timeout: httpTimeout()})
 	if err != nil {
 		fatal("client init: %v", err)
 	}
-	if registeredFor(url) {
-		c.SetRegistered(true)
-	}
+	// Optimistically assume the vault is already registered: in steady
+	// state the first PROBE/PUSH just works. If the server does not know
+	// the vault it replies UNKNOWN_VAULT, and Sync self-heals by clearing
+	// this belief and registering — costing one extra round trip once per
+	// fresh device, and no persisted "registered" file to keep in step.
+	c.SetRegistered(true)
 	// If a register key was saved at init/pair time, pass it along
 	// so the first REGISTER to a gated server succeeds.
 	if rk := loadRegisterKey(); rk != nil {
 		c.SetRegisterKey(rk)
 	}
-	if verbose || os.Getenv("KV_VERBOSE") != "" {
+	if verbose {
 		c.SetTracer(func(s string) { fmt.Fprintln(os.Stderr, s) })
 	}
 	if w := os.Getenv("KV_SYNC_WINDOW"); w != "" {
@@ -328,7 +299,7 @@ func saveRegisterKey(b32 string) error {
 func runInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	registerKey := fs.String("register-key", "",
-		"server register-gate secret (26-char Crockford base32); required for `kv init`")
+		"server register-gate secret (26-char Crockford base32); needed to register with a gated server")
 	_ = fs.Parse(args)
 	if _, err := os.Stat(vaultKeyPath()); err == nil {
 		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())
@@ -358,7 +329,7 @@ func runInit(args []string) {
 func runPair(args []string) {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
 	registerKey := fs.String("register-key", "",
-		"server register-gate secret (32 hex chars); required by gated servers on a fresh device")
+		"server register-gate secret (26-char Crockford base32); required by gated servers on a fresh device")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
 		fatal("usage: kv pair <blob|->")
@@ -450,6 +421,11 @@ func runBackup(args []string) {
 		f, err := os.OpenFile(fs.Arg(0), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			fatal("open %s: %v", fs.Arg(0), err)
+		}
+		// OpenFile applies 0600 only when creating; force it so a
+		// pre-existing (possibly world-readable) file cannot leak the RootKey.
+		if err := f.Chmod(0o600); err != nil {
+			fatal("chmod %s: %v", fs.Arg(0), err)
 		}
 		defer f.Close()
 		w = f
@@ -547,7 +523,6 @@ func runSearch(args []string) {
 	keysOnly := fs.Bool("keys-only", false, "print bare keys, one per line (no table)")
 	caseSensitive := fs.Bool("case-sensitive", false, "exact-case match (default is case-insensitive)")
 	truncate := fs.Bool("truncate", false, "truncate long values to one line (default: wrap)")
-	_ = fs.Bool("wrap", false, "wrap long values (now the default; accepted for compatibility)")
 	width := fs.Int("width", 0, "table width (0 = auto/terminal)")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
@@ -809,7 +784,9 @@ func runGet(args []string) {
 		os.Exit(1)
 	}
 	_, _ = os.Stdout.Write(v)
-	if !bytes.HasSuffix(v, []byte("\n")) {
+	// Add a trailing newline only for interactive display; when piped or
+	// redirected, emit the value verbatim so it round-trips byte-exactly.
+	if term.IsTerminal(int(os.Stdout.Fd())) && !bytes.HasSuffix(v, []byte("\n")) {
 		fmt.Println()
 	}
 }
@@ -875,6 +852,11 @@ func runExport(args []string) {
 		if err != nil {
 			fatal("open %s: %v", fs.Arg(0), err)
 		}
+		// export writes plaintext keys and values; force 0600 so a
+		// pre-existing file's looser permissions cannot leak them.
+		if err := f.Chmod(0o600); err != nil {
+			fatal("chmod %s: %v", fs.Arg(0), err)
+		}
 		defer f.Close()
 		w = f
 	}
@@ -920,25 +902,6 @@ func mustSync(c *client.Client) {
 	if err := c.Sync(ctx); err != nil {
 		fatal("sync: %v", err)
 	}
-	if c.Registered() {
-		if err := markRegistered(serverURL()); err != nil {
-			fatal("mark registered: %v", err)
-		}
-	}
-}
-
-// --- http transport ---
-
-// cliTransport is client.HTTPTransport plus a friendlier error when
-// KV_SERVER is unset, deferred to first use so local-only commands
-// work offline.
-type cliTransport struct{ client.HTTPTransport }
-
-func (t *cliTransport) Do(ctx context.Context, req []byte) ([]byte, error) {
-	if t.Base == "" {
-		return nil, errors.New("no server URL configured (set KV_SERVER)")
-	}
-	return t.HTTPTransport.Do(ctx, req)
 }
 
 // --- helpers ---

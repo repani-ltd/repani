@@ -174,11 +174,16 @@ func (s *Server) loadPersistedVaults() error {
 			if errors.Is(err, os.ErrNotExist) {
 				continue // crashed registration; unreachable until re-register
 			}
-			return err
+			// A single damaged vault must not take the whole server
+			// offline; skip it loudly and serve the rest. It stays
+			// reachable via re-registration under the same RootKey.
+			log.Printf("server: skipping vault %s: bad auth.key: %v", d.Name(), err)
+			continue
 		}
 		ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"))
 		if err != nil {
-			return err
+			log.Printf("server: skipping vault %s: %v", d.Name(), err)
+			continue
 		}
 		st := newVaultState(ls, ak, dir)
 		for _, e := range ls.Sorted() {
@@ -197,6 +202,23 @@ func newVaultState(s store.Store, ak vault.AuthKey, dir string) *vaultState {
 		s2c:     vault.DeriveS2C(ak),
 		dir:     dir,
 	}
+}
+
+// Close releases every vault's backing store, including the advisory
+// file locks its log holds. The server must not be used afterwards; it
+// is the clean-shutdown counterpart to NewWithOptions.
+func (s *Server) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var firstErr error
+	for _, st := range s.vaults {
+		if c, ok := st.s.(io.Closer); ok {
+			if err := c.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
 }
 
 // HandleFrame processes one request frame and returns a response: either
@@ -400,10 +422,31 @@ func authKeyPath(dir string) string { return filepath.Join(dir, "auth.key") }
 func writeAuthKey(dir string, ak vault.AuthKey) error {
 	path := authKeyPath(dir)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, ak[:], 0o600); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if _, err := f.Write(ak[:]); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// Flush the rename (and the new file's directory entry) so a crash
+	// cannot leave auth.key partially written or absent.
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
 }
 
 func readAuthKey(dir string) (vault.AuthKey, error) {

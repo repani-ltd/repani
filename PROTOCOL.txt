@@ -16,9 +16,8 @@
   ## Keys
 
   A vault is owned by one user across any number of devices sharing a
-  single 20-byte RootKey (random, or stretched from a passphrase by
-  iterated XOF). Everything else is derived by XOF over an 8-byte
-  domain prefix:
+  single 20-byte RootKey (random). Everything else is derived by XOF
+  over an 8-byte domain prefix:
 
     AEAD_Key = XOF("kv/aead/" || RootKey, 16)   per-entry encryption
     VaultID  = XOF("kv/vid1/" || RootKey, 16)   public routing handle

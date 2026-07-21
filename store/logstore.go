@@ -31,17 +31,13 @@ import (
 // bumped to reject a stale-format log rather than mis-parse it.
 var logMagic = []byte("ASCONKVA")
 
-// MaxRecordBytes caps the per-record length we allocate during replay,
-// guarding against a corrupted length prefix. A record is one marshaled
-// entry, bounded by MaxEntryBytes.
-const MaxRecordBytes = vault.MaxEntryBytes + 1024
+// MaxRecordBytes caps the per-record length accepted during replay. A
+// record is one marshaled entry, and vault.UnmarshalEntry rejects any
+// entry larger than MaxEntryBytes, so this is exactly that bound.
+const MaxRecordBytes = vault.MaxEntryBytes
 
-var (
-	// ErrBadMagic reports a file that is not an ASCON-KV log.
-	ErrBadMagic = errors.New("logstore: bad or missing magic header")
-	// ErrRecordTooLarge reports a length prefix that exceeds MaxRecordBytes.
-	ErrRecordTooLarge = errors.New("logstore: record exceeds MaxRecordBytes")
-)
+// ErrBadMagic reports a file that is not an ASCON-KV log.
+var ErrBadMagic = errors.New("logstore: bad or missing magic header")
 
 // LogStore wraps a MemStore with an append-only log for persistence.
 type LogStore struct {
@@ -52,13 +48,20 @@ type LogStore struct {
 }
 
 // OpenLogStore opens (or creates) a log file at path and rebuilds the
-// in-memory set from it. The parent directory is created if missing.
+// in-memory set from it. The parent directory is created if missing. An
+// exclusive advisory lock is taken so a second process cannot append to
+// the same log concurrently (which would interleave records).
 func OpenLogStore(path string) (*LogStore, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
+		return nil, err
+	}
+	if err := lockFile(f); err != nil {
+		_ = f.Close()
 		return nil, err
 	}
 	ls := &LogStore{
@@ -66,7 +69,7 @@ func OpenLogStore(path string) (*LogStore, error) {
 		f:    f,
 		path: path,
 	}
-	if err := ls.init(); err != nil {
+	if err := ls.init(dir); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
@@ -75,7 +78,7 @@ func OpenLogStore(path string) (*LogStore, error) {
 
 // init ensures the file has a valid magic header then replays records.
 // For a zero-length file (fresh or kv-init-touched), write the magic.
-func (ls *LogStore) init() error {
+func (ls *LogStore) init(dir string) error {
 	fi, err := ls.f.Stat()
 	if err != nil {
 		return err
@@ -87,6 +90,7 @@ func (ls *LogStore) init() error {
 		if err := ls.f.Sync(); err != nil {
 			return err
 		}
+		fsyncDir(dir) // make the new file's directory entry durable
 		return nil
 	}
 	if fi.Size() < int64(len(logMagic)) {
@@ -102,7 +106,7 @@ func (ls *LogStore) init() error {
 	return ls.replay()
 }
 
-// Close releases the file handle.
+// Close releases the file handle (and, with it, the advisory lock).
 func (ls *LogStore) Close() error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
@@ -114,9 +118,12 @@ func (ls *LogStore) Close() error {
 	return err
 }
 
-// replay reads every record from the log into memory. A truncated
-// trailing record is silently discarded (the common crash case); a
-// mid-stream record that fails to parse is a hard error.
+// replay reads every record from the log into memory. Any unparsable
+// record is treated as an uncommitted torn tail and truncated away:
+// every committed record is fsynced before the next append, and Add
+// rolls back a torn write, so no valid committed data can sit after a
+// bad record. Truncating restores an openable log; the sync protocol
+// re-fetches anything lost.
 func (ls *LogStore) replay() error {
 	if _, err := ls.f.Seek(int64(len(logMagic)), io.SeekStart); err != nil {
 		return err
@@ -124,20 +131,18 @@ func (ls *LogStore) replay() error {
 	offset := int64(len(logMagic))
 	var hdr [4]byte
 	for {
-		n, err := io.ReadFull(ls.f, hdr[:])
-		if err == io.EOF {
-			break
-		}
-		if errors.Is(err, io.ErrUnexpectedEOF) {
-			return ls.truncateTo(offset)
-		}
-		if err != nil {
+		if _, err := io.ReadFull(ls.f, hdr[:]); err != nil {
+			if err == io.EOF {
+				break
+			}
+			if errors.Is(err, io.ErrUnexpectedEOF) {
+				return ls.truncateTo(offset) // torn length prefix
+			}
 			return err
 		}
-		_ = n
 		recLen := binary.LittleEndian.Uint32(hdr[:])
 		if recLen == 0 || recLen > MaxRecordBytes {
-			return fmt.Errorf("%w: %d at offset %d", ErrRecordTooLarge, recLen, offset)
+			return ls.truncateTo(offset) // zero-filled or wild length: torn tail
 		}
 		buf := make([]byte, recLen)
 		if _, err := io.ReadFull(ls.f, buf); err != nil {
@@ -147,11 +152,8 @@ func (ls *LogStore) replay() error {
 			return err
 		}
 		e, consumed, err := vault.UnmarshalEntry(buf)
-		if err != nil {
-			return fmt.Errorf("logstore: corrupt record at offset %d: %w", offset, err)
-		}
-		if consumed != int(recLen) {
-			return fmt.Errorf("logstore: record length mismatch at offset %d: header %d, entry %d", offset, recLen, consumed)
+		if err != nil || consumed != int(recLen) {
+			return ls.truncateTo(offset) // unparsable body: torn tail
 		}
 		if _, err := ls.mem.Add(e); err != nil {
 			return err
@@ -175,93 +177,53 @@ func (ls *LogStore) truncateTo(offset int64) error {
 	return nil
 }
 
-// Add implements Store.Add: dedup in memory, then on first write
-// append to the log and fsync.
+// Add implements Store.Add: dedup in memory, then append one record and
+// fsync. The length prefix and body are written in a single call, and on
+// any write/Sync error the file is truncated back to the pre-record
+// offset so replay never sees a torn record. The entry is added to the
+// in-memory set only after the write is durable, so memory and disk
+// never disagree.
 func (ls *LogStore) Add(e vault.Entry) (bool, error) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
-	added, err := ls.mem.Add(e)
-	if err != nil || !added {
-		return added, err
+	if ls.mem.Has(e.ID()) {
+		return false, nil
 	}
 	body := e.Marshal()
-	var hdr [4]byte
-	binary.LittleEndian.PutUint32(hdr[:], uint32(len(body)))
-	if _, err := ls.f.Write(hdr[:]); err != nil {
+	rec := make([]byte, 4+len(body))
+	binary.LittleEndian.PutUint32(rec[:4], uint32(len(body)))
+	copy(rec[4:], body)
+
+	off, err := ls.f.Seek(0, io.SeekCurrent)
+	if err != nil {
 		return false, err
 	}
-	if _, err := ls.f.Write(body); err != nil {
+	if _, err := ls.f.Write(rec); err != nil {
+		ls.rollback(off)
 		return false, err
 	}
 	if err := ls.f.Sync(); err != nil {
+		ls.rollback(off)
 		return false, err
 	}
-	return true, nil
+	return ls.mem.Add(e)
 }
 
-// Rewrite atomically replaces the log's contents: fn is called once
-// per entry in canonical order and returns the entry to store in its
-// place (the same entry, or a substitute such as a re-sealed one) and
-// whether to keep it at all. The new log is written to a temp file,
-// synced, and renamed over the old one; the LogStore remains open and
-// usable, with its in-memory set rebuilt. A non-nil error from fn
-// aborts the rewrite with the log untouched.
-//
-// This is the primitive for owner-side log surgery (e.g. a client
-// re-stamping stale queued entries); it keeps the on-disk format and
-// the crash-safety dance inside this package.
-func (ls *LogStore) Rewrite(fn func(vault.Entry) (vault.Entry, bool, error)) error {
-	ls.mu.Lock()
-	defer ls.mu.Unlock()
+// rollback undoes a torn record, restoring the append offset. Best-effort.
+func (ls *LogStore) rollback(off int64) {
+	_ = ls.f.Truncate(off)
+	_, _ = ls.f.Seek(off, io.SeekStart)
+}
 
-	mem := NewMemStore()
-	tmpPath := ls.path + ".rewrite"
-	_ = os.Remove(tmpPath)
-	tmp, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
+// fsyncDir flushes a directory entry to disk so a freshly created file
+// survives a crash. Best-effort: some filesystems reject a directory
+// fsync, and the durability it adds is a backstop, not a correctness
+// requirement.
+func fsyncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
 	}
-	abort := func(err error) error {
-		tmp.Close()
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if _, err := tmp.Write(logMagic); err != nil {
-		return abort(err)
-	}
-	for _, e := range ls.mem.Sorted() {
-		ne, keep, err := fn(e)
-		if err != nil {
-			return abort(err)
-		}
-		if !keep {
-			continue
-		}
-		if _, err := mem.Add(ne); err != nil {
-			return abort(err)
-		}
-		body := ne.Marshal()
-		var hdr [4]byte
-		binary.LittleEndian.PutUint32(hdr[:], uint32(len(body)))
-		if _, err := tmp.Write(hdr[:]); err != nil {
-			return abort(err)
-		}
-		if _, err := tmp.Write(body); err != nil {
-			return abort(err)
-		}
-	}
-	if err := tmp.Sync(); err != nil {
-		return abort(err)
-	}
-	if err := os.Rename(tmpPath, ls.path); err != nil {
-		return abort(err)
-	}
-	// Swap in the new state; the old handle now refers to the
-	// unlinked file and is simply closed.
-	_ = ls.f.Close()
-	ls.f = tmp
-	ls.mem = mem
-	return nil
 }
 
 func (ls *LogStore) Has(id vault.EntryID) bool { return ls.mem.Has(id) }
