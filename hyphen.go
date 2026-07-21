@@ -68,11 +68,22 @@ func (h *hyphenator) addPattern(pattern string) {
 // Hyphenate returns valid hyphenation points for a word as rune
 // indices into the (case-preserved) original word. The returned
 // indices are NOT byte offsets -- callers that slice the original
-// string must convert through []rune first. Returns nil for words
-// shorter than 5 runes (no break is ever placed in the first or
-// last 2 characters).
+// string must convert through []rune first. Attached punctuation
+// ("judgment.", "(who") is ignored: patterns and the fragment-
+// length guards apply to the letter core only, so a break never
+// strands punctuation with fewer than 2 letters. Returns nil for
+// cores shorter than 5 runes (no break is ever placed in the
+// first or last 2 characters).
 func (h *hyphenator) Hyphenate(word string) []int {
-	runes := []rune(strings.ToLower(word))
+	all := []rune(strings.ToLower(word))
+	start, stop := 0, len(all)
+	for start < stop && !unicode.IsLetter(all[start]) {
+		start++
+	}
+	for stop > start && !unicode.IsLetter(all[stop-1]) {
+		stop--
+	}
+	runes := all[start:stop]
 	if len(runes) < 5 {
 		return nil
 	}
@@ -102,7 +113,7 @@ func (h *hyphenator) Hyphenate(word string) []int {
 		if levels[i]%2 == 1 {
 			pos := i - 1
 			if pos > 1 && pos < len(runes)-1 {
-				points = append(points, pos)
+				points = append(points, start+pos)
 			}
 		}
 	}

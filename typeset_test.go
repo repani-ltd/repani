@@ -3,6 +3,7 @@ package typeset
 import (
 	"strings"
 	"testing"
+	"unicode"
 )
 
 const testWidth = 40
@@ -48,6 +49,42 @@ func TestHyphenateGreek(t *testing.T) {
 		got := len(points) > 0
 		if got != tt.expect {
 			t.Errorf("Hyphenate(%q): got points=%v, want hasPoints=%v", tt.word, points, tt.expect)
+		}
+	}
+}
+
+func TestHyphenateAttachedPunctuation(t *testing.T) {
+	// Punctuation attached to a token must not count as letters:
+	// "judgment." once broke as "judgmen-" / "t.", stranding a
+	// single letter, and edge punctuation shifted the pattern
+	// word boundaries. Points are indices into the full token,
+	// with >= 2 letters on each side of every break.
+	for _, word := range []string{"judgment.", "(judgment", "judgment,»", "μέρα.", "philosophy;"} {
+		runes := []rune(word)
+		core := strings.TrimFunc(word, func(r rune) bool { return !unicode.IsLetter(r) })
+		bare := defaultHyphenator.Hyphenate(core)
+		start := strings.Index(word, core)
+		startRunes := len([]rune(word[:max(start, 0)]))
+		for _, p := range defaultHyphenator.Hyphenate(word) {
+			letters := 0
+			for _, r := range runes[p:] {
+				if unicode.IsLetter(r) {
+					letters++
+				}
+			}
+			if p-startRunes < 2 || letters < 2 {
+				t.Errorf("Hyphenate(%q): point %d leaves <2 letters on a side", word, p)
+			}
+		}
+		got := defaultHyphenator.Hyphenate(word)
+		if len(got) != len(bare) {
+			t.Errorf("Hyphenate(%q): %d points, want %d (same as bare %q)", word, len(got), len(bare), core)
+			continue
+		}
+		for i := range got {
+			if got[i] != bare[i]+startRunes {
+				t.Errorf("Hyphenate(%q): point %d, want bare point %d shifted by %d", word, got[i], bare[i], startRunes)
+			}
 		}
 	}
 }
