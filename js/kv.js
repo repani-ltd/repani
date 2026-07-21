@@ -522,8 +522,9 @@ export function preChannelText(b) {
 // ---------------------------------------------------------------------
 // Store (store/store.go, store/memstore.go). A store is an unordered
 // entry set keyed by entry id with a canonical-order view. The client
-// awaits every store method, so an implementation may be async (e.g.
-// IndexedDB-backed); MemStore is the synchronous reference.
+// awaits every store method, so an implementation may be async;
+// MemStore is the synchronous reference and IDBStore the persistent
+// IndexedDB-backed implementation.
 //
 // Contract: add(entry) -> bool (false if already present);
 // has(idHex) -> bool; len() -> number; sortedPairs() -> [{entry, id}]
@@ -545,8 +546,7 @@ export class MemStore {
     this.sorted = null;    // cached canonical [{entry, id}], null when stale
     this.hash = null;      // cached set hash, null when stale
   }
-  add(entry) {
-    const id = entryID(entry);
+  add(entry, id = entryID(entry)) {
     const h = idHex(id);
     if (this.byID.has(h)) return false;
     this.byID.set(h, { entry, id });
@@ -586,6 +586,86 @@ export class MemStore {
     }
     return out;
   }
+}
+
+// IDBStore is the persistent Store: an IndexedDB object store of
+// marshaled entry bytes keyed by entry id, mirrored into a MemStore
+// that serves every read. This is the same split as the Go LogStore
+// (durable log + in-memory index): IndexedDB provides durability,
+// memory provides the canonical view. add() resolves only on the
+// write transaction's completion, so the client's page-commit
+// guarantee ("committed to the log before the cursor advances")
+// holds across a killed tab, like the Go log's fsync.
+//
+// Open one database per vault -- name it by VaultID (e.g. "kv-" +
+// hex of the id) so credentials never share a namespace. Adds are
+// content-addressed and idempotent, so concurrent tabs on the same
+// database cannot corrupt it, but each tab's in-memory view only
+// sees its own session's entries until its next sync or reload.
+export class IDBStore {
+  // Internal; use IDBStore.open(name).
+  constructor(db, mem) {
+    this.db = db;
+    this.mem = mem;
+  }
+
+  // open opens (creating if needed) the named database and loads
+  // every persisted entry into memory.
+  static async open(name) {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open(name, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains("entries")) {
+          req.result.createObjectStore("entries");
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    // Yield to a future schema upgrade from another context.
+    db.onversionchange = () => db.close();
+    const mem = new MemStore();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction("entries", "readonly");
+      const cur = tx.objectStore("entries").openCursor();
+      cur.onsuccess = () => {
+        const c = cur.result;
+        if (c) {
+          mem.add(unmarshalEntry(new Uint8Array(c.value)).entry);
+          c.continue();
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return new IDBStore(db, mem);
+  }
+
+  // add inserts the entry in memory and, if new, persists it before
+  // resolving. One transaction per entry keeps the commit guarantee
+  // simple; if a large first sync ever needs it, the refinement is an
+  // addMany() batching one transaction per pulled page.
+  async add(entry) {
+    const id = entryID(entry);
+    if (!this.mem.add(entry, id)) return false;
+    const bytes = marshalEntry(entry);
+    await new Promise((resolve, reject) => {
+      const tx = this.db.transaction("entries", "readwrite");
+      tx.objectStore("entries").put(bytes, idHex(id));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    return true;
+  }
+
+  has(h) { return this.mem.has(h); }
+  len() { return this.mem.len(); }
+  sortedPairs() { return this.mem.sortedPairs(); }
+  setHash() { return this.mem.setHash(); }
+  entriesAfter(afterTs, afterID, budget) { return this.mem.entriesAfter(afterTs, afterID, budget); }
+
+  close() { this.db.close(); }
 }
 
 // ---------------------------------------------------------------------

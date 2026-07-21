@@ -95,6 +95,25 @@ eq("memstore setHash", vecStore.setHash(), V.setHash);
 eq("memstore dedup", String(vecStore.add(entries[0])), "false");
 eq("memstore len", String(vecStore.len()), "3");
 
+// IDBStore: write-through persistence and reload, when the runtime
+// provides IndexedDB (browsers; node needs a shim, e.g.
+// NODE_OPTIONS="--import fake-indexeddb/auto").
+if (globalThis.indexedDB) {
+  const name = "kv-test-" + Date.now().toString(36);
+  const s1 = await kv.IDBStore.open(name);
+  for (const e of entries) await s1.add(e);
+  eq("idb dedup", String(await s1.add(entries[0])), "false");
+  eq("idb setHash", s1.setHash(), V.setHash);
+  s1.close();
+  const s2 = await kv.IDBStore.open(name);
+  eq("idb reload len", String(s2.len()), "3");
+  eq("idb reload setHash", s2.setHash(), V.setHash);
+  s2.close();
+  indexedDB.deleteDatabase(name);
+} else {
+  console.error("skip: IDBStore (no indexedDB in this runtime)");
+}
+
 eq("probePayload", kv.marshalSync({ op: kv.OP_PROBE, setHash: unhex(V.setHash) }), V.probePayload);
 eq("pullPayload", kv.marshalSync({ op: kv.OP_PULL, curTs: BigInt(V.pullCursorTs), curID: unhex(V.entryIDs[0]) }), V.pullPayload);
 eq("pushPayload", kv.marshalSync({ op: kv.OP_PUSH, entries }), V.pushPayload);
@@ -128,7 +147,12 @@ eq("probeFrame", kv.sealFrame(kv.KIND_SYNC, vid, fn, kv.deriveC2S(ak), unhex(V.p
 
 if (process.argv[3]) {
   const serverURL = process.argv[3];
-  let client = new kv.Client(kv.decodeRootKey(process.argv[4]), new kv.MemStore(), kv.httpTransport(serverURL));
+  // Run the live phases on IDBStore when the runtime provides
+  // IndexedDB, so the persistent store is exercised under the real
+  // sync loop; fall back to MemStore otherwise.
+  const newStore = async () =>
+    globalThis.indexedDB ? kv.IDBStore.open("kv-live-" + Date.now().toString(36) + Math.random().toString(36).slice(2)) : new kv.MemStore();
+  let client = new kv.Client(kv.decodeRootKey(process.argv[4]), await newStore(), kv.httpTransport(serverURL));
 
   const rl = createInterface({ input: process.stdin });
   for await (const line of rl) {
@@ -138,7 +162,7 @@ if (process.argv[3]) {
     try {
       switch (cmd.cmd) {
         case "vault2": {
-          client = new kv.Client(kv.decodeRootKey(cmd.rootKey), new kv.MemStore(), kv.httpTransport(serverURL));
+          client = new kv.Client(kv.decodeRootKey(cmd.rootKey), await newStore(), kv.httpTransport(serverURL));
           if (cmd.registerKey) client.setRegisterKey(kv.decodeRegisterKey(cmd.registerKey));
           break;
         }
