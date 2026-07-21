@@ -5,7 +5,8 @@ import (
 	"strings"
 )
 
-// Pairing blob: base32(RootKey), 52 Crockford base32 characters.
+// Pairing blob: base32(RootKey), 32 Crockford base32 characters
+// (displayed as 8 groups of 4).
 
 // Crockford base32 alphabet (uppercase canonical form).
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -35,30 +36,18 @@ func init() {
 // ErrBadPairingBlob is returned when DecodeRootKey is given malformed input.
 var ErrBadPairingBlob = errors.New("vault: malformed pairing blob")
 
-// EncodeRootKey returns the Crockford base32 encoding of rk (52 chars).
-// 32 bytes → 256 bits → 52 base32 chars with 4 trailing padding bits
-// that are truncated.
+// EncodeRootKey returns the Crockford base32 encoding of rk (32
+// chars). 20 bytes = exactly four 5-byte groups of 8 chars each, so
+// there are no padding bits.
 func EncodeRootKey(rk RootKey) string {
-	// Each 5 bytes → 8 chars. 32 bytes = 6 full 5-byte groups + 2
-	// remainder bytes. Total output: 6*8 + ceil(2*8/5) = 48 + 4 = 52.
 	var out strings.Builder
-	out.Grow(52)
-	// Full 5-byte groups.
-	for g := range 6 {
+	out.Grow(32)
+	for g := range 4 {
 		b := rk[g*5 : g*5+5]
 		v := uint64(b[0])<<32 | uint64(b[1])<<24 | uint64(b[2])<<16 | uint64(b[3])<<8 | uint64(b[4])
 		for i := 7; i >= 0; i-- {
 			out.WriteByte(crockford[(v>>(uint(i)*5))&0x1f])
 		}
-	}
-	// Trailing 2 bytes = 16 bits, encoded as 4 chars (4 bits of
-	// padding at the low end, dropped by the 5-bit slicing).
-	tail := rk[30:32]
-	v := uint32(tail[0])<<8 | uint32(tail[1])
-	// Shift up so the top nibble becomes the first 5-bit chunk.
-	v <<= 4 // pad to 20 bits
-	for i := 3; i >= 0; i-- {
-		out.WriteByte(crockford[(v>>(uint(i)*5))&0x1f])
 	}
 	return out.String()
 }
@@ -89,8 +78,8 @@ func EncodeRegisterKey(rk RegisterKey) string {
 // EncodeBackup packs a RootKey and optional RegisterKey into a single
 // Crockford base32 blob for offline backup / restore.
 //
-//	regKey == nil → 52 chars (RootKey alone; identical to EncodeRootKey).
-//	regKey != nil → 78 chars (EncodeRootKey || EncodeRegisterKey).
+//	regKey == nil → 32 chars (RootKey alone; identical to EncodeRootKey).
+//	regKey != nil → 58 chars (EncodeRootKey || EncodeRegisterKey).
 //
 // DecodeBackup accepts either shape.
 func EncodeBackup(rk RootKey, regKey *RegisterKey) string {
@@ -103,7 +92,7 @@ func EncodeBackup(rk RootKey, regKey *RegisterKey) string {
 // DecodeBackup parses a blob produced by EncodeBackup or EncodeRootKey.
 // Whitespace and dashes in the input are ignored. Returns the RootKey
 // and a non-nil RegisterKey pointer only if the blob included one
-// (i.e. it was 78 chars after stripping).
+// (i.e. it was 58 chars after stripping).
 func DecodeBackup(s string) (RootKey, *RegisterKey, error) {
 	raw := make([]byte, 0, len(s))
 	for i := range len(s) {
@@ -114,18 +103,18 @@ func DecodeBackup(s string) (RootKey, *RegisterKey, error) {
 		raw = append(raw, c)
 	}
 	switch len(raw) {
-	case 52:
+	case 32:
 		rk, err := DecodeRootKey(string(raw))
 		if err != nil {
 			return RootKey{}, nil, err
 		}
 		return rk, nil, nil
-	case 78:
-		rk, err := DecodeRootKey(string(raw[:52]))
+	case 58:
+		rk, err := DecodeRootKey(string(raw[:32]))
 		if err != nil {
 			return RootKey{}, nil, err
 		}
-		reg, err := DecodeRegisterKey(string(raw[52:]))
+		reg, err := DecodeRegisterKey(string(raw[32:]))
 		if err != nil {
 			return RootKey{}, nil, err
 		}
@@ -182,7 +171,7 @@ func DecodeRegisterKey(s string) (RegisterKey, error) {
 	return rk, nil
 }
 
-// DecodeRootKey parses the 52-char Crockford base32 form produced by
+// DecodeRootKey parses the 32-char Crockford base32 form produced by
 // EncodeRootKey. Whitespace and dashes in the input are ignored.
 func DecodeRootKey(s string) (RootKey, error) {
 	// Strip formatting.
@@ -194,12 +183,12 @@ func DecodeRootKey(s string) (RootKey, error) {
 		}
 		raw = append(raw, c)
 	}
-	if len(raw) != 52 {
+	if len(raw) != 32 {
 		return RootKey{}, ErrBadPairingBlob
 	}
-	// First 48 chars → 30 bytes (6 full 5-byte groups).
+	// 32 chars → 20 bytes (4 full 5-byte groups, no padding bits).
 	var rk RootKey
-	for g := range 6 {
+	for g := range 4 {
 		var v uint64
 		for i := range 8 {
 			d := crockfordDec[raw[g*8+i]]
@@ -214,21 +203,5 @@ func DecodeRootKey(s string) (RootKey, error) {
 		rk[g*5+3] = byte(v >> 8)
 		rk[g*5+4] = byte(v)
 	}
-	// Last 4 chars → 2 bytes (plus 4 bits of padding).
-	var v uint32
-	for i := range 4 {
-		d := crockfordDec[raw[48+i]]
-		if d < 0 {
-			return RootKey{}, ErrBadPairingBlob
-		}
-		v = v<<5 | uint32(d)
-	}
-	// Low 4 bits are padding; validate they are zero.
-	if v&0xF != 0 {
-		return RootKey{}, ErrBadPairingBlob
-	}
-	v >>= 4
-	rk[30] = byte(v >> 8)
-	rk[31] = byte(v)
 	return rk, nil
 }

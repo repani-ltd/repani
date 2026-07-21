@@ -283,8 +283,8 @@ func TestSetHash_EmptyStable(t *testing.T) {
 func TestPairing_RoundTrip(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	enc := EncodeRootKey(rk)
-	if len(enc) != 52 {
-		t.Fatalf("encoded length %d, want 52", len(enc))
+	if len(enc) != 32 {
+		t.Fatalf("encoded length %d, want 32", len(enc))
 	}
 	dec, err := DecodeRootKey(enc)
 	if err != nil {
@@ -375,8 +375,8 @@ func TestBackup_RoundTrip_WithBoth(t *testing.T) {
 		reg[i] = byte(0x22 * (i + 1))
 	}
 	blob := EncodeBackup(rk, &reg)
-	if len(blob) != 78 {
-		t.Fatalf("backup length %d, want 78", len(blob))
+	if len(blob) != 58 {
+		t.Fatalf("backup length %d, want 58", len(blob))
 	}
 	gotRK, gotReg, err := DecodeBackup(blob)
 	if err != nil {
@@ -396,8 +396,8 @@ func TestBackup_RoundTrip_RootOnly(t *testing.T) {
 		rk[i] = byte(0xAA + i)
 	}
 	blob := EncodeBackup(rk, nil)
-	if len(blob) != 52 {
-		t.Fatalf("root-only backup length %d, want 52", len(blob))
+	if len(blob) != 32 {
+		t.Fatalf("root-only backup length %d, want 32", len(blob))
 	}
 	gotRK, gotReg, err := DecodeBackup(blob)
 	if err != nil {
@@ -415,7 +415,7 @@ func TestBackup_RejectsWrongLength(t *testing.T) {
 	if _, _, err := DecodeBackup("tooshort"); err == nil {
 		t.Fatal("DecodeBackup should reject short input")
 	}
-	// 65 chars: valid Crockford alphabet but not 52 nor 78.
+	// 65 chars: valid Crockford alphabet but not 32 nor 58.
 	bad := strings.Repeat("A", 65)
 	if _, _, err := DecodeBackup(bad); err == nil {
 		t.Fatal("DecodeBackup should reject a 65-char blob")

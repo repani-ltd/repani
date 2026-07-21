@@ -10,9 +10,12 @@ import (
 	"github.com/pavlos/kv/ascon"
 )
 
-// Sizes.
+// Sizes. RootKey is 20 bytes (160 bits): comfortably above the
+// 128-bit security level of every derived key and primitive, and
+// exactly four 5-byte Crockford base32 groups, so the pairing blob
+// is 32 chars with zero padding bits.
 const (
-	RootKeySize     = 32
+	RootKeySize     = 20
 	AEADKeySize     = 16
 	AuthKeySize     = 16
 	ChannelKeySize  = 16

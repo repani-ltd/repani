@@ -54,7 +54,7 @@ server. Wire/on-disk format: protocol v1.
 - The `ascon` implementation is verified against the official ascon-c
   Known-Answer Test vectors (1025 XOF + 1089 AEAD) vendored under
   `ascon/testdata/` and run by `kat_test.go`.
-- Keys are derived from one 32-byte RootKey: `AEAD_Key` (device-only,
+- Keys are derived from one 20-byte RootKey: `AEAD_Key` (device-only,
   encrypts entries), `VaultID` (public handle), `AuthKey` (shared with
   the server at registration) and, from it, directional channel keys
   `K_c2s` / `K_s2c`. A server-side `RegisterKey` gates vault creation via

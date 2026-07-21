@@ -202,7 +202,7 @@ function checkAEADArgs(key, nonce) {
 // ---------------------------------------------------------------------
 // Key derivation and nonces (vault/keys.go, vault/nonce.go).
 
-export const ROOT_KEY_SIZE = 32;
+export const ROOT_KEY_SIZE = 20;
 export const REGISTER_KEY_SIZE = 16;
 export const VAULT_ID_SIZE = 16;
 export const ENTRY_ID_SIZE = 16;
@@ -711,7 +711,7 @@ export class Client {
   // transport: async (frameBytes) -> responseBytes.
   // opts.syncWindowMs overrides the reconcile look-back window.
   constructor(rootKey, store, transport, opts = {}) {
-    if (rootKey.length !== ROOT_KEY_SIZE) throw new Error("kv: root key must be 32 bytes");
+    if (rootKey.length !== ROOT_KEY_SIZE) throw new Error("kv: root key must be 20 bytes");
     this.aeadKey = deriveAEADKey(rootKey);
     this.vaultID = deriveVaultID(rootKey);
     this.authKey = deriveAuthKey(rootKey);
@@ -1067,7 +1067,8 @@ export function httpTransport(base, opts = {}) {
 }
 
 // ---------------------------------------------------------------------
-// Pairing (vault/pairing.go): RootKey as 52 Crockford base32 chars.
+// Pairing (vault/pairing.go): RootKey as 32 Crockford base32 chars
+// (8 groups of 4, no padding bits).
 
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const CROCKFORD_DEC = (() => {
@@ -1135,14 +1136,14 @@ function crockfordDecode(s, byteLen) {
   return out;
 }
 
-// encodeRootKey returns the Crockford base32 encoding of a 32-byte
-// RootKey (52 chars).
+// encodeRootKey returns the Crockford base32 encoding of a 20-byte
+// RootKey (32 chars, no padding bits).
 export function encodeRootKey(rk) {
-  if (rk.length !== ROOT_KEY_SIZE) throw new Error("kv: root key must be 32 bytes");
+  if (rk.length !== ROOT_KEY_SIZE) throw new Error("kv: root key must be 20 bytes");
   return crockfordEncode(rk);
 }
 
-// decodeRootKey parses the 52-char Crockford base32 RootKey form.
+// decodeRootKey parses the 32-char Crockford base32 RootKey form.
 export function decodeRootKey(s) { return crockfordDecode(s, ROOT_KEY_SIZE); }
 
 // encodeRegisterKey returns the Crockford base32 encoding of a 16-byte
@@ -1157,7 +1158,7 @@ export function encodeRegisterKey(rk) {
 export function decodeRegisterKey(s) { return crockfordDecode(s, REGISTER_KEY_SIZE); }
 
 // encodeBackup packs a RootKey and optional RegisterKey into a single
-// blob: 52 chars alone, 78 chars combined.
+// blob: 32 chars alone, 58 chars combined.
 export function encodeBackup(rootKey, registerKey = null) {
   if (registerKey === null) return encodeRootKey(rootKey);
   return encodeRootKey(rootKey) + encodeRegisterKey(registerKey);
@@ -1168,10 +1169,10 @@ export function encodeBackup(rootKey, registerKey = null) {
 export function decodeBackup(s) {
   const raw = s.replace(/[\s-]/g, "");
   switch (raw.length) {
-    case 52:
+    case 32:
       return { rootKey: decodeRootKey(raw), registerKey: null };
-    case 78:
-      return { rootKey: decodeRootKey(raw.slice(0, 52)), registerKey: decodeRegisterKey(raw.slice(52)) };
+    case 58:
+      return { rootKey: decodeRootKey(raw.slice(0, 32)), registerKey: decodeRegisterKey(raw.slice(32)) };
     default:
       throw new Error("kv: malformed pairing blob");
   }

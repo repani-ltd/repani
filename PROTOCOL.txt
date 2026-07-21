@@ -16,7 +16,7 @@
   ## Keys
 
   A vault is owned by one user across any number of devices sharing a
-  single 32-byte RootKey (random, or stretched from a passphrase by
+  single 20-byte RootKey (random, or stretched from a passphrase by
   iterated XOF). Everything else is derived by XOF over an 8-byte
   domain prefix:
 
@@ -327,8 +327,8 @@
   ## Pairing and rotation
 
   A device joins by receiving the RootKey out of band as Crockford
-  base32 (52 chars); the RegisterKey travels the same channel (26
-  chars). The new device derives VaultID, AuthKey, and the channel keys
+  base32 (32 chars, no padding bits -- displayed as 8 groups of 4);
+  the RegisterKey travels the same channel (26 chars). The new device derives VaultID, AuthKey, and the channel keys
   and registers. Rotation is out of band: to retire a device, generate
   a fresh RootKey on a trusted device and re-pair the others. The old
   vault becomes abandoned storage the retired device can still read but
