@@ -147,6 +147,27 @@ func TestEntriesAndAddEntries(t *testing.T) {
 	}
 }
 
+func TestVaults(t *testing.T) {
+	srv := mustNew(t, "")
+	if got := srv.Vaults(); len(got) != 0 {
+		t.Fatalf("fresh server serves %d vaults", len(got))
+	}
+	rk, _ := vault.NewRandomRootKey()
+	vid := vault.DeriveVaultID(rk)
+	if err := srv.EnsureVault(vid, vault.DeriveAuthKey(rk)); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Vaults(); len(got) != 1 || got[0] != vid {
+		t.Fatalf("Vaults = %v, want [%x]", got, vid[:4])
+	}
+	if err := srv.DropVault(vid); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Vaults(); len(got) != 0 {
+		t.Fatalf("dropped vault still served")
+	}
+}
+
 func TestSetNoPush(t *testing.T) {
 	srv := mustNew(t, "")
 	rk, _ := vault.NewRandomRootKey()

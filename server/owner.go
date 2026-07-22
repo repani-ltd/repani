@@ -133,3 +133,16 @@ func (s *Server) SetNoPush(vid vault.VaultID, v bool) error {
 	st.mu.Unlock()
 	return nil
 }
+
+// Vaults returns the IDs of every vault currently being served. An
+// embedder uses it to sweep vaults its own records no longer name
+// (e.g. residue of a crash between creating and announcing one).
+func (s *Server) Vaults() []vault.VaultID {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]vault.VaultID, 0, len(s.vaults))
+	for vid := range s.vaults {
+		out = append(out, vid)
+	}
+	return out
+}
