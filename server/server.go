@@ -83,6 +83,7 @@ type vaultState struct {
 	s2c     vault.ChannelKey
 	bytes   uint64
 	dir     string
+	noPush  bool // refuse wire PUSH; owner AddEntries still writes
 }
 
 // NewWithOptions constructs a Server.
@@ -312,8 +313,14 @@ func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, seal
 		case wire.OpPull:
 			page = st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
 		case wire.OpPush:
+			if st.noPush {
+				// A no-push vault has a zero-entry push budget: its
+				// published credential grants read and nothing else.
+				status = wire.StatusQuota
+				break
+			}
 			var newEntries []vault.Entry
-			newEntries, status = s.validateNew(st, req.Entries)
+			newEntries, status = s.validateNew(st, req.Entries, true)
 			if status == wire.StatusOK {
 				var err error
 				pushed, err = addValidatedLocked(st, newEntries)
@@ -353,11 +360,13 @@ func addValidatedLocked(st *vaultState, entries []vault.Entry) (int, error) {
 	return added, nil
 }
 
-// validateNew enforces skew and quota on the entries the server does not
-// already hold; re-pushing an accepted entry is a no-op and not
-// re-judged. Returns the new entries and StatusOK, or nil and a
-// rejecting status.
-func (s *Server) validateNew(st *vaultState, pushes []vault.Entry) ([]vault.Entry, byte) {
+// validateNew enforces quota -- and, when checkSkew is set, timestamp
+// skew -- on the entries the server does not already hold; re-pushing
+// an accepted entry is a no-op and not re-judged. The wire PUSH path
+// checks skew; the owner API does not (an owner legitimately writes
+// entries carrying preserved historical timestamps). Returns the new
+// entries and StatusOK, or nil and a rejecting status.
+func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew bool) ([]vault.Entry, byte) {
 	now := s.clock()
 	skew := s.quotas.TSSkewMs
 	newEntries := make([]vault.Entry, 0, len(pushes))
@@ -366,9 +375,11 @@ func (s *Server) validateNew(st *vaultState, pushes []vault.Entry) ([]vault.Entr
 		if st.s.Has(e.ID()) {
 			continue
 		}
-		d := int64(e.TsMs) - now
-		if d < -skew || d > skew {
-			return nil, wire.StatusBadRequest
+		if checkSkew {
+			d := int64(e.TsMs) - now
+			if d < -skew || d > skew {
+				return nil, wire.StatusBadRequest
+			}
 		}
 		newEntries = append(newEntries, e)
 		newBytes += uint64(e.Size())

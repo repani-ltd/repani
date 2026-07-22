@@ -17,7 +17,6 @@ var (
 	ErrUnknownVault    = errors.New("server: unknown vault")
 	ErrAuthKeyMismatch = errors.New("server: vault exists with a different auth key")
 	ErrQuota           = errors.New("server: quota exceeded")
-	ErrEntrySkew       = errors.New("server: entry timestamp outside skew window")
 )
 
 // EnsureVault creates the vault for vid with the given channel root, or
@@ -84,11 +83,13 @@ func (s *Server) Entries(vid vault.VaultID) ([]vault.Entry, error) {
 	return st.s.Sorted(), nil
 }
 
-// AddEntries adds entries to the vault, applying the same skew and
-// quota validation as a PUSH frame. Idempotent for entries the vault
-// already holds. Unlike a PUSH it never fires Options.OnPush, so an
-// owner writing back into a vault from inside an OnPush-triggered
-// handler cannot re-trigger itself.
+// AddEntries adds entries to the vault, applying the same quota
+// validation as a PUSH frame but not its timestamp-skew check: the
+// owner is trusted and legitimately writes entries carrying preserved
+// historical timestamps (e.g. copies that keep their source ts_ms).
+// Idempotent for entries the vault already holds. Unlike a PUSH it
+// never fires Options.OnPush, so an owner writing back into a vault
+// from inside an OnPush-triggered handler cannot re-trigger itself.
 func (s *Server) AddEntries(vid vault.VaultID, entries []vault.Entry) error {
 	s.mu.Lock()
 	st, ok := s.vaults[vid]
@@ -98,16 +99,35 @@ func (s *Server) AddEntries(vid vault.VaultID, entries []vault.Entry) error {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	newEntries, status := s.validateNew(st, entries)
+	newEntries, status := s.validateNew(st, entries, false)
 	switch status {
 	case wire.StatusOK:
 	case wire.StatusQuota:
 		return ErrQuota
-	case wire.StatusBadRequest:
-		return ErrEntrySkew
 	default:
 		panic("server: validateNew returned unknown status")
 	}
 	_, err := addValidatedLocked(st, newEntries)
 	return err
+}
+
+// SetNoPush marks the vault as refusing wire PUSH frames (a PUSH gets
+// StatusQuota: the vault's push budget is zero entries). PROBE and
+// PULL are unaffected, as is the owner's AddEntries. Intended for
+// vaults whose RootKey is published to grant read access -- the flag
+// is what keeps the published credential read-only. It is not
+// persisted: an embedder re-asserts it right after EnsureVault on
+// every start, and before then the vault does not exist, so no
+// unguarded window opens.
+func (s *Server) SetNoPush(vid vault.VaultID, v bool) error {
+	s.mu.Lock()
+	st, ok := s.vaults[vid]
+	s.mu.Unlock()
+	if !ok {
+		return ErrUnknownVault
+	}
+	st.mu.Lock()
+	st.noPush = v
+	st.mu.Unlock()
+	return nil
 }

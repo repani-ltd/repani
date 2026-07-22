@@ -117,14 +117,16 @@ func TestEntriesAndAddEntries(t *testing.T) {
 		t.Fatalf("Entries on unknown vault: %v", err)
 	}
 
+	// Far outside the push-skew window: the owner API accepts it (an
+	// owner legitimately writes preserved historical timestamps), and
+	// it counts toward MaxEntries below.
 	old := mkEntry(t, rk, uint64(now-120_000), "old", "\x00v")
-	if err := srv.AddEntries(vid, []vault.Entry{old}); !errors.Is(err, ErrEntrySkew) {
-		t.Fatalf("out-of-skew AddEntries: %v, want ErrEntrySkew", err)
+	if err := srv.AddEntries(vid, []vault.Entry{old}); err != nil {
+		t.Fatalf("historical-ts AddEntries: %v", err)
 	}
 
 	a := mkEntry(t, rk, uint64(now+2), "a", "\x001")
-	b := mkEntry(t, rk, uint64(now+1), "b", "\x002")
-	if err := srv.AddEntries(vid, []vault.Entry{a, b}); err != nil {
+	if err := srv.AddEntries(vid, []vault.Entry{a}); err != nil {
 		t.Fatal(err)
 	}
 	// Idempotent re-add.
@@ -140,8 +142,50 @@ func TestEntriesAndAddEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].ID() != b.ID() || got[1].ID() != a.ID() {
+	if len(got) != 2 || got[0].ID() != old.ID() || got[1].ID() != a.ID() {
 		t.Fatalf("Entries returned %d entries or wrong canonical order", len(got))
+	}
+}
+
+func TestSetNoPush(t *testing.T) {
+	srv := mustNew(t, "")
+	rk, _ := vault.NewRandomRootKey()
+	vid := vault.DeriveVaultID(rk)
+	if err := srv.EnsureVault(vid, vault.DeriveAuthKey(rk)); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.SetNoPush(vault.VaultID{}, true); !errors.Is(err, ErrUnknownVault) {
+		t.Fatalf("SetNoPush on unknown vault: %v", err)
+	}
+	if err := srv.SetNoPush(vid, true); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, srv, rk, testRegKey)
+
+	// Wire PUSH is refused with QUOTA; nothing is stored.
+	e := mkEntry(t, rk, nowMs(), "k", "\x00v")
+	if resp, pre := h.push([]vault.Entry{e}); pre != 0 || resp.Status != wire.StatusQuota {
+		t.Fatalf("push on no-push vault: pre=0x%02x status=%d, want quota", pre, resp.Status)
+	}
+	if got, _ := srv.Entries(vid); len(got) != 0 {
+		t.Fatalf("no-push vault stored %d entries", len(got))
+	}
+
+	// The owner still writes, and PROBE / PULL still serve.
+	if err := srv.AddEntries(vid, []vault.Entry{e}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, pre := h.pull(0, vault.EntryID{}); pre != 0 || resp.Status != wire.StatusOK || len(resp.Entries) != 1 {
+		t.Fatalf("pull on no-push vault: pre=0x%02x status=%d entries=%d", pre, resp.Status, len(resp.Entries))
+	}
+
+	// The flag clears.
+	if err := srv.SetNoPush(vid, false); err != nil {
+		t.Fatal(err)
+	}
+	e2 := mkEntry(t, rk, nowMs(), "k2", "\x00v2")
+	if resp, pre := h.push([]vault.Entry{e2}); pre != 0 || resp.Status != wire.StatusOK {
+		t.Fatalf("push after clearing no-push: pre=0x%02x status=%d", pre, resp.Status)
 	}
 }
 

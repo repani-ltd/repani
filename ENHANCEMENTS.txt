@@ -1,0 +1,104 @@
+# ASCON-KV POSSIBLE ENHANCEMENTS
+
+  Design notes for capabilities kv deliberately does not have yet.
+  Nothing here is implemented, promised, or wire-allocated; each entry
+  records a problem we know about, the shape of the fix we would build,
+  and the trigger that would justify building it. Both entries below
+  come from studying the Fossil SCM sync protocol (fossil-scm.org,
+  doc/trunk/www/sync.wiki), which is the same design as kv's sync — a
+  G-set of content-addressed artifacts reconciled through a stateless
+  server — with two decades of production scar tissue.
+
+  ## 1. Hash-catalog reconciliation (Fossil's igot/gimme)
+
+  Problem. The reconcile walk discovers divergence by re-transferring
+  whole entries: PULL re-sends entries the client already holds, and
+  PUSH is dedup-tolerant, re-sending the window's overlap. When the
+  divergence is backdated below the look-back window, the walk widens
+  toward anchor zero and the worst case moves O(vault bytes) to
+  reconcile a one-entry difference.
+
+  Fossil's answer. Never ship content to discover a difference. Peers
+  exchange bare hashes ("igot" cards), record hashes they lack as
+  phantoms, and request exactly those ("gimme" cards). Discovery costs
+  O(set size x hash width); transfer costs O(divergence).
+
+  kv shape. Two new SYNC ops beside PROBE/PULL/PUSH:
+
+    IDS(cursor)   a page of (ts_ms(8) || entry_id(16)) pairs in
+                  canonical order strictly after cursor. 24 bytes per
+                  entry: one 64 KiB page catalogues ~2,700 entries.
+    GET(ids)      the whole entries for the listed ids the server
+                  holds, subject to the same PAGE_BYTES budget.
+
+  The client walks IDS to hold the server's full catalogue, diffs
+  against its own store locally, then GETs exactly what it lacks and
+  PUSHes exactly what the server lacks. The server stays stateless;
+  both ops are pure reads against data it already indexes (SetHashIDs
+  caches precisely this catalogue). Phantom bookkeeping — the want-list
+  between pages — is client-local and needs no protocol support.
+
+  Not taken from Fossil: cluster artifacts. Fossil needs them because
+  an unordered artifact DAG has no canonical order to page over, so
+  the have-list must be compressed into synced content. kv's
+  (ts_ms, entry_id) canonical order plus a cursor does that job with
+  no extra artifact kind, and the SetHash PROBE already makes steady
+  state O(1).
+
+  Trigger. Build when a full walk is a measured cost — large vaults
+  that diverge below the window in practice. Steady state (PROBE
+  match) and the fast path (push-recent then PROBE) are unaffected
+  today, so this is an optimisation of the rare path only.
+
+  ## 2. Purge and shun (true deletion from an append-only set)
+
+  Problem. The vault is append-forever. A tombstone hides a key from
+  the replayed view, but the superseded entries remain in every log
+  and on the server, still decryptable by any RootKey holder and
+  counting against MAX_ENTRIES / MAX_VAULT_BYTES. Two consequences:
+  vault growth is unbounded, and "remove that secret I pasted by
+  accident" cannot actually be satisfied. Local log surgery alone
+  (the removed LogStore.Rewrite primitive) is a trap: any locally
+  purged entry is resurrected by the next sync from any peer that
+  still holds it.
+
+  Fossil's answer. Shunning: delete the artifact AND persist its hash
+  on a shun list, so a shunned artifact is refused on re-receipt and
+  never re-requested. The deletion and the memory of the deletion
+  travel together; without the second half, deletion cannot stick in
+  a replicated G-set.
+
+  kv shape. Two coordinated pieces:
+
+    PURGE(ids)    a new SYNC op: the server deletes the listed entries.
+                  Sealed under K_c2s like any SYNC, so only a channel
+                  key holder can purge; the server already stores
+                  entry ids, so it learns nothing new.
+    shun entry    a normal sealed entry under a reserved key convention
+                  (client-layer, CLIENT.txt territory), value = the
+                  shunned entry_ids. It replicates through ordinary
+                  sync. Each device, on replay, drops shunned entries
+                  from its local log, excludes them from its SetHash
+                  and pushes, and skips them on pull commit.
+
+  The shun entry is what makes the purge stick: a lagging device that
+  still holds a purged entry learns the shun set before (or while)
+  reconciling and refuses to push the corpse back. Once all devices
+  have converged, SetHash equality holds again with the entries gone
+  everywhere. The server stays blind throughout — it sees only ids it
+  already stored.
+
+  Open questions for the real design: whether PURGE requires the shun
+  entry to exist first (ordering), how a shun entry itself is ever
+  compacted, and whether TS_SKEW_MS interacts with replaying old shun
+  entries on a fresh device. Resolve these in PROTOCOL.txt when the
+  feature is actually scheduled.
+
+  Trigger. Build when a vault approaches its quota, or the first time
+  a secret must be verifiably removed from all devices and the server.
+  This is the more important of the two entries: it is a semantic
+  capability kv currently cannot offer at all, and Fossil is the
+  existence proof that every long-lived append-only replicated store
+  eventually needs it.
+
+  == This is it. ==
