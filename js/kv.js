@@ -1008,7 +1008,8 @@ export class Client {
   // replay decrypts every entry in canonical order; later entries
   // override earlier ones. Entries that fail to open are silently
   // skipped (they stay in the store so the set still matches the
-  // server's). Returns Map(latin1 key -> {key, value, fmt, tomb}).
+  // server's). Returns Map(latin1 key -> {key, value, fmt, ts,
+  // tomb}); ts is the winning entry's ts_ms as BigInt.
   async replay() {
     const out = new Map();
     for (const { entry } of await this.store.sortedPairs()) {
@@ -1020,17 +1021,18 @@ export class Client {
       }
       if (kva === null) continue;
       const { fmt, value, tomb } = parseValue(kva.value);
-      out.set(idHex(kva.key), { key: kva.key, value, fmt, tomb });
+      out.set(idHex(kva.key), { key: kva.key, value, fmt, ts: entry.tsMs, tomb });
     }
     return out;
   }
 
-  // get returns {value, fmt} for key (Uint8Array or string), or null.
+  // get returns {value, fmt, ts} for key (Uint8Array or string), or
+  // null.
   async get(key) {
     if (typeof key === "string") key = te.encode(key);
     const kv = (await this.replay()).get(idHex(key));
     if (!kv || kv.tomb) return null;
-    return { value: kv.value, fmt: kv.fmt };
+    return { value: kv.value, fmt: kv.fmt, ts: kv.ts };
   }
 
   // list returns the live keys as Uint8Arrays, sorted bytewise.
@@ -1043,12 +1045,13 @@ export class Client {
     return out;
   }
 
-  // all returns every live pair as [{key, value, fmt}], sorted by key.
-  // fmt is the CLIENT.txt format tag; value has the tag stripped.
+  // all returns every live pair as [{key, value, fmt, ts}], sorted by
+  // key. fmt is the CLIENT.txt format tag; value has the tag
+  // stripped; ts is the winning entry's ts_ms as BigInt.
   async all() {
     const out = [];
     for (const kv of (await this.replay()).values()) {
-      if (!kv.tomb) out.push({ key: kv.key, value: kv.value, fmt: kv.fmt });
+      if (!kv.tomb) out.push({ key: kv.key, value: kv.value, fmt: kv.fmt, ts: kv.ts });
     }
     out.sort((a, b) => bytesCompare(a.key, b.key));
     return out;

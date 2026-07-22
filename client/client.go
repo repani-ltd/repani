@@ -225,6 +225,7 @@ func (c *Client) nextTs() uint64 {
 type keyValue struct {
 	value []byte
 	fmt   byte
+	ts    uint64
 	tomb  bool
 }
 
@@ -242,7 +243,7 @@ func (c *Client) replay() map[string]keyValue {
 			continue
 		}
 		fmtTag, value, tomb := ParseValue(sv)
-		out[string(k)] = keyValue{value: value, fmt: fmtTag, tomb: tomb}
+		out[string(k)] = keyValue{value: value, fmt: fmtTag, ts: e.TsMs, tomb: tomb}
 	}
 	return out
 }
@@ -270,11 +271,13 @@ func (c *Client) List() ([]string, error) {
 }
 
 // LiveEntry is a live (key, value) pair. Fmt is the value's format tag
-// (CLIENT.txt); Value is the payload with the tag already stripped.
+// (CLIENT.txt); Value is the payload with the tag already stripped; Ts
+// is the winning entry's ts_ms.
 type LiveEntry struct {
 	Key   []byte
 	Value []byte
 	Fmt   byte
+	Ts    uint64
 }
 
 // All returns every live (key, value) pair, sorted by key.
@@ -289,7 +292,7 @@ func (c *Client) All() ([]LiveEntry, error) {
 	sort.Strings(keys)
 	out := make([]LiveEntry, len(keys))
 	for i, k := range keys {
-		out[i] = LiveEntry{Key: []byte(k), Value: m[k].value, Fmt: m[k].fmt}
+		out[i] = LiveEntry{Key: []byte(k), Value: m[k].value, Fmt: m[k].fmt, Ts: m[k].ts}
 	}
 	return out, nil
 }
