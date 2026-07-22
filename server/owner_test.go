@@ -179,6 +179,15 @@ func TestSetNoPush(t *testing.T) {
 		t.Fatalf("pull on no-push vault: pre=0x%02x status=%d entries=%d", pre, resp.Status, len(resp.Entries))
 	}
 
+	// A dedup no-op (re-pushing what the vault already holds) acks OK,
+	// so a read-only client's pull-then-push walk converges.
+	if resp, pre := h.push([]vault.Entry{e}); pre != 0 || resp.Status != wire.StatusOK {
+		t.Fatalf("no-op push on no-push vault: pre=0x%02x status=%d, want OK", pre, resp.Status)
+	}
+	if got, _ := srv.Entries(vid); len(got) != 1 {
+		t.Fatalf("no-op push changed the vault: %d entries", len(got))
+	}
+
 	// The flag clears.
 	if err := srv.SetNoPush(vid, false); err != nil {
 		t.Fatal(err)

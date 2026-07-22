@@ -313,14 +313,16 @@ func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, seal
 		case wire.OpPull:
 			page = st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
 		case wire.OpPush:
-			if st.noPush {
-				// A no-push vault has a zero-entry push budget: its
-				// published credential grants read and nothing else.
-				status = wire.StatusQuota
-				break
-			}
 			var newEntries []vault.Entry
 			newEntries, status = s.validateNew(st, req.Entries, true)
+			if status == wire.StatusOK && st.noPush && len(newEntries) > 0 {
+				// A no-push vault accepts nothing new over the wire: its
+				// published credential grants read and nothing else. A
+				// dedup no-op (re-pushing entries the vault already
+				// holds) still acks OK, so a read-only client's
+				// pull-then-push walk converges instead of erroring.
+				status = wire.StatusQuota
+			}
 			if status == wire.StatusOK {
 				var err error
 				pushed, err = addValidatedLocked(st, newEntries)

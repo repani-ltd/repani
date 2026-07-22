@@ -111,11 +111,13 @@ func (s *Server) AddEntries(vid vault.VaultID, entries []vault.Entry) error {
 	return err
 }
 
-// SetNoPush marks the vault as refusing wire PUSH frames (a PUSH gets
-// StatusQuota: the vault's push budget is zero entries). PROBE and
-// PULL are unaffected, as is the owner's AddEntries. Intended for
-// vaults whose RootKey is published to grant read access -- the flag
-// is what keeps the published credential read-only. It is not
+// SetNoPush marks the vault as accepting nothing new over the wire: a
+// PUSH carrying any entry the vault does not already hold gets
+// StatusQuota (a zero-entry push budget), while a dedup no-op still
+// acks OK so a read-only client's pull-then-push walk converges.
+// PROBE and PULL are unaffected, as is the owner's AddEntries.
+// Intended for vaults whose RootKey is published to grant read access
+// -- the flag is what keeps the published credential read-only. It is not
 // persisted: an embedder re-asserts it right after EnsureVault on
 // every start, and before then the vault does not exist, so no
 // unguarded window opens.
