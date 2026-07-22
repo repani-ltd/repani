@@ -110,3 +110,44 @@ func TestLinkAnnotation(t *testing.T) {
 		}
 	}
 }
+
+func TestMeasureProportional(t *testing.T) {
+	m := Measure(Sans)
+	if m.Width("iii") >= m.Width("mmm") {
+		t.Errorf("sans iii (%d) should be narrower than mmm (%d)",
+			m.Width("iii"), m.Width("mmm"))
+	}
+	if m.Space() <= 0 {
+		t.Errorf("sans space width = %d", m.Space())
+	}
+	mono := Measure(Regular)
+	if w := mono.Width("iii"); w != 3*fontByID(Regular).DefaultWidth {
+		t.Errorf("mono iii = %d, want uniform advances", w)
+	}
+	if a := AvgAdvance(Regular); a != fontByID(Regular).DefaultWidth {
+		t.Errorf("mono AvgAdvance = %d, want %d", a, fontByID(Regular).DefaultWidth)
+	}
+	if a := AvgAdvance(Sans); a <= 0 || a >= 1000 {
+		t.Errorf("sans AvgAdvance = %d, want a plausible sub-em advance", a)
+	}
+}
+
+func TestWordsTJ(t *testing.T) {
+	var p Page
+	p.SetFont(Sans, 10)
+	p.Words(72, 700, []string{"Hi", "yo"}, []int{300})
+	s := string(p.Bytes())
+	if !strings.Contains(s, "] TJ") {
+		t.Errorf("Words did not emit a TJ array:\n%s", s)
+	}
+	if !strings.Contains(s, " -300 ") {
+		t.Errorf("Words did not emit the gap adjustment:\n%s", s)
+	}
+	// Single word: no adjustments.
+	var p2 Page
+	p2.SetFont(Sans, 10)
+	p2.Words(72, 700, []string{"solo"}, nil)
+	if s2 := string(p2.Bytes()); !strings.Contains(s2, "TJ") {
+		t.Errorf("single-word Words did not draw:\n%s", s2)
+	}
+}

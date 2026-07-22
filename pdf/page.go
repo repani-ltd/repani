@@ -5,6 +5,8 @@ package pdf
 import (
 	"fmt"
 	"strings"
+
+	"github.com/pavlos/typeset/pdf/ttf"
 )
 
 // Page builds one PDF page content stream. Get pages into a document
@@ -48,6 +50,13 @@ func (p *Page) Text(x, y float64, s string) {
 // records rune usage for subsetting. BMP-only: runes above U+FFFF
 // are replaced.
 func (p *Page) show(s string) {
+	p.hexString(s)
+	p.buf.WriteString(" Tj\n")
+}
+
+// hexString writes s as an Identity-H hex string, recording rune
+// usage for subsetting.
+func (p *Page) hexString(s string) {
 	p.buf.WriteByte('<')
 	for _, r := range s {
 		if r > 0xFFFF {
@@ -56,7 +65,31 @@ func (p *Page) show(s string) {
 		fmt.Fprintf(&p.buf, "%04X", r)
 		p.recordRune(r)
 	}
-	p.buf.WriteString("> Tj\n")
+	p.buf.WriteByte('>')
+}
+
+// Words draws words on one line starting at (x, y) in the current
+// font, advancing gaps[i] thousandths of an em between words[i] and
+// words[i+1] (so len(gaps) == len(words)-1). Identity-H text ignores
+// the Tw word-spacing operator, so justification is expressed as TJ
+// position adjustments -- integers, keeping output deterministic.
+func (p *Page) Words(x, y float64, words []string, gaps []int) {
+	if len(words) == 0 {
+		return
+	}
+	p.buf.WriteString("BT\n")
+	fmt.Fprintf(&p.buf, "/%s %s Tf\n", string(p.font), ff(p.size))
+	fmt.Fprintf(&p.buf, "%s %s Td\n", ff(x), ff(y))
+	p.buf.WriteString("[ ")
+	for i, w := range words {
+		if i > 0 {
+			// TJ subtracts the number from the advance; negative
+			// values move right by gap/1000 em.
+			fmt.Fprintf(&p.buf, " %d ", -gaps[i-1])
+		}
+		p.hexString(w)
+	}
+	p.buf.WriteString(" ] TJ\nET\n")
 }
 
 func (p *Page) recordRune(r rune) {
@@ -110,6 +143,52 @@ func Width(s string, font Font, size float64) float64 {
 		}
 	}
 	return float64(total) * size / 1000.0
+}
+
+// Measurer reports text widths for one font in thousandths of an
+// em, independent of point size. It satisfies typeset.Measurer
+// structurally, connecting the line breakers to real font metrics.
+type Measurer struct{ f *ttf.TTFont }
+
+// Measure returns the Measurer for an embedded font.
+func Measure(font Font) Measurer { return Measurer{fontByID(font)} }
+
+// Width returns the advance width of s in thousandths of an em.
+func (m Measurer) Width(s string) int {
+	total := 0
+	for _, r := range s {
+		if w, ok := m.f.CIDWidths[int(r)]; ok {
+			total += w
+		} else {
+			total += m.f.DefaultWidth
+		}
+	}
+	return total
+}
+
+// Space returns the interword space advance in thousandths of an em.
+func (m Measurer) Space() int {
+	if w, ok := m.f.CIDWidths[' ']; ok {
+		return w
+	}
+	return m.f.DefaultWidth
+}
+
+// AvgAdvance returns the font's average lowercase a-z advance in
+// thousandths of an em: the "characters per line" unit that lets a
+// proportional layout honor a rune-count .width. For a monospace
+// font this equals the uniform advance.
+func AvgAdvance(font Font) int {
+	f := fontByID(font)
+	total := 0
+	for r := 'a'; r <= 'z'; r++ {
+		if w, ok := f.CIDWidths[int(r)]; ok {
+			total += w
+		} else {
+			total += f.DefaultWidth
+		}
+	}
+	return total / 26
 }
 
 // ff formats a float for PDF output (up to 4 decimals, trimmed).

@@ -202,7 +202,7 @@ func formatRow(cols []colSpec, cells []string) []string {
 // after hyphenation is hard-cut into chunks.
 func wrapCell(s string, width int) []string {
 	var out []string
-	for _, ln := range wrapRagged(s, width, hyphenPenaltyCell) {
+	for _, ln := range flattenLines(wrapRagged(s, width, hyphenPenaltyCell, Mono)) {
 		for runeLen(ln) > width {
 			r := []rune(ln)
 			out = append(out, string(r[:width]))

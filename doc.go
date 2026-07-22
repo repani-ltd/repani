@@ -55,9 +55,10 @@ LinkBlk as a ".link" meta line (which wire clients render as a
 proper link); the pdf writer renders headings bold and links as
 gray anchor text carrying a clickable annotation. A consumer that
 wants the data rather than a rendering walks Doc.Blocks directly.
-One rule binds all writers: every block occupies the same line
-count in each, so a text page and a PDF column stay the same
-object. Structural commands (.table, .pre, .end) and the layout
+One rule binds the monospace writers: every block occupies the same
+line count in each, so a text page and a PDF column stay the same
+object. A .font sans document trades that identity away for
+proportional prose (its line breaks are measured, not counted). Structural commands (.table, .pre, .end) and the layout
 trailer never appear in any output.
 
 # Layout trailer
@@ -69,11 +70,16 @@ has a default, so an attribute-free document is fully determined:
 	.width N    characters per line/column     (default 40)
 	.paper P    pdf paper: a4, a5, or letter   (default a4)
 	.cols N     pdf columns per page           (default 3)
+	.font F     pdf body face: mono or sans    (default mono)
 
-There is no font-size attribute: with a monospace face the PDF
-body size is derived -- columnWidth / (0.6em x .width) -- so both
-writers compose at the same character width and a text page is
-typographically one column of the PDF.
+There is no font-size attribute: the PDF body size is derived so a
+column holds exactly .width characters -- runes for the mono face
+(columnWidth / (0.6em x .width)), average lowercase advances for
+the sans face -- and both writers compose at the same character
+density, so a text page stays typographically one column of the
+PDF. With .font sans, prose and headings set proportionally with
+measured justification; verbatim blocks and tables keep their
+monospace layout (the text writer ignores .font entirely).
 
 # Tables
 
@@ -94,9 +100,13 @@ space; a header is followed by a dashed separator row.
 Paragraph filling is Knuth-Plass optimal line breaking with
 Knuth-Liang hyphenation (embedded TeX patterns for English and
 Greek). Justification uses a gap-aware cost model that prefers
-hyphenation over wide inter-word gaps, since monospace output
-distributes slack as whole spaces. JustifyParagraph is the
+hyphenation over wide inter-word gaps. All widths flow through a
+Measurer: the monospace measurer counts one unit per rune and
+distributes slack as whole spaces; proportional writers supply
+font-metric measurers (thousandths of an em) and spread slack
+continuously across the gaps. JustifyParagraph is the monospace
 paragraph-level primitive for writers holding parsed Para blocks;
+WrapLines and JustifyLines are the measured structured primitives;
 all document structure goes through Parse.
 
 Widths count runes, not display cells: double-width (CJK) glyphs

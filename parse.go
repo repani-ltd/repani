@@ -51,10 +51,11 @@ type Layout struct {
 	Width int    // characters per line/column
 	Paper string // "a4", "a5", or "letter"
 	Cols  int    // pdf columns per page
+	Font  string // "mono" or "sans"; proportional writers honor it
 }
 
 // DefaultLayout is the layout of a document with no trailer.
-func DefaultLayout() Layout { return Layout{Width: 40, Paper: "a4", Cols: 3} }
+func DefaultLayout() Layout { return Layout{Width: 40, Paper: "a4", Cols: 3, Font: "mono"} }
 
 // Doc is a parsed document.
 type Doc struct {
@@ -275,6 +276,13 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 			return bad()
 		}
 		return set(func() { p.doc.Layout.Cols = v })
+	case ".font":
+		switch rest {
+		case "mono", "sans":
+			return set(func() { p.doc.Layout.Font = rest })
+		default:
+			return bad()
+		}
 	}
 	return false, nil
 }

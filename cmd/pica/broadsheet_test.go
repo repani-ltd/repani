@@ -242,3 +242,30 @@ func TestFlow_RepeatTallerThanColumnTerminates(t *testing.T) {
 		t.Fatalf("suspiciously many columns (%d): non-progress split?", len(cols))
 	}
 }
+
+func TestBroadsheet_Sans(t *testing.T) {
+	src := "The Daily Fable\n\n# Weather\n\n" +
+		strings.Repeat("The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow. ", 6) +
+		"\n\n.table 10L 6R\nCity | Temp\nAthens | 31\nNicosia | 34\n.end\n\n.link https://example.com Example\n\n.width 40\n.cols 2\n.font sans\n"
+	doc, err := typeset.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b1, err := broadsheet(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, err := broadsheet(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b1), "FiraSans-Regular") {
+		t.Error("sans document does not embed Fira Sans")
+	}
+	if !strings.Contains(string(b1), "FiraMono-Regular") {
+		t.Error("sans document with a table should still embed Fira Mono")
+	}
+	if string(b1) != string(b2) {
+		t.Error("sans broadsheet is not deterministic")
+	}
+}

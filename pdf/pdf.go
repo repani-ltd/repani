@@ -56,16 +56,24 @@ var rawFiraMonoRegular []byte
 //go:embed fonts/FiraMono-Bold.ttf
 var rawFiraMonoBold []byte
 
+//go:embed fonts/FiraSans-Regular.ttf
+var rawFiraSansRegular []byte
+
+//go:embed fonts/FiraSans-Bold.ttf
+var rawFiraSansBold []byte
+
 // Font identifies one of the embedded fonts by its PDF resource tag.
 type Font string
 
 const (
-	Regular Font = "R" // Fira Mono Regular
-	Bold    Font = "B" // Fira Mono Bold
+	Regular  Font = "R"  // Fira Mono Regular
+	Bold     Font = "B"  // Fira Mono Bold
+	Sans     Font = "S"  // Fira Sans Regular (proportional)
+	SansBold Font = "SB" // Fira Sans Bold (proportional)
 )
 
 // fontOrder defines a deterministic iteration order for all fonts.
-var fontOrder = []Font{Regular, Bold}
+var fontOrder = []Font{Regular, Bold, Sans, SansBold}
 
 // fontRegistry holds the parsed fonts, populated at init from the
 // embedded TTF files.
@@ -78,6 +86,8 @@ func init() {
 	}{
 		{rawFiraMonoRegular, Regular},
 		{rawFiraMonoBold, Bold},
+		{rawFiraSansRegular, Sans},
+		{rawFiraSansBold, SansBold},
 	} {
 		f, err := ttf.Parse(e.raw)
 		if err != nil {

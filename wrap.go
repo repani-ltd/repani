@@ -1,12 +1,71 @@
 // Knuth-Plass optimal line breaking with hyphenation: the ragged
 // and justified paragraph breakers used by the writers. Documented
 // in doc.go.
+//
+// All widths flow through a Measurer, which reports advances in
+// abstract integer units. The monospace measurer (Mono) counts one
+// unit per rune, reproducing classic fixed-width behavior; the PDF
+// writer supplies a font-metric measurer in thousandths of an em.
+// The cost constants are calibrated in characters squared, so every
+// slack-derived cost is normalized by the measurer's space width
+// before it meets them.
 package typeset
 
 import (
 	"fmt"
 	"strings"
 )
+
+// Measurer reports advance widths in abstract integer units. Any
+// consistent unit works: the breakers only compare widths against
+// the wrap width and normalize costs by Space(). Width must be
+// additive over concatenation for the hyphen math to hold.
+type Measurer interface {
+	Width(s string) int // advance width of s
+	Space() int         // natural interword space width
+}
+
+// monoMeasurer is the fixed-width measurer: one unit per rune.
+type monoMeasurer struct{}
+
+func (monoMeasurer) Width(s string) int { return runeLen(s) }
+func (monoMeasurer) Space() int         { return 1 }
+
+// Mono measures text for monospace surfaces: every rune, including
+// the interword space, is one unit wide.
+var Mono Measurer = monoMeasurer{}
+
+// Line is one wrapped line: its words in order plus the natural
+// width (word widths and one space per gap) in measurer units.
+// Renderers join words with single spaces (monospace) or spread the
+// line's slack across the gaps (justified proportional text). A
+// hyphenated break leaves the "-" on the line's last word.
+type Line struct {
+	Words []string
+	Width int
+}
+
+// lineOf assembles a Line from words, measuring the natural width.
+func lineOf(parts []string, m Measurer) Line {
+	w := 0
+	for i, p := range parts {
+		if i > 0 {
+			w += m.Space()
+		}
+		w += m.Width(p)
+	}
+	return Line{Words: parts, Width: w}
+}
+
+// flattenLines joins each line's words with single spaces: the
+// monospace natural-spacing rendering.
+func flattenLines(lines []Line) []string {
+	out := make([]string, len(lines))
+	for i, ln := range lines {
+		out[i] = strings.Join(ln.Words, " ")
+	}
+	return out
+}
 
 // checkWidth guards the layout entry points: a non-positive width is
 // a programmer error, not an input condition.
@@ -16,6 +75,23 @@ func checkWidth(width int) {
 	}
 }
 
+// WrapLines wraps ONE paragraph ragged-right under the measurer,
+// with the prose hyphen penalty. This is the structured primitive
+// behind wrapParagraph; proportional writers consume the Lines
+// directly.
+func WrapLines(para string, width int, m Measurer) []Line {
+	checkWidth(width)
+	return wrapRagged(para, width, hyphenPenaltyProse, m)
+}
+
+// JustifyLines chooses justified line breaks under the measurer,
+// returning lines at natural spacing: the caller distributes each
+// non-final line's slack (width minus Line.Width) across its gaps.
+func JustifyLines(para string, width int, m Measurer) []Line {
+	checkWidth(width)
+	return justifyWrap(para, width, m)
+}
+
 // JustifyParagraph wraps ONE paragraph of prose with the gap-aware
 // breaker and flushes every non-final line, returning the lines.
 // This is the paragraph-level primitive for writers that already
@@ -23,7 +99,7 @@ func checkWidth(width int) {
 // document-level convenience over raw prose.
 func JustifyParagraph(para string, width int) []string {
 	checkWidth(width)
-	lines := wrapParagraphJustify(para, width)
+	lines := flattenLines(justifyWrap(para, width, Mono))
 	for i := 0; i < len(lines)-1; i++ {
 		lines[i] = justifyLine(lines[i], width)
 	}
@@ -84,13 +160,14 @@ func (w word) hyphenParts(pi int) (prefix, suffix string) {
 	return string(runes[:cut]) + "-", string(runes[cut:])
 }
 
-// hyphenPrefixLen returns the rune length of the prefix
+// hyphenPrefixWidth returns the measured width of the prefix
 // (including the trailing "-") for breakpoint pi.
-func (w word) hyphenPrefixLen(pi int) int {
+func (w word) hyphenPrefixWidth(pi int, m Measurer) int {
 	if pi < 0 || pi >= len(w.points) {
-		return runeLen(w.text)
+		return m.Width(w.text)
 	}
-	return w.points[pi] + 1 // +1 for the "-"
+	runes := []rune(w.text)
+	return m.Width(string(runes[:w.points[pi]]) + "-")
 }
 
 // hyphenPenaltyProse is the cost of a hyphen break in ragged
@@ -103,12 +180,12 @@ const (
 )
 
 func wrapParagraph(para string, width int) []string {
-	return wrapRagged(para, width, hyphenPenaltyProse)
+	return flattenLines(wrapRagged(para, width, hyphenPenaltyProse, Mono))
 }
 
 // wrapRagged is the ragged-right Knuth-Plass breaker with the
 // hyphen penalty as a parameter.
-func wrapRagged(para string, width int, penalty float64) []string {
+func wrapRagged(para string, width int, penalty float64, m Measurer) []Line {
 	tokens := strings.Fields(para)
 	if len(tokens) == 0 {
 		return nil
@@ -128,13 +205,13 @@ func wrapRagged(para string, width int, penalty float64) []string {
 	hyph := make([]int, n)
 
 	cost[n] = 0
-	raggedDP(words, 0, n, width, penalty, cost, next, hyph)
+	raggedDP(words, 0, n, width, penalty, m, cost, next, hyph)
 
 	// Reconstruct lines from the DP solution. When a hyphen
 	// substitutes a suffix, recompute the break at that position so
 	// the next line accounts for the shorter token instead of the
 	// stale DP entry for the full word.
-	var lines []string
+	var lines []Line
 	i := 0
 	for i < n {
 		j := next[i]
@@ -152,7 +229,7 @@ func wrapRagged(para string, width int, penalty float64) []string {
 				text:   suffix,
 				points: defaultHyphenator.Hyphenate(suffix),
 			}
-			raggedDP(words, j, min(j+1, n), width, penalty, cost, next, hyph)
+			raggedDP(words, j, min(j+1, n), width, penalty, m, cost, next, hyph)
 			i = j
 		} else {
 			// Words [i..j) form a complete line.
@@ -162,7 +239,7 @@ func wrapRagged(para string, width int, penalty float64) []string {
 			i = j
 		}
 
-		lines = append(lines, strings.Join(parts, " "))
+		lines = append(lines, lineOf(parts, m))
 	}
 
 	return lines
@@ -173,8 +250,10 @@ func wrapRagged(para string, width int, penalty float64) []string {
 // ragged-right cost model. Positions >= end keep their existing
 // entries, which is what lets the reconstruction recompute a single
 // position after a hyphen substitution.
-func raggedDP(words []word, start, end, width int, penalty float64, cost []float64, next, hyph []int) {
+func raggedDP(words []word, start, end, width int, penalty float64, m Measurer, cost []float64, next, hyph []int) {
 	n := len(words)
+	sp := m.Space()
+	spsp := float64(sp) * float64(sp)
 	for i := end - 1; i >= start; i-- {
 		bestCost := 1e18
 		bestJ := i + 1
@@ -182,12 +261,12 @@ func raggedDP(words []word, start, end, width int, penalty float64, cost []float
 		lineLen := 0
 
 		for j := i; j < n; j++ {
-			wLen := runeLen(words[j].text)
+			wLen := m.Width(words[j].text)
 
 			if j == i {
 				lineLen = wLen
 			} else {
-				lineLen += 1 + wLen
+				lineLen += sp + wLen
 			}
 
 			if lineLen > width {
@@ -200,7 +279,7 @@ func raggedDP(words []word, start, end, width int, penalty float64, cost []float
 					break
 				}
 				if len(words[j].points) > 0 && j > i {
-					if hc, ok := tryHyphenAt(words[j], lineLen-wLen-1, width, penalty, cost[j]); ok && hc.cost < bestCost {
+					if hc, ok := tryHyphenAt(words[j], lineLen-wLen-sp, width, penalty, cost[j], m); ok && hc.cost < bestCost {
 						bestCost = hc.cost
 						bestJ = j
 						bestHyph = hc.point
@@ -212,10 +291,10 @@ func raggedDP(words []word, start, end, width int, penalty float64, cost []float
 			slack := float64(width - lineLen)
 			c := cost[j+1]
 			if j+1 < n {
-				c += slack * slack
+				c += slack * slack / spsp
 			} else if slack > float64(width/2) {
 				// Last line: only penalize if VERY short.
-				c += slack * slack / 4
+				c += slack * slack / 4 / spsp
 			}
 			if c < bestCost {
 				bestCost = c
@@ -237,24 +316,26 @@ type hyphenChoice struct {
 }
 
 // tryHyphenAt evaluates whether word w can be broken to fit on
-// the current line. spaceUsed is the rune count of the line so
+// the current line. spaceUsed is the measured width of the line so
 // far excluding the gap before w; pass -1 if w is the first
 // token on the line. penalty is the fixed cost of introducing a
 // hyphen. Returns the chosen breakpoint and the total cost
 // (slack^2 + penalty + tail cost) if a fit exists.
-func tryHyphenAt(w word, spaceUsed, width int, penalty, tailCost float64) (hyphenChoice, bool) {
+func tryHyphenAt(w word, spaceUsed, width int, penalty, tailCost float64, m Measurer) (hyphenChoice, bool) {
+	sp := m.Space()
+	spsp := float64(sp) * float64(sp)
 	for pi := len(w.points) - 1; pi >= 0; pi-- {
-		partLen := w.hyphenPrefixLen(pi)
+		partLen := w.hyphenPrefixWidth(pi, m)
 		var total int
 		if spaceUsed < 0 {
 			total = partLen
 		} else {
-			total = spaceUsed + 1 + partLen
+			total = spaceUsed + sp + partLen
 		}
 		if total <= width {
 			slack := float64(width - total)
 			return hyphenChoice{
-				cost:  slack*slack + penalty + tailCost,
+				cost:  slack*slack/spsp + penalty + tailCost,
 				point: pi + 1, // 1-based; consumed by hyphenParts as point-1
 			}, true
 		}
@@ -264,16 +345,33 @@ func tryHyphenAt(w word, spaceUsed, width int, penalty, tailCost float64) (hyphe
 
 // hyphenPenaltyJustify is the cost of a hyphen break in justified
 // mode. Much smaller than the ragged-right penalty (100 in
-// tryHyphenAt) because monospace justification distributes slack
-// as whole extra spaces between words -- hyphenation creates an
-// additional inter-word gap, spreading slack more evenly and
-// reducing the maximum gap width.
+// tryHyphenAt) because justification spreads slack across the
+// inter-word gaps -- hyphenation creates an additional gap,
+// spreading slack more evenly and reducing the maximum gap width.
 const hyphenPenaltyJustify = 6
 
+// gapCost is the justify cost of distributing slack over a line of
+// words tokens under the measurer. The monospace measurer models
+// whole extra spaces (justifyGapCost); proportional measurers
+// spread slack continuously, so the cost is the squared per-gap
+// widening in space-width units.
+func gapCost(slack, words int, m Measurer) float64 {
+	sp := m.Space()
+	if sp == 1 {
+		return justifyGapCost(slack, words)
+	}
+	spsp := float64(sp) * float64(sp)
+	if words <= 1 {
+		return float64(slack) * float64(slack) / spsp * 4
+	}
+	s := float64(slack)
+	return s * s / float64(words-1) / spsp
+}
+
 // justifyGapCost computes the visual cost of distributing slack
-// extra spaces across a justified line containing words tokens.
-// Each inter-word gap already has one natural space; the slack
-// spaces are distributed as evenly as possible (some gaps get
+// extra spaces across a monospace justified line containing words
+// tokens. Each inter-word gap already has one natural space; the
+// slack spaces are distributed as evenly as possible (some gaps get
 // floor(slack/gaps) extra, the rest get ceil). The cost is the
 // sum of squared extra-space counts, which penalises lines where
 // some gaps are much wider than others.
@@ -291,19 +389,19 @@ func justifyGapCost(slack, words int) float64 {
 	return float64(extra*(base+1)*(base+1) + (gaps-extra)*base*base)
 }
 
-// wrapParagraphJustify breaks a paragraph into lines optimised
-// for monospace justification. It uses the same backward-DP
-// structure as wrapParagraph but replaces the slack^2 cost with
-// justifyGapCost, which models the actual gap widths after space
-// distribution. It also attempts proactive hyphenation: even
-// when a word fits on the current line, it evaluates whether
-// splitting it would reduce gap widths on the justified result.
+// justifyWrap breaks a paragraph into lines optimised for
+// justification. It uses the same backward-DP structure as
+// wrapRagged but replaces the slack^2 cost with gapCost, which
+// models the actual gap widths after slack distribution. It also
+// attempts proactive hyphenation: even when a word fits on the
+// current line, it evaluates whether splitting it would reduce gap
+// widths on the justified result.
 //
 // During reconstruction, when a hyphenated suffix replaces the
 // original word, the break decision at that position is
 // recomputed so subsequent lines see the correct (shorter) token
 // instead of the stale DP entry for the full word.
-func wrapParagraphJustify(para string, width int) []string {
+func justifyWrap(para string, width int, m Measurer) []Line {
 	tokens := strings.Fields(para)
 	if len(tokens) == 0 {
 		return nil
@@ -324,12 +422,12 @@ func wrapParagraphJustify(para string, width int) []string {
 
 	cost[n] = 0
 
-	justifyDP(words, 0, n, width, cost, next, hyph)
+	justifyDP(words, 0, n, width, m, cost, next, hyph)
 
 	// Reconstruct lines from the DP solution. When a hyphen
 	// substitutes a suffix, recompute the break at that position
 	// so the next line accounts for the shorter token.
-	var lines []string
+	var lines []Line
 	i := 0
 	for i < n {
 		j := next[i]
@@ -346,7 +444,7 @@ func wrapParagraphJustify(para string, width int) []string {
 				text:   suffix,
 				points: defaultHyphenator.Hyphenate(suffix),
 			}
-			recomputeBreakAt(words, j, n, width, cost, next, hyph)
+			recomputeBreakAt(words, j, n, width, m, cost, next, hyph)
 			i = j
 		} else {
 			for k := i; k < j; k++ {
@@ -355,7 +453,7 @@ func wrapParagraphJustify(para string, width int) []string {
 			i = j
 		}
 
-		lines = append(lines, strings.Join(parts, " "))
+		lines = append(lines, lineOf(parts, m))
 	}
 
 	return lines
@@ -364,7 +462,9 @@ func wrapParagraphJustify(para string, width int) []string {
 // justifyDP runs the backward dynamic-programming pass for
 // positions [start, n). It fills cost, next, and hyph for each
 // position using the gap-aware justify cost model.
-func justifyDP(words []word, start, n, width int, cost []float64, next, hyph []int) {
+func justifyDP(words []word, start, n, width int, m Measurer, cost []float64, next, hyph []int) {
+	sp := m.Space()
+	spsp := float64(sp) * float64(sp)
 	for i := n - 1; i >= start; i-- {
 		bestCost := 1e18
 		bestJ := i + 1
@@ -372,11 +472,11 @@ func justifyDP(words []word, start, n, width int, cost []float64, next, hyph []i
 		lineLen := 0
 
 		for j := i; j < n; j++ {
-			wLen := runeLen(words[j].text)
+			wLen := m.Width(words[j].text)
 			if j == i {
 				lineLen = wLen
 			} else {
-				lineLen += 1 + wLen
+				lineLen += sp + wLen
 			}
 
 			wordsOnLine := j - i + 1
@@ -390,11 +490,11 @@ func justifyDP(words []word, start, n, width int, cost []float64, next, hyph []i
 				}
 				// Try hyphenating words[j] to fit.
 				if len(words[j].points) > 0 {
-					spaceUsed := lineLen - wLen - 1
+					spaceUsed := lineLen - wLen - sp
 					if j == i {
 						spaceUsed = -1
 					}
-					if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j]); ok && hc.cost < bestCost {
+					if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j], m); ok && hc.cost < bestCost {
 						bestCost = hc.cost
 						bestJ = j
 						bestHyph = hc.point
@@ -407,11 +507,11 @@ func justifyDP(words []word, start, n, width int, cost []float64, next, hyph []i
 			slack := width - lineLen
 			c := cost[j+1]
 			if j+1 < n {
-				c += justifyGapCost(slack, wordsOnLine)
-			} else if slack > width-5 {
+				c += gapCost(slack, wordsOnLine, m)
+			} else if slack > width-5*sp {
 				// Last line is not justified; only penalise
 				// orphan lines shorter than 5 characters.
-				c += float64(slack*slack) / 4
+				c += float64(slack) * float64(slack) / 4 / spsp
 			}
 			if c < bestCost {
 				bestCost = c
@@ -425,9 +525,9 @@ func justifyDP(words []word, start, n, width int, cost []float64, next, hyph []i
 			if j+1 < n && len(words[j].points) > 0 {
 				spaceUsed := -1
 				if j > i {
-					spaceUsed = lineLen - wLen - 1
+					spaceUsed = lineLen - wLen - sp
 				}
-				if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j]); ok && hc.cost < bestCost {
+				if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j], m); ok && hc.cost < bestCost {
 					bestCost = hc.cost
 					bestJ = j
 					bestHyph = hc.point
@@ -446,17 +546,19 @@ func justifyDP(words []word, start, n, width int, cost []float64, next, hyph []i
 // there. Only non-hyphenated breaks are evaluated; the
 // pre-computed cost array is reused for subsequent positions
 // (which still hold their original words).
-func recomputeBreakAt(words []word, pos, n, width int, cost []float64, next, hyph []int) {
+func recomputeBreakAt(words []word, pos, n, width int, m Measurer, cost []float64, next, hyph []int) {
+	sp := m.Space()
+	spsp := float64(sp) * float64(sp)
 	bestCost := 1e18
 	bestJ := pos + 1
 	lineLen := 0
 
 	for j := pos; j < n; j++ {
-		wLen := runeLen(words[j].text)
+		wLen := m.Width(words[j].text)
 		if j == pos {
 			lineLen = wLen
 		} else {
-			lineLen += 1 + wLen
+			lineLen += sp + wLen
 		}
 		if lineLen > width {
 			break
@@ -465,9 +567,9 @@ func recomputeBreakAt(words []word, pos, n, width int, cost []float64, next, hyp
 		slack := width - lineLen
 		c := cost[j+1]
 		if j+1 < n {
-			c += justifyGapCost(slack, wordsOnLine)
-		} else if slack > width-5 {
-			c += float64(slack*slack) / 4
+			c += gapCost(slack, wordsOnLine, m)
+		} else if slack > width-5*sp {
+			c += float64(slack) * float64(slack) / 4 / spsp
 		}
 		if c < bestCost {
 			bestCost = c
@@ -485,22 +587,23 @@ func recomputeBreakAt(words []word, pos, n, width int, cost []float64, next, hyp
 // tryHyphenAt (which returns the rightmost fit, optimal for
 // ragged-right), this tries every point because the gap-aware
 // cost is not monotonic in prefix length.
-func tryHyphenAtJustify(w word, spaceUsed, width, wordCount int, tailCost float64) (hyphenChoice, bool) {
+func tryHyphenAtJustify(w word, spaceUsed, width, wordCount int, tailCost float64, m Measurer) (hyphenChoice, bool) {
+	sp := m.Space()
 	best := hyphenChoice{}
 	found := false
 	for pi := len(w.points) - 1; pi >= 0; pi-- {
-		partLen := w.hyphenPrefixLen(pi)
+		partLen := w.hyphenPrefixWidth(pi, m)
 		var total int
 		if spaceUsed < 0 {
 			total = partLen
 		} else {
-			total = spaceUsed + 1 + partLen
+			total = spaceUsed + sp + partLen
 		}
 		if total > width {
 			continue
 		}
 		slack := width - total
-		c := justifyGapCost(slack, wordCount) + hyphenPenaltyJustify + tailCost
+		c := gapCost(slack, wordCount, m) + hyphenPenaltyJustify + tailCost
 		if !found || c < best.cost {
 			best = hyphenChoice{cost: c, point: pi + 1}
 			found = true

@@ -90,7 +90,7 @@ Mon | 31
 func TestParse_LayoutTrailer(t *testing.T) {
 	src := "T\n\nbody\n\n.width 32\n\n.paper a5\n.cols 2\n"
 	d := mustParse(t, src)
-	if d.Layout != (Layout{Width: 32, Paper: "a5", Cols: 2}) {
+	if d.Layout != (Layout{Width: 32, Paper: "a5", Cols: 2, Font: "mono"}) {
 		t.Errorf("Layout = %+v", d.Layout)
 	}
 
@@ -107,10 +107,14 @@ func TestParse_LayoutTrailer(t *testing.T) {
 	if _, err := Parse("T\n\n.width 32\n.width 40\n"); !errors.Is(err, ErrDuplicateAttr) {
 		t.Errorf("duplicate attr err = %v", err)
 	}
-	for _, bad := range []string{".width 5", ".width x", ".paper b5", ".cols 0", ".cols 9"} {
+	for _, bad := range []string{".width 5", ".width x", ".paper b5", ".cols 0", ".cols 9", ".font serif"} {
 		if _, err := Parse("T\n\n" + bad + "\n"); !errors.Is(err, ErrBadAttr) {
 			t.Errorf("Parse(%q) err = %v, want ErrBadAttr", bad, err)
 		}
+	}
+
+	if d := mustParse(t, "T\n\nbody\n\n.font sans\n"); d.Layout.Font != "sans" {
+		t.Errorf("Layout.Font = %q, want sans", d.Layout.Font)
 	}
 }
 

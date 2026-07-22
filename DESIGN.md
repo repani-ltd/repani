@@ -160,10 +160,23 @@ Resulting extension API has exactly two tiers:
    still only write composers (format the note body to an fblock); the
    reflow fixpoint lives once in core `flow`.
 
-## 3. Variable-width fonts (estimated, staged plan)
+## 3. Variable-width fonts (stages 1–3 and 5 DONE 2026-07-22)
 
-Assessed 2026-07-22: **~5 focused days, ~8 with tables polished on both
-backends; ~1–1.5k LOC delta.** Less than it looks, because:
+Implemented: `Measurer` interface + `Line` type in wrap.go (monospace is
+the `Mono` measurer; all golden tests unchanged), `WrapLines`/`JustifyLines`
+as the measured structured primitives, Fira Sans Regular+Bold embedded
+(`pdf.Sans`/`pdf.SansBold`), `pdf.Measure` (milli-em widths),
+`pdf.AvgAdvance`, `Page.Words` (TJ-array justification — note: PDF's Tw
+word-spacing operator does NOT apply to 2-byte Identity-H text, so gaps
+are TJ position adjustments in integer thousandths of an em), the
+`.font mono|sans` layout attribute, and the broadsheet sans path (`typo`
+struct; prose/headings/links measured, pre+tables stay mono at the size
+where .width runes fill the column). `.width` now means "average
+lowercase advances per line" under sans — same visual density contract.
+
+**Remaining: stage 4 (proportional table cells) is NOT done** — tables
+render monospace in both modes, by design for now. Everything below is
+the original estimate, kept for context:
 
 - **Metrics already exist.** `pdf.Width` (pdf/page.go, ~line 102) sums
   per-codepoint advances from parsed TTF `CIDWidths`; `pdf/ttf` does the
@@ -219,8 +232,9 @@ and that representation change ripples through APIs (not algorithms).
 
 ## 4. Suggested order of work
 
-1. Variable-width fonts, stages 1–5 above (churn, low design risk; the
-   Measurer/structured-line groundwork also benefits everything after).
+1. ~~Variable-width fonts, stages 1–3, 5~~ (done; see §3). Stage 4
+   (proportional table cells) remains, if wanted at all — mono tables in
+   a sans page read as deliberate typography.
 2. Composer registry: turn `compose`'s switch into command registration —
    the first concrete piece of the "Go handlers" architecture. Migrate
    `.table` and friends onto it as the proof.

@@ -225,6 +225,99 @@ func TestJustifyLine(t *testing.T) {
 	}
 }
 
+// --- Measured (proportional) wrapping ---
+
+// fakeMeasurer caricatures a proportional font in tenth-of-character
+// units: narrow i/l/t, wide m/w, everything else 10.
+type fakeMeasurer struct{}
+
+func (fakeMeasurer) Width(s string) int {
+	total := 0
+	for _, r := range s {
+		switch r {
+		case 'i', 'l', 'j', 't', 'f':
+			total += 4
+		case 'm', 'w', 'M', 'W':
+			total += 15
+		default:
+			total += 10
+		}
+	}
+	return total
+}
+func (fakeMeasurer) Space() int { return 5 }
+
+func TestWrapLines_MeasuredFits(t *testing.T) {
+	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing illuminated butterflies"
+	m := fakeMeasurer{}
+	lines := WrapLines(input, 300, m)
+	if len(lines) < 2 {
+		t.Fatalf("expected multiple lines, got %d", len(lines))
+	}
+	for i, ln := range lines {
+		if len(ln.Words) == 0 {
+			t.Errorf("line %d has no words", i)
+		}
+		if ln.Width > 300 {
+			t.Errorf("line %d: width %d exceeds 300: %v", i, ln.Width, ln.Words)
+		}
+		// Width must equal the re-measured natural width.
+		w := 0
+		for j, wd := range ln.Words {
+			if j > 0 {
+				w += m.Space()
+			}
+			w += m.Width(wd)
+		}
+		if w != ln.Width {
+			t.Errorf("line %d: Width %d, re-measured %d", i, ln.Width, w)
+		}
+	}
+}
+
+func TestJustifyLines_MeasuredSlack(t *testing.T) {
+	input := "The unprecedented international collaboration has fundamentally transformed the interconnected communities over several decades"
+	m := fakeMeasurer{}
+	width := 300
+	lines := JustifyLines(input, width, m)
+	if len(lines) < 2 {
+		t.Fatalf("expected multiple lines, got %d", len(lines))
+	}
+	for i, ln := range lines[:len(lines)-1] {
+		if ln.Width > width {
+			t.Errorf("line %d overfull: %d > %d", i, ln.Width, width)
+		}
+		// Sanity bound only: the caricature widths make tight gap
+		// bounds meaningless, but distributed slack should never
+		// approach pathological (many-space) gaps.
+		if gaps := len(ln.Words) - 1; gaps > 0 {
+			perGap := float64(width-ln.Width) / float64(gaps)
+			if perGap > 6*float64(m.Space()) {
+				t.Errorf("line %d: per-gap slack %.1f exceeds 6 spaces: %v",
+					i, perGap, ln.Words)
+			}
+		}
+	}
+}
+
+func TestJustifyLines_MonoMatchesJustifyParagraph(t *testing.T) {
+	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
+	lines := JustifyLines(input, testWidth, Mono)
+	flat := flattenLines(lines)
+	want := JustifyParagraph(input, testWidth)
+	if len(flat) != len(want) {
+		t.Fatalf("line count %d != %d", len(flat), len(want))
+	}
+	// Same breaks: collapsing justified spacing must recover the
+	// natural-spaced lines.
+	for i := range want {
+		collapsed := strings.Join(strings.Fields(want[i]), " ")
+		if collapsed != flat[i] {
+			t.Errorf("line %d: %q != %q", i, collapsed, flat[i])
+		}
+	}
+}
+
 func TestWrapVsJustify_Differ(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
 	ragged := strings.Join(wrapParagraph(input, testWidth), "\n")

@@ -69,11 +69,58 @@ const (
 	styleRule       // drawn as a hairline, occupies one line slot
 )
 
-// sline is one composed output line with its drawing style.
+// sline is one composed output line with its drawing style. Mono
+// lines carry pre-padded text; proportional lines carry words plus
+// the inter-word advances (thousandths of an em) that justify them.
+// In a sans document a non-empty text field only ever holds
+// verbatim or table content, which stays monospace by design.
 type sline struct {
 	text  string
+	words []string // proportional: words drawn with gaps
+	gaps  []int    // len(words)-1 advances between them
 	style style
 	href  string // non-empty: the line is a clickable link target
+}
+
+// typo is the writer's resolved typography for one document: body
+// size, the size at which .width monospace runes fill the column,
+// leading, and (proportional mode) the wrap width in thousandths
+// of an em.
+type typo struct {
+	sans   bool
+	ps     float64 // body point size
+	psMono float64 // pre/table point size; equals ps in mono mode
+	lineH  float64
+	units  int // sans: wrap width in thousandths of an em
+}
+
+// spread returns the inter-word advances for one composed line in
+// thousandths of an em: natural spaces on ragged and final lines;
+// on justified lines the slack is distributed evenly, leftmost
+// gaps taking the remainder, so the line fills the wrap width
+// exactly -- in integers, keeping the PDF deterministic.
+func spread(ln typeset.Line, units int, m pdf.Measurer, last bool) []int {
+	k := len(ln.Words) - 1
+	if k <= 0 {
+		return nil
+	}
+	gaps := make([]int, k)
+	sp := m.Space()
+	for i := range gaps {
+		gaps[i] = sp
+	}
+	slack := units - ln.Width
+	if last || slack <= 0 {
+		return gaps
+	}
+	base, extra := slack/k, slack%k
+	for i := range gaps {
+		gaps[i] += base
+		if i < extra {
+			gaps[i]++
+		}
+	}
+	return gaps
 }
 
 // seg is an atomic run of lines: a paragraph line, a table row (all
@@ -105,19 +152,40 @@ func (b fblock) height() int {
 // compose renders the document's blocks into flow blocks at the
 // document width. This is where writer identity applies: justified
 // paragraphs, bold headings without their marker, gray links.
-func compose(doc *typeset.Doc) ([]fblock, error) {
+// Proportional (sans) documents compose prose as measured word
+// lines; verbatim blocks and tables keep monospace layout in both
+// modes.
+func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 	width := doc.Layout.Width
 	var out []fblock
 	for _, blk := range doc.Blocks {
 		fb := fblock{tight: blk.Tight}
 		switch blk.Kind {
 		case typeset.Para:
-			for _, ln := range typeset.JustifyParagraph(blk.Text, width) {
-				fb.segs = append(fb.segs, seg{lines: []sline{{text: ln}}})
+			if t.sans {
+				m := pdf.Measure(pdf.Sans)
+				lines := typeset.JustifyLines(blk.Text, t.units, m)
+				for i, ln := range lines {
+					last := i == len(lines)-1
+					sl := sline{words: ln.Words, gaps: spread(ln, t.units, m, last)}
+					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+				}
+			} else {
+				for _, ln := range typeset.JustifyParagraph(blk.Text, width) {
+					fb.segs = append(fb.segs, seg{lines: []sline{{text: ln}}})
+				}
 			}
 
 		case typeset.Heading:
-			fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, width), style: styleBold}}}}
+			if t.sans {
+				m := pdf.Measure(pdf.SansBold)
+				for _, ln := range typeset.WrapLines(blk.Text, t.units, m) {
+					sl := sline{words: ln.Words, gaps: spread(ln, t.units, m, true), style: styleBold}
+					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+				}
+			} else {
+				fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, width), style: styleBold}}}}
+			}
 			fb.keepNext = true // flow guards the no-next-block case
 			fb.atomic = true
 
@@ -131,7 +199,16 @@ func compose(doc *typeset.Doc) ([]fblock, error) {
 			if label == "" {
 				label = url
 			}
-			fb.segs = []seg{{lines: []sline{{text: trunc(label, width), style: styleGray, href: url}}}}
+			if t.sans {
+				m := pdf.Measure(pdf.Sans)
+				for m.Width(label) > t.units && len([]rune(label)) > 1 {
+					r := []rune(label)
+					label = string(r[:len(r)-1])
+				}
+				fb.segs = []seg{{lines: []sline{{words: []string{label}, style: styleGray, href: url}}}}
+			} else {
+				fb.segs = []seg{{lines: []sline{{text: trunc(label, width), style: styleGray, href: url}}}}
+			}
 			fb.atomic = true
 
 		case typeset.TableBlk:
@@ -339,19 +416,35 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	usableW := pageW - 2*sheetMargin
 	colW := (usableW - float64(ncols-1)*sheetGutter) / float64(ncols)
 
-	// Derived body size: the column holds exactly .width runes.
-	ps := colW / (emWidth * float64(width))
+	// Derived body size: the column holds exactly .width characters
+	// -- runes for the mono face, average lowercase advances for the
+	// sans face, so .width means the same visual density in both.
+	sans := doc.Layout.Font == "sans"
+	psMono := colW / (emWidth * float64(width))
+	ps := psMono
+	units := 0
+	if sans {
+		units = width * pdf.AvgAdvance(pdf.Sans)
+		ps = colW * 1000 / float64(units)
+	}
 	if ps < minPs {
 		return nil, fmt.Errorf(
 			"derived body size %.1fpt is below %.1fpt: .width %d with .cols %d on %s leaves columns too narrow",
 			ps, minPs, width, ncols, doc.Layout.Paper)
 	}
 	lineH := ps * lineSpacing
+	t := typo{sans: sans, ps: ps, psMono: psMono, lineH: lineH, units: units}
 
-	// Masthead band on page one.
+	// Masthead band on page one. The floor of 8 average characters
+	// keeps short titles from ballooning.
 	topY := pageH - sheetMargin
 	title := doc.Title
-	mastPt := usableW / (emWidth * float64(max(len([]rune(title)), 8)))
+	mastFont := pdf.Bold
+	if sans {
+		mastFont = pdf.SansBold
+	}
+	floor1 := 8 * float64(pdf.AvgAdvance(mastFont)) / 1000
+	mastPt := usableW / max(pdf.Width(title, mastFont, 1), floor1)
 	mastPt = max(12, min(30, mastPt))
 	colTopFirst := topY - mastPt*1.35 - 10
 	colTopRest := topY
@@ -363,7 +456,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		return nil, fmt.Errorf("page too small for %d columns at %.1fpt", ncols, ps)
 	}
 
-	blocks, err := compose(doc)
+	blocks, err := compose(doc, t)
 	if err != nil {
 		return nil, err
 	}
@@ -398,8 +491,8 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		colTop := colTopRest
 		if pg == 0 {
 			colTop = colTopFirst
-			p.SetFont(pdf.Bold, mastPt)
-			w := pdf.Width(title, pdf.Bold, mastPt)
+			p.SetFont(mastFont, mastPt)
+			w := pdf.Width(title, mastFont, mastPt)
 			p.Text((pageW-w)/2, topY-mastPt, title)
 			p.StrokeGray(0)
 			p.Line(sheetMargin, colTop+lineH*0.6, pageW-sheetMargin, colTop+lineH*0.6, 1.0)
@@ -415,7 +508,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 				deepest = len(columns[idx])
 			}
 			x := sheetMargin + float64(c)*(colW+sheetGutter)
-			drawColumn(&p, columns[idx], x, colTop, colW, ps, lineH)
+			drawColumn(&p, columns[idx], x, colTop, colW, t)
 		}
 
 		// Hairline rules centered in the gutters, to content depth.
@@ -427,10 +520,14 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		}
 
 		// Page number, centered in the bottom margin.
-		p.SetFont(pdf.Regular, ps*0.9)
+		numFont := pdf.Regular
+		if sans {
+			numFont = pdf.Sans
+		}
+		p.SetFont(numFont, ps*0.9)
 		p.Gray(0.4)
 		num := fmt.Sprintf("- %d -", pg+1)
-		p.Text((pageW-pdf.Width(num, pdf.Regular, ps*0.9))/2, sheetMargin/2-2, num)
+		p.Text((pageW-pdf.Width(num, numFont, ps*0.9))/2, sheetMargin/2-2, num)
 		p.Gray(0)
 
 		pdoc.Add(&p)
@@ -438,14 +535,37 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	return pdoc.Bytes(), nil
 }
 
-// drawColumn renders one column's styled lines.
-func drawColumn(p *pdf.Page, lines []sline, x, top, colW, ps, lineH float64) {
-	y := top - ps
+// drawColumn renders one column's styled lines. Proportional lines
+// (words set) draw in the sans faces at the body size; text lines
+// are monospace -- everything in a mono document, and verbatim or
+// table content in a sans one, drawn at the size where .width runes
+// fill the column.
+func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
+	y := top - t.ps
 	for _, ln := range lines {
 		switch {
 		case ln.style == styleRule:
 			p.StrokeGray(0.3)
-			p.Line(x, y+ps*0.35, x+colW, y+ps*0.35, 0.5)
+			p.Line(x, y+t.ps*0.35, x+colW, y+t.ps*0.35, 0.5)
+
+		case len(ln.words) > 0:
+			font := pdf.Sans
+			if ln.style == styleBold {
+				font = pdf.SansBold
+			}
+			if ln.style == styleGray {
+				p.Gray(0.45)
+			}
+			p.SetFont(font, t.ps)
+			p.Words(x, y, ln.words, ln.gaps)
+			if ln.style == styleGray {
+				p.Gray(0)
+			}
+			if ln.href != "" {
+				w := lineWidthPt(ln, font, t.ps)
+				p.Link(x, y-t.ps*0.25, x+w, y+t.ps, ln.href)
+			}
+
 		case ln.text != "":
 			font := pdf.Regular
 			if ln.style == styleBold {
@@ -454,16 +574,29 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW, ps, lineH float64) {
 			if ln.style == styleGray {
 				p.Gray(0.45)
 			}
-			p.SetFont(font, ps)
+			p.SetFont(font, t.psMono)
 			p.Text(x, y, ln.text)
 			if ln.style == styleGray {
 				p.Gray(0)
 			}
 			if ln.href != "" {
-				w := pdf.Width(ln.text, font, ps)
-				p.Link(x, y-ps*0.25, x+w, y+ps, ln.href)
+				w := pdf.Width(ln.text, font, t.psMono)
+				p.Link(x, y-t.psMono*0.25, x+w, y+t.psMono, ln.href)
 			}
 		}
-		y -= lineH
+		y -= t.lineH
 	}
+}
+
+// lineWidthPt is the drawn width of a proportional line in points.
+func lineWidthPt(ln sline, font pdf.Font, ps float64) float64 {
+	m := pdf.Measure(font)
+	u := 0
+	for _, w := range ln.words {
+		u += m.Width(w)
+	}
+	for _, g := range ln.gaps {
+		u += g
+	}
+	return float64(u) * ps / 1000
 }
