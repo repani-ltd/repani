@@ -307,8 +307,12 @@ var ErrSyncStuck = errors.New("client: sync did not converge within round budget
 // created by the owner.
 var ErrNoRegisterKey = errors.New("client: no register key; cannot register with a gated server")
 
-// Sync reconciles the client's vault with the server. It registers if
-// needed, then:
+// Sync reconciles the client's vault with the server. Registration is
+// reactive: a client that believes itself unregistered registers first
+// only when a register key is installed; without one it proceeds
+// optimistically -- correct against a vault that already exists on the
+// server (e.g. a published read-only vault) -- and fails with
+// ErrNoRegisterKey only if the server answers UNKNOWN_VAULT. Then:
 //   - Fast path: pushes exactly the entries written since the last sync
 //     and PROBEs. If those were the only divergence the probe matches
 //     and sync is done — no pull, no walk.
@@ -333,7 +337,7 @@ func (c *Client) Sync(ctx context.Context) error {
 		registered := c.registered
 		c.mu.Unlock()
 
-		if !registered {
+		if !registered && c.hasRegisterKey() {
 			if err := c.register(ctx, st); err != nil {
 				return err
 			}
@@ -344,7 +348,9 @@ func (c *Client) Sync(ctx context.Context) error {
 			if pre, err := c.pushEntries(ctx, recent, st); err != nil {
 				return err
 			} else if pre == wire.ErrUnknownVault {
-				c.SetRegistered(false)
+				if err := c.unknownVault(); err != nil {
+					return err
+				}
 				continue
 			} else if pre != 0 {
 				return preChannelErr("push", pre)
@@ -356,7 +362,9 @@ func (c *Client) Sync(ctx context.Context) error {
 			return err
 		}
 		if pre == wire.ErrUnknownVault {
-			c.SetRegistered(false)
+			if err := c.unknownVault(); err != nil {
+				return err
+			}
 			continue
 		}
 		if pre != 0 {
@@ -372,7 +380,9 @@ func (c *Client) Sync(ctx context.Context) error {
 		if pre, err := c.pullFrom(ctx, anchorTs, anchorID, st); err != nil {
 			return err
 		} else if pre == wire.ErrUnknownVault {
-			c.SetRegistered(false)
+			if err := c.unknownVault(); err != nil {
+				return err
+			}
 			continue
 		} else if pre != 0 {
 			return preChannelErr("pull", pre)
@@ -381,7 +391,9 @@ func (c *Client) Sync(ctx context.Context) error {
 		if pre, err := c.pushFrom(ctx, anchorTs, anchorID, st); err != nil {
 			return err
 		} else if pre == wire.ErrUnknownVault {
-			c.SetRegistered(false)
+			if err := c.unknownVault(); err != nil {
+				return err
+			}
 			continue
 		} else if pre != 0 {
 			return preChannelErr("push", pre)
@@ -411,6 +423,26 @@ func (c *Client) reconcileAnchor(round int) (uint64, vault.EntryID) {
 		}
 	}
 	return 0, vault.EntryID{}
+}
+
+// hasRegisterKey reports whether a register key is installed.
+func (c *Client) hasRegisterKey() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hasReg
+}
+
+// unknownVault handles a pre-channel UNKNOWN_VAULT: with a register
+// key installed the next round re-registers; without one the sync
+// cannot proceed.
+func (c *Client) unknownVault() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.hasReg {
+		return ErrNoRegisterKey
+	}
+	c.registered = false
+	return nil
 }
 
 // register establishes the channel by adopting the client's AuthKey on
