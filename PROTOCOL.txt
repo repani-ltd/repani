@@ -71,7 +71,7 @@
   byte (key is 1..255 bytes), value_len is 2 bytes, and the cleartext
   ct_len is 2 bytes — so a ciphertext, and hence the whole entry, tops
   out near 64 KiB. The marshaled entry (header + ciphertext) MUST be
-  under MAX_ENTRY_BYTES = 64 KiB; a value that would exceed that is
+  at most MAX_ENTRY_BYTES = 64 KiB; a value that would exceed that is
   rejected at Put, before it enters the store. So a single entry is the
   largest thing any party must move, and it always fits one frame (see
   Sync).
@@ -230,7 +230,7 @@
                      Fixed-size, independent of vault size.
     PULL(cursor)     the next whole entries in canonical order strictly
                      after cursor that fit the page budget PAGE_BYTES —
-                     at least one, since every entry is < MAX_ENTRY_BYTES
+                     at least one, since every entry is <= MAX_ENTRY_BYTES
                      <= PAGE_BYTES. An empty page means the server holds
                      nothing beyond cursor.
     PUSH(entries)    the server adds any it does not already hold
