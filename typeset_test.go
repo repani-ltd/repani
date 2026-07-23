@@ -284,8 +284,10 @@ func TestJustifyLines_MeasuredSlack(t *testing.T) {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
 	for i, ln := range lines[:len(lines)-1] {
-		if ln.Width > width {
-			t.Errorf("line %d overfull: %d > %d", i, ln.Width, width)
+		// A justified line may exceed width only by the shrink
+		// allowance: a third of a space per gap.
+		if allow := (len(ln.Words) - 1) * (m.Space() / 3); ln.Width > width+allow {
+			t.Errorf("line %d overfull: %d > %d+%d", i, ln.Width, width, allow)
 		}
 		// Sanity bound only: the caricature widths make tight gap
 		// bounds meaningless, but distributed slack should never
@@ -296,6 +298,49 @@ func TestJustifyLines_MeasuredSlack(t *testing.T) {
 				t.Errorf("line %d: per-gap slack %.1f exceeds 6 spaces: %v",
 					i, perGap, ln.Words)
 			}
+		}
+	}
+}
+
+// wideMeasurer is a proportional caricature with a wide space, so
+// the shrink allowance (space/3) is meaningful in integer units.
+type wideMeasurer struct{}
+
+func (wideMeasurer) Width(s string) int { return 10 * runeLen(s) }
+func (wideMeasurer) Space() int         { return 9 }
+
+func TestJustifyLines_ShrinkAbsorbsWord(t *testing.T) {
+	// Seven words of 40 units, gaps of 9. Five words measure 236:
+	// at width 230 they overflow by 6, within the shrink allowance
+	// 4*(9/3) = 12, costing far less than the loose four-word
+	// alternative. The optimum is a shrunk five-word first line and
+	// a natural two-word last line.
+	m := wideMeasurer{}
+	lines := JustifyLines("aaaa bbbb cccc dddd eeee ffff gggg", 230, m)
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d: %v", len(lines), lines)
+	}
+	if got := len(lines[0].Words); got != 5 {
+		t.Fatalf("first line has %d words, want 5 (shrink should absorb the fifth): %v",
+			got, lines[0].Words)
+	}
+	if lines[0].Width != 236 {
+		t.Errorf("first line width = %d, want 236", lines[0].Width)
+	}
+	// The last line always renders at natural spacing and must
+	// never rely on shrink.
+	if last := lines[1]; last.Width > 230 {
+		t.Errorf("last line overfull: %d > 230: %v", last.Width, last.Words)
+	}
+}
+
+func TestJustifyLines_MonoNeverShrinks(t *testing.T) {
+	// The monospace measurer has no sub-character shrink: every
+	// line must fit within width at natural spacing.
+	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
+	for _, ln := range JustifyLines(input, testWidth, Mono) {
+		if ln.Width > testWidth {
+			t.Errorf("mono line overfull: %d > %d: %v", ln.Width, testWidth, ln.Words)
 		}
 	}
 }

@@ -98,7 +98,9 @@ type typo struct {
 // thousandths of an em: natural spaces on ragged and final lines;
 // on justified lines the slack is distributed evenly, leftmost
 // gaps taking the remainder, so the line fills the wrap width
-// exactly -- in integers, keeping the PDF deterministic.
+// exactly -- in integers, keeping the PDF deterministic. Negative
+// slack (the breaker's shrink allowance) compresses gaps the same
+// way.
 func spread(ln typeset.Line, units int, m pdf.Measurer, last bool) []int {
 	k := len(ln.Words) - 1
 	if k <= 0 {
@@ -110,7 +112,18 @@ func spread(ln typeset.Line, units int, m pdf.Measurer, last bool) []int {
 		gaps[i] = sp
 	}
 	slack := units - ln.Width
-	if last || slack <= 0 {
+	if last || slack == 0 {
+		return gaps
+	}
+	if slack < 0 {
+		neg := -slack
+		base, extra := neg/k, neg%k
+		for i := range gaps {
+			gaps[i] -= base
+			if i < extra {
+				gaps[i]--
+			}
+		}
 		return gaps
 	}
 	base, extra := slack/k, slack%k

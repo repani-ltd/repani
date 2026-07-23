@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/pavlos/typeset"
+	"github.com/pavlos/typeset/pdf"
 )
 
 // mkSegs builds n single-line segments labeled prefix1..prefixN.
@@ -240,6 +241,38 @@ func TestFlow_RepeatTallerThanColumnTerminates(t *testing.T) {
 	}
 	if len(cols) > 12 {
 		t.Fatalf("suspiciously many columns (%d): non-progress split?", len(cols))
+	}
+}
+
+func TestSpread_NegativeSlackCompressesGaps(t *testing.T) {
+	// A shrunk line (Width > units) must compress its gaps so the
+	// drawn line fills units exactly: gap sum = units - word widths.
+	m := pdf.Measure(pdf.Sans)
+	words := []string{"one", "two", "three"}
+	wsum := 0
+	for _, w := range words {
+		wsum += m.Width(w)
+	}
+	ln := typeset.Line{Words: words, Width: wsum + 2*m.Space()}
+	units := ln.Width - 100 // wrap width 100 units narrower than natural
+	gaps := spread(ln, units, m, false)
+	total := wsum
+	for _, g := range gaps {
+		total += g
+	}
+	if total != units {
+		t.Errorf("compressed line fills %d, want %d (gaps %v)", total, units, gaps)
+	}
+	for _, g := range gaps {
+		if g >= m.Space() {
+			t.Errorf("gap %d not compressed below natural %d", g, m.Space())
+		}
+	}
+	// Final lines stay at natural spacing regardless of slack.
+	for _, g := range spread(ln, units, m, true) {
+		if g != m.Space() {
+			t.Errorf("final line gap %d, want natural %d", g, m.Space())
+		}
 	}
 }
 
