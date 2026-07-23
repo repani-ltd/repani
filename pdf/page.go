@@ -46,12 +46,33 @@ func (p *Page) Text(x, y float64, s string) {
 	p.buf.WriteString("ET\n")
 }
 
-// show emits hex-encoded Identity-H text (codepoint as CID) and
-// records rune usage for subsetting. BMP-only: runes above U+FFFF
-// are replaced.
+// show emits s as a TJ array of hex-encoded Identity-H runs
+// (codepoint as CID) split by kerning adjustments, and records rune
+// usage for subsetting. BMP-only: runes above U+FFFF are replaced.
 func (p *Page) show(s string) {
-	p.hexString(s)
-	p.buf.WriteString(" Tj\n")
+	p.buf.WriteString("[ ")
+	p.tjRuns(s)
+	p.buf.WriteString(" ] TJ\n")
+}
+
+// tjRuns writes the TJ elements for s: hex runs split wherever a
+// kerning pair applies. TJ subtracts its numbers from the advance,
+// so a kern of k (negative tightens) is emitted as -k.
+func (p *Page) tjRuns(s string) {
+	f := fontByID(p.font)
+	prev := rune(-1)
+	start := 0
+	for i, r := range s {
+		if prev >= 0 {
+			if k := f.Kern(prev, r); k != 0 {
+				p.hexString(s[start:i])
+				fmt.Fprintf(&p.buf, " %d ", -k)
+				start = i
+			}
+		}
+		prev = r
+	}
+	p.hexString(s[start:])
 }
 
 // hexString writes s as an Identity-H hex string, recording rune
@@ -87,7 +108,7 @@ func (p *Page) Words(x, y float64, words []string, gaps []int) {
 			// values move right by gap/1000 em.
 			fmt.Fprintf(&p.buf, " %d ", -gaps[i-1])
 		}
-		p.hexString(w)
+		p.tjRuns(w)
 	}
 	p.buf.WriteString(" ] TJ\nET\n")
 }
@@ -131,18 +152,30 @@ func EmWidth(font Font) float64 {
 }
 
 // Width returns the rendered width of s in points for the given
-// font and size, using per-codepoint advance widths.
+// font and size, using per-codepoint advance widths plus pair
+// kerning, matching what Text draws.
 func Width(s string, font Font, size float64) float64 {
-	f := fontByID(font)
+	return float64(widthUnits(s, fontByID(font))) * size / 1000.0
+}
+
+// widthUnits measures s in thousandths of an em: advance widths plus
+// kerning between adjacent runes. This is the measurement that TJ
+// rendering reproduces exactly.
+func widthUnits(s string, f *ttf.TTFont) int {
 	total := 0
+	prev := rune(-1)
 	for _, r := range s {
 		if w, ok := f.CIDWidths[int(r)]; ok {
 			total += w
 		} else {
 			total += f.DefaultWidth
 		}
+		if prev >= 0 {
+			total += f.Kern(prev, r)
+		}
+		prev = r
 	}
-	return float64(total) * size / 1000.0
+	return total
 }
 
 // Measurer reports text widths for one font in thousandths of an
@@ -153,17 +186,10 @@ type Measurer struct{ f *ttf.TTFont }
 // Measure returns the Measurer for an embedded font.
 func Measure(font Font) Measurer { return Measurer{fontByID(font)} }
 
-// Width returns the advance width of s in thousandths of an em.
+// Width returns the advance width of s in thousandths of an em,
+// including pair kerning between adjacent runes.
 func (m Measurer) Width(s string) int {
-	total := 0
-	for _, r := range s {
-		if w, ok := m.f.CIDWidths[int(r)]; ok {
-			total += w
-		} else {
-			total += m.f.DefaultWidth
-		}
-	}
-	return total
+	return widthUnits(s, m.f)
 }
 
 // Space returns the interword space advance in thousandths of an em.

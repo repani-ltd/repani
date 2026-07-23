@@ -33,6 +33,8 @@ type TTFont struct {
 	CIDWidths      map[int]int    // per-CID advance widths, scaled to PDF units (all chars)
 	CharToGID      map[int]uint16 // full cmap: codepoint → glyph ID (for subsetting)
 	Data           []byte         // full (unsubset) TTF file bytes
+
+	kern *kern // GPOS pair kerning; nil when the font has none
 }
 
 func readU16(b []byte, off int) uint16   { return binary.BigEndian.Uint16(b[off:]) }
@@ -156,6 +158,11 @@ func parseTTF(raw []byte) (*TTFont, error) {
 		if int(gid) < numGlyphs {
 			font.CIDWidths[ch] = int(float64(gw[gid]) * scale)
 		}
+	}
+
+	// GPOS pair kerning (optional)
+	if gpos, err := get("GPOS"); err == nil {
+		font.kern = parseKern(gpos)
 	}
 
 	// Store full TTF data (subsetting done per-document via Subset())

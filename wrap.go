@@ -18,8 +18,10 @@ import (
 
 // Measurer reports advance widths in abstract integer units. Any
 // consistent unit works: the breakers only compare widths against
-// the wrap width and normalize costs by Space(). Width must be
-// additive over concatenation for the hyphen math to hold.
+// the wrap width and normalize costs by Space(). The breakers always
+// measure whole tokens (a line is the sum of its tokens' widths plus
+// spaces), so Width may include intra-string effects like kerning;
+// it need not be additive over concatenation.
 type Measurer interface {
 	Width(s string) int // advance width of s
 	Space() int         // natural interword space width

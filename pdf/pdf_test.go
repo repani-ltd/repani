@@ -132,6 +132,54 @@ func TestMeasureProportional(t *testing.T) {
 	}
 }
 
+func TestKernedMeasurement(t *testing.T) {
+	// Fira Sans kerns AV by -45/1000 em; measurement must include it.
+	m := Measure(Sans)
+	if got, want := m.Width("AV"), m.Width("A")+m.Width("V")-45; got != want {
+		t.Errorf("kerned Width(AV) = %d, want %d", got, want)
+	}
+	// Width (points) agrees with the measurer.
+	if got, want := Width("AV", Sans, 10), float64(m.Width("AV"))/100; got != want {
+		t.Errorf("Width(AV) = %v, want %v", got, want)
+	}
+	// Monospace has no kerning: strictly additive.
+	mono := Measure(Regular)
+	if got, want := mono.Width("AV"), mono.Width("A")+mono.Width("V"); got != want {
+		t.Errorf("mono Width(AV) = %d, want %d", got, want)
+	}
+}
+
+func TestKernedTJOutput(t *testing.T) {
+	// Text: the AV pair splits the hex run with a +45 adjustment
+	// (TJ subtracts, kern is -45).
+	var p Page
+	p.SetFont(Sans, 10)
+	p.Text(72, 700, "AVID")
+	s := string(p.Bytes())
+	if !strings.Contains(s, "<0041> 45 <005600490044>") {
+		t.Errorf("Text did not emit the AV kern adjustment:\n%s", s)
+	}
+	// Words: kerning applies inside words, gaps between them stay
+	// exactly as given.
+	var p2 Page
+	p2.SetFont(Sans, 10)
+	p2.Words(72, 700, []string{"AV", "id"}, []int{300})
+	s2 := string(p2.Bytes())
+	if !strings.Contains(s2, "<0041> 45 <0056>") {
+		t.Errorf("Words did not kern inside a word:\n%s", s2)
+	}
+	if !strings.Contains(s2, " -300 ") {
+		t.Errorf("Words lost the explicit gap:\n%s", s2)
+	}
+	// Unkerned monospace text stays a single run.
+	var p3 Page
+	p3.SetFont(Regular, 10)
+	p3.Text(72, 700, "AVID")
+	if s3 := string(p3.Bytes()); !strings.Contains(s3, "[ <0041005600490044> ] TJ") {
+		t.Errorf("mono Text should be one unsplit run:\n%s", s3)
+	}
+}
+
 func TestWordsTJ(t *testing.T) {
 	var p Page
 	p.SetFont(Sans, 10)
