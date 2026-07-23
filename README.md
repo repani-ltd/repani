@@ -10,8 +10,9 @@ The design center is the language (see `doc.go` for the spec):
 
 - **Fill mode by default.** Plain lines are paragraphs; the writer
   owns wrapping, hyphenation (Knuth-Liang, English + Greek
-  embedded), and justification (Knuth-Plass with a monospace
-  gap-aware cost). Authors never state widths in content.
+  embedded), and justification (Knuth-Plass with a gap-aware cost;
+  proportional text adds GPOS kerning, interword shrink, and
+  hanging hyphens). Authors never state widths in content.
 - **Explicit structure, closed vocabulary.** `# heading`, `---`
   rules, `.table … .end` (cells wrap by default, `!` clips),
   `.pre [N] … .end` verbatim blocks, `.link URL [TITLE]` link
