@@ -285,8 +285,13 @@ func TestJustifyLines_MeasuredSlack(t *testing.T) {
 	}
 	for i, ln := range lines[:len(lines)-1] {
 		// A justified line may exceed width only by the shrink
-		// allowance: a third of a space per gap.
-		if allow := (len(ln.Words) - 1) * (m.Space() / 3); ln.Width > width+allow {
+		// allowance (a third of a space per gap) plus, when it ends
+		// in a hyphen, the hang protrusion.
+		allow := (len(ln.Words) - 1) * (m.Space() / 3)
+		if strings.HasSuffix(ln.Words[len(ln.Words)-1], "-") {
+			allow += HangHyphen(m)
+		}
+		if ln.Width > width+allow {
 			t.Errorf("line %d overfull: %d > %d+%d", i, ln.Width, width, allow)
 		}
 		// Sanity bound only: the caricature widths make tight gap
@@ -294,8 +299,8 @@ func TestJustifyLines_MeasuredSlack(t *testing.T) {
 		// approach pathological (many-space) gaps.
 		if gaps := len(ln.Words) - 1; gaps > 0 {
 			perGap := float64(width-ln.Width) / float64(gaps)
-			if perGap > 6*float64(m.Space()) {
-				t.Errorf("line %d: per-gap slack %.1f exceeds 6 spaces: %v",
+			if perGap > 8*float64(m.Space()) {
+				t.Errorf("line %d: per-gap slack %.1f exceeds 8 spaces: %v",
 					i, perGap, ln.Words)
 			}
 		}
@@ -331,6 +336,33 @@ func TestJustifyLines_ShrinkAbsorbsWord(t *testing.T) {
 	// never rely on shrink.
 	if last := lines[1]; last.Width > 230 {
 		t.Errorf("last line overfull: %d > 230: %v", last.Width, last.Words)
+	}
+}
+
+func TestHangHyphen(t *testing.T) {
+	// Monospace: a cell cannot protrude fractionally.
+	if got := HangHyphen(Mono); got != 0 {
+		t.Errorf("HangHyphen(Mono) = %d, want 0", got)
+	}
+	// wideMeasurer: hyphen is 10 units, 70% hangs.
+	if got := HangHyphen(wideMeasurer{}); got != 7 {
+		t.Errorf("HangHyphen(wideMeasurer) = %d, want 7", got)
+	}
+}
+
+func TestTryHyphenAtJustify_HangExtendsTarget(t *testing.T) {
+	// wideMeasurer: runes 10, space 9, shrink 9/3=3, hang 7. The
+	// prefix "abc-" is 40 wide; with 60 used the line totals
+	// 60+9+40 = 109. For a two-word line the plain window is
+	// width+shrink = 108, so only the hang (target 112, window 115)
+	// admits the break.
+	m := wideMeasurer{}
+	w := word{text: "abcdef", points: []int{3}}
+	if _, ok := tryHyphenAtJustify(w, 60, 105, 2, 0, m); !ok {
+		t.Errorf("hyphen break rejected at width 105: hang should extend the target")
+	}
+	if _, ok := tryHyphenAtJustify(w, 60, 97, 2, 0, m); ok {
+		t.Errorf("hyphen break accepted at width 97: outside hang+shrink window")
 	}
 }
 

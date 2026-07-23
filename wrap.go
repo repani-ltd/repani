@@ -361,6 +361,16 @@ const hyphenPenaltyJustify = 6
 // cannot shrink a character cell.
 func shrinkPerGap(m Measurer) int { return m.Space() / 3 }
 
+// HangHyphen is the width a line-final hyphen protrudes into the
+// right margin (optical margin alignment): 70% of the hyphen's
+// advance under the measurer. The justified breaker extends the wrap
+// width by this amount for lines ending in "-", and renderers add it
+// when distributing slack on such lines, so the flush edge runs
+// through the hyphen instead of jogging left of it. Integer math
+// disables it for the monospace character grid, which cannot
+// protrude a fraction of a cell.
+func HangHyphen(m Measurer) int { return m.Width("-") * 7 / 10 }
+
 // gapCost is the justify cost of distributing slack over a line of
 // words tokens under the measurer. The monospace measurer models
 // whole extra spaces (justifyGapCost); proportional measurers
@@ -484,6 +494,7 @@ func justifyDP(words []word, start, n, width int, m Measurer, cost []float64, ne
 	sp := m.Space()
 	spsp := float64(sp) * float64(sp)
 	shrink := shrinkPerGap(m)
+	hang := HangHyphen(m)
 	for i := n - 1; i >= start; i-- {
 		bestCost := 1e18
 		bestJ := i + 1
@@ -499,8 +510,9 @@ func justifyDP(words []word, start, n, width int, m Measurer, cost []float64, ne
 			}
 
 			wordsOnLine := j - i + 1
+			allow := (wordsOnLine - 1) * shrink
 
-			if lineLen > width+(wordsOnLine-1)*shrink {
+			if lineLen > width+hang+allow {
 				if j == i && wLen > width {
 					bestJ = i + 1
 					bestHyph = -1
@@ -522,25 +534,35 @@ func justifyDP(words []word, start, n, width int, m Measurer, cost []float64, ne
 				break
 			}
 
-			// Line fits with words[j], stretched or (proportional
-			// measurers) shrunk within the allowance.
-			slack := width - lineLen
-			c := cost[j+1]
-			if j+1 < n {
-				c += gapCost(slack, wordsOnLine, m)
-			} else if slack < 0 {
-				// The last line renders at natural spacing and
-				// cannot shrink to fit.
-				continue
-			} else if slack > width-5*sp {
-				// Last line is not justified; only penalise
-				// orphan lines shorter than 5 characters.
-				c += float64(slack) * float64(slack) / 4 / spsp
+			// Natural candidate: line ends after words[j],
+			// stretched or (proportional measurers) shrunk within
+			// the allowance. A dash-final word hangs its hyphen
+			// into the margin, extending the target; the last line
+			// renders at natural spacing and gets neither hang nor
+			// shrink.
+			target := width
+			if j+1 < n && strings.HasSuffix(words[j].text, "-") {
+				target += hang
 			}
-			if c < bestCost {
-				bestCost = c
-				bestJ = j + 1
-				bestHyph = -1
+			slack := target - lineLen
+			ok := slack >= -allow
+			if j+1 == n && slack < 0 {
+				ok = false
+			}
+			if ok {
+				c := cost[j+1]
+				if j+1 < n {
+					c += gapCost(slack, wordsOnLine, m)
+				} else if slack > width-5*sp {
+					// Last line is not justified; only penalise
+					// orphan lines shorter than 5 characters.
+					c += float64(slack) * float64(slack) / 4 / spsp
+				}
+				if c < bestCost {
+					bestCost = c
+					bestJ = j + 1
+					bestHyph = -1
+				}
 			}
 
 			// Proactive hyphenation: try splitting words[j]
@@ -574,6 +596,7 @@ func recomputeBreakAt(words []word, pos, n, width int, m Measurer, cost []float6
 	sp := m.Space()
 	spsp := float64(sp) * float64(sp)
 	shrink := shrinkPerGap(m)
+	hang := HangHyphen(m)
 	bestCost := 1e18
 	bestJ := pos + 1
 	lineLen := 0
@@ -586,15 +609,21 @@ func recomputeBreakAt(words []word, pos, n, width int, m Measurer, cost []float6
 			lineLen += sp + wLen
 		}
 		wordsOnLine := j - pos + 1
-		if lineLen > width+(wordsOnLine-1)*shrink {
+		allow := (wordsOnLine - 1) * shrink
+		if lineLen > width+hang+allow {
 			break
 		}
-		slack := width - lineLen
+		target := width
+		if j+1 < n && strings.HasSuffix(words[j].text, "-") {
+			target += hang
+		}
+		slack := target - lineLen
+		if slack < -allow || (j+1 == n && slack < 0) {
+			continue
+		}
 		c := cost[j+1]
 		if j+1 < n {
 			c += gapCost(slack, wordsOnLine, m)
-		} else if slack < 0 {
-			continue
 		} else if slack > width-5*sp {
 			c += float64(slack) * float64(slack) / 4 / spsp
 		}
@@ -617,6 +646,8 @@ func recomputeBreakAt(words []word, pos, n, width int, m Measurer, cost []float6
 func tryHyphenAtJustify(w word, spaceUsed, width, wordCount int, tailCost float64, m Measurer) (hyphenChoice, bool) {
 	sp := m.Space()
 	shrink := shrinkPerGap(m)
+	// The prefix ends in "-", which hangs into the margin.
+	target := width + HangHyphen(m)
 	best := hyphenChoice{}
 	found := false
 	for pi := len(w.points) - 1; pi >= 0; pi-- {
@@ -627,10 +658,10 @@ func tryHyphenAtJustify(w word, spaceUsed, width, wordCount int, tailCost float6
 		} else {
 			total = spaceUsed + sp + partLen
 		}
-		if total > width+(wordCount-1)*shrink {
+		if total > target+(wordCount-1)*shrink {
 			continue
 		}
-		slack := width - total
+		slack := target - total
 		c := gapCost(slack, wordCount, m) + hyphenPenaltyJustify + tailCost
 		if !found || c < best.cost {
 			best = hyphenChoice{cost: c, point: pi + 1}

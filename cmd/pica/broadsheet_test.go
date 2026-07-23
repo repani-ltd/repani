@@ -276,6 +276,39 @@ func TestSpread_NegativeSlackCompressesGaps(t *testing.T) {
 	}
 }
 
+func TestSpread_DashFinalLineHangsHyphen(t *testing.T) {
+	// A justified line ending in "-" targets units plus the hyphen
+	// hang: the drawn line runs hang units past the wrap width, so
+	// the hyphen protrudes into the margin.
+	m := pdf.Measure(pdf.Sans)
+	words := []string{"aaa", "bbb", "ccc-"}
+	wsum := 0
+	for _, w := range words {
+		wsum += m.Width(w)
+	}
+	ln := typeset.Line{Words: words, Width: wsum + 2*m.Space()}
+	units := ln.Width // pretend the line naturally fills the width
+	hang := typeset.HangHyphen(m)
+	if hang <= 0 {
+		t.Fatal("sans hyphen hang should be positive")
+	}
+	gaps := spread(ln, units, m, false)
+	total := wsum
+	for _, g := range gaps {
+		total += g
+	}
+	if total != units+hang {
+		t.Errorf("dash-final line fills %d, want %d (units %d + hang %d)",
+			total, units+hang, units, hang)
+	}
+	// The same line as a paragraph's last line stays natural.
+	for _, g := range spread(ln, units, m, true) {
+		if g != m.Space() {
+			t.Errorf("final line gap %d, want natural %d", g, m.Space())
+		}
+	}
+}
+
 func TestBroadsheet_Sans(t *testing.T) {
 	src := "The Daily Fable\n\n# Weather\n\n" +
 		strings.Repeat("The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow. ", 6) +

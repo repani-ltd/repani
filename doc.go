@@ -104,7 +104,11 @@ hyphenation over wide inter-word gaps. All widths flow through a
 Measurer: the monospace measurer counts one unit per rune and
 distributes slack as whole spaces; proportional writers supply
 font-metric measurers (thousandths of an em) and spread slack
-continuously across the gaps. JustifyParagraph is the monospace
+continuously across the gaps. Under a proportional measurer,
+justified gaps may also shrink up to a third of a space
+(HangHyphen and the shrink allowance are both zero on the
+monospace grid), and a line-final hyphen hangs 70% of its width
+into the right margin so the flush edge stays optically straight. JustifyParagraph is the monospace
 paragraph-level primitive for writers holding parsed Para blocks;
 WrapLines and JustifyLines are the measured structured primitives;
 all document structure goes through Parse.

@@ -100,7 +100,9 @@ type typo struct {
 // gaps taking the remainder, so the line fills the wrap width
 // exactly -- in integers, keeping the PDF deterministic. Negative
 // slack (the breaker's shrink allowance) compresses gaps the same
-// way.
+// way. A dash-final justified line targets units plus the hyphen
+// hang, mirroring the breaker, so the hyphen protrudes into the
+// margin and the flush edge stays optically straight.
 func spread(ln typeset.Line, units int, m pdf.Measurer, last bool) []int {
 	k := len(ln.Words) - 1
 	if k <= 0 {
@@ -112,6 +114,9 @@ func spread(ln typeset.Line, units int, m pdf.Measurer, last bool) []int {
 		gaps[i] = sp
 	}
 	slack := units - ln.Width
+	if !last && strings.HasSuffix(ln.Words[k], "-") {
+		slack += typeset.HangHyphen(m)
+	}
 	if last || slack == 0 {
 		return gaps
 	}
