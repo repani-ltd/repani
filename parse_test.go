@@ -244,8 +244,11 @@ func TestText_TightPreservesAdjacency(t *testing.T) {
 
 
 func TestParse_Link(t *testing.T) {
-	d := mustParse(t, "T\n\n.link https://x.example\n.link https://x.example News\n")
-	if len(d.Blocks) != 2 {
+	d := mustParse(t, "T\n\n.link https://x.example\n"+
+		".link https://x.example News\n"+
+		".link https://x.example The morning news, archived\n"+
+		".link https://a.example https://b.example\n")
+	if len(d.Blocks) != 4 {
 		t.Fatalf("blocks = %+v", d.Blocks)
 	}
 	if d.Blocks[0].Text != "https://x.example" {
@@ -254,13 +257,17 @@ func TestParse_Link(t *testing.T) {
 	if d.Blocks[1].Text != "https://x.example News" {
 		t.Errorf("titled link = %q", d.Blocks[1].Text)
 	}
+	if d.Blocks[2].Text != "https://x.example The morning news, archived" {
+		t.Errorf("phrase-titled link = %q", d.Blocks[2].Text)
+	}
+	// First field wins: a URL-shaped title is still just a title.
+	if d.Blocks[3].Text != "https://a.example https://b.example" {
+		t.Errorf("url-shaped title = %q", d.Blocks[3].Text)
+	}
 
-	// URL required; title is a single word.
+	// The URL is required.
 	if _, err := Parse("T\n\n.link\n"); !errors.Is(err, ErrBadAttr) {
 		t.Errorf("bare .link: err = %v, want ErrBadAttr", err)
-	}
-	if _, err := Parse("T\n\n.link https://x.example Two Words\n"); !errors.Is(err, ErrBadAttr) {
-		t.Errorf("multi-word title: err = %v, want ErrBadAttr", err)
 	}
 }
 

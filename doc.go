@@ -35,10 +35,13 @@ A document is UTF-8 text, structured by line:
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a
 	                 column-splitting writer repeats after a split.
-	.link URL [T]    a link reference: URL plus an optional single-
-	                 word title T. Writers whose medium supports
-	                 links render a real one with T (or the URL) as
-	                 the anchor text
+	.link URL [T]    a link reference: the first field is the URL
+	                 (a URL cannot contain a literal space), and
+	                 everything after it is the optional title
+	                 phrase T -- even if it looks like another
+	                 URL. Writers whose medium supports links
+	                 render a real one with T (or the URL) as the
+	                 anchor text
 
 The dot-command vocabulary is CLOSED: a line that lexes as a dot
 command (dot followed by a lowercase letter; ". " and ".." begin

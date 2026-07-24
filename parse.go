@@ -224,10 +224,12 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		return next, nil
 
 	case ".link":
-		// .link URL [TITLE]: TITLE is a single word; writers that
-		// can render real links show it as the anchor text.
+		// .link URL [TITLE...]: the first field is the URL (which
+		// cannot contain a literal space), everything after it is
+		// the title phrase; writers that can render real links
+		// show the title as the anchor text.
 		fields := strings.Fields(rest)
-		if len(fields) == 0 || len(fields) > 2 {
+		if len(fields) == 0 {
 			return 0, fmt.Errorf("%w: .link wants URL [TITLE] (line %d)", ErrBadAttr, n)
 		}
 		p.flush()
