@@ -81,10 +81,11 @@ func checkWidth(width int) {
 // WrapLines wraps ONE paragraph ragged-right under the measurer,
 // with the prose hyphen penalty. This is the structured primitive
 // behind wrapParagraph; proportional writers consume the Lines
-// directly.
-func WrapLines(para string, width int, m Measurer) []Line {
+// directly. lang selects the hyphenation pattern set ("" = all
+// embedded sets); writers pass the document's Layout.Lang.
+func WrapLines(para string, width int, m Measurer, lang string) []Line {
 	checkWidth(width)
-	return wrapRagged(para, width, hyphenPenaltyProse, m)
+	return wrapRagged(para, width, hyphenPenaltyProse, m, hyphenatorFor(lang))
 }
 
 // JustifyLines chooses justified line breaks under the measurer,
@@ -92,20 +93,21 @@ func WrapLines(para string, width int, m Measurer) []Line {
 // non-final line's slack (width minus Line.Width) across its gaps.
 // With a proportional measurer the slack may be negative -- a line
 // may exceed width by up to a third of a space per gap -- and the
-// caller compresses the gaps by that amount.
-func JustifyLines(para string, width int, m Measurer) []Line {
+// caller compresses the gaps by that amount. lang selects the
+// hyphenation pattern set ("" = all embedded sets).
+func JustifyLines(para string, width int, m Measurer, lang string) []Line {
 	checkWidth(width)
-	return justifyWrap(para, width, m)
+	return justifyWrap(para, width, m, hyphenatorFor(lang))
 }
 
 // JustifyParagraph wraps ONE paragraph of prose with the gap-aware
 // breaker and flushes every non-final line, returning the lines.
 // This is the paragraph-level primitive for writers that already
-// hold parsed Para blocks (the pica gazette); Justify is the
-// document-level convenience over raw prose.
-func JustifyParagraph(para string, width int) []string {
+// hold parsed Para blocks (the pica gazette); lang selects the
+// hyphenation pattern set ("" = all embedded sets).
+func JustifyParagraph(para string, width int, lang string) []string {
 	checkWidth(width)
-	lines := flattenLines(justifyWrap(para, width, Mono))
+	lines := flattenLines(justifyWrap(para, width, Mono, hyphenatorFor(lang)))
 	for i := 0; i < len(lines)-1; i++ {
 		lines[i] = justifyLine(lines[i], width)
 	}
@@ -191,14 +193,14 @@ const (
 	hyphenPenaltyCell  = 25
 )
 
-func wrapParagraph(para string, width int) []string {
-	return flattenLines(wrapRagged(para, width, hyphenPenaltyProse, Mono))
+func wrapParagraph(para string, width int, h *hyphenator) []string {
+	return flattenLines(wrapRagged(para, width, hyphenPenaltyProse, Mono, h))
 }
 
 // wrapRagged is the ragged-right Knuth-Plass breaker with the
 // hyphen penalty as a parameter.
-func wrapRagged(para string, width int, penalty float64, m Measurer) []Line {
-	return breakLines(para, m, func(words []word, start, end int, cost []float64, next, hyph []int) {
+func wrapRagged(para string, width int, penalty float64, m Measurer, h *hyphenator) []Line {
+	return breakLines(para, m, h, func(words []word, start, end int, cost []float64, next, hyph []int) {
 		raggedDP(words, start, end, width, penalty, m, cost, next, hyph)
 	})
 }
@@ -208,7 +210,7 @@ func wrapRagged(para string, width int, penalty float64, m Measurer) []Line {
 // suffix, the break at that position is recomputed so the next line
 // accounts for the shorter token instead of the stale DP entry for
 // the full word.
-func breakLines(para string, m Measurer, dp func(words []word, start, end int, cost []float64, next, hyph []int)) []Line {
+func breakLines(para string, m Measurer, h *hyphenator, dp func(words []word, start, end int, cost []float64, next, hyph []int)) []Line {
 	tokens := strings.Fields(para)
 	if len(tokens) == 0 {
 		return nil
@@ -218,7 +220,7 @@ func breakLines(para string, m Measurer, dp func(words []word, start, end int, c
 	for i, tok := range tokens {
 		words[i] = word{
 			text:   tok,
-			points: defaultHyphenator.Hyphenate(tok),
+			points: h.Hyphenate(tok),
 		}
 	}
 
@@ -230,22 +232,22 @@ func breakLines(para string, m Measurer, dp func(words []word, start, end int, c
 
 	var lines []Line
 	for i := 0; i < n; {
-		j, h := next[i], hyph[i]
+		j, hp := next[i], hyph[i]
 		var parts []string
 		for k := i; k < j; k++ {
 			parts = append(parts, words[k].text)
 		}
-		if h > 0 {
+		if hp > 0 {
 			// The line ends inside words[j]: emit the hyphenated
 			// prefix, substitute the suffix, and recompute the break
 			// at j. j may equal i (an overlong word sets a line of
 			// just its prefix); the shrinking suffix guarantees
 			// progress.
-			prefix, suffix := words[j].hyphenParts(h - 1)
+			prefix, suffix := words[j].hyphenParts(hp - 1)
 			parts = append(parts, prefix)
 			words[j] = word{
 				text:   suffix,
-				points: defaultHyphenator.Hyphenate(suffix),
+				points: h.Hyphenate(suffix),
 			}
 			dp(words, j, j+1, cost, next, hyph)
 		}
@@ -444,8 +446,8 @@ func justifyGapCost(slack, words int) float64 {
 // widths on the justified result.
 //
 // Reconstruction is shared with the ragged breaker: see breakLines.
-func justifyWrap(para string, width int, m Measurer) []Line {
-	return breakLines(para, m, func(words []word, start, end int, cost []float64, next, hyph []int) {
+func justifyWrap(para string, width int, m Measurer, h *hyphenator) []Line {
+	return breakLines(para, m, h, func(words []word, start, end int, cost []float64, next, hyph []int) {
 		justifyDP(words, start, end, width, m, cost, next, hyph)
 	})
 }

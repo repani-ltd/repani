@@ -19,12 +19,15 @@ const (
 	Pre                       // verbatim lines; atomic for column flow
 	RuleBlk                   // horizontal rule
 	LinkBlk                   // .link reference: URL and optional title
+	Quote                     // .quote: indented prose, optional attribution
+	Item                      // .item: one bulleted list item
 )
 
 // Block is one element of a parsed document.
 type Block struct {
 	Kind   BlockKind
-	Text   string   // Para: unwrapped prose. Heading: text. LinkBlk: "URL [TITLE]".
+	Text   string   // Para/Quote/Item: unwrapped prose. Heading: text. LinkBlk: "URL [TITLE]".
+	Attrib string   // Quote: attribution line ("" = none)
 	Table  *Table   // TableBlk
 	Width  int      // TableBlk: fixed width from the spec (0 = document width)
 	Lines  []string // Pre
@@ -52,6 +55,7 @@ type Layout struct {
 	Paper string // "a4", "a5", or "letter"
 	Cols  int    // pdf columns per page
 	Font  string // "mono" or "sans"; proportional writers honor it
+	Lang  string // hyphenation pattern set; "" = all embedded sets
 }
 
 // DefaultLayout is the layout of a document with no trailer.
@@ -60,19 +64,36 @@ func DefaultLayout() Layout { return Layout{Width: 40, Paper: "a4", Cols: 3, Fon
 // Doc is a parsed document.
 type Doc struct {
 	Title  string
+	By     string // .by byline ("" = none)
+	Date   string // .date dateline ("" = none)
 	Layout Layout
 	Blocks []Block
+}
+
+// Byline renders the .by/.date header line: "by BY -- DATE" with
+// whichever parts are present, "" when neither is set. Both writers
+// use it, so the header stays identical across surfaces.
+func (d *Doc) Byline() string {
+	switch {
+	case d.By != "" && d.Date != "":
+		return "by " + d.By + " -- " + d.Date
+	case d.By != "":
+		return "by " + d.By
+	default:
+		return d.Date
+	}
 }
 
 // Sentinel errors for Parse.
 var (
 	ErrEmptyDoc          = errors.New("typeset: document has no title line")
 	ErrUnknownCommand    = errors.New("typeset: unknown dot command")
-	ErrUnterminatedBlock = errors.New("typeset: .table or .pre block without .end")
+	ErrUnterminatedBlock = errors.New("typeset: block without .end")
 	ErrStrayEnd          = errors.New("typeset: .end without an open block")
 	ErrContentAfterTrail = errors.New("typeset: content after a layout command")
-	ErrDuplicateAttr     = errors.New("typeset: duplicate layout command")
+	ErrDuplicateAttr     = errors.New("typeset: duplicate command")
 	ErrBadAttr           = errors.New("typeset: invalid command value")
+	ErrMetaAfterContent  = errors.New("typeset: .by/.date must precede content")
 )
 
 // isDotCommand applies the wire lexing rule: a dot followed by a
@@ -181,6 +202,12 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 	word, rest, _ := strings.Cut(trimmed, " ")
 	rest = strings.TrimSpace(rest)
 
+	// A comment is invisible everywhere -- it neither ends a
+	// paragraph nor counts as content in the trailer.
+	if word == ".rem" {
+		return i, nil
+	}
+
 	if handled, err := p.layoutCommand(word, rest, n); handled || err != nil {
 		return i, err
 	}
@@ -192,6 +219,33 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 	switch word {
 	case ".end":
 		return 0, fmt.Errorf("%w (line %d)", ErrStrayEnd, n)
+
+	case ".by", ".date":
+		return i, p.meta(word, rest, n)
+
+	case ".quote":
+		p.flush()
+		body, next, err := collectUntilEnd(lines, i+1, ".quote")
+		if err != nil {
+			return 0, err
+		}
+		blk, err := parseQuoteBlock(body, n)
+		if err != nil {
+			return 0, err
+		}
+		p.add(blk)
+		return next, nil
+
+	case ".attrib":
+		return 0, fmt.Errorf("%w: .attrib outside .quote (line %d)", ErrBadAttr, n)
+
+	case ".item":
+		if rest == "" {
+			return 0, fmt.Errorf("%w: .item wants text (line %d)", ErrBadAttr, n)
+		}
+		p.flush()
+		p.add(Block{Kind: Item, Text: rest})
+		return i, nil
 
 	case ".pre":
 		p.flush()
@@ -285,8 +339,66 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 		default:
 			return bad()
 		}
+	case ".lang":
+		if _, ok := hyphenators[rest]; !ok {
+			return bad()
+		}
+		return set(func() { p.doc.Layout.Lang = rest })
 	}
 	return false, nil
+}
+
+// meta handles the .by/.date header commands: document metadata
+// that must precede all content blocks, once each.
+func (p *parser) meta(word, rest string, n int) error {
+	if rest == "" {
+		return fmt.Errorf("%w: %s wants text (line %d)", ErrBadAttr, word, n)
+	}
+	if len(p.doc.Blocks) > 0 || len(p.para) > 0 {
+		return fmt.Errorf("%w: %s (line %d)", ErrMetaAfterContent, word, n)
+	}
+	field := &p.doc.By
+	if word == ".date" {
+		field = &p.doc.Date
+	}
+	if *field != "" {
+		return fmt.Errorf("%w: %s (line %d)", ErrDuplicateAttr, word, n)
+	}
+	*field = rest
+	return nil
+}
+
+// parseQuoteBlock builds a Quote from a .quote body: the non-blank
+// lines fill as one paragraph; an optional final ".attrib WHO" line
+// sets the attribution. Content after .attrib, a second .attrib, or
+// an empty quote is an error.
+func parseQuoteBlock(body []string, atLine int) (Block, error) {
+	var prose []string
+	attrib := ""
+	for _, line := range body {
+		trimmed := strings.TrimSpace(line)
+		word, rest, _ := strings.Cut(trimmed, " ")
+		switch {
+		case trimmed == "":
+
+		case attrib != "":
+			return Block{}, fmt.Errorf("%w: .quote content after .attrib (line %d)", ErrBadAttr, atLine)
+
+		case word == ".attrib":
+			rest = strings.TrimSpace(rest)
+			if rest == "" {
+				return Block{}, fmt.Errorf("%w: .attrib wants text (line %d)", ErrBadAttr, atLine)
+			}
+			attrib = rest
+
+		default:
+			prose = append(prose, trimmed)
+		}
+	}
+	if len(prose) == 0 {
+		return Block{}, fmt.Errorf("%w: empty .quote (line %d)", ErrBadAttr, atLine)
+	}
+	return Block{Kind: Quote, Text: strings.Join(prose, " "), Attrib: attrib}, nil
 }
 
 func (p *parser) add(b Block) {

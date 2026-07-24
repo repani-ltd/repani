@@ -70,16 +70,19 @@ const (
 )
 
 // sline is one composed output line with its drawing style. Mono
-// lines carry pre-padded text; proportional lines carry words plus
-// the inter-word advances (thousandths of an em) that justify them.
-// In a sans document a non-empty text field only ever holds
-// verbatim or table content, which stays monospace by design.
+// lines carry pre-padded text (indents baked in as spaces);
+// proportional lines carry words plus the inter-word advances
+// (thousandths of an em) that justify them, and indent shifts their
+// start (quote insets, item hangs, attrib right-alignment). In a
+// sans document a non-empty text field only ever holds verbatim or
+// table content, which stays monospace by design.
 type sline struct {
-	text  string
-	words []string // proportional: words drawn with gaps
-	gaps  []int    // len(words)-1 advances between them
-	style style
-	href  string // non-empty: the line is a clickable link target
+	text   string
+	words  []string // proportional: words drawn with gaps
+	gaps   []int    // len(words)-1 advances between them
+	indent int      // proportional: leading offset in em-thousandths
+	style  style
+	href   string // non-empty: the line is a clickable link target
 }
 
 // typo is the writer's resolved typography for one document: body
@@ -175,6 +178,7 @@ func (b fblock) height() int {
 // modes.
 func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 	width := doc.Layout.Width
+	lang := doc.Layout.Lang
 	var out []fblock
 	for _, blk := range doc.Blocks {
 		fb := fblock{tight: blk.Tight}
@@ -182,22 +186,80 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 		case typeset.Para:
 			if t.sans {
 				m := pdf.Measure(pdf.Sans)
-				lines := typeset.JustifyLines(blk.Text, t.units, m)
+				lines := typeset.JustifyLines(blk.Text, t.units, m, lang)
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, gaps: spread(ln, t.units, m, last)}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				for _, ln := range typeset.JustifyParagraph(blk.Text, width) {
+				for _, ln := range typeset.JustifyParagraph(blk.Text, width, lang) {
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: ln}}})
+				}
+			}
+
+		case typeset.Quote:
+			// Inset two spaces on both sides; the attribution line is
+			// right-aligned to the quote's right margin. Mirrors the
+			// text writer's geometry (see typeset doc.go).
+			if t.sans {
+				m := pdf.Measure(pdf.Sans)
+				qi := 2 * m.Space()
+				measure := t.units - 2*qi
+				lines := typeset.JustifyLines(blk.Text, measure, m, lang)
+				for i, ln := range lines {
+					last := i == len(lines)-1
+					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: qi}
+					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+				}
+				if blk.Attrib != "" {
+					ln := lineFor(strings.Fields("-- "+blk.Attrib), m)
+					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true),
+						indent: qi + max(0, measure-ln.Width)}
+					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+				}
+			} else {
+				for _, ln := range typeset.JustifyParagraph(blk.Text, width-4, lang) {
+					fb.segs = append(fb.segs, seg{lines: []sline{{text: "  " + ln}}})
+				}
+				if blk.Attrib != "" {
+					s := trunc("-- "+blk.Attrib, width-4)
+					s = strings.Repeat(" ", width-2-len([]rune(s))) + s
+					fb.segs = append(fb.segs, seg{lines: []sline{{text: s}}})
+				}
+			}
+
+		case typeset.Item:
+			// "- " with a hanging indent for continuation lines.
+			if t.sans {
+				m := pdf.Measure(pdf.Sans)
+				ii := m.Width("-") + m.Space()
+				measure := t.units - ii
+				lines := typeset.JustifyLines(blk.Text, measure, m, lang)
+				for i, ln := range lines {
+					last := i == len(lines)-1
+					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: ii}
+					if i == 0 {
+						sl.words = append([]string{"-"}, ln.Words...)
+						sl.gaps = append([]int{m.Space()}, sl.gaps...)
+						sl.indent = 0
+					}
+					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+				}
+			} else {
+				for i, ln := range typeset.JustifyParagraph(blk.Text, width-2, lang) {
+					pre := "  "
+					if i == 0 {
+						pre = "- "
+					}
+					fb.segs = append(fb.segs, seg{lines: []sline{{text: pre + ln}}})
 				}
 			}
 
 		case typeset.Heading:
 			if t.sans {
 				m := pdf.Measure(pdf.SansBold)
-				for _, ln := range typeset.WrapLines(blk.Text, t.units, m) {
+				for _, ln := range typeset.WrapLines(blk.Text, t.units, m, lang) {
 					sl := sline{words: ln.Words, gaps: spread(ln, t.units, m, true), style: styleBold}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
@@ -273,6 +335,19 @@ func toSlines(lines []string) []sline {
 		out[i] = sline{text: ln}
 	}
 	return out
+}
+
+// lineFor assembles a typeset.Line from words at natural spacing
+// under the measurer (the attribution line is never justified).
+func lineFor(words []string, m pdf.Measurer) typeset.Line {
+	w := 0
+	for i, s := range words {
+		if i > 0 {
+			w += m.Space()
+		}
+		w += m.Width(s)
+	}
+	return typeset.Line{Words: words, Width: w}
 }
 
 // ── Column flow ─────────────────────────────────────────────────────
@@ -454,17 +529,23 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	t := typo{sans: sans, ps: ps, psMono: psMono, lineH: lineH, units: units}
 
 	// Masthead band on page one. The floor of 8 average characters
-	// keeps short titles from ballooning.
+	// keeps short titles from ballooning. A byline (.by/.date) adds
+	// a centered dateline row under the masthead.
 	topY := pageH - sheetMargin
 	title := doc.Title
-	mastFont := pdf.Bold
+	mastFont, bodyFont := pdf.Bold, pdf.Regular
 	if sans {
-		mastFont = pdf.SansBold
+		mastFont, bodyFont = pdf.SansBold, pdf.Sans
 	}
 	floor1 := 8 * float64(pdf.AvgAdvance(mastFont)) / 1000
 	mastPt := usableW / max(pdf.Width(title, mastFont, 1), floor1)
 	mastPt = max(12, min(30, mastPt))
-	colTopFirst := topY - mastPt*1.35 - 10
+	byline := doc.Byline()
+	mastBottom := topY - mastPt*1.35
+	colTopFirst := mastBottom - 10
+	if byline != "" {
+		colTopFirst = mastBottom - ps*1.5 - 10
+	}
 	colTopRest := topY
 	colBottom := sheetMargin
 
@@ -512,6 +593,12 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 			p.SetFont(mastFont, mastPt)
 			w := pdf.Width(title, mastFont, mastPt)
 			p.Text((pageW-w)/2, topY-mastPt, title)
+			if byline != "" {
+				p.SetFont(bodyFont, ps)
+				p.Gray(0.4)
+				p.Text((pageW-pdf.Width(byline, bodyFont, ps))/2, mastBottom-ps, byline)
+				p.Gray(0)
+			}
 			p.StrokeGray(0)
 			p.Line(sheetMargin, colTop+lineH*0.6, pageW-sheetMargin, colTop+lineH*0.6, 1.0)
 		}
@@ -538,14 +625,10 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		}
 
 		// Page number, centered in the bottom margin.
-		numFont := pdf.Regular
-		if sans {
-			numFont = pdf.Sans
-		}
-		p.SetFont(numFont, ps*0.9)
+		p.SetFont(bodyFont, ps*0.9)
 		p.Gray(0.4)
 		num := fmt.Sprintf("- %d -", pg+1)
-		p.Text((pageW-pdf.Width(num, numFont, ps*0.9))/2, sheetMargin/2-2, num)
+		p.Text((pageW-pdf.Width(num, bodyFont, ps*0.9))/2, sheetMargin/2-2, num)
 		p.Gray(0)
 
 		pdoc.Add(&p)
@@ -574,14 +657,15 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			if ln.style == styleGray {
 				p.Gray(0.45)
 			}
+			xw := x + float64(ln.indent)*t.ps/1000
 			p.SetFont(font, t.ps)
-			p.Words(x, y, ln.words, ln.gaps)
+			p.Words(xw, y, ln.words, ln.gaps)
 			if ln.style == styleGray {
 				p.Gray(0)
 			}
 			if ln.href != "" {
 				w := lineWidthPt(ln, font, t.ps)
-				p.Link(x, y-t.ps*0.25, x+w, y+t.ps, ln.href)
+				p.Link(xw, y-t.ps*0.25, xw+w, y+t.ps, ln.href)
 			}
 
 		case ln.text != "":

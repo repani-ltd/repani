@@ -19,7 +19,7 @@ func TestJustifyLines_GreekNoGrotesqueGaps(t *testing.T) {
 	para := "Ο αλγόριθμος που επιλέγει τα σημεία αλλαγής γραμμής είναι ο ίδιος για τα ελληνικά και τα αγγλικά: δυναμικός προγραμματισμός πάνω σε όλες τις δυνατές τομές της παραγράφου, με κόστος που τιμωρεί τα άνισα διαστήματα και τον περιττό συλλαβισμό. Τα πρότυπα συλλαβισμού για τα ελληνικά είναι ενσωματωμένα στο πρόγραμμα, όπως και τα αγγλικά, και δουλεύουν με τον ίδιο ακριβώς μηχανισμό."
 	m := pdf.Measure(pdf.Sans)
 	units := 36 * pdf.AvgAdvance(pdf.Sans)
-	lines := typeset.JustifyLines(para, units, m)
+	lines := typeset.JustifyLines(para, units, m, "")
 	for i, ln := range lines[:len(lines)-1] {
 		gaps := len(ln.Words) - 1
 		if gaps <= 0 {

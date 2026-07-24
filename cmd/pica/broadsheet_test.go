@@ -335,3 +335,27 @@ func TestBroadsheet_Sans(t *testing.T) {
 		t.Error("sans broadsheet is not deterministic")
 	}
 }
+
+func TestBroadsheet_NewBlocks(t *testing.T) {
+	body := "\n\n.by A. Writer\n.date Today\n\n" +
+		".quote\n" + strings.Repeat("The quick brown fox jumps over the lazy dog. ", 3) + "\n.attrib Aesop\n.end\n\n" +
+		".item first item that runs long enough to wrap onto another line for sure\n.item second item\n\n" +
+		strings.Repeat("Plain prose follows the list and fills the columns evenly. ", 4) + "\n"
+	for _, trailer := range []string{"\n.width 40\n.cols 2\n", "\n.width 40\n.cols 2\n.font sans\n"} {
+		doc, err := typeset.Parse("The Daily Fable" + body + trailer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b1, err := broadsheet(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b2, err := broadsheet(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(b1) != string(b2) {
+			t.Errorf("broadsheet with new blocks is not deterministic (%s)", strings.TrimSpace(trailer))
+		}
+	}
+}

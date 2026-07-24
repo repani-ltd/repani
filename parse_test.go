@@ -241,8 +241,6 @@ func TestText_TightPreservesAdjacency(t *testing.T) {
 	}
 }
 
-
-
 func TestParse_Link(t *testing.T) {
 	d := mustParse(t, "T\n\n.link https://x.example\n"+
 		".link https://x.example News\n"+
@@ -296,5 +294,144 @@ func TestTableFixedWidthValidated(t *testing.T) {
 		if _, err := Parse(src); !errors.Is(err, ErrBadAttr) {
 			t.Errorf("Parse(%q) err = %v, want ErrBadAttr", bad, err)
 		}
+	}
+}
+
+func TestQuoteBlock(t *testing.T) {
+	d := mustParse(t, "T\n\n.quote\nWisdom of the\nancients endures.\n.attrib Aesop\n.end\n")
+	b := d.Blocks[0]
+	if b.Kind != Quote || b.Text != "Wisdom of the ancients endures." || b.Attrib != "Aesop" {
+		t.Fatalf("quote block = %+v", b)
+	}
+
+	for _, bad := range []string{
+		".quote\n.end",                        // empty
+		".quote\ntext\n.attrib A\nmore\n.end", // content after .attrib
+		".quote\ntext\n.attrib\n.end",         // .attrib without text
+		".quote\n.attrib A\n.end",             // attribution only
+		".attrib Aesop",                       // outside .quote
+	} {
+		if _, err := Parse("T\n\n" + bad + "\n"); !errors.Is(err, ErrBadAttr) {
+			t.Errorf("Parse(%q) err = %v, want ErrBadAttr", bad, err)
+		}
+	}
+	if _, err := Parse("T\n\n.quote\ntext\n"); !errors.Is(err, ErrUnterminatedBlock) {
+		t.Errorf("unterminated .quote err = %v, want ErrUnterminatedBlock", err)
+	}
+}
+
+func TestItemBlock(t *testing.T) {
+	d := mustParse(t, "T\n\n.item first thing\n.item second thing\n")
+	if len(d.Blocks) != 2 || d.Blocks[0].Kind != Item || d.Blocks[1].Kind != Item {
+		t.Fatalf("blocks = %+v", d.Blocks)
+	}
+	if d.Blocks[0].Tight || !d.Blocks[1].Tight {
+		t.Error("consecutive items should be tight after the first")
+	}
+	if _, err := Parse("T\n\n.item\n"); !errors.Is(err, ErrBadAttr) {
+		t.Errorf("bare .item err = %v, want ErrBadAttr", err)
+	}
+}
+
+func TestRemInvisible(t *testing.T) {
+	// A comment neither ends a paragraph nor appears in output, and
+	// is valid after the layout trailer.
+	d := mustParse(t, "T\n\nalpha beta\n.rem hidden note\ngamma delta\n\n.width 20\n.rem trailing comment\n")
+	if len(d.Blocks) != 1 || d.Blocks[0].Text != "alpha beta gamma delta" {
+		t.Fatalf("comment split the paragraph: %+v", d.Blocks)
+	}
+	out, err := d.Text()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "hidden") || strings.Contains(out, "trailing") {
+		t.Errorf("comment leaked into output:\n%s", out)
+	}
+}
+
+func TestByDate(t *testing.T) {
+	d := mustParse(t, "T\n\n.by Pavlos\n.date 24 July 2026\n\nprose here\n")
+	if got := d.Byline(); got != "by Pavlos -- 24 July 2026" {
+		t.Errorf("Byline() = %q", got)
+	}
+	if d := mustParse(t, "T\n\n.date 24 July 2026\n"); d.Byline() != "24 July 2026" {
+		t.Errorf("date-only Byline() = %q", d.Byline())
+	}
+
+	if _, err := Parse("T\n\n.by A\n.by B\n"); !errors.Is(err, ErrDuplicateAttr) {
+		t.Errorf("duplicate .by err = %v, want ErrDuplicateAttr", err)
+	}
+	if _, err := Parse("T\n\nprose\n\n.by A\n"); !errors.Is(err, ErrMetaAfterContent) {
+		t.Errorf(".by after content err = %v, want ErrMetaAfterContent", err)
+	}
+	if _, err := Parse("T\n\n.by\n"); !errors.Is(err, ErrBadAttr) {
+		t.Errorf("bare .by err = %v, want ErrBadAttr", err)
+	}
+	if _, err := Parse("T\n\n.width 20\n.by A\n"); !errors.Is(err, ErrContentAfterTrail) {
+		t.Errorf(".by in trailer err = %v, want ErrContentAfterTrail", err)
+	}
+}
+
+func TestLangAttr(t *testing.T) {
+	d := mustParse(t, "T\n\nprose\n\n.lang el\n")
+	if d.Layout.Lang != "el" {
+		t.Errorf("Lang = %q, want el", d.Layout.Lang)
+	}
+	if _, err := Parse("T\n\n.lang de\n"); !errors.Is(err, ErrBadAttr) {
+		t.Errorf(".lang de err = %v, want ErrBadAttr", err)
+	}
+	if _, err := Parse("T\n\n.lang en\n.lang el\n"); !errors.Is(err, ErrDuplicateAttr) {
+		t.Errorf("duplicate .lang err = %v, want ErrDuplicateAttr", err)
+	}
+}
+
+func TestTextQuoteItemByline(t *testing.T) {
+	src := "T\n\n.by A. Writer\n.date Today\n\n" +
+		".quote\nThe quick brown fox jumps over the lazy dog again and again and again.\n.attrib Aesop\n.end\n\n" +
+		".item first item that runs long enough to wrap onto a second line for sure\n.item second\n"
+	d := mustParse(t, src)
+	out, err := d.Text()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(out, "\n")
+	if lines[1] != "by A. Writer -- Today" {
+		t.Errorf("byline = %q", lines[1])
+	}
+
+	var quote, attrib, items []string
+	for _, ln := range lines {
+		switch {
+		case strings.HasSuffix(ln, "-- Aesop"):
+			attrib = append(attrib, ln)
+		case strings.HasPrefix(ln, "  The") || strings.HasPrefix(ln, "  again"):
+			quote = append(quote, ln)
+		case strings.HasPrefix(ln, "- "):
+			items = append(items, ln)
+		}
+	}
+	if len(quote) == 0 {
+		t.Errorf("no indented quote lines:\n%s", out)
+	}
+	for _, ln := range quote {
+		if runeLen(ln) > 40-quoteIndent {
+			t.Errorf("quote line exceeds inset measure: %q", ln)
+		}
+	}
+	if len(attrib) != 1 || runeLen(attrib[0]) != 40-quoteIndent {
+		t.Errorf("attrib not right-aligned to width-%d: %q", quoteIndent, attrib)
+	}
+	if len(items) != 2 {
+		t.Errorf("item lines = %q, want 2 bulleted", items)
+	}
+	// Continuation of the first item hangs under the bullet.
+	found := false
+	for i, ln := range lines {
+		if strings.HasPrefix(ln, "- first") && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "  ") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no hanging continuation line:\n%s", out)
 	}
 }

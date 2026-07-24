@@ -21,10 +21,32 @@ type hyphenator struct {
 	patterns map[string][]int
 }
 
-var defaultHyphenator *hyphenator
+// hyphenators holds one compiled pattern set per embedded language;
+// defaultHyphenator merges them all. The embedded scripts are
+// disjoint, so the merged set hyphenates each language correctly --
+// per-language selection (.lang) matters when sets for languages
+// sharing a script are added.
+var (
+	hyphenators       map[string]*hyphenator
+	defaultHyphenator *hyphenator
+)
 
 func init() {
+	hyphenators = map[string]*hyphenator{
+		"en": newHyphenator(patternsEN),
+		"el": newHyphenator(patternsEL),
+	}
 	defaultHyphenator = newHyphenator(patternsEN, patternsEL)
+}
+
+// hyphenatorFor returns the pattern set for lang; the empty string
+// selects every embedded set. Parse validates .lang against the
+// embedded languages, so an unknown value here is defensive only.
+func hyphenatorFor(lang string) *hyphenator {
+	if h, ok := hyphenators[lang]; ok {
+		return h
+	}
+	return defaultHyphenator
 }
 
 func newHyphenator(patternSets ...string) *hyphenator {

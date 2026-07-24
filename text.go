@@ -10,16 +10,21 @@ import (
 )
 
 // Text renders the document at its own Layout.Width: the title
-// first, then each block -- paragraphs wrapped ragged-right,
-// headings as "# text", rules as "---", tables laid out, verbatim
-// lines truncated, .link lines re-emitted for the wire. Blocks are
+// first (followed by the byline when .by or .date is set), then
+// each block -- paragraphs wrapped ragged-right, headings as
+// "# text", rules as "---", tables laid out, verbatim lines
+// truncated, .link lines re-emitted for the wire. Blocks are
 // separated by one blank line unless they were contiguous in the
 // source.
 func (d *Doc) Text() (string, error) {
 	width := d.Layout.Width
 	out := []string{truncLine(d.Title, width)}
+	if bl := d.Byline(); bl != "" {
+		out = append(out, truncLine(bl, width))
+	}
+	h := hyphenatorFor(d.Layout.Lang)
 	for _, b := range d.Blocks {
-		lines, err := renderBlock(b, width)
+		lines, err := renderBlock(b, width, h)
 		if err != nil {
 			return "", err
 		}
@@ -35,13 +40,36 @@ func (d *Doc) Text() (string, error) {
 }
 
 // renderBlock lays out one block at the given width.
-func renderBlock(b Block, width int) ([]string, error) {
+func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 	switch b.Kind {
 	case Para:
-		return wrapParagraph(b.Text, width), nil
+		return wrapParagraph(b.Text, width, h), nil
 
 	case Heading:
 		return []string{truncLine("# "+b.Text, width)}, nil
+
+	case Quote:
+		inner := wrapParagraph(b.Text, width-2*quoteIndent, h)
+		out := make([]string, len(inner), len(inner)+1)
+		for i, ln := range inner {
+			out[i] = strings.Repeat(" ", quoteIndent) + ln
+		}
+		if b.Attrib != "" {
+			out = append(out, attribLine(b.Attrib, width))
+		}
+		return out, nil
+
+	case Item:
+		inner := wrapParagraph(b.Text, width-itemIndent, h)
+		out := make([]string, len(inner))
+		for i, ln := range inner {
+			if i == 0 {
+				out[i] = "- " + ln
+			} else {
+				out[i] = "  " + ln
+			}
+		}
+		return out, nil
 
 	case RuleBlk:
 		return []string{"---"}, nil
@@ -68,6 +96,23 @@ func renderBlock(b Block, width int) ([]string, error) {
 	default:
 		panic(fmt.Sprintf("typeset: unknown block kind %d", b.Kind))
 	}
+}
+
+// Monospace indents for the structured prose blocks: a quote is
+// inset quoteIndent runes on BOTH sides; an item hangs its
+// continuation lines itemIndent runes under "- ". Writers share
+// these so the blocks occupy identical line counts.
+const (
+	quoteIndent = 2
+	itemIndent  = 2
+)
+
+// attribLine renders a quote attribution right-aligned to the
+// quote's right margin (width - quoteIndent): "-- WHO", truncated
+// to the quote measure if need be.
+func attribLine(attrib string, width int) string {
+	s := truncLine("-- "+attrib, width-2*quoteIndent)
+	return strings.Repeat(" ", width-quoteIndent-runeLen(s)) + s
 }
 
 // truncLine hard-cuts a line to width runes. Byte length bounds rune

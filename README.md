@@ -15,15 +15,17 @@ The design center is the language (see `doc.go` for the spec):
   hanging hyphens). Authors never state widths in content.
 - **Explicit structure, closed vocabulary.** `# heading`, `---`
   rules, `.table … .end` (cells wrap by default, `!` clips),
-  `.pre [N] … .end` verbatim blocks, `.link URL [TITLE]` link
-  references (clickable in the PDF). Unknown
-  dot commands are parse errors, never silent passthrough.
-- **Self-contained documents.** Width, paper, columns, and body
-  face live in a layout trailer (`.width` / `.paper` / `.cols` /
-  `.font`, defaults 40/a4/3/mono; `.font sans` sets prose
-  proportionally in the PDF). No formatting flags anywhere: the
-  same source always produces the same output -- the PDF
-  byte-identically (no timestamps).
+  `.pre [N] … .end` verbatim blocks, `.quote … .end` quotations
+  with `.attrib`, `.item` bulleted lists, `.link URL [TITLE]` link
+  references (clickable in the PDF), `.by`/`.date` bylines, `.rem`
+  comments. Unknown dot commands are parse errors, never silent
+  passthrough; additions must pass the four-test gate in `doc.go`.
+- **Self-contained documents.** Width, paper, columns, body face,
+  and hyphenation language live in a layout trailer (`.width` /
+  `.paper` / `.cols` / `.font` / `.lang`, defaults 40/a4/3/mono/all
+  pattern sets; `.font sans` sets prose proportionally in the PDF).
+  No formatting flags anywhere: the same source always produces the
+  same output -- the PDF byte-identically (no timestamps).
 - **Zero wire cost.** Every typeset command is consumed at
   typesetting time; a rendered text page carries only content plus
   the wire's own markup.

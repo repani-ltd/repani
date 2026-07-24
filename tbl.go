@@ -199,10 +199,12 @@ func formatRow(cols []colSpec, cells []string) []string {
 // breaker paragraphs get, but with the cell-tuned hyphen penalty:
 // in a narrow column, "Isolated thunder-" / "storms inland" beats
 // one word per line. A word that is longer than the column even
-// after hyphenation is hard-cut into chunks.
+// after hyphenation is hard-cut into chunks. Cells hyphenate with
+// every embedded pattern set (cell content is short and often
+// mixed; .lang applies to prose).
 func wrapCell(s string, width int) []string {
 	var out []string
-	for _, ln := range flattenLines(wrapRagged(s, width, hyphenPenaltyCell, Mono)) {
+	for _, ln := range flattenLines(wrapRagged(s, width, hyphenPenaltyCell, Mono, defaultHyphenator)) {
 		for runeLen(ln) > width {
 			r := []rune(ln)
 			out = append(out, string(r[:width]))

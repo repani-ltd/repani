@@ -93,9 +93,9 @@ render executes a Go template over JSON, FACT (-fact, implied by a
 .fact filename), or txtar (-txtar) data and emits a typeset source
 document; text and pdf render a source document (default stdin) to
 a fixed-width text page or an N-column newspaper PDF. Layout
-(width, paper, columns, font) comes from the document's trailer
-(.width/.paper/.cols/.font), not from flags. See the typeset
-package documentation for the source language.
+(width, paper, columns, font, language) comes from the document's
+trailer (.width/.paper/.cols/.font/.lang), not from flags. See the
+typeset package documentation for the source language.
 `)
 }
 
