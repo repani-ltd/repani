@@ -18,7 +18,7 @@ import (
 // typography, not document attributes.
 const (
 	sheetMargin = 40.0
-	sheetGutter = 16.0
+	sheetGutter = 20.0
 	lineSpacing = 1.25 // line height in ems
 	minPs       = 4.5  // readability floor for the derived body size
 )
