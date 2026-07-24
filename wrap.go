@@ -355,6 +355,13 @@ func tryHyphenAt(w word, spaceUsed, width int, penalty, tailCost float64, m Meas
 // spreading slack more evenly and reducing the maximum gap width.
 const hyphenPenaltyJustify = 6
 
+// finalHyphenPenalty is the extra cost of a hyphen whose suffix
+// begins the paragraph's last line (TeX's \finalhyphendemerits):
+// the paragraph then trails off in a bare word fragment. Steep but
+// not prohibitive -- a fragment still beats a grotesquely loose
+// line.
+const finalHyphenPenalty = 40
+
 // shrinkPerGap is the maximum a justified gap may compress below the
 // natural space: a third of a space, TeX's interword shrinkability.
 // Integer division makes it zero for the monospace measurer, which
@@ -472,7 +479,7 @@ func justifyWrap(para string, width int, m Measurer) []Line {
 				text:   suffix,
 				points: defaultHyphenator.Hyphenate(suffix),
 			}
-			recomputeBreakAt(words, j, n, width, m, cost, next, hyph)
+			justifyDP(words, j, min(j+1, n), width, m, cost, next, hyph)
 			i = j
 		} else {
 			for k := i; k < j; k++ {
@@ -488,14 +495,17 @@ func justifyWrap(para string, width int, m Measurer) []Line {
 }
 
 // justifyDP runs the backward dynamic-programming pass for
-// positions [start, n). It fills cost, next, and hyph for each
-// position using the gap-aware justify cost model.
-func justifyDP(words []word, start, n, width int, m Measurer, cost []float64, next, hyph []int) {
+// positions [start, end), filling cost, next, and hyph with the
+// gap-aware justify cost model. Positions >= end keep their
+// existing entries, which is what lets the reconstruction recompute
+// a single position after a hyphen substitution.
+func justifyDP(words []word, start, end, width int, m Measurer, cost []float64, next, hyph []int) {
+	n := len(words)
 	sp := m.Space()
 	spsp := float64(sp) * float64(sp)
 	shrink := shrinkPerGap(m)
 	hang := HangHyphen(m)
-	for i := n - 1; i >= start; i-- {
+	for i := end - 1; i >= start; i-- {
 		bestCost := 1e18
 		bestJ := i + 1
 		bestHyph := -1
@@ -525,10 +535,15 @@ func justifyDP(words []word, start, n, width int, m Measurer, cost []float64, ne
 					if j == i {
 						spaceUsed = -1
 					}
-					if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j], m); ok && hc.cost < bestCost {
-						bestCost = hc.cost
-						bestJ = j
-						bestHyph = hc.point
+					if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j], m); ok {
+						if j > i && next[j] == n {
+							hc.cost += finalHyphenPenalty
+						}
+						if hc.cost < bestCost {
+							bestCost = hc.cost
+							bestJ = j
+							bestHyph = hc.point
+						}
 					}
 				}
 				break
@@ -573,10 +588,15 @@ func justifyDP(words []word, start, n, width int, m Measurer, cost []float64, ne
 				if j > i {
 					spaceUsed = lineLen - wLen - sp
 				}
-				if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j], m); ok && hc.cost < bestCost {
-					bestCost = hc.cost
-					bestJ = j
-					bestHyph = hc.point
+				if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j], m); ok {
+					if j > i && next[j] == n {
+						hc.cost += finalHyphenPenalty
+					}
+					if hc.cost < bestCost {
+						bestCost = hc.cost
+						bestJ = j
+						bestHyph = hc.point
+					}
 				}
 			}
 		}
@@ -585,57 +605,6 @@ func justifyDP(words []word, start, n, width int, m Measurer, cost []float64, ne
 		next[i] = bestJ
 		hyph[i] = bestHyph
 	}
-}
-
-// recomputeBreakAt re-runs the justify DP from position pos
-// after a hyphenation suffix has replaced the original word
-// there. Only non-hyphenated breaks are evaluated; the
-// pre-computed cost array is reused for subsequent positions
-// (which still hold their original words).
-func recomputeBreakAt(words []word, pos, n, width int, m Measurer, cost []float64, next, hyph []int) {
-	sp := m.Space()
-	spsp := float64(sp) * float64(sp)
-	shrink := shrinkPerGap(m)
-	hang := HangHyphen(m)
-	bestCost := 1e18
-	bestJ := pos + 1
-	lineLen := 0
-
-	for j := pos; j < n; j++ {
-		wLen := m.Width(words[j].text)
-		if j == pos {
-			lineLen = wLen
-		} else {
-			lineLen += sp + wLen
-		}
-		wordsOnLine := j - pos + 1
-		allow := (wordsOnLine - 1) * shrink
-		if lineLen > width+hang+allow {
-			break
-		}
-		target := width
-		if j+1 < n && strings.HasSuffix(words[j].text, "-") {
-			target += hang
-		}
-		slack := target - lineLen
-		if slack < -allow || (j+1 == n && slack < 0) {
-			continue
-		}
-		c := cost[j+1]
-		if j+1 < n {
-			c += gapCost(slack, wordsOnLine, m)
-		} else if slack > width-5*sp {
-			c += float64(slack) * float64(slack) / 4 / spsp
-		}
-		if c < bestCost {
-			bestCost = c
-			bestJ = j + 1
-		}
-	}
-
-	cost[pos] = bestCost
-	next[pos] = bestJ
-	hyph[pos] = -1
 }
 
 // tryHyphenAtJustify evaluates all fitting hyphenation points of
