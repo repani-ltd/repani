@@ -406,7 +406,7 @@ func TestTextQuoteItemByline(t *testing.T) {
 			attrib = append(attrib, ln)
 		case strings.HasPrefix(ln, "  The") || strings.HasPrefix(ln, "  again"):
 			quote = append(quote, ln)
-		case strings.HasPrefix(ln, "- "):
+		case strings.HasPrefix(ln, "• "):
 			items = append(items, ln)
 		}
 	}
@@ -427,7 +427,7 @@ func TestTextQuoteItemByline(t *testing.T) {
 	// Continuation of the first item hangs under the bullet.
 	found := false
 	for i, ln := range lines {
-		if strings.HasPrefix(ln, "- first") && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "  ") {
+		if strings.HasPrefix(ln, "• first") && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "  ") {
 			found = true
 		}
 	}

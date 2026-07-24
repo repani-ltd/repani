@@ -50,10 +50,10 @@ A document is UTF-8 text, structured by line:
 	                 quote's right margin. An empty quote, a
 	                 second .attrib, or content after .attrib is
 	                 an error
-	.item TEXT       one bulleted list item: "- " then TEXT with
-	                 continuation lines hanging 2 characters.
-	                 Consecutive .item lines set tight (no blank
-	                 line between); items do not nest
+	.item TEXT       one bulleted list item: a bullet (U+2022),
+	                 then TEXT with continuation lines hanging 2
+	                 characters. Consecutive .item lines set tight
+	                 (no blank line between); items do not nest
 	.by TEXT         byline and dateline metadata: rendered under
 	.date TEXT       the title as "by TEXT -- DATE" (whichever
 	                 parts are present; see Doc.Byline). Each may

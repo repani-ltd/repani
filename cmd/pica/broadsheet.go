@@ -31,6 +31,10 @@ var emWidth = pdf.EmWidth(pdf.Regular)
 // than minKeep segments of a block on either side of a column break.
 const minKeep = 2
 
+// bullet is the .item marker, matching the text writer's (U+2022,
+// covered by all four embedded faces).
+const bullet = "•"
+
 func pdfCmd(args []string) int {
 	fs := flag.NewFlagSet("pdf", flag.ExitOnError)
 	out := fs.String("o", "", "output file (default stdout)")
@@ -230,17 +234,17 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 			}
 
 		case typeset.Item:
-			// "- " with a hanging indent for continuation lines.
+			// A bullet with a hanging indent for continuation lines.
 			if t.sans {
 				m := pdf.Measure(pdf.Sans)
-				ii := m.Width("-") + m.Space()
+				ii := m.Width(bullet) + m.Space()
 				measure := t.units - ii
 				lines := typeset.JustifyLines(blk.Text, measure, m, lang)
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: ii}
 					if i == 0 {
-						sl.words = append([]string{"-"}, ln.Words...)
+						sl.words = append([]string{bullet}, ln.Words...)
 						sl.gaps = append([]int{m.Space()}, sl.gaps...)
 						sl.indent = 0
 					}
@@ -250,7 +254,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				for i, ln := range typeset.JustifyParagraph(blk.Text, width-2, lang) {
 					pre := "  "
 					if i == 0 {
-						pre = "- "
+						pre = bullet + " "
 					}
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: pre + ln}}})
 				}

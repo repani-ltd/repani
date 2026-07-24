@@ -64,7 +64,7 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 		out := make([]string, len(inner))
 		for i, ln := range inner {
 			if i == 0 {
-				out[i] = "- " + ln
+				out[i] = bullet + " " + ln
 			} else {
 				out[i] = "  " + ln
 			}
@@ -100,11 +100,14 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 
 // Monospace indents for the structured prose blocks: a quote is
 // inset quoteIndent runes on BOTH sides; an item hangs its
-// continuation lines itemIndent runes under "- ". Writers share
-// these so the blocks occupy identical line counts.
+// continuation lines itemIndent runes under the bullet. Writers
+// share these so the blocks occupy identical line counts. The
+// bullet is U+2022, covered by all four embedded faces (a full
+// 600/1000 em cell in Fira Mono).
 const (
 	quoteIndent = 2
 	itemIndent  = 2
+	bullet      = "•"
 )
 
 // attribLine renders a quote attribution right-aligned to the
