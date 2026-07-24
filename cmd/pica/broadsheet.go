@@ -21,6 +21,7 @@ const (
 	sheetGutter = 20.0
 	lineSpacing = 1.25 // line height in ems
 	minPs       = 4.5  // readability floor for the derived body size
+	mastRuleGap = 4.0  // extra white on each side of the masthead rule
 )
 
 // emWidth is the body font's advance per rune in ems -- a metric of
@@ -546,10 +547,12 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	mastPt = max(12, min(30, mastPt))
 	byline := doc.Byline()
 	mastBottom := topY - mastPt*1.35
-	colTopFirst := mastBottom - 10
+	headerBottom := mastBottom
 	if byline != "" {
-		colTopFirst = mastBottom - ps*1.5 - 10
+		headerBottom -= ps * 1.5
 	}
+	ruleY := headerBottom - mastRuleGap
+	colTopFirst := ruleY - mastRuleGap - lineH*0.6
 	colTopRest := topY
 	colBottom := sheetMargin
 
@@ -604,7 +607,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 				p.Gray(0)
 			}
 			p.StrokeGray(0)
-			p.Line(sheetMargin, colTop+lineH*0.6, pageW-sheetMargin, colTop+lineH*0.6, 1.0)
+			p.Line(sheetMargin, ruleY, pageW-sheetMargin, ruleY, 1.0)
 		}
 
 		deepest := 0
