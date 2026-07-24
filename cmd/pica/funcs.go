@@ -34,7 +34,7 @@ func funcMap() template.FuncMap {
 }
 
 // toFloat widens any numeric template value to float64. JSON data
-// arrives as float64, but YAML (txtar mode) yields int for whole
+// arrives as float64, but FACT binding yields int for whole
 // numbers -- the numeric helpers accept both.
 func toFloat(v any) (float64, error) {
 	switch n := v.(type) {
@@ -165,9 +165,9 @@ func dur(s string) string {
 // spec passes through verbatim (including a fixed width or the
 // headerless "-" marker); header is the header row, or "" to emit
 // none (pair with a "-" spec). rows must be a slice of objects
-// (JSON/YAML decode to maps); each cell is the named field
-// formatted with %v. A missing field or a non-object row is an
-// error -- never a silently blank cell.
+// (JSON objects and FACT instances both bind to maps); each cell is
+// the named field formatted with %v. A missing field or a
+// non-object row is an error -- never a silently blank cell.
 func table(spec, header string, rows any, fields ...string) (string, error) {
 	if len(fields) == 0 {
 		return "", fmt.Errorf("table: no fields given")

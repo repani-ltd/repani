@@ -90,9 +90,9 @@ func (t *Table) Row(cells ...string) *Table {
 	return t
 }
 
-// separatorRune is the character used to draw header underline rows.
+// separator is the character used to draw header underline rows.
 // ASCII "-" guarantees exact monospace alignment in any viewer.
-const separatorRune = "-"
+const separator = "-"
 
 // TableLayout is a table laid out at a concrete width. Header holds
 // the header lines plus the separator row; each element of Rows is
@@ -221,7 +221,7 @@ func wrapCell(s string, width int) []string {
 func separatorLine(cols []colSpec) string {
 	parts := make([]string, len(cols))
 	for i, col := range cols {
-		parts[i] = strings.Repeat(separatorRune, col.width)
+		parts[i] = strings.Repeat(separator, col.width)
 	}
 	return strings.Join(parts, " ")
 }

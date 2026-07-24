@@ -18,10 +18,12 @@ The design center is the language (see `doc.go` for the spec):
   `.pre [N] … .end` verbatim blocks, `.link URL [TITLE]` link
   references (clickable in the PDF). Unknown
   dot commands are parse errors, never silent passthrough.
-- **Self-contained documents.** Width, paper, and columns live in a
-  layout trailer (`.width` / `.paper` / `.cols`, defaults 40/a4/3).
-  No formatting flags anywhere: the same source always produces the
-  same output -- the PDF byte-identically (no timestamps).
+- **Self-contained documents.** Width, paper, columns, and body
+  face live in a layout trailer (`.width` / `.paper` / `.cols` /
+  `.font`, defaults 40/a4/3/mono; `.font sans` sets prose
+  proportionally in the PDF). No formatting flags anywhere: the
+  same source always produces the same output -- the PDF
+  byte-identically (no timestamps).
 - **Zero wire cost.** Every typeset command is consumed at
   typesetting time; a rendered text page carries only content plus
   the wire's own markup.
@@ -39,8 +41,9 @@ decimal, trunc, pad, shortTime, shortDate, dur) and one structure
 helper, `table`, which emits a `.table` block from a rows slice
 plus field names (sparing templates the range boilerplate) -- no
 layout functions exist. `pdf` derives its body point size from the
-document geometry (columnWidth / 0.6em / `.width`), so a text page
-and a PDF column are the same typographic object; it renders
+document geometry (columnWidth / 0.6em / `.width`; average
+lowercase advances under `.font sans`), so a text page and a PDF
+column are the same typographic object; it renders
 justified columns with orphan/widow control (splits keep >= 2
 lines on each side), headings bold and kept with their story,
 split tables repeating their headers, `.pre` blocks atomic, and a
@@ -56,10 +59,11 @@ The committed `example/expected.txt` is enforced by a golden test.
 ## pdf/
 
 A zero-dependency PDF 1.3 writer: subset-embedded TrueType (Fira
-Mono Regular/Bold -- SIL OFL, see `pdf/fonts/README.md` -- Latin,
-Greek, and Cyrillic at a uniform 600/1000 em), ToUnicode CMaps for
-selectable text, positioned text, hairlines, grayscale. Nothing
-else.
+Mono and Fira Sans, Regular and Bold -- SIL OFL, see
+`pdf/fonts/README.md` -- Latin, Greek, and Cyrillic; the mono
+faces at a uniform 600/1000 em), GPOS pair kerning, ToUnicode
+CMaps for selectable text, positioned text, hairlines, grayscale.
+Nothing else.
 
 ## Notes
 

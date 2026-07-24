@@ -404,3 +404,38 @@ func TestWrapVsJustify_Differ(t *testing.T) {
 	}
 }
 
+
+func TestOverlongWordHyphenates(t *testing.T) {
+	// A word wider than the measure must set a hyphenated prefix
+	// instead of overflowing, in both breakers.
+	const word = "internationalization" // 20 runes
+	const width = 12
+	for name, lines := range map[string][]Line{
+		"ragged":  WrapLines(word, width, Mono),
+		"justify": JustifyLines(word, width, Mono),
+	} {
+		if len(lines) < 2 {
+			t.Errorf("%s: %q at width %d stayed on one line", name, word, width)
+			continue
+		}
+		for i, ln := range lines {
+			if ln.Width > width {
+				t.Errorf("%s: line %d overflows: %v (width %d > %d)", name, i, ln.Words, ln.Width, width)
+			}
+		}
+		last := lines[0].Words[len(lines[0].Words)-1]
+		if !strings.HasSuffix(last, "-") {
+			t.Errorf("%s: first line does not end in a hyphen: %v", name, lines[0].Words)
+		}
+	}
+}
+
+func TestOverlongWordWithoutPointsOverflows(t *testing.T) {
+	// No hyphenation points: the word has nowhere to break and
+	// overflows -- the documented fallback.
+	const word = "aaaaaaaaaaaaaaaaaaaa" // no valid Liang points
+	lines := WrapLines(word, 12, Mono)
+	if len(lines) != 1 || lines[0].Width != 20 {
+		t.Errorf("expected a single overflowing line, got %v", lines)
+	}
+}

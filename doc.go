@@ -58,8 +58,9 @@ wants the data rather than a rendering walks Doc.Blocks directly.
 One rule binds the monospace writers: every block occupies the same
 line count in each, so a text page and a PDF column stay the same
 object. A .font sans document trades that identity away for
-proportional prose (its line breaks are measured, not counted). Structural commands (.table, .pre, .end) and the layout
-trailer never appear in any output.
+proportional prose (its line breaks are measured, not counted).
+Structural commands (.table, .pre, .end) and the layout trailer
+never appear in any output.
 
 # Layout trailer
 
@@ -67,10 +68,12 @@ Layout commands are document-global and must appear after all
 content -- content following a layout command is an error. Each
 has a default, so an attribute-free document is fully determined:
 
-	.width N    characters per line/column     (default 40)
+	.width N    characters per line/column     (default 40, 10-200)
 	.paper P    pdf paper: a4, a5, or letter   (default a4)
-	.cols N     pdf columns per page           (default 3)
+	.cols N     pdf columns per page           (default 3, 1-6)
 	.font F     pdf body face: mono or sans    (default mono)
+
+Values outside the given ranges are parse errors.
 
 There is no font-size attribute: the PDF body size is derived so a
 column holds exactly .width characters -- runes for the mono face
@@ -93,7 +96,9 @@ Cells WRAP by default: overflow continues on following lines,
 other cells padded blank, and such a multi-line row is an atomic
 unit for column-splitting writers. Append "!" to a token to clip
 that column instead ("5L! 4R!"). Columns are joined by a single
-space; a header is followed by a dashed separator row.
+space; a header is followed by a dashed separator row. "|" always
+separates cells (there is no escape for a literal one), and cells
+beyond the spec's columns are dropped.
 
 # Wrapping
 
@@ -108,10 +113,13 @@ continuously across the gaps. Under a proportional measurer,
 justified gaps may also shrink up to a third of a space
 (HangHyphen and the shrink allowance are both zero on the
 monospace grid), and a line-final hyphen hangs 70% of its width
-into the right margin so the flush edge stays optically straight. JustifyParagraph is the monospace
-paragraph-level primitive for writers holding parsed Para blocks;
-WrapLines and JustifyLines are the measured structured primitives;
-all document structure goes through Parse.
+into the right margin so the flush edge stays optically straight.
+A word wider than the measure is hyphenated at whatever point
+fits; only a fragment with no valid break overflows the line.
+JustifyParagraph is the monospace paragraph-level primitive for
+writers holding parsed Para blocks; WrapLines and JustifyLines are
+the measured structured primitives; all document structure goes
+through Parse.
 
 Widths count runes, not display cells: double-width (CJK) glyphs
 misalign. The package targets scripts where one rune is one

@@ -321,6 +321,9 @@ func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
 	fixed := 0
 	if first, rest, ok := strings.Cut(spec, " "); ok {
 		if w, err := strconv.Atoi(first); err == nil {
+			if w < 1 {
+				return Block{}, fmt.Errorf("%w: .table width %q (line %d)", ErrBadAttr, first, atLine)
+			}
 			fixed = w
 			spec = rest
 		}

@@ -9,7 +9,6 @@ import (
 	"math"
 	"math/bits"
 	"sort"
-	"sync"
 )
 
 // kernSub is one PairPos subtable. Exactly one of pairs (format 1)
@@ -28,10 +27,10 @@ type kernSub struct {
 // coverage and pair match wins; values accumulate across lookups.
 type kernLookup struct{ subs []kernSub }
 
-// kern holds a font's parsed kerning state plus the pair cache.
+// kern holds a font's parsed kerning state plus the pair cache. The
+// cache is not safe for concurrent use, like the rest of the package.
 type kern struct {
 	lookups []kernLookup
-	mu      sync.Mutex
 	cache   map[uint32]int
 }
 
@@ -44,8 +43,6 @@ func (f *TTFont) Kern(a, b rune) int {
 	}
 	k := f.kern
 	key := uint32(a)<<16 | uint32(b)
-	k.mu.Lock()
-	defer k.mu.Unlock()
 	if v, ok := k.cache[key]; ok {
 		return v
 	}

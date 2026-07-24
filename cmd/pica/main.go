@@ -12,10 +12,10 @@
 //	pica render page.tmpl data.json | pica text     > page.txt
 //	pica render page.tmpl data.json | pica pdf -o page.pdf
 //
-// Documents are self-contained: width, paper, and columns come from
-// the document's layout trailer (.width/.paper/.cols), never from
-// flags, so the same source always produces the same output -- the
-// PDF byte-identically so.
+// Documents are self-contained: width, paper, columns, and body face
+// come from the document's layout trailer (.width/.paper/.cols/
+// .font), never from flags, so the same source always produces the
+// same output -- the PDF byte-identically so.
 //
 // # Templates
 //
@@ -85,13 +85,17 @@ func usage() {
 	fmt.Fprint(os.Stderr, `pica -- monospace typesetting
 
 Usage:
-  pica render [-txtar] <template> <data|->   template -> source doc
-  pica text [file|-]                         source -> text page
-  pica pdf [-o FILE] [file|-]                source -> newspaper PDF
+  pica render [-txtar|-fact] [-o FILE] <template> <data|->
+  pica text [-o FILE] [file|-]
+  pica pdf [-o FILE] [file|-]
 
-Layout (width, paper, columns) comes from the document's trailer
-(.width/.paper/.cols), not from flags. See the typeset package
-documentation for the source language.
+render executes a Go template over JSON, FACT (-fact, implied by a
+.fact filename), or txtar (-txtar) data and emits a typeset source
+document; text and pdf render a source document (default stdin) to
+a fixed-width text page or an N-column newspaper PDF. Layout
+(width, paper, columns, font) comes from the document's trailer
+(.width/.paper/.cols/.font), not from flags. See the typeset
+package documentation for the source language.
 `)
 }
 
@@ -169,20 +173,20 @@ func renderCmd(args []string) int {
 	fs := flag.NewFlagSet("render", flag.ExitOnError)
 	useTxtar := fs.Bool("txtar", false, "parse data as a txtar archive (data.fact + *.txt content members)")
 	useFact := fs.Bool("fact", false, "parse data as FACT (implied by a .fact data filename)")
-	fs.Parse(args)
-	rest := fs.Args()
-	if len(rest) != 2 {
+	out := fs.String("o", "", "output file (default stdout)")
+	pos := parseMixed(fs, args)
+	if len(pos) != 2 {
 		fmt.Fprintln(os.Stderr, "pica render: need <template> <data>")
 		return 1
 	}
-	tmplPath := rest[0]
+	tmplPath := pos[0]
 
 	tmplBytes, err := os.ReadFile(tmplPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica: read template: %v\n", err)
 		return 1
 	}
-	dataBytes, err := readInput(rest[1:])
+	dataBytes, err := readInput(pos[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica: read data: %v\n", err)
 		return 1
@@ -192,7 +196,7 @@ func renderCmd(args []string) int {
 	switch {
 	case *useTxtar:
 		data, err = parseTxtar(dataBytes)
-	case *useFact || strings.HasSuffix(rest[1], ".fact"):
+	case *useFact || strings.HasSuffix(pos[1], ".fact"):
 		data, err = bindFacts(dataBytes)
 	default:
 		err = json.Unmarshal(dataBytes, &data)
@@ -216,12 +220,11 @@ func renderCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "pica: execute template: %v\n", err)
 		return 1
 	}
-	out := buf.String()
-	fmt.Print(out)
-	if !strings.HasSuffix(out, "\n") {
-		fmt.Println()
+	doc := buf.String()
+	if !strings.HasSuffix(doc, "\n") {
+		doc += "\n"
 	}
-	return 0
+	return writeOutput(*out, []byte(doc))
 }
 
 // bindFacts parses, validates, and binds a FACT document into

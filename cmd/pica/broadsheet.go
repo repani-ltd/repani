@@ -305,12 +305,12 @@ func flow(blocks []fblock, capacity func(int) int) [][]sline {
 	for i := 0; i < len(blocks); i++ {
 		b := blocks[i]
 		for {
-			cap := capacity(colIdx)
+			colCap := capacity(colIdx)
 			sep := 0
 			if len(cur) > 0 && !b.tight {
 				sep = 1
 			}
-			avail := cap - len(cur) - sep
+			avail := colCap - len(cur) - sep
 			h := b.height()
 
 			// Keep-with-next: the heading and the first minKeep

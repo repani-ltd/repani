@@ -10,7 +10,8 @@ import (
 )
 
 // Page builds one PDF page content stream. Get pages into a document
-// with Doc.Add. Zero value is ready to use.
+// with Doc.Add. The zero value is an empty page; call SetFont before
+// the first text operation.
 type Page struct {
 	buf    strings.Builder
 	font   Font

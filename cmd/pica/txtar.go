@@ -14,8 +14,9 @@ type txtarFile struct {
 }
 
 // parseArchive splits a txtar archive into its members. Member data
-// keeps its trailing newline if present; pica trims per its own
-// conventions afterwards.
+// always ends in a newline (one is added when the archive's final
+// line lacks its own); pica trims per its own conventions
+// afterwards.
 func parseArchive(data string) []txtarFile {
 	var files []txtarFile
 	for len(data) > 0 {

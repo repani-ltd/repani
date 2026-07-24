@@ -8,18 +8,11 @@ import (
 	"sort"
 )
 
-// Parse parses raw TrueType font bytes into a TTFont ready for
-// embedding and subsetting.
-func Parse(raw []byte) (*TTFont, error) {
-	return parseTTF(raw)
-}
-
-
 // TTFont holds parsed TrueType font data for PDF embedding.
 // The full (unsubset) TTF is stored in Data; per-document subsetting
 // is done at PDF build time via the Subset() method.
 type TTFont struct {
-	Tag            string // PDF resource name (e.g. "FR", "FB")
+	Tag            string // PDF resource name (e.g. "R", "B")
 	PostScriptName string
 	UnitsPerEm     uint16
 	Ascent         int16
@@ -76,7 +69,18 @@ func tableGet(raw []byte, tables map[string]ttfTable, tag string) ([]byte, error
 	return raw[t.offset : t.offset+t.length], nil
 }
 
-func parseTTF(raw []byte) (*TTFont, error) {
+// Parse parses raw TrueType font bytes into a TTFont ready for
+// embedding and subsetting. Malformed input returns an error: the
+// offset-chained binary is not bounds-checked field by field;
+// panics from truncated or corrupt tables are recovered here
+// instead.
+func Parse(raw []byte) (font *TTFont, err error) {
+	defer func() {
+		if recover() != nil {
+			font, err = nil, fmt.Errorf("ttf: malformed font")
+		}
+	}()
+
 	tables, err := parseTables(raw)
 	if err != nil {
 		return nil, err
@@ -86,7 +90,7 @@ func parseTTF(raw []byte) (*TTFont, error) {
 		return tableGet(raw, tables, tag)
 	}
 
-	font := &TTFont{Flags: 33, StemV: 80}
+	font = &TTFont{Flags: 33, StemV: 80}
 
 	// head
 	head, err := get("head")
@@ -181,7 +185,7 @@ func parseTTF(raw []byte) (*TTFont, error) {
 		font.PostScriptName = extractPSName(nt)
 	}
 	if font.PostScriptName == "" {
-		font.PostScriptName = "FiraSans-Regular"
+		return nil, fmt.Errorf("ttf: no PostScript name (name table id 6)")
 	}
 
 	return font, nil
@@ -253,10 +257,18 @@ type SubsetResult struct {
 	Widths   map[int]int // per-CID widths for used codepoints only
 }
 
-// Subset creates a per-document font subset containing only the glyphs
-// for the given codepoints. It reuses the internal subsetting machinery
-// (addCompounds, subsetTTF) to produce a minimal TTF and CID→GID map.
-func (f *TTFont) Subset(used map[rune]bool) (*SubsetResult, error) {
+// Subset builds a per-document subset of the font containing only
+// the glyphs for the given codepoints (plus .notdef and any compound
+// components), with the CID→GID map and width table that PDF
+// embedding needs. Like Parse, it recovers panics from malformed
+// font data into an error.
+func (f *TTFont) Subset(used map[rune]bool) (res *SubsetResult, err error) {
+	defer func() {
+		if recover() != nil {
+			res, err = nil, fmt.Errorf("ttf: malformed font")
+		}
+	}()
+
 	raw := f.Data
 	tables, err := parseTables(raw)
 	if err != nil {
@@ -435,7 +447,10 @@ func subsetTTF(raw []byte, tables map[string]ttfTable, glyf []byte, offsets []ui
 	return buildTTF(raw, tables, newGlyf, newLoca)
 }
 
-// buildTTF reassembles a TTF file, replacing glyf and loca with new data.
+// buildTTF reassembles a TTF file, replacing glyf and loca with new
+// data. Checksums are rebuilt to spec: head's checkSumAdjustment is
+// zeroed before its table checksum and recomputed for the whole file
+// at the end.
 func buildTTF(raw []byte, tables map[string]ttfTable, newGlyf, newLoca []byte) []byte {
 	// Sort tables by original offset to maintain file order
 	var ts []ttfTable
@@ -450,6 +465,7 @@ func buildTTF(raw []byte, tables map[string]ttfTable, newGlyf, newLoca []byte) [
 
 	var data []byte
 	dir := make([]byte, nt*16)
+	headOff := -1
 
 	for i, t := range ts {
 		var td []byte
@@ -458,6 +474,10 @@ func buildTTF(raw []byte, tables map[string]ttfTable, newGlyf, newLoca []byte) [
 			td = newGlyf
 		case "loca":
 			td = newLoca
+		case "head":
+			td = append([]byte{}, raw[t.offset:t.offset+t.length]...)
+			putU32(td, 8, 0) // checkSumAdjustment, refilled below
+			headOff = dataStart + len(data)
 		default:
 			td = raw[t.offset : t.offset+t.length]
 		}
@@ -483,6 +503,9 @@ func buildTTF(raw []byte, tables map[string]ttfTable, newGlyf, newLoca []byte) [
 		out = append(out, 0)
 	}
 	out = append(out, data...)
+	if headOff >= 0 {
+		putU32(out, headOff+8, 0xB1B0AFBA-tblChecksum(out))
+	}
 	return out
 }
 

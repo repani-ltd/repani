@@ -199,3 +199,15 @@ func TestWordsTJ(t *testing.T) {
 		t.Errorf("single-word Words did not draw:\n%s", s2)
 	}
 }
+
+func TestInfoStringsEscaped(t *testing.T) {
+	var p Page
+	p.SetFont(Regular, 8)
+	p.Text(72, 700, "body")
+	doc := &Doc{Title: `a(b)c\d`, Creator: "pica", Compress: false}
+	doc.Add(&p)
+	s := string(doc.Bytes())
+	if !strings.Contains(s, `/Title (a\(b\)c\\d)`) {
+		t.Errorf("title not escaped in Info dictionary")
+	}
+}

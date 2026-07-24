@@ -10,6 +10,7 @@ import (
 	_ "embed"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/pavlos/typeset/pdf/ttf"
@@ -234,28 +235,10 @@ func (b *builder) add(data []byte) int {
 // set fills in a previously reserved object slot.
 func (b *builder) set(id int, data []byte) { b.objs[id] = data }
 
-// ── PDF object templates ────────────────────────────────────────────
+// ── PDF objects ─────────────────────────────────────────────────────
 
-const (
-	tmplStream         = "%d 0 obj\n<< \n/Length %d\n"
-	tmplFilter         = "/Filter [ /FlateDecode ]\n"
-	tmplStreamS        = ">>\nstream\n"
-	tmplKid            = "%d 0 R "
-	tmplXrefH          = "xref\n0 %d\n"
-	tmplXrefF          = "0000000000 65535 f \n"
-	tmplXrefN          = "%010d 00000 n \n"
-	tmplXrefT          = "trailer\n<<\n/Root %d 0 R\n/Size %d\n/Info %d 0 R\n/ID[<%s><%s>]\n>>\nstartxref\n%d\n%%%%EOF\n"
-	tmplResourcesFont  = "/%s %d 0 R "
-	tmplType0Font      = "%d 0 obj\n<<\n/Type /Font\n/Subtype /Type0\n/BaseFont /%s\n/Encoding /Identity-H\n/DescendantFonts [ %d 0 R ]\n/ToUnicode %d 0 R\n>>\nendobj\n"
-	tmplCIDFont        = "%d 0 obj\n<<\n/Type /Font\n/Subtype /CIDFontType2\n/BaseFont /%s\n/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>\n/FontDescriptor %d 0 R\n/DW %d\n%s/CIDToGIDMap %d 0 R\n>>\nendobj\n"
-	tmplFontDescriptor = "%d 0 obj\n<<\n/Type /FontDescriptor\n/FontName /%s\n/Flags %d\n/FontBBox [ %d %d %d %d ]\n/ItalicAngle %.1f\n/Ascent %d\n/Descent %d\n/CapHeight %d\n/StemV %d\n/FontFile2 %d 0 R\n>>\nendobj\n"
-	tmplFontFileH      = "%d 0 obj\n<<\n/Length %d\n/Length1 %d\n/Filter /FlateDecode\n>>\nstream\n"
-	tmplCIDToGIDMapH   = "%d 0 obj\n<<\n/Length %d\n/Filter /FlateDecode\n>>\nstream\n"
-	tmplStreamEnd      = "\nendstream\nendobj\n"
-	tmplToUnicodeH     = "%d 0 obj\n<<\n/Length %d\n>>\nstream\n"
-)
-
-// obj builds a PDF dictionary object incrementally.
+// obj builds a PDF object incrementally: a dictionary, closed by
+// bytes(), optionally carrying a stream body, closed by stream().
 type obj struct{ buf bytes.Buffer }
 
 func newObj(id int) *obj {
@@ -268,8 +251,18 @@ func (o *obj) field(k, v string) {
 	fmt.Fprintf(&o.buf, "/%s %s\n", k, v)
 }
 
+// bytes closes a plain dictionary object.
 func (o *obj) bytes() []byte {
 	o.buf.WriteString(">>\nendobj\n")
+	return o.buf.Bytes()
+}
+
+// stream closes the dictionary and attaches body as the object's
+// stream. The caller must have set /Length to len(body).
+func (o *obj) stream(body []byte) []byte {
+	o.buf.WriteString(">>\nstream\n")
+	o.buf.Write(body)
+	o.buf.WriteString("\nendstream\nendobj\n")
 	return o.buf.Bytes()
 }
 
@@ -284,10 +277,10 @@ func pdfCatalog(id, openActionRef, pagesRef int) []byte {
 func pdfInfo(id int, creator, title string) []byte {
 	o := newObj(id)
 	if creator != "" {
-		o.field("Creator", fmt.Sprintf("(%s)", creator))
+		o.field("Creator", "("+escapeString(creator)+")")
 	}
 	if title != "" {
-		o.field("Title", fmt.Sprintf("(%s)", title))
+		o.field("Title", "("+escapeString(title)+")")
 	}
 	return o.bytes()
 }
@@ -336,22 +329,19 @@ func pdfStream(id int, content []byte, compress bool) []byte {
 	if compress {
 		body = zlibCompress(content)
 	}
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, tmplStream, id, len(body))
+	o := newObj(id)
+	o.field("Length", strconv.Itoa(len(body)))
 	if compress {
-		buf.WriteString(tmplFilter)
+		o.field("Filter", "[ /FlateDecode ]")
 	}
-	buf.WriteString(tmplStreamS)
-	buf.Write(body)
-	buf.WriteString(tmplStreamEnd)
-	return buf.Bytes()
+	return o.stream(body)
 }
 
 func pdfKids(ids []int) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("[ ")
 	for _, id := range ids {
-		fmt.Fprintf(&buf, tmplKid, id)
+		fmt.Fprintf(&buf, "%d 0 R ", id)
 	}
 	buf.WriteString("]")
 	return buf.Bytes()
@@ -359,39 +349,58 @@ func pdfKids(ids []int) []byte {
 
 func pdfXref(count int, objPos []int, rootID, infoID int, id string, xrefPos int) []byte {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, tmplXrefH, count)
-	fmt.Fprintf(&buf, tmplXrefF)
+	fmt.Fprintf(&buf, "xref\n0 %d\n", count)
+	buf.WriteString("0000000000 65535 f \n")
 	for _, pos := range objPos[1:] {
-		fmt.Fprintf(&buf, tmplXrefN, pos)
+		fmt.Fprintf(&buf, "%010d 00000 n \n", pos)
 	}
-	fmt.Fprintf(&buf, tmplXrefT, rootID, count, infoID, id, id, xrefPos)
+	fmt.Fprintf(&buf, "trailer\n<<\n/Root %d 0 R\n/Size %d\n/Info %d 0 R\n/ID[<%s><%s>]\n>>\nstartxref\n%d\n%%%%EOF\n",
+		rootID, count, infoID, id, id, xrefPos)
 	return buf.Bytes()
 }
 
 func pdfResources(id int, fonts []Font, fontIDs []int) []byte {
-	var fontDict bytes.Buffer
+	var fontDict strings.Builder
+	fontDict.WriteString("<< ")
 	for i, f := range fonts {
-		fmt.Fprintf(&fontDict, tmplResourcesFont, string(f), fontIDs[i])
+		fmt.Fprintf(&fontDict, "/%s %d 0 R ", string(f), fontIDs[i])
 	}
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "%d 0 obj\n<<\n/Font << %s>>\n>>\nendobj\n", id, fontDict.String())
-	return buf.Bytes()
+	fontDict.WriteString(">>")
+	o := newObj(id)
+	o.field("Font", fontDict.String())
+	return o.bytes()
 }
 
 func pdfType0Font(id int, font *ttf.TTFont, cidFontID, toUnicodeID int) []byte {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, tmplType0Font, id, font.PostScriptName, cidFontID, toUnicodeID)
-	return buf.Bytes()
+	o := newObj(id)
+	o.field("Type", "/Font")
+	o.field("Subtype", "/Type0")
+	o.field("BaseFont", "/"+font.PostScriptName)
+	o.field("Encoding", "/Identity-H")
+	o.field("DescendantFonts", fmt.Sprintf("[ %d 0 R ]", cidFontID))
+	o.field("ToUnicode", fmt.Sprintf("%d 0 R", toUnicodeID))
+	return o.bytes()
 }
 
 func pdfCIDFont(id int, font *ttf.TTFont, widths map[int]int, defaultW int, descriptorID, cidToGIDMapID int) []byte {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, tmplCIDFont, id, font.PostScriptName, descriptorID, defaultW, pdfWidthsArray(widths, defaultW), cidToGIDMapID)
-	return buf.Bytes()
+	o := newObj(id)
+	o.field("Type", "/Font")
+	o.field("Subtype", "/CIDFontType2")
+	o.field("BaseFont", "/"+font.PostScriptName)
+	o.field("CIDSystemInfo", "<< /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>")
+	o.field("FontDescriptor", fmt.Sprintf("%d 0 R", descriptorID))
+	o.field("DW", strconv.Itoa(defaultW))
+	if w := pdfWidthsArray(widths, defaultW); w != "" {
+		o.field("W", w)
+	}
+	o.field("CIDToGIDMap", fmt.Sprintf("%d 0 R", cidToGIDMapID))
+	return o.bytes()
 }
 
-// pdfWidthsArray builds the /W array for CID fonts, mapping CID
-// values to advance widths. Format: /W [ cid1 [ w1 w2 ... ] ... ]
+// pdfWidthsArray builds the value of the /W array for CID fonts,
+// mapping CID values to advance widths, consecutive CIDs grouped
+// into runs: [ cid1 [ w1 w2 ... ] ... ]. Empty when every width
+// equals the default.
 func pdfWidthsArray(widths map[int]int, defaultW int) string {
 	type cidWidth struct{ cid, width int }
 	var cws []cidWidth
@@ -405,9 +414,8 @@ func pdfWidthsArray(widths map[int]int, defaultW int) string {
 	}
 	sort.Slice(cws, func(i, j int) bool { return cws[i].cid < cws[j].cid })
 
-	// Group consecutive CIDs into runs: startCID [ w1 w2 w3 ... ]
 	var buf bytes.Buffer
-	buf.WriteString("/W [ ")
+	buf.WriteString("[ ")
 	i := 0
 	for i < len(cws) {
 		start := cws[i].cid
@@ -422,35 +430,40 @@ func pdfWidthsArray(widths map[int]int, defaultW int) string {
 		buf.WriteString("] ")
 		i = j
 	}
-	buf.WriteString("]\n")
+	buf.WriteString("]")
 	return buf.String()
 }
 
 func pdfFontDescriptor(id int, font *ttf.TTFont, fontFileID int) []byte {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, tmplFontDescriptor,
-		id, font.PostScriptName, font.Flags,
-		font.BBox[0], font.BBox[1], font.BBox[2], font.BBox[3],
-		font.ItalicAngle, font.Ascent, font.Descent, font.CapHeight, font.StemV, fontFileID)
-	return buf.Bytes()
+	o := newObj(id)
+	o.field("Type", "/FontDescriptor")
+	o.field("FontName", "/"+font.PostScriptName)
+	o.field("Flags", strconv.Itoa(font.Flags))
+	o.field("FontBBox", fmt.Sprintf("[ %d %d %d %d ]", font.BBox[0], font.BBox[1], font.BBox[2], font.BBox[3]))
+	o.field("ItalicAngle", fmt.Sprintf("%.1f", font.ItalicAngle))
+	o.field("Ascent", strconv.Itoa(int(font.Ascent)))
+	o.field("Descent", strconv.Itoa(int(font.Descent)))
+	o.field("CapHeight", strconv.Itoa(int(font.CapHeight)))
+	o.field("StemV", strconv.Itoa(font.StemV))
+	o.field("FontFile2", fmt.Sprintf("%d 0 R", fontFileID))
+	return o.bytes()
 }
 
 func pdfFontFile(id int, data []byte) []byte {
 	compressed := zlibCompress(data)
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, tmplFontFileH, id, len(compressed), len(data))
-	buf.Write(compressed)
-	buf.WriteString(tmplStreamEnd)
-	return buf.Bytes()
+	o := newObj(id)
+	o.field("Length", strconv.Itoa(len(compressed)))
+	o.field("Length1", strconv.Itoa(len(data)))
+	o.field("Filter", "/FlateDecode")
+	return o.stream(compressed)
 }
 
 func pdfCIDToGIDMap(id int, data []byte) []byte {
 	compressed := zlibCompress(data)
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, tmplCIDToGIDMapH, id, len(compressed))
-	buf.Write(compressed)
-	buf.WriteString(tmplStreamEnd)
-	return buf.Bytes()
+	o := newObj(id)
+	o.field("Length", strconv.Itoa(len(compressed)))
+	o.field("Filter", "/FlateDecode")
+	return o.stream(compressed)
 }
 
 // zlibCompress compresses data. Panics on error: writes to an
@@ -512,7 +525,7 @@ endcodespacerange
 		buf.WriteString("endbfrange\n")
 	}
 	buf.WriteString(`endcmap
-CMapCurrentMap CMapName def
+CMapName currentdict /CMap defineresource pop
 end
 end`)
 	return buf.String()
@@ -520,9 +533,7 @@ end`)
 
 func pdfToUnicode(id int, used map[rune]bool) []byte {
 	cmap := buildToUnicodeCMap(used)
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, tmplToUnicodeH, id, len(cmap))
-	buf.WriteString(cmap)
-	buf.WriteString(tmplStreamEnd)
-	return buf.Bytes()
+	o := newObj(id)
+	o.field("Length", strconv.Itoa(len(cmap)))
+	return o.stream([]byte(cmap))
 }

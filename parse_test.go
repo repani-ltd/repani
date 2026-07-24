@@ -282,3 +282,12 @@ func TestParse_TableHeaderless(t *testing.T) {
 		t.Errorf("fixed width lost with headerless marker")
 	}
 }
+
+func TestTableFixedWidthValidated(t *testing.T) {
+	for _, bad := range []string{".table 0 3L 4R", ".table -5 3L 4R"} {
+		src := "T\n\n" + bad + "\nh | h\n.end\n"
+		if _, err := Parse(src); !errors.Is(err, ErrBadAttr) {
+			t.Errorf("Parse(%q) err = %v, want ErrBadAttr", bad, err)
+		}
+	}
+}
