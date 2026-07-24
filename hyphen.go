@@ -118,6 +118,40 @@ func (h *hyphenator) Hyphenate(word string) []int {
 		}
 	}
 
+	// Explicit hyphens in compounds ("four-line") are break points
+	// in their own right: always break AFTER the hyphen (the line
+	// reuses it -- see word.hyphenParts), never before it, which
+	// would strand a "-" at the head of the next line.
+	out := points[:0]
+	for _, p := range points {
+		if all[p] == '-' || all[p-1] == '-' {
+			continue // re-added below in order
+		}
+		out = append(out, p)
+	}
+	points = out
+	for pos := 2; pos < len(runes)-1; pos++ {
+		if runes[pos-1] == '-' {
+			points = insertPoint(points, start+pos)
+		}
+	}
+
+	return points
+}
+
+// insertPoint inserts p into the sorted points slice, ignoring
+// duplicates.
+func insertPoint(points []int, p int) []int {
+	i := 0
+	for i < len(points) && points[i] < p {
+		i++
+	}
+	if i < len(points) && points[i] == p {
+		return points
+	}
+	points = append(points, 0)
+	copy(points[i+1:], points[i:])
+	points[i] = p
 	return points
 }
 

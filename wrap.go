@@ -156,14 +156,20 @@ type word struct {
 
 // hyphenParts splits w.text at the breakpoints up to (and
 // including) point index pi (zero-based). Returns the prefix
-// (suffixed with "-") and the remaining suffix.
+// (suffixed with "-") and the remaining suffix. A break after an
+// explicit compound hyphen ("four-line") reuses it instead of
+// doubling it.
 func (w word) hyphenParts(pi int) (prefix, suffix string) {
 	if pi < 0 || pi >= len(w.points) {
 		return w.text, ""
 	}
 	runes := []rune(w.text)
 	cut := w.points[pi]
-	return string(runes[:cut]) + "-", string(runes[cut:])
+	prefix = string(runes[:cut])
+	if runes[cut-1] != '-' {
+		prefix += "-"
+	}
+	return prefix, string(runes[cut:])
 }
 
 // hyphenPrefixWidth returns the measured width of the prefix
@@ -172,8 +178,8 @@ func (w word) hyphenPrefixWidth(pi int, m Measurer) int {
 	if pi < 0 || pi >= len(w.points) {
 		return m.Width(w.text)
 	}
-	runes := []rune(w.text)
-	return m.Width(string(runes[:w.points[pi]]) + "-")
+	prefix, _ := w.hyphenParts(pi)
+	return m.Width(prefix)
 }
 
 // hyphenPenaltyProse is the cost of a hyphen break in ragged

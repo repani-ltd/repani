@@ -53,6 +53,42 @@ func TestHyphenateGreek(t *testing.T) {
 	}
 }
 
+func TestHyphenateCompoundHyphen(t *testing.T) {
+	// An explicit hyphen in a compound is a break point in its own
+	// right: the break lands AFTER the hyphen and reuses it, never
+	// doubling it ("four--") or stranding it at the head of the
+	// next line ("-line").
+	for _, tt := range []struct{ compound, prefix, suffix string }{
+		{"four-line", "four-", "line"},
+		{"well-known", "well-", "known"},
+		{"self-evident", "self-", "evident"},
+	} {
+		points := defaultHyphenator.Hyphenate(tt.compound)
+		if len(points) == 0 {
+			t.Errorf("Hyphenate(%q): no points, want the compound break", tt.compound)
+			continue
+		}
+		runes := []rune(tt.compound)
+		found := false
+		for pi, p := range points {
+			if runes[p] == '-' {
+				t.Errorf("Hyphenate(%q): point %d breaks before the hyphen", tt.compound, p)
+			}
+			prefix, suffix := word{text: tt.compound, points: points}.hyphenParts(pi)
+			if strings.Contains(prefix, "--") {
+				t.Errorf("hyphenParts(%q, %d) doubled the hyphen: %q", tt.compound, pi, prefix)
+			}
+			if prefix == tt.prefix && suffix == tt.suffix {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Hyphenate(%q): no point gives %q + %q (points %v)",
+				tt.compound, tt.prefix, tt.suffix, points)
+		}
+	}
+}
+
 func TestHyphenateAttachedPunctuation(t *testing.T) {
 	// Punctuation attached to a token must not count as letters:
 	// "judgment." once broke as "judgmen-" / "t.", stranding a
