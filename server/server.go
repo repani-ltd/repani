@@ -353,17 +353,17 @@ func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, seal
 // updating the vault's byte accounting. st.mu held. Returns the
 // number actually added. Shared by the PUSH path and AddEntries so
 // quota accounting cannot diverge between them.
+//
+// validateNew guarantees entries are new and mutually distinct, so
+// the whole batch lands as one durable unit (one fsync on a
+// log-backed store) and its byte total is exactly the sum of sizes.
 func addValidatedLocked(st *vaultState, entries []vault.Entry) (int, error) {
-	added := 0
-	for _, e := range entries {
-		ok, err := st.s.Add(e)
-		if err != nil {
-			return added, err
-		}
-		if ok {
-			st.bytes += uint64(e.Size())
-			added++
-		}
+	added, err := st.s.AddBatch(entries)
+	if err != nil {
+		return added, err
+	}
+	for _, e := range entries[:added] {
+		st.bytes += uint64(e.Size())
 	}
 	return added, nil
 }
@@ -379,10 +379,16 @@ func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew boo
 	skew := s.quotas.TSSkewMs
 	newEntries := make([]vault.Entry, 0, len(pushes))
 	var newBytes uint64
+	seen := make(map[vault.EntryID]bool, len(pushes))
 	for _, e := range pushes {
-		if st.s.Has(e.ID()) {
+		id := e.ID()
+		// The in-page dedup keeps newEntries mutually distinct, which
+		// addValidatedLocked's byte accounting relies on (and stops a
+		// duplicated push entry counting twice against the quota).
+		if seen[id] || st.s.Has(id) {
 			continue
 		}
+		seen[id] = true
 		if checkSkew {
 			d := int64(e.TsMs) - now
 			if d < -skew || d > skew {

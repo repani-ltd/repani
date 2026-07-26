@@ -208,6 +208,18 @@ func (c *Client) record(e vault.Entry) error {
 	return nil
 }
 
+// recordBatch is record for many entries: one durable batch, one
+// fsync. Used by bulk writers (CSV import).
+func (c *Client) recordBatch(es []vault.Entry) error {
+	if _, err := c.store.AddBatch(es); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.recent = append(c.recent, es...)
+	c.mu.Unlock()
+	return nil
+}
+
 // nextTs returns a strictly-increasing millisecond timestamp per Client.
 func (c *Client) nextTs() uint64 {
 	c.mu.Lock()
@@ -530,9 +542,12 @@ func (c *Client) pullFrom(ctx context.Context, anchorTs uint64, anchorID vault.E
 		bytesIn := 0
 		for _, e := range resp.Entries {
 			bytesIn += e.Size()
-			if _, err := c.store.Add(e); err != nil {
-				return 0, err
-			}
+		}
+		// One durable batch per page: one fsync instead of one per
+		// entry, which is what makes a first sync of a large vault
+		// seconds rather than minutes.
+		if _, err := c.store.AddBatch(resp.Entries); err != nil {
+			return 0, err
 		}
 		st.Pulled += len(resp.Entries)
 		st.PulledBytes += bytesIn

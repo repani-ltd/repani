@@ -13,6 +13,13 @@ type Store interface {
 	// safe under concurrent callers.
 	Add(e vault.Entry) (added bool, err error)
 
+	// AddBatch inserts entries, skipping any already present (in the
+	// store or earlier in the batch), and returns the number added.
+	// Durable implementations commit the whole batch as one unit --
+	// one write, one fsync -- so bulk ingest (sync pull pages, CSV
+	// import, wire PUSH) does not pay a disk flush per entry.
+	AddBatch(entries []vault.Entry) (added int, err error)
+
 	// Has reports whether the store contains the given id.
 	Has(id vault.EntryID) bool
 

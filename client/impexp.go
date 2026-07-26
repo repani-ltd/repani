@@ -6,6 +6,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/pavlos/kv/vault"
 )
 
 // ExportCSV writes the current live key/value state to w as a CSV
@@ -41,15 +43,18 @@ func (c *Client) ExportCSV(w io.Writer) error {
 	return cw.Error()
 }
 
-// ImportCSV reads CSV from r and Puts each row into the vault.
+// ImportCSV reads CSV from r and writes each row into the vault.
 // The header is inspected case-insensitively for "Key" and "Value"
 // columns; extra columns (e.g., the User/Bucket/Uid that qvlt
 // exports) are ignored. Rows with an empty key or an empty value are
 // skipped — an empty value is a protocol-level tombstone and must
 // not be created silently by an import.
 //
-// Returns the number of rows Put (after the header). The caller must
-// Sync to propagate these writes to the server.
+// Rows are committed in durable batches (one fsync per batch rather
+// than per row), so a large import costs milliseconds, not minutes.
+//
+// Returns the number of rows durably written (after the header). The
+// caller must Sync to propagate these writes to the server.
 func (c *Client) ImportCSV(r io.Reader) (int, error) {
 	cr := csv.NewReader(r)
 	cr.FieldsPerRecord = -1 // tolerate variable-width rows
@@ -75,7 +80,20 @@ func (c *Client) ImportCSV(r io.Reader) (int, error) {
 		return 0, fmt.Errorf("client: csv header must include Key and Value columns: got %v", header)
 	}
 
+	const importChunk = 512 // rows per durable batch (one fsync each)
 	n := 0
+	var batch []vault.Entry
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := c.recordBatch(batch); err != nil {
+			return fmt.Errorf("client: import flush: %w", err)
+		}
+		n += len(batch)
+		batch = batch[:0]
+		return nil
+	}
 	row := 1 // for error messages; header is row 1
 	for {
 		row++
@@ -94,10 +112,19 @@ func (c *Client) ImportCSV(r io.Reader) (int, error) {
 		if key == "" || val == "" {
 			continue
 		}
-		if err := c.Put([]byte(key), []byte(val)); err != nil {
-			return n, fmt.Errorf("client: put row %d key=%q: %w", row, key, err)
+		e, err := vault.Seal(c.aead, c.nextTs(), []byte(key), WrapValue(fmtRaw, []byte(val)))
+		if err != nil {
+			return n, fmt.Errorf("client: seal row %d key=%q: %w", row, key, err)
 		}
-		n++
+		batch = append(batch, e)
+		if len(batch) >= importChunk {
+			if err := flush(); err != nil {
+				return n, err
+			}
+		}
+	}
+	if err := flush(); err != nil {
+		return n, err
 	}
 	return n, nil
 }

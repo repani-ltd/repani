@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -154,10 +155,16 @@ func (ls *LogStore) replay() error {
 	if _, err := ls.f.Seek(int64(len(logMagic)), io.SeekStart); err != nil {
 		return err
 	}
+	// Buffered reads and one reused record buffer: replay is the fixed
+	// cost of every open, and per-record syscalls and allocations
+	// dominate it. UnmarshalEntry copies what it keeps, so reusing buf
+	// across records is safe.
+	r := bufio.NewReaderSize(ls.f, 1<<16)
 	offset := int64(len(logMagic))
 	var hdr [4]byte
+	var buf []byte
 	for {
-		if _, err := io.ReadFull(ls.f, hdr[:]); err != nil {
+		if _, err := io.ReadFull(r, hdr[:]); err != nil {
 			if err == io.EOF {
 				break
 			}
@@ -170,8 +177,11 @@ func (ls *LogStore) replay() error {
 		if recLen == 0 || recLen > MaxRecordBytes {
 			return ls.truncateTo(offset) // zero-filled or wild length: torn tail
 		}
-		buf := make([]byte, recLen)
-		if _, err := io.ReadFull(ls.f, buf); err != nil {
+		if cap(buf) < int(recLen) {
+			buf = make([]byte, recLen)
+		}
+		buf = buf[:recLen]
+		if _, err := io.ReadFull(r, buf); err != nil {
 			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
 				return ls.truncateTo(offset)
 			}
@@ -212,13 +222,13 @@ func (ls *LogStore) truncateTo(offset int64) error {
 func (ls *LogStore) Add(e vault.Entry) (bool, error) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
-	if ls.mem.Has(e.ID()) {
+	id := e.ID()
+	if ls.mem.Has(id) {
 		return false, nil
 	}
-	body := e.Marshal()
-	rec := make([]byte, 4+len(body))
-	binary.LittleEndian.PutUint32(rec[:4], uint32(len(body)))
-	copy(rec[4:], body)
+	rec := make([]byte, 4+e.Size())
+	binary.LittleEndian.PutUint32(rec[:4], uint32(e.Size()))
+	e.MarshalTo(rec[4:])
 
 	off, err := ls.f.Seek(0, io.SeekCurrent)
 	if err != nil {
@@ -232,7 +242,57 @@ func (ls *LogStore) Add(e vault.Entry) (bool, error) {
 		ls.rollback(off)
 		return false, err
 	}
-	return ls.mem.Add(e)
+	return ls.mem.addID(id, e), nil
+}
+
+// AddBatch implements Store.AddBatch: append every new record, then
+// fsync once, so a pulled page or an import pays one disk flush
+// instead of one per entry. The batch is a single durability unit: on
+// any write/Sync error the file is truncated back to its pre-batch
+// offset and none of it reaches the in-memory set, so replay never
+// sees a torn batch.
+func (ls *LogStore) AddBatch(entries []vault.Entry) (int, error) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	ids := make([]vault.EntryID, 0, len(entries))
+	news := make([]vault.Entry, 0, len(entries))
+	seen := make(map[vault.EntryID]bool, len(entries))
+	total := 0
+	for _, e := range entries {
+		id := e.ID()
+		if seen[id] || ls.mem.Has(id) {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+		news = append(news, e)
+		total += 4 + e.Size()
+	}
+	if len(news) == 0 {
+		return 0, nil
+	}
+	buf := make([]byte, total)
+	pos := 0
+	for _, e := range news {
+		binary.LittleEndian.PutUint32(buf[pos:pos+4], uint32(e.Size()))
+		pos += 4 + e.MarshalTo(buf[pos+4:])
+	}
+	off, err := ls.f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := ls.f.Write(buf); err != nil {
+		ls.rollback(off)
+		return 0, err
+	}
+	if err := ls.f.Sync(); err != nil {
+		ls.rollback(off)
+		return 0, err
+	}
+	for i := range news {
+		ls.mem.addID(ids[i], news[i])
+	}
+	return len(news), nil
 }
 
 // rollback undoes a torn record, restoring the append offset. Best-effort.

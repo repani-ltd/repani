@@ -197,6 +197,54 @@ func TestLogStore_GarbageTailTruncated(t *testing.T) {
 	}
 }
 
+// TestLogStore_AddBatch verifies the batch path: duplicates of stored
+// entries and duplicates within the batch are skipped, everything else
+// lands durably and survives a reopen.
+func TestLogStore_AddBatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "entries.log")
+	ls, err := OpenLogStore(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rk, _ := vault.NewRandomRootKey()
+	prior := mkEntry(t, rk, 1, "k0", "v")
+	if _, err := ls.Add(prior); err != nil {
+		t.Fatal(err)
+	}
+	fresh1 := mkEntry(t, rk, 2, "k1", "v")
+	fresh2 := mkEntry(t, rk, 3, "k2", "v")
+	added, err := ls.AddBatch([]vault.Entry{fresh1, prior, fresh2, fresh1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added != 2 {
+		t.Fatalf("added %d, want 2 (one stored dup, one in-batch dup)", added)
+	}
+	if ls.Len() != 3 {
+		t.Fatalf("Len %d, want 3", ls.Len())
+	}
+	// Idempotent: replaying the same batch adds nothing.
+	if added, _ := ls.AddBatch([]vault.Entry{fresh1, fresh2}); added != 0 {
+		t.Fatalf("re-batch added %d, want 0", added)
+	}
+	if err := ls.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ls2, err := OpenLogStore(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ls2.Close()
+	if ls2.Len() != 3 {
+		t.Fatalf("Len after reopen %d, want 3", ls2.Len())
+	}
+	for _, e := range []vault.Entry{prior, fresh1, fresh2} {
+		if !ls2.Has(e.ID()) {
+			t.Fatalf("entry %x missing after reopen", e.ID())
+		}
+	}
+}
+
 // TestLogStore_CrossProcessLock verifies a second open of the same log
 // while the first is live is refused rather than allowed to interleave
 // appends.

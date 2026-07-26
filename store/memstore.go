@@ -27,17 +27,41 @@ func NewMemStore() *MemStore {
 
 // Add implements Store.Add.
 func (m *MemStore) Add(e vault.Entry) (bool, error) {
-	id := e.ID()
+	return m.addID(e.ID(), e), nil
+}
+
+// AddBatch implements Store.AddBatch. Memory has no per-entry
+// durability cost, so this is Add in a loop under one lock.
+func (m *MemStore) AddBatch(entries []vault.Entry) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	added := 0
+	for _, e := range entries {
+		if m.addLocked(e.ID(), e) {
+			added++
+		}
+	}
+	return added, nil
+}
+
+// addID inserts e under an already-computed id, sparing callers that
+// know the id a second XOF pass over the entry.
+func (m *MemStore) addID(id vault.EntryID, e vault.Entry) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.addLocked(id, e)
+}
+
+// addLocked inserts e under id. m.mu held.
+func (m *MemStore) addLocked(id vault.EntryID, e vault.Entry) bool {
 	if _, ok := m.byID[id]; ok {
-		return false, nil
+		return false
 	}
 	m.byID[id] = e
 	m.sorted = nil
 	m.sortedIDs = nil
 	m.hashSet = false
-	return true, nil
+	return true
 }
 
 // Has implements Store.Has.
