@@ -48,10 +48,19 @@ branch do) follow `.file` into the source.
 Rules:
 
 - Never edit pkg.fact: it is generated and read-only. Edit the Go source.
-- After changing any Go declaration, regenerate that package's projection
-  and commit it in the same change: `fact project -w <pkg-dir>`
-  (`fact` is built from the sibling `../flat` repo: `go install ./cmd/fact`).
+- A PostToolUse hook (`.claude/settings.json` → `fact hook`) regenerates
+  the projection automatically after each `.go` edit, runs goimports on
+  the edited file, and surfaces the projection diff — or the package's
+  compile errors — in-session. When it reports a goimports rewrite,
+  re-read the file before editing it again.
 - Read the pkg.fact diff as the impact report of your edit.
+- pkg.fact travels in your commit automatically: the git pre-commit hook
+  regenerates and stages it for packages with staged `.go` changes
+  (per-clone; reinstall from `../flat/docs/pre-commit` after a fresh
+  clone).
+- Manual fallback when hooks are missing or report errors:
+  `fact project -w <pkg-dir>` regenerates, `fact project -check <pkg-dir>`
+  verifies freshness (`fact` is built from the sibling `../flat` repo:
+  `go install ./cmd/fact`).
 - If pkg.fact and source seem to disagree, the projection is stale: trust
-  the source, then regenerate (`fact project -check <pkg-dir>` verifies
-  freshness).
+  the source, then regenerate.
