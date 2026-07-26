@@ -13,6 +13,12 @@ const bankSrc = `package bank
 
 import "errors"
 
+// MaxAmount caps a single posting.
+const MaxAmount = 1 << 20
+
+// ErrClosed reports posting to a closed ledger.
+var ErrClosed = errors.New("ledger closed")
+
 // Poster posts amounts to a ledger.
 type Poster interface {
 	Post(amount int) error
@@ -26,6 +32,11 @@ type MemLedger struct {
 func (m *MemLedger) Post(amount int) error {
 	m.Balance += amount
 	return nil
+}
+
+// Reset empties the ledger via Post.
+func (m *MemLedger) Reset() error {
+	return m.Post(-m.Balance)
 }
 
 // Submit validates and posts an amount.
@@ -75,10 +86,20 @@ func TestProjectGoPackage(t *testing.T) {
 		`type:MemLedger.kind: enum(struct|iface|basic) = struct`,
 		`type:MemLedger.fields: list(str) = ["Balance"]`,
 		`type:MemLedger.field_Balance_type: str = "int"`,
-		`type:MemLedger.methods: list(str) = ["Post"]`,
+		`type:MemLedger.methods: list(str) = ["Post", "Reset"]`,
 		// The killer query (SPEC §12.1): computed interface satisfaction.
 		`type:MemLedger.implements: list(ref(type)) = [type:Poster]`,
 		`method:MemLedger_Post.receiver: str = "MemLedger"`,
+		// Method bodies carry call edges too — without them the reverse
+		// call query sees only the free-function half of the call graph.
+		`method:MemLedger_Post.calls: list(str) = []`,
+		`method:MemLedger_Reset.calls: list(str) = ["MemLedger.Post"]`,
+		// Package-level consts and vars are API surface (error sentinels
+		// above all) and appear in dependency-upgrade diffs.
+		`const:MaxAmount.type: str = "untyped int"`,
+		`const:MaxAmount.file: str = "bank.go"`,
+		`var:ErrClosed.type: str = "error"`,
+		`var:ErrClosed.file: str = "bank.go"`,
 		`func:Submit.sig: str = "func(l Poster, amount int) error"`,
 		`func:Submit.exported: bool = true`,
 		// All-str call edges (SPEC §6.4): static callee through the interface,

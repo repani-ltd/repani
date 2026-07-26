@@ -125,8 +125,16 @@ func Lines(target string) ([]string, error) {
 		g.methodFacts(n)
 	}
 	for _, name := range pkg.Scope().Names() {
-		if fn, ok := pkg.Scope().Lookup(name).(*types.Func); ok && fact.IsSegment(name) {
-			g.funcFacts(fn)
+		if !fact.IsSegment(name) {
+			continue
+		}
+		switch obj := pkg.Scope().Lookup(name).(type) {
+		case *types.Func:
+			g.funcFacts(obj)
+		case *types.Const:
+			g.objFacts("const:"+name, obj)
+		case *types.Var:
+			g.objFacts("var:"+name, obj)
 		}
 	}
 	return g.lines, nil
@@ -161,12 +169,13 @@ func (g *gen) file(pos token.Pos) string {
 	return filepath.Base(g.fset.Position(pos).Filename)
 }
 
-// collect emits the imports fact and indexes function bodies for call edges.
+// collect emits the imports fact and indexes function and method bodies
+// for call edges.
 func (g *gen) collect(files []*ast.File) {
 	g.bodies = map[types.Object]*ast.BlockStmt{}
 	for _, f := range files {
 		for _, decl := range f.Decls {
-			if fd, ok := decl.(*ast.FuncDecl); ok && fd.Recv == nil {
+			if fd, ok := decl.(*ast.FuncDecl); ok {
 				g.bodies[g.info.Defs[fd.Name]] = fd.Body
 			}
 		}
@@ -259,6 +268,7 @@ func (g *gen) methodFacts(n *types.Named) {
 		g.fact(k+".sig", "str", jstr(types.TypeString(m.Type(), g.qual)))
 		g.fact(k+".file", "str", jstr(g.file(m.Pos())))
 		g.fact(k+".receiver", "str", jstr(name))
+		g.fact(k+".calls", "list(str)", strList(g.calls(g.bodies[m])))
 	}
 }
 
@@ -324,6 +334,14 @@ func (g *gen) callee(f *types.Func) string {
 		name = pkg.Name() + "." + name
 	}
 	return name
+}
+
+// objFacts emits the declaration facts of a package-level const or var:
+// the declared or inferred type (untyped constants render as e.g.
+// "untyped int") and the defining file.
+func (g *gen) objFacts(k string, obj types.Object) {
+	g.fact(k+".type", "str", jstr(types.TypeString(obj.Type(), g.qual)))
+	g.fact(k+".file", "str", jstr(g.file(obj.Pos())))
 }
 
 // jstr renders s as a FACT str value (JSON string literal).

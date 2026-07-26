@@ -293,8 +293,10 @@ Within a package file, the package namespace is the singleton root (no `pkg:` ma
 | `func:F.sig` / `method:R_M.sig` | `str` | Full signature, source-qualified |
 | `func:F.file` / `method:R_M.file` | `str` | Defining file |
 | `func:F.exported` | `bool` | Case-derived; projected explicitly so agents need not apply Go rules |
-| `func:F.calls` | `list(str)` | Resolved callees (through interfaces: the *static* callee, e.g. `"ledger.Poster.Post"`), sorted, deduplicated. See §6.4 for the str-vs-ref choice |
+| `func:F.calls` / `method:R_M.calls` | `list(str)` | Resolved callees (through interfaces: the *static* callee, e.g. `"ledger.Poster.Post"`), sorted, deduplicated. Emitted for methods too — without them the reverse call query sees only the free-function half of the call graph. See §6.4 for the str-vs-ref choice |
 | `method:R_M.receiver` | `str` | Receiver type name |
+| `const:C.type` / `var:V.type` | `str` | Declared or inferred type, source-qualified; untyped constants render as e.g. `"untyped int"`. Package-level consts and vars are API surface — error sentinels above all — and appear in dependency-upgrade diffs (§11.5) |
+| `const:C.file` / `var:V.file` | `str` | Defining file |
 
 *(Compound ids like `field_F_type` and `method:R_M` exist because keys admit only one marker (§3); nested identity is flattened into the id. This is deliberate: it preserves the one-grep-per-entity property — `grep '^type:Service\.'` returns fields, methods, satisfactions, everything.)*
 
@@ -312,7 +314,7 @@ Two evidence layers.
 
 **Simulation** (three-package toy module): for **declaration-heavy** code, the projection can *exceed* source size (measured: 2,184 vs 1,142 tokens on a decl-only toy) — for interface-only packages, reading source directly is cheaper. Projection cost scales with declaration count; source cost scales with body size. Adding one realistic 300-line function body grew source by ~1,850 tokens and the projection by **4 facts (~60 tokens)**.
 
-**Field measurement** (18 real packages across four projected modules — a typesetting library, an encrypted KV store, a weather station, and this toolchain itself): source is consistently **2–3.2× the projection by bytes**, clustering around 2.5×. The 5–10× figure this section previously extrapolated from body-dominance was optimistic: call-edge facts restate every resolved callee, so projection size tracks declaration *surface*, and surface grows alongside the same code that grows bodies. The honest claim is a **~2–3× read-cost reduction** on real packages that *additionally* answers questions source cannot (resolved call edges, computed satisfactions). Generators SHOULD NOT be evaluated on toy modules — the toy inverts the economics in both directions.
+**Field measurement** (18 real packages across four projected modules — a typesetting library, an encrypted KV store, a weather station, and this toolchain itself): with the complete §11.2 vocabulary (method call edges and const/var facts included), source is **1.3–3.2× the projection by bytes**, clustering around 2×. The 5–10× figure this section previously extrapolated from body-dominance was optimistic — call-edge facts restate every resolved callee, so projection size tracks declaration *surface*, and surface grows alongside the same code that grows bodies — and completing the call graph traded a further ~0.5× of compression for coverage the reverse call query cannot do without. The honest claim is a **~2× read-cost reduction** on real packages that *additionally* answers questions source cannot (resolved call edges, computed satisfactions). Generators SHOULD NOT be evaluated on toy modules — the toy inverts the economics in both directions.
 
 ### 11.5 Third-party projections (packages you do not own)
 
@@ -351,7 +353,7 @@ A real extractor (`go/ast` + `go/types`, ~250 lines) was run against a realistic
 
 Measured across every committed projection in four real modules (typesetting library, encrypted KV store, weather station, this toolchain — 21 `pkg.fact` files, 18 non-trivial packages):
 
-7. **Compression is 2–3×, not 5–10×.** Source is consistently 2–3.2× the projection by bytes across all 18 packages. *(→ §11.4, which corrects the earlier extrapolation)*
+7. **Compression is ~2×, not 5–10×.** Source is 1.3–3.2× the projection by bytes across all 18 packages with the complete vocabulary (2–3.2× before method call edges and const/var facts were added). *(→ §11.4, which corrects the earlier extrapolation)*
 8. **`calls` is the workhorse; `implements` is sparse but unique.** Of 100 `implements` facts, 4 are non-empty — interface-light codebases barely exercise the flagship simulation query. Meanwhile 287 `calls` facts are non-empty, and the module-wide reverse call lookup (`grep -r --include=pkg.fact 'calls.*"pkg\.'`) is the highest-frequency agent query in practice. Simulation finding 1 named the *uniquely grep-impossible* query; field use names the *everyday* one. *(→ §1.1)*
 9. **Freshness holds only where regeneration is automated.** Every projection measured was byte-fresh — in repos where an editor/agent hook regenerates on save. §11.1's commit-and-verify discipline is load-bearing, not ceremonial: an unhooked consumer drifts silently, and a stale projection is worse than none.
 

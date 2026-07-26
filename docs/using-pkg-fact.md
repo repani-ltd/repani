@@ -10,8 +10,8 @@ generated `pkg.fact` files. Copy everything below the line.
 
 Some package directories contain a generated `pkg.fact` file: a flat,
 greppable index of that package's declaration layer — types, fields, method
-sets, computed interface satisfactions, signatures, resolved call edges, and
-defining files. **Check it before reading source**: navigation questions
+sets, computed interface satisfactions, signatures, resolved call edges
+(functions and methods), package-level consts and vars, and defining files. **Check it before reading source**: navigation questions
 ("what implements this?", "who calls this?", "what shape is this type?") are
 one grep against pkg.fact, and some are unanswerable by grepping source at
 all (interface satisfaction in Go is structural — implementing types never
@@ -33,6 +33,7 @@ instance — `type:Service`, `func:Submit`, `method:Service_Settle`.
 | All exported functions | `grep '\.exported: bool = true' pkg.fact` |
 | All methods of `Service`, with signatures | `grep '^method:Service_' pkg.fact` |
 | Fields of `Service` and their types | `grep '^type:Service\.field' pkg.fact` |
+| Package-level consts and vars (error sentinels etc.) | `grep '^const:\|^var:' pkg.fact` |
 | Same question, whole module | `grep -r --include=pkg.fact 'implements.*Poster' .` |
 | Who calls `Service.Settle`, module-wide? | `grep -r --include=pkg.fact 'calls.*"Service.Settle"' .` |
 | Which package declares `Marshal`? | `grep -rl --include=pkg.fact '^func:Marshal\.' .` |
