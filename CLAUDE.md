@@ -15,7 +15,7 @@ go test ./...
 Every package directory contains a generated `pkg.fact` file: a flat,
 greppable index of the package's declaration layer -- types, fields, method
 sets, computed interface satisfactions, signatures, resolved call edges, and
-source locations. Check it before reading source: navigation questions
+defining files. Check it before reading source: navigation questions
 ("what implements this?", "who calls this?", "what shape is this type?")
 are one grep against pkg.fact, and interface satisfaction is unanswerable
 by grepping source at all (Go satisfaction is structural -- implementing
@@ -23,7 +23,7 @@ types never name the interface).
 
 Each line is one self-contained fact: `key: type = value`. A segment
 `kind:Name` marks an instance -- `type:Doc`, `func:DefaultLayout`,
-`method:Doc_Render`. Facts per entity: `.kind`, `.loc`, `.fields`,
+`method:Doc_Render`. Facts per entity: `.kind`, `.file`, `.fields`,
 `.field_F_type`, `.methods`, `.implements`, `.sig`, `.exported`, `.calls`,
 `.receiver`.
 
@@ -34,13 +34,16 @@ grep '^type:Doc\.' pkg.fact                              # everything about a ty
 grep -r --include=pkg.fact 'implements.*type:Doc' .      # what implements an interface
 grep -r --include=pkg.fact 'calls.*DefaultLayout' .      # who calls it
 grep '^func:DefaultLayout\.sig' pkg.fact                 # one signature
-grep '^type:Doc\.loc' pkg.fact                           # "file.go:line" handoff
+grep '^type:Doc\.file' pkg.fact                          # defining file
 ```
 
-`.loc` values are `"file.go:line"` relative to the package directory. The
-projection covers declarations only; for statement-level questions (where
-is this field assigned, what does this branch do) follow `.loc` into the
-source file.
+`.file` values name the defining source file relative to the package
+directory -- together with the symbol name, that is the handoff into source
+(open the file, grep the name). Callees in `calls` are source-qualified
+strings: grep for `"pkg.Func"` or `"pkg.Type.Method"` exactly as a call
+site would write it. The projection covers declarations only; for
+statement-level questions (where is this field assigned, what does this
+branch do) follow `.file` into the source.
 
 Rules:
 
