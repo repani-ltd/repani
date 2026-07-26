@@ -25,7 +25,7 @@ Agents working on a codebase spend most of their context budget on *navigation a
 
 FACT solves this by **spending semantic analysis once, at generation time**. A generator (e.g., `go/ast` + `go/types`) type-checks the module and emits every declaration-layer fact — signatures, fields, method sets, computed interface satisfactions, resolved call edges, defining files — as self-contained FACT lines. Thereafter:
 
-- Every navigation question is a prefix grep. "Everything about `Service`" = `grep '^type:Service\.' transfer/pkg.fact`. "What implements `Poster`?" = `grep 'implements.*Poster' pkg.fact`. "Who calls `validate`?" = `grep 'calls.*validate' pkg.fact`. Module-wide, the same queries run as `grep -r --include=pkg.fact`, where the printed file path supplies the package namespace (§11.1: the projection lives in the package directory, so the path is the qualifier).
+- Every navigation question is a prefix grep. "Everything about `Service`" = `grep '^type:Service\.' transfer/pkg.fact`. "What implements `Poster`?" = `grep 'implements.*Poster' pkg.fact`. "Who calls `validate`?" = `grep 'calls.*validate' pkg.fact`. Module-wide, the same queries run as `grep -r --include=pkg.fact`, where the printed file path supplies the package namespace (§11.1: the projection lives in the package directory, so the path is the qualifier). Field use ranks these queries (§12.2): the reverse call-edge lookup is the everyday workhorse — callees in `calls` are resolved through types, so it answers "who calls this method?" precisely where source grep misses interface dispatch or drowns in same-named hits; interface satisfaction fires rarely in interface-light codebases but remains the one question source grep cannot answer at all.
 - The projection is **read-only and regenerated on save** — a lens, never a second source of truth.
 - Because serialization is canonical (§8), **the diff of the regenerated projection is the impact analysis** of a source edit: rename a function and the projection diff is exactly the renamed facts plus every updated caller list, with zero noise.
 
@@ -266,7 +266,7 @@ The header is an ordinary comment line (§2.1): every conforming parser already 
 
 **Version control.** The projection MUST be committed, in the same commit as the source change it reflects (pre-commit hook, editor hook, or equivalent), and CI MUST verify freshness: regenerate on a clean checkout and require byte-identity with the committed file. Committing generated output is normally suspect — drift, a second source of truth — but canonical serialization (§8) closes that failure mode: staleness is a hash mismatch, mechanically detectable, never a judgment call. The reasons to commit are the point of the format:
 
-- The regeneration diff **is** the impact analysis (§8, §12.4). It can only serve review if it appears in the change itself.
+- The regeneration diff **is** the impact analysis (§8, §12.1 finding 4). It can only serve review if it appears in the change itself.
 - Agents reading a fresh clone — or operating without a toolchain (review bots, sandboxed agents) — get the navigation layer at zero setup cost.
 - Merge conflicts in `pkg.fact` are never resolved by hand: regenerate and commit.
 
@@ -308,7 +308,11 @@ Within a package file, the package namespace is the singleton root (no `pkg:` ma
 
 ### 11.4 Token economics (measured, honest)
 
-From simulation on a three-package module: for **declaration-heavy** code, the projection can *exceed* source size (measured: 2,184 vs 1,142 tokens on a decl-only toy) — for interface-only packages, reading source directly is cheaper. Projection cost scales with declaration count; source cost scales with body size. Adding one realistic 300-line function body grew source by ~1,850 tokens and the projection by **4 facts (~60 tokens)**. Real packages are body-dominated 5–10:1; there the projection is smaller by roughly that factor, while *also* answering questions source cannot. Generators SHOULD NOT be evaluated on toy modules.
+Two evidence layers.
+
+**Simulation** (three-package toy module): for **declaration-heavy** code, the projection can *exceed* source size (measured: 2,184 vs 1,142 tokens on a decl-only toy) — for interface-only packages, reading source directly is cheaper. Projection cost scales with declaration count; source cost scales with body size. Adding one realistic 300-line function body grew source by ~1,850 tokens and the projection by **4 facts (~60 tokens)**.
+
+**Field measurement** (18 real packages across four projected modules — a typesetting library, an encrypted KV store, a weather station, and this toolchain itself): source is consistently **2–3.2× the projection by bytes**, clustering around 2.5×. The 5–10× figure this section previously extrapolated from body-dominance was optimistic: call-edge facts restate every resolved callee, so projection size tracks declaration *surface*, and surface grows alongside the same code that grows bodies. The honest claim is a **~2–3× read-cost reduction** on real packages that *additionally* answers questions source cannot (resolved call edges, computed satisfactions). Generators SHOULD NOT be evaluated on toy modules — the toy inverts the economics in both directions.
 
 ### 11.5 Third-party projections (packages you do not own)
 
@@ -330,7 +334,9 @@ Dependencies can be projected too. Their facts differ from first-party facts in 
 
 ---
 
-## 12. Simulation Findings (v0.2 evidence base)
+## 12. Findings (evidence base)
+
+### 12.1 Simulation (v0.2)
 
 A real extractor (`go/ast` + `go/types`, ~250 lines) was run against a realistic three-package banking module (ledger/approval/transfer, maker-checker flow). Findings, all incorporated above:
 
@@ -340,6 +346,14 @@ A real extractor (`go/ast` + `go/types`, ~250 lines) was run against a realistic
 4. **Canonical regeneration diff = impact analysis.** A rename produced exactly the semantic blast radius as a 10-line diff. *(→ §8)*
 5. **Token economics invert on decl-heavy code.** *(→ §11.4)*
 6. **The body blind spot behaved as designed** — assignment-site questions correctly fall through to the `file` handoff. *(→ §11.3)*
+
+### 12.2 Field measurements (v0.3, four projected modules)
+
+Measured across every committed projection in four real modules (typesetting library, encrypted KV store, weather station, this toolchain — 21 `pkg.fact` files, 18 non-trivial packages):
+
+7. **Compression is 2–3×, not 5–10×.** Source is consistently 2–3.2× the projection by bytes across all 18 packages. *(→ §11.4, which corrects the earlier extrapolation)*
+8. **`calls` is the workhorse; `implements` is sparse but unique.** Of 100 `implements` facts, 4 are non-empty — interface-light codebases barely exercise the flagship simulation query. Meanwhile 287 `calls` facts are non-empty, and the module-wide reverse call lookup (`grep -r --include=pkg.fact 'calls.*"pkg\.'`) is the highest-frequency agent query in practice. Simulation finding 1 named the *uniquely grep-impossible* query; field use names the *everyday* one. *(→ §1.1)*
+9. **Freshness holds only where regeneration is automated.** Every projection measured was byte-fresh — in repos where an editor/agent hook regenerates on save. §11.1's commit-and-verify discipline is load-bearing, not ceremonial: an unhooked consumer drifts silently, and a stale projection is worse than none.
 
 ---
 

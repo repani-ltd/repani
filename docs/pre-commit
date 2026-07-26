@@ -1,0 +1,26 @@
+#!/bin/sh
+# Regenerate pkg.fact projections for packages with staged .go changes,
+# so the projection travels in the same commit as the source change it
+# reflects (FACT SPEC 11.1). Warns but never blocks: if a package does
+# not compile mid-work, the projection catches up on the next commit.
+set -u
+
+command -v fact >/dev/null 2>&1 || {
+    echo "pre-commit: fact CLI not on PATH; skipping pkg.fact refresh" >&2
+    exit 0
+}
+
+dirs=$(git diff --cached --name-only --diff-filter=ACMRD \
+    | grep '\.go$' | grep -v '_test\.go$' \
+    | while IFS= read -r f; do dirname "$f"; done | sort -u)
+[ -z "$dirs" ] && exit 0
+
+echo "$dirs" | while IFS= read -r d; do
+    [ -f "$d/pkg.fact" ] || continue
+    if fact project -w "$d" 2>/dev/null; then
+        git add "$d/pkg.fact"
+    else
+        echo "pre-commit: warning: could not regenerate $d/pkg.fact (package may not compile)" >&2
+    fi
+done
+exit 0

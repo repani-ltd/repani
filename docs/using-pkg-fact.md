@@ -129,7 +129,11 @@ Wire it in three places:
    staleness later.
 2. **Pre-commit** (or editor-on-save): regenerate the projections of the
    packages you touched, so pkg.fact travels in the same commit as the
-   source change it reflects.
+   source change it reflects. A ready-made script lives in the flat repo
+   at `docs/pre-commit` — copy it to `.git/hooks/pre-commit` (and re-copy
+   after any fresh clone; git hooks are per-clone). It regenerates and
+   stages pkg.fact for every package with staged `.go` changes, and warns
+   without blocking when a package does not compile.
 3. **CI**: `fact project -check <pkg-dir>` for each projected package —
    exits 1 if a committed pkg.fact is stale. Staleness is a byte-exact
    comparison, so the gate never false-positives on a clean tree.
