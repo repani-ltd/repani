@@ -70,9 +70,15 @@ upgrade.
 
 - **Never edit pkg.fact.** It is a generated, read-only lens over the Go
   source. To change a fact, edit the source it reflects.
-- **Regenerate after changing any Go declaration** in a projected package:
-  `fact project -w <pkg-dir>`. Commit the regenerated pkg.fact in the same
-  commit as the source change.
+- **With the hooks wired (below), regeneration is automatic**: the
+  PostToolUse hook refreshes the projection after each `.go` edit —
+  running goimports on the edited file and surfacing the diff or compile
+  errors in-session — and the pre-commit hook stages pkg.fact into the
+  same commit as the source change. When the hook reports a goimports
+  rewrite, re-read the file before editing it again.
+- **Manual fallback** when hooks are missing or report errors: regenerate
+  with `fact project -w <pkg-dir>` and commit the result with the source
+  change.
 - **Read the pkg.fact diff as the impact report** of your edit: renamed
   facts, changed signatures, and updated caller lists are exactly the blast
   radius — no noise.
