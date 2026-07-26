@@ -27,7 +27,7 @@ func lockFile(f *os.File) error {
 	case nil:
 		return nil
 	case windows.ERROR_LOCK_VIOLATION:
-		return fmt.Errorf("logstore: %s is locked by another process (is another kv running?): %w", f.Name(), err)
+		return fmt.Errorf("%w: %s (is another kv running?)", ErrLocked, f.Name())
 	default:
 		return fmt.Errorf("logstore: cannot lock %s: %w", f.Name(), err)
 	}

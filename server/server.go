@@ -30,6 +30,12 @@ type Quotas struct {
 	TSSkewMs      int64
 }
 
+// logLockWait bounds how long a vault open waits for the entry-log
+// lock. Contention here means another server is going down (a restart
+// overlap) or a misconfigured second server; waiting briefly smooths
+// the former without hanging on the latter.
+const logLockWait = 5 * time.Second
+
 // DefaultQuotas are the protocol-recommended limits. Paging decouples
 // vault size from the frame size, so MaxVaultBytes is a storage cap, not
 // a transport one.
@@ -181,7 +187,7 @@ func (s *Server) loadPersistedVaults() error {
 			log.Printf("server: skipping vault %s: bad auth.key: %v", d.Name(), err)
 			continue
 		}
-		ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"))
+		ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"), logLockWait)
 		if err != nil {
 			log.Printf("server: skipping vault %s: %v", d.Name(), err)
 			continue
@@ -419,7 +425,7 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultS
 	if err := writeAuthKey(dir, ak); err != nil {
 		return nil, err
 	}
-	ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"))
+	ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"), logLockWait)
 	if err != nil {
 		return nil, err
 	}

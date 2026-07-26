@@ -1,10 +1,11 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/pavlos/kv/vault"
 )
@@ -78,7 +79,7 @@ func TestMemStore_SetHashReproducibleAndInvalidated(t *testing.T) {
 func TestLogStore_Persistence(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "entries.log")
-	ls, err := OpenLogStore(path)
+	ls, err := OpenLogStore(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,7 @@ func TestLogStore_Persistence(t *testing.T) {
 	}
 
 	// Reopen — should rebuild the same set.
-	ls2, err := OpenLogStore(path)
+	ls2, err := OpenLogStore(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +109,7 @@ func TestLogStore_TruncatedTailTolerated(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "entries.log")
 
-	ls, err := OpenLogStore(path)
+	ls, err := OpenLogStore(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestLogStore_TruncatedTailTolerated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ls2, err := OpenLogStore(path)
+	ls2, err := OpenLogStore(path, 0)
 	if err != nil {
 		t.Fatalf("OpenLogStore should tolerate truncated tail: %v", err)
 	}
@@ -160,7 +161,7 @@ func TestLogStore_GarbageTailTruncated(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "entries.log")
-			ls, err := OpenLogStore(path)
+			ls, err := OpenLogStore(path, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -180,7 +181,7 @@ func TestLogStore_GarbageTailTruncated(t *testing.T) {
 			}
 			f.Close()
 
-			ls2, err := OpenLogStore(path)
+			ls2, err := OpenLogStore(path, 0)
 			if err != nil {
 				t.Fatalf("OpenLogStore should truncate a garbage tail, got: %v", err)
 			}
@@ -201,19 +202,42 @@ func TestLogStore_GarbageTailTruncated(t *testing.T) {
 // appends.
 func TestLogStore_CrossProcessLock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "entries.log")
-	ls, err := OpenLogStore(path)
+	ls, err := OpenLogStore(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ls.Close()
-	ls2, err := OpenLogStore(path)
+	ls2, err := OpenLogStore(path, 0)
 	if err == nil {
 		ls2.Close()
 		t.Skip("platform does not support advisory file locking")
 	}
 	// The refusal must be diagnosed as busy, not as a filesystem that
 	// cannot lock.
-	if !strings.Contains(err.Error(), "locked by another process") {
-		t.Fatalf("second open failed with %q, want a locked-by-another-process error", err)
+	if !errors.Is(err, ErrLocked) {
+		t.Fatalf("second open failed with %q, want ErrLocked", err)
 	}
+}
+
+// TestLogStore_LockWaitSerializes verifies that a busy lock with a
+// nonzero lockWait waits for the holder instead of failing, so
+// concurrent short-lived invocations serialize.
+func TestLogStore_LockWaitSerializes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "entries.log")
+	ls, err := OpenLogStore(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenLogStore(path, 0); err == nil {
+		t.Skip("platform does not support advisory file locking")
+	}
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		_ = ls.Close()
+	}()
+	ls2, err := OpenLogStore(path, 5*time.Second)
+	if err != nil {
+		t.Fatalf("open with lockWait should serialize behind the holder: %v", err)
+	}
+	ls2.Close()
 }

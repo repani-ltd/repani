@@ -26,6 +26,8 @@
 //	KV_HOME           storage directory (default ~/.kv)
 //	KV_SERVER         server base URL, e.g. https://vault.example
 //	KV_HTTP_TIMEOUT   per-request timeout (default 60s)
+//	KV_LOCK_WAIT      wait for a concurrent kv holding the local
+//	                  entry-log lock (default 5s)
 package main
 
 import (
@@ -51,6 +53,12 @@ import (
 )
 
 const defaultHTTPTimeout = 60 * time.Second
+
+// defaultLockWait bounds how long an invocation waits for another kv
+// process holding the entry-log lock. Holders keep it only for
+// milliseconds per operation, so waiting briefly lets concurrent
+// invocations serialize instead of failing.
+const defaultLockWait = 5 * time.Second
 
 // verbose enables a sync-traffic tracer on the client. It is package-
 // level because several subcommands set it from their own flag sets
@@ -167,6 +175,8 @@ Environment:
   KV_HTTP_TIMEOUT   per-request timeout (default 60s)
   KV_VERBOSE        if set, print sync traffic + stats (same as -v)
   KV_SYNC_WINDOW    reconcile look-back window (Go duration, default 10m)
+  KV_LOCK_WAIT      wait for a concurrent kv holding the local entry-log
+                    lock (Go duration, default 5s; 0 fails immediately)
 `)
 }
 
@@ -214,11 +224,21 @@ func httpTimeout() time.Duration {
 	return defaultHTTPTimeout
 }
 
+func lockWait() time.Duration {
+	if v := os.Getenv("KV_LOCK_WAIT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err == nil {
+			return d
+		}
+	}
+	return defaultLockWait
+}
+
 // --- client open ---
 
 func openClient() *client.Client {
 	rk := loadRootKey()
-	ls, err := store.OpenLogStore(entriesPath())
+	ls, err := store.OpenLogStore(entriesPath(), lockWait())
 	if err != nil {
 		if errors.Is(err, store.ErrBadMagic) {
 			p := entriesPath()
@@ -320,7 +340,7 @@ func runInit(args []string) {
 		}
 	}
 	// Materialize an empty log with the proper magic header.
-	if ls, err := store.OpenLogStore(entriesPath()); err == nil {
+	if ls, err := store.OpenLogStore(entriesPath(), lockWait()); err == nil {
 		_ = ls.Close()
 	}
 	fmt.Println(vault.EncodeRootKey(rk))
@@ -360,7 +380,7 @@ func runPair(args []string) {
 			fatal("%v", err)
 		}
 	}
-	if ls, err := store.OpenLogStore(entriesPath()); err == nil {
+	if ls, err := store.OpenLogStore(entriesPath(), lockWait()); err == nil {
 		_ = ls.Close()
 	}
 	fmt.Println("paired")
@@ -398,14 +418,47 @@ func runSetRegisterKey(args []string) {
 	}
 	out := []byte(vault.EncodeRegisterKey(rk) + "\n")
 	defer zero(out)
-	if err := os.WriteFile(registerKeyPath(), out, 0o600); err != nil {
+	if err := writeKeyAtomic(registerKeyPath(), out); err != nil {
 		fatal("write register.key: %v", err)
 	}
-	// WriteFile keeps existing perms if the file already existed; enforce 0600.
-	if err := os.Chmod(registerKeyPath(), 0o600); err != nil {
-		fatal("chmod register.key: %v", err)
-	}
 	fmt.Fprintln(os.Stderr, "register key saved to "+registerKeyPath())
+}
+
+// writeKeyAtomic replaces path via a same-directory temp file, fsync,
+// and rename, so a kill mid-write cannot leave path half-written. Used
+// where an existing key may be overwritten; first-time writes go
+// through writeKeyExclusive, which refuses to replace anything.
+func writeKeyAtomic(path string, data []byte) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	// OpenFile applies 0600 only when creating; force it in case a
+	// stale tmp file with looser perms was lying around.
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	if d, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
 }
 
 // runBackup prints a single Crockford base32 blob containing this
@@ -493,7 +546,7 @@ func runRestore(args []string) {
 		}
 	}
 	// Materialize an empty entries.log with the proper magic header.
-	if ls, err := store.OpenLogStore(entriesPath()); err == nil {
+	if ls, err := store.OpenLogStore(entriesPath(), lockWait()); err == nil {
 		_ = ls.Close()
 	}
 	if regKey != nil {

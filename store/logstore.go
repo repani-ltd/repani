@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/pavlos/kv/vault"
 )
@@ -39,6 +40,9 @@ const MaxRecordBytes = vault.MaxEntryBytes
 // ErrBadMagic reports a file that is not an ASCON-KV log.
 var ErrBadMagic = errors.New("logstore: bad or missing magic header")
 
+// ErrLocked reports a log whose advisory lock another process holds.
+var ErrLocked = errors.New("logstore: locked by another process")
+
 // LogStore wraps a MemStore with an append-only log for persistence.
 type LogStore struct {
 	mem  *MemStore
@@ -50,8 +54,12 @@ type LogStore struct {
 // OpenLogStore opens (or creates) a log file at path and rebuilds the
 // in-memory set from it. The parent directory is created if missing. An
 // exclusive advisory lock is taken so a second process cannot append to
-// the same log concurrently (which would interleave records).
-func OpenLogStore(path string) (*LogStore, error) {
+// the same log concurrently (which would interleave records). A busy
+// lock is retried until lockWait elapses: holders keep the lock only
+// for milliseconds per operation, so a short wait lets concurrent
+// invocations serialize instead of failing. Zero tries once and fails
+// fast with ErrLocked.
+func OpenLogStore(path string, lockWait time.Duration) (*LogStore, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -60,7 +68,7 @@ func OpenLogStore(path string) (*LogStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := lockFile(f); err != nil {
+	if err := lockFileWait(f, lockWait); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
@@ -74,6 +82,24 @@ func OpenLogStore(path string) (*LogStore, error) {
 		return nil, err
 	}
 	return ls, nil
+}
+
+// lockFileWait retries a busy lock with backoff until wait elapses.
+// Errors other than ErrLocked (an unlockable filesystem, say) are
+// permanent and returned immediately.
+func lockFileWait(f *os.File, wait time.Duration) error {
+	deadline := time.Now().Add(wait)
+	delay := 5 * time.Millisecond
+	for {
+		err := lockFile(f)
+		if err == nil || !errors.Is(err, ErrLocked) || !time.Now().Before(deadline) {
+			return err
+		}
+		time.Sleep(delay)
+		if delay < 100*time.Millisecond {
+			delay *= 2
+		}
+	}
 }
 
 // init ensures the file has a valid magic header then replays records.

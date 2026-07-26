@@ -31,7 +31,7 @@ func lockFile(f *os.File) error {
 	case nil:
 		return nil
 	case syscall.EWOULDBLOCK:
-		return fmt.Errorf("logstore: %s is locked by another process (is another kv running?): %w", f.Name(), err)
+		return fmt.Errorf("%w: %s (is another kv running?)", ErrLocked, f.Name())
 	default:
 		// ENOTSUP, EOPNOTSUPP, ENOLCK, ...: the filesystem cannot
 		// lock, which is not the same thing as busy.
