@@ -10,6 +10,13 @@ go build ./...
 go test ./...
 ```
 
+The crash-safety chaos test (workers SIGKILLed mid-append) is opt-in
+and skipped by a normal `go test`:
+
+```
+KV_CHAOS=1 go test ./store -run Chaos -v
+```
+
 ## Navigating Go code via pkg.fact
 
 Every package directory contains a generated `pkg.fact` file: a flat,
