@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pavlos/kv/vault"
@@ -205,8 +206,14 @@ func TestLogStore_CrossProcessLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ls.Close()
-	if ls2, err := OpenLogStore(path); err == nil {
+	ls2, err := OpenLogStore(path)
+	if err == nil {
 		ls2.Close()
 		t.Skip("platform does not support advisory file locking")
+	}
+	// The refusal must be diagnosed as busy, not as a filesystem that
+	// cannot lock.
+	if !strings.Contains(err.Error(), "locked by another process") {
+		t.Fatalf("second open failed with %q, want a locked-by-another-process error", err)
 	}
 }
