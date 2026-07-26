@@ -33,8 +33,9 @@ commands:
                  fact project -o facts/<import-path>/pkg.fact <import-path>)
   hook           Claude Code PostToolUse hook: reads the hook payload on
                  stdin; after an edit to a .go file in a package carrying a
-                 pkg.fact, regenerates it and reports the projection diff
-                 to the agent as the impact report
+                 pkg.fact, runs goimports on the edited file, regenerates
+                 the projection, and reports the projection diff — or the
+                 compile errors — to the agent as the impact report
 `
 
 func main() {
@@ -111,10 +112,11 @@ func run(args []string) int {
 		}
 		ctx, err := project.Hook(payload)
 		if err != nil {
-			// Never block the edit: mid-edit packages legitimately fail to
-			// load; the -check gate catches any resulting staleness.
+			// Never block the edit; the -check gate catches any resulting
+			// staleness. Compile errors are not errors here — Hook returns
+			// them as context. Any context (e.g. a goimports rewrite) is
+			// still worth surfacing alongside the failure.
 			fmt.Fprintln(os.Stderr, "fact: hook:", err)
-			return 0
 		}
 		if ctx != "" {
 			out, _ := json.Marshal(map[string]any{

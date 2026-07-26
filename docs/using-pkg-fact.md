@@ -123,10 +123,13 @@ Wire it in three places:
    ```
 
    `fact hook` reads the hook payload on stdin; it acts only when the edited
-   file is a non-test `.go` file in a package that carries a `pkg.fact`, and
-   stays silent when the edit was declaration-neutral. It never blocks an
-   edit: if the package does not compile mid-edit, the CI gate catches any
-   staleness later.
+   file is a `.go` file in a package that carries a `pkg.fact`. It runs
+   goimports on the edited file (formatting plus import fixing — test files
+   included), regenerates the projection, and stays silent when the edit was
+   declaration-neutral. If the package does not compile, the hook surfaces
+   the compiler diagnostics in-session instead — the edit→build→read-errors
+   loop collapses into the edit itself. It never blocks an edit; the CI
+   gate catches any staleness later.
 2. **Pre-commit** (or editor-on-save): regenerate the projections of the
    packages you touched, so pkg.fact travels in the same commit as the
    source change it reflects. A ready-made script lives in the flat repo

@@ -1,16 +1,22 @@
 // Agent-harness integration: regenerate a package's stored projection
 // after a source edit and surface the projection diff — the impact report
-// of SPEC §11.1 — back to the editing agent.
+// of SPEC §11.1 — back to the editing agent. The hook also runs goimports
+// on the edited file and, when the package no longer compiles, surfaces
+// the compiler diagnostics instead: the edit→build→read-errors loop
+// collapses into the edit itself.
 
 package project
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/tools/imports"
 
 	"flat/fact"
 )
@@ -99,31 +105,56 @@ type hookInput struct {
 // diff is always available as the pkg.fact working-tree diff.
 const maxHookDiffLines = 80
 
-// Hook implements a Claude Code PostToolUse hook over Refresh: when the
-// edited file is a non-test .go file in a package carrying a stored
-// pkg.fact, regenerate it and return the projection diff as context for
-// the agent. An empty return means nothing to report: not a projected
-// package, or a declaration-neutral edit (the churn invariant, SPEC §11.2).
+// maxHookDiagnostics caps the compile errors surfaced to the agent.
+const maxHookDiagnostics = 20
+
+// Hook implements a Claude Code PostToolUse hook: when the edited file is
+// a .go file in a package carrying a stored pkg.fact, it runs goimports
+// on the file, regenerates the projection, and returns the projection
+// diff — or, if the package no longer compiles, the compiler
+// diagnostics — as context for the agent. Test files are formatted but
+// sit outside the projection (generator scope). An empty return means
+// nothing to report: not a projected package, or a declaration-neutral
+// edit that goimports left untouched (the churn invariant, SPEC §11.2).
 func Hook(payload []byte) (string, error) {
 	var in hookInput
 	if err := json.Unmarshal(payload, &in); err != nil {
 		return "", err
 	}
 	fp := in.ToolInput.FilePath
-	if !strings.HasSuffix(fp, ".go") || strings.HasSuffix(fp, "_test.go") {
+	if !strings.HasSuffix(fp, ".go") {
 		return "", nil
 	}
 	dir := filepath.Dir(fp)
 	if _, err := os.Stat(filepath.Join(dir, "pkg.fact")); err != nil {
 		return "", nil // projection is opt-in per package
 	}
+	var report []string
+	// A goimports failure (typically a syntax error) leaves the file
+	// untouched; Refresh below reports the diagnostics.
+	if changed, err := goimports(fp); err == nil && changed {
+		report = append(report, fmt.Sprintf("goimports rewrote %s (formatting/imports) — re-read it before editing it again", fp))
+	}
+	if strings.HasSuffix(fp, "_test.go") {
+		return strings.Join(report, "\n"), nil
+	}
 	removed, added, err := Refresh(dir)
+	var ce *CompileError
+	if errors.As(err, &ce) {
+		report = append(report, compileReport(dir, ce))
+		return strings.Join(report, "\n"), nil
+	}
 	if err != nil {
-		return "", err
+		return strings.Join(report, "\n"), err
 	}
-	if len(removed)+len(added) == 0 {
-		return "", nil
+	if len(removed)+len(added) > 0 {
+		report = append(report, diffReport(dir, removed, added))
 	}
+	return strings.Join(report, "\n"), nil
+}
+
+// diffReport formats the projection diff as the impact report.
+func diffReport(dir string, removed, added []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "pkg.fact regenerated for %s — projection diff (impact report, SPEC §11.1):\n", dir)
 	n := 0
@@ -142,5 +173,57 @@ func Hook(payload []byte) (string, error) {
 	if total := len(removed) + len(added); total > maxHookDiffLines {
 		fmt.Fprintf(&b, "… (%d more lines; see the pkg.fact diff)\n", total-maxHookDiffLines)
 	}
-	return b.String(), nil
+	return b.String()
+}
+
+// compileReport formats a CompileError as agent context: the edit left
+// the package broken, so the projection is stale by necessity, and the
+// compiler diagnostics are the actionable payload.
+func compileReport(dir string, ce *CompileError) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s does not compile — pkg.fact not regenerated (stale until the package builds):\n", dir)
+	for i, d := range ce.Diagnostics {
+		if i == maxHookDiagnostics {
+			fmt.Fprintf(&b, "… (%d more errors)\n", len(ce.Diagnostics)-maxHookDiagnostics)
+			break
+		}
+		fmt.Fprintf(&b, "%s\n", relPos(d))
+	}
+	return b.String()
+}
+
+// relPos shortens a diagnostic's absolute file position
+// ("/abs/pkg/file.go:3:1: msg") relative to the working directory,
+// purely for report brevity.
+func relPos(d string) string {
+	i := strings.Index(d, ".go:")
+	if i < 0 || !filepath.IsAbs(d) {
+		return d
+	}
+	path := d[:i+3]
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, path); err == nil && len(rel) < len(path) {
+			return rel + d[i+3:]
+		}
+	}
+	return d
+}
+
+// goimports formats fp in place with import fixing (the goimports
+// algorithm) and reports whether the file changed. On error (typically a
+// syntax error) the file is left untouched.
+func goimports(fp string) (bool, error) {
+	src, err := os.ReadFile(fp)
+	if err != nil {
+		return false, err
+	}
+	out, err := imports.Process(fp, src, nil)
+	if err != nil || bytes.Equal(src, out) {
+		return false, err
+	}
+	info, err := os.Stat(fp)
+	if err != nil {
+		return false, err
+	}
+	return true, os.WriteFile(fp, out, info.Mode())
 }

@@ -23,8 +23,10 @@ greppable, canonical `.fact` file. Config files are the degenerate case.
   (`go run ./cmd/fact project -w ./fact`, likewise for `./project` and
   `./cmd/fact`) and read the pkg.fact diff as the impact report (SPEC §11.1).
   A `PostToolUse` hook (`.claude/settings.json` → `fact hook`) does this
-  automatically after each `.go` edit and surfaces the diff in-session; the
-  manual command remains the fallback when the hook reports an error.
+  automatically after each `.go` edit and surfaces the diff in-session — it
+  also runs goimports on the edited file and, when the package no longer
+  builds, reports the compile errors as in-session context; the manual
+  command remains the fallback when the hook reports an error.
 - `docs/using-pkg-fact.md` is the paste-ready snippet consuming projects put
   in their own CLAUDE.md; keep it in sync with the §11.2 vocabulary.
 
