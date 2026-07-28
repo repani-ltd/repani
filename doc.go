@@ -161,7 +161,7 @@ monospace cell.
 # Growing the vocabulary
 
 The vocabulary stays closed by policy, not accident. A new command
-enters the registry only if it passes four tests:
+enters the registry only if it passes five tests:
 
  1. It is expressible as a block with a deterministic line count
     under the monospace measurer, so a text page and a PDF column
@@ -177,6 +177,11 @@ enters the registry only if it passes four tests:
     .QP, .item is .IP, .rem is troff's comment, .lang is TeX's
     \language): four decades of typesetting have already named
     most things worth naming.
+ 5. A real document is already waiting to use it: demand precedes
+    entry, so every command ships together with its first user.
+    A command admitted for a hypothetical future is a permanent
+    promise made on no evidence -- the other four tests measure
+    quality, this one measures need.
 
 # Non-goals
 

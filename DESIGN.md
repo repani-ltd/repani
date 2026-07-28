@@ -174,9 +174,13 @@ struct; prose/headings/links measured, pre+tables stay mono at the size
 where .width runes fill the column). `.width` now means "average
 lowercase advances per line" under sans — same visual density contract.
 
-**Remaining: stage 4 (proportional table cells) is NOT done** — tables
-render monospace in both modes, by design for now. Everything below is
-the original estimate, kept for context:
+**Stage 4 (proportional table cells) is REJECTED (2026-07-28)** — tables
+and verbatim blocks stay monospace in both modes as deliberate
+typography: mono tables in a sans page read as set data, the stage is
+the most invasive remaining item (formatCell's pad-with-spaces dies,
+Layout returns structured cells), and no document wants it. This is a
+settled decision, not pending work. Everything below is the original
+estimate, kept for context:
 
 - **Metrics already exist.** `pdf.Width` (pdf/page.go, ~line 102) sums
   per-codepoint advances from parsed TTF `CIDWidths`; `pdf/ttf` does the
@@ -230,26 +234,31 @@ and that representation change ripples through APIs (not algorithms).
   structured word a style field from day one so inline markup slots in
   later.
 
-## 4. Suggested order of work
+## 4. Parked work and its triggers (reframed 2026-07-28)
 
-1. ~~Variable-width fonts, stages 1–3, 5~~ (done; see §3). Stage 4
-   (proportional table cells) remains, if wanted at all — mono tables in
-   a sans page read as deliberate typography.
-2. Composer registry: turn `compose`'s switch into command registration —
-   the first concrete piece of the "Go handlers" architecture. Migrate
-   `.table` and friends onto it as the proof.
-3. Footnotes: attachments + transactional per-column placement first
-   (forward-only, no fixpoint), then page-spanning notes via the reflow
-   fixpoint with the monotone-eviction rule.
-4. `.alias` design (keep it crippled), then the doc-repo-as-module story
-   (library-first packaging of what `cmd/pica` already is).
+Variable-width fonts are done (stages 1–3, 5; stage 4 rejected — see
+§3). Nothing below is scheduled; every consumer today is first-party,
+in one repo, feeding one binary, and building extension machinery ahead
+of that demand is the register-soup essay's own sin. Each item instead
+has a trigger, not a date:
+
+- **Footnotes** — parked. The design is settled (§2: attachments +
+  transactional per-column placement first, page-spanning via the
+  reflow fixpoint with the monotone-eviction rule); its value today is
+  as a written-down decision. Build when a real document demands notes.
+- **Composer registry** — wait for the second real backend or the first
+  external extender. `compose`'s switch is the right implementation at
+  N=1.
+- **`.alias` + doc-repo-as-module** — design only when repeated
+  authoring pain appears in real documents; the packaging story rides
+  with the registry.
 
 ## 5. Open questions
 
-- Fixed-point unit choice: font-units×size vs millipoints (leaning
-  integer millipoints at the wrap layer).
-- `.width` semantics after variable-width (average-char-width units vs an
-  explicit point/em measure).
+Open only when their triggers fire; resolved ones removed (fixed-point
+units landed as abstract integer measurer units — milli-ems at the PDF
+layer; `.width` under sans is average lowercase advances, §3).
+
 - Note placement default: per-column vs page-spanning (per-column is
   cheaper and cleaner; page-spanning matches the broadsheet identity).
 - `.alias` exact syntax and interpolation rules.

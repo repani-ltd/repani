@@ -19,7 +19,7 @@ The design center is the language (see `doc.go` for the spec):
   with `.attrib`, `.item` bulleted lists, `.link URL [TITLE]` link
   references (clickable in the PDF), `.by`/`.date` bylines, `.rem`
   comments. Unknown dot commands are parse errors, never silent
-  passthrough; additions must pass the four-test gate in `doc.go`.
+  passthrough; additions must pass the five-test gate in `doc.go`.
 - **Self-contained documents.** Width, paper, columns, body face,
   and hyphenation language live in a layout trailer (`.width` /
   `.paper` / `.cols` / `.font` / `.lang`, defaults 40/a4/3/mono/all
