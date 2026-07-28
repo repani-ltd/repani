@@ -1,10 +1,10 @@
 # typeset
 
-A minimal, troff-inspired source language and typesetter for
-monospace surfaces. Documents are parsed once into a typed block
-model and exported by writers: a fixed-width text page (for
-byte-frugal transports like Quietcasting) and an N-column
-newspaper-style PDF.
+A minimal, troff-inspired source language and typesetter.
+Documents are parsed once into a typed block model and exported by
+writers: a fixed-width text page (for byte-frugal transports like
+Quietcasting) and an N-column newspaper-style PDF, monospace by
+default and proportional prose with `.font sans`.
 
 The design center is the language (see `doc.go` for the spec):
 

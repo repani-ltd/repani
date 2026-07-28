@@ -1,9 +1,10 @@
 /*
 Package typeset parses a minimal, troff-inspired source language
-into a typed document and renders it for fixed-width monospace
-surfaces: a plain-text writer (Doc.Text) for width-limited pages,
-and -- via the block model -- richer writers such as the pica
-newspaper PDF.
+into a typed document and renders it through width-disciplined
+writers: a plain-text writer (Doc.Text) for fixed-width monospace
+pages, and -- via the block model -- richer writers such as the
+pica newspaper PDF, monospace by default and proportional prose
+with .font sans.
 
 The language inherits troff's principles, not its vocabulary:
 fill mode is the default (the writer owns wrapping, justification,

@@ -1,5 +1,5 @@
 // Command pica renders typeset source documents (see the typeset
-// package for the language) for monospace surfaces.
+// package for the language) to text pages and newspaper PDFs.
 //
 // Three orthogonal stages:
 //
@@ -82,7 +82,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `pica -- monospace typesetting
+	fmt.Fprint(os.Stderr, `pica -- troff-inspired typesetting
 
 Usage:
   pica render [-txtar|-fact] [-o FILE] <template> <data|->

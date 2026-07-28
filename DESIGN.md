@@ -4,7 +4,7 @@ Status: design direction agreed 2026-07-22, nothing below is implemented
 unless marked "exists". This document is the handoff for whoever (human or
 agent) picks up the work. Read CLAUDE.md first for the pkg.fact navigation
 workflow. Line numbers cited below are anchors from when this was written;
-prefer the function names and re-locate via pkg.fact (`grep '\.loc' pkg.fact`).
+prefer the function names and re-locate via pkg.fact (`grep '\.file' pkg.fact`).
 
 ## 1. The thesis
 
