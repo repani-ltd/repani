@@ -29,6 +29,12 @@ greppable, canonical `.fact` file. Config files are the degenerate case.
   command remains the fallback when the hook reports an error.
 - `docs/using-pkg-fact.md` is the paste-ready snippet consuming projects put
   in their own CLAUDE.md; keep it in sync with the §11.2 vocabulary.
+- Git hooks (per-clone, install with `cp docs/<hook> .git/hooks/`):
+  `docs/pre-commit` regenerates and stages pkg.fact for staged `.go` changes
+  (this repo and every consumer repo); `docs/post-commit` (this repo only)
+  rebuilds `~/bin/fact` after commits touching Go source, so the installed
+  binary — which all hooks invoke by absolute path — always matches the
+  committed toolchain.
 
 ## Layout
 
