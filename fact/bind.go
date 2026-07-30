@@ -131,7 +131,7 @@ func bindScalar(t Type, tok string, reg map[string]map[string]any) (any, error) 
 			return nil, err
 		}
 		return s, nil
-	case Enum:
+	case Datetime, Enum:
 		return tok, nil
 	case Ref:
 		m := reg[tok]

@@ -122,3 +122,17 @@ func TestQuote(t *testing.T) {
 		t.Errorf("Quote round trip wrong: %q", m["body"])
 	}
 }
+
+func TestBindDatetime(t *testing.T) {
+	facts, errs := Parse([]byte("when: datetime = 2026-07-20T09:30:00Z\n"))
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	m, err := Bind(facts)
+	if err != nil {
+		t.Fatalf("bind datetime: %v", err)
+	}
+	if m["when"] != "2026-07-20T09:30:00Z" {
+		t.Errorf("bound datetime = %#v", m["when"])
+	}
+}
