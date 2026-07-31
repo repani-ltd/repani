@@ -93,6 +93,11 @@ Discipline that replaces the format:
 - A debug backend that dumps composed values as text is fine for
   inspection but must never become a contract.
 
+Refined 2026-07-31: the display list (§5) reifies the *draw* boundary as
+Go values — still no serialized format, no parser. The discipline above
+stands unchanged; what §5 settles is the shape of the values backends
+consume once a second backend exists.
+
 ## 2. Architecture validation (paper check, done against real code)
 
 Three classic troff stress cases were checked against
@@ -265,7 +270,87 @@ has a trigger, not a date:
   complexity hides, and none of it is needed for a broadsheet.
   Grayscale-at-ingest is the leaning: a stance, not a limitation.
 
-## 5. Open questions
+## 5. The display list (decided 2026-07-31, not implemented)
+
+The viewer discussions (native/phone via Gio, browser via wasm + canvas)
+settled the backend boundary: a retained **display list** of positioned
+draw ops. This refines, not reverses, §1's no-intermediate-language
+decision — the list is Go values consumed in-process, with no
+serialization requirement and no parser. What moves is the seam: today
+`drawColumn` and the page chrome drive `pdf.Page` methods directly;
+the decided form has them *emit op values*, and each backend consumes
+the slice. Empirical basis: everything pica draws today goes through
+six `pdf.Page` calls (`SetFont`, `Text`, `Words`, `Line`,
+`Gray`/`StrokeGray`, `Link`) — the op set below is those six restated
+as data.
+
+Decisions, each with its load-bearing reason:
+
+- **Data primary, not a renderer interface.** The two are duals but the
+  duality is asymmetric: data→API is a range loop and a type switch;
+  API→data requires every retained consumer to write a recorder whose
+  output is an undesigned ad-hoc display list. And the viewer forces a
+  retained form: layout runs once per reflow event, drawing runs every
+  frame — the redraw loop must iterate values, not re-invoke the
+  producer. Golden tests get `cmp.Diff` on integer ops instead of
+  parsing PDF content streams; backends become pure functions.
+- **Self-contained ops, no state machine.** `SetFont`/`Gray` stop being
+  ops and become fields on each op. Compactness is worthless at a few
+  hundred ops per page; independence buys viewport culling and damage
+  redraw without replaying a prefix to reconstruct state.
+- **Four ops, refuse a fifth: TextRun, Rule, Link, page structure**
+  (a list is a slice of pages, each a slice of ops, page size on the
+  page). No paths, no transforms, no clip, no RGB — each absence is a
+  typeset design fact, and a general Bézier op would be PDF rebuilt
+  with fewer tools. Images, if they ever come, are bounded by §4's
+  image entry and would add one op plus a document-level resource
+  table.
+- **A TextRun is one composed line**, carrying origin, font, size,
+  gray, a semantic tag distilled from `sline.style`, and per-word pen
+  advances from run start in integer em-thousandths — computed once by
+  the producer from the same Measurer that justified the line.
+  Consumers place words with `x + dx·size/1000` and need no font
+  metrics at all. This preserves `spread`'s integer determinism,
+  keeps line identity (selection, search, accessibility want it), and
+  word boxes fall out of consecutive offsets. Contract note: renderers
+  must not clip runs to the column rect — the hanging hyphen
+  deliberately protrudes.
+- **Link stays a producer-computed rect + URL** (as `Page.Link`
+  today), so tap hit-testing needs no metrics either.
+- **Integer fixed-point throughout; y-down, origin top-left; y is the
+  baseline.** Millipoints for page coordinates, em-thousandths within
+  runs. Floats in the interchange invite platform-dependent formatting
+  (the PDF backend already fights this with `ff`). PDF is the only
+  y-up consumer and flips at its own boundary; the retarget confines
+  today's y-up leak in `drawColumn` to the PDF emitter.
+- **Tagged struct with a Kind field, not an Op interface** — four
+  variants don't earn dynamic dispatch, and the tagged form serializes
+  trivially if a wire use (server-render, cache) ever appears. Fonts
+  stay the closed four-value enum: the face set is a design boundary
+  worth keeping visible in the type.
+- **Bottom interface only.** The display list is post-flow, coordinates
+  final; it is *discarded* on any layout-affecting change. The archival
+  format remains the source document. A viewer re-runs compose/flow per
+  layout event (open, rotate, type-size change — full reflow, integer
+  arithmetic, milliseconds, once per human gesture) and iterates ops
+  per draw event (scroll, fling, damage — sustained at refresh rate).
+  Continuous pinch-zoom: geometrically scale the stale list during the
+  gesture, one real reflow on release.
+
+Context worth keeping: a PDF content stream *is* a display list —
+PostScript with computation deliberately removed — so the PDF backend
+compiles our list into theirs, which is why it stays small; there is no
+"program in the PDF" alternative (content streams cannot loop, and
+reader JS has no drawing surface). The browser target is the same
+architecture on another surface: the Go typesetter compiled to wasm,
+a small canvas interpreter for the op set, HTML/CSS never doing layout.
+
+Trigger: build with the first non-PDF backend or the start of viewer
+work. Until then, `drawColumn`'s direct `pdf.Page` calls are the right
+implementation at N=1 — reifying the ops today would be the speculative
+machinery §4 warns against.
+
+## 6. Open questions
 
 Open only when their triggers fire; resolved ones removed (fixed-point
 units landed as abstract integer measurer units — milli-ems at the PDF
