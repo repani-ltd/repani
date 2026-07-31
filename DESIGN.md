@@ -252,6 +252,18 @@ has a trigger, not a date:
 - **`.alias` + doc-repo-as-module** — design only when repeated
   authoring pain appears in real documents; the packaging story rides
   with the registry.
+- **Images** — parked; no image block exists. If a real document forces
+  one, the boundary is settled (2026-07-31): **block-level only, height
+  snapped to whole multiples of the leading, no floats, no inline
+  images, no text runaround.** Block-level keeps the breaker's measure
+  constant per paragraph, so wrap/justify never learn images exist;
+  grid-snapping keeps flow's integer line-count model intact — an image
+  is just an atomic `fblock` of whole-line height (caption = ordinary
+  gray block via `keepNext`) — and preserves the cross-column baseline
+  grid, a broadsheet virtue in itself. Everything past this line
+  (runaround, floats, inline placement) is where the second 90% of the
+  complexity hides, and none of it is needed for a broadsheet.
+  Grayscale-at-ingest is the leaning: a stance, not a limitation.
 
 ## 5. Open questions
 
