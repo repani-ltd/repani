@@ -137,6 +137,49 @@ func TestTable_Alignment(t *testing.T) {
 	}
 }
 
+func TestTable_NumericColumn(t *testing.T) {
+	tbl := mustTable(t, "*L 10N")
+	tbl.Header("Client", "Amount")
+	tbl.Row("Alpha", "1,234.56")
+	tbl.Row("Beta", "12.5")
+	tbl.Row("Gamma", "(2.00)")
+	tbl.Row("Delta", "n/a")
+
+	got := render(t, tbl, 20)
+	want := strings.Join([]string{
+		"Client    Amount",
+		"--------- ----------",
+		"Alpha      1,234.56",
+		"Beta          12.5",
+		"Gamma         (2.00)",
+		"Delta        n/a",
+	}, "\n")
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Every decimal point sits in the same rune column.
+	var dots []int
+	for _, ln := range strings.Split(got, "\n")[2:5] {
+		dots = append(dots, strings.LastIndex(ln, "."))
+	}
+	if dots[0] != dots[1] || dots[1] != dots[2] {
+		t.Errorf("decimal points misaligned: %v", dots)
+	}
+}
+
+func TestTable_NumericColumnIntegers(t *testing.T) {
+	// No fractions, no parens: N degrades to plain right-align.
+	tbl := mustTable(t, "3L 5N")
+	tbl.Row("a", "100")
+	tbl.Row("b", "7")
+	got := render(t, tbl, 9)
+	want := "a     100\nb       7"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestTable_NoHeader(t *testing.T) {
 	tbl := mustTable(t, "3L 4R")
 	tbl.Row("Mon", "25")

@@ -12,7 +12,7 @@ import (
 var (
 	ErrTableEmptySpec    = errors.New("typeset: empty column spec")
 	ErrTableInvalidToken = errors.New("typeset: invalid column token")
-	ErrTableInvalidAlign = errors.New("typeset: column align must be L, R, or C")
+	ErrTableInvalidAlign = errors.New("typeset: column align must be L, R, C, or N")
 	ErrTableAutoConflict = errors.New("typeset: only one auto-span column allowed")
 	ErrTableInvalidWidth = errors.New("typeset: invalid column width")
 	ErrTableAutoNoRoom   = errors.New("typeset: no space left for auto-span column")
@@ -30,9 +30,16 @@ type Table struct {
 
 type colSpec struct {
 	width int
-	align byte // 'L', 'R', 'C'
+	align byte // 'L', 'R', 'C', 'N'
 	auto  bool // width computed from remaining space
 	clip  bool // truncate instead of wrapping ("!" suffix)
+
+	// N-column metrics, resolved at fit time from the data rows:
+	// frac is the widest fraction tail (separator included) in
+	// runes; paren reserves a trailing slot for accounting
+	// negatives like "(1,234.56)".
+	frac  int
+	paren bool
 }
 
 // NewTable parses a column spec ("3L *L 4R!") and returns an empty
@@ -55,7 +62,7 @@ func NewTable(spec string) (*Table, error) {
 			return nil, fmt.Errorf("%w: %q", ErrTableInvalidToken, tok)
 		}
 		alignChar := tok[len(tok)-1]
-		if alignChar != 'L' && alignChar != 'R' && alignChar != 'C' {
+		if alignChar != 'L' && alignChar != 'R' && alignChar != 'C' && alignChar != 'N' {
 			return nil, fmt.Errorf("%w: %q", ErrTableInvalidAlign, tok)
 		}
 		cols[i].align = alignChar
@@ -156,7 +163,61 @@ func (t *Table) fit(width int) ([]colSpec, error) {
 	} else if fixedSum+separators > width {
 		return nil, ErrTableOverflow
 	}
+
+	// Resolve N-column metrics from the data rows: the widest
+	// fraction tail sets where the decimal point sits, and any
+	// accounting negative reserves the trailing paren slot.
+	for i := range cols {
+		if cols[i].align != 'N' {
+			continue
+		}
+		for _, row := range t.rows {
+			if i >= len(row) {
+				continue
+			}
+			fracLen, hasParen, ok := numericParts(row[i])
+			if !ok {
+				continue
+			}
+			if fracLen > cols[i].frac {
+				cols[i].frac = fracLen
+			}
+			if hasParen {
+				cols[i].paren = true
+			}
+		}
+	}
 	return cols, nil
+}
+
+// numericParts reports whether a cell reads as a number and, if so,
+// the rune length of its fraction tail (decimal separator included)
+// and whether it is an accounting negative with a trailing ")". A
+// number contains at least one digit and only digits, grouping and
+// sign punctuation, currency marks, or percent.
+func numericParts(s string) (fracLen int, hasParen bool, ok bool) {
+	if s == "" {
+		return 0, false, false
+	}
+	hasDigit := false
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case strings.ContainsRune(".,+-−()$€%", r):
+		default:
+			return 0, false, false
+		}
+	}
+	if !hasDigit {
+		return 0, false, false
+	}
+	core := strings.TrimSuffix(s, ")")
+	hasParen = core != s
+	if i := strings.LastIndex(core, "."); i >= 0 {
+		fracLen = runeLen(core[i:])
+	}
+	return fracLen, hasParen, true
 }
 
 // formatRow renders one logical row, wrapping cells to their column
@@ -170,7 +231,9 @@ func formatRow(cols []colSpec, cells []string) []string {
 		if i < len(cells) {
 			s = cells[i]
 		}
-		if col.clip {
+		if col.clip || col.align == 'N' {
+			// N columns never wrap: a broken number is worse
+			// than a truncated one.
 			stacks[i] = []string{s}
 		} else {
 			stacks[i] = wrapCell(s, col.width)
@@ -188,7 +251,7 @@ func formatRow(cols []colSpec, cells []string) []string {
 			if h < len(stacks[i]) {
 				s = stacks[i][h]
 			}
-			parts[i] = formatCell(s, col.width, col.align)
+			parts[i] = formatCell(s, col)
 		}
 		lines[h] = strings.TrimRight(strings.Join(parts, " "), " ")
 	}
@@ -228,16 +291,20 @@ func separatorLine(cols []colSpec) string {
 	return strings.Join(parts, " ")
 }
 
-// formatCell truncates and aligns a string within a fixed width.
-func formatCell(s string, width int, align byte) string {
+// formatCell truncates and aligns a string within its column.
+func formatCell(s string, col colSpec) string {
+	if col.align == 'N' {
+		s = numericCell(s, col)
+	}
+	width := col.width
 	runes := []rune(s)
 	if len(runes) > width {
 		runes = runes[:width]
 	}
 	n := len(runes)
 	pad := width - n
-	switch align {
-	case 'R':
+	switch col.align {
+	case 'R', 'N':
 		return strings.Repeat(" ", pad) + string(runes)
 	case 'C':
 		left := pad / 2
@@ -246,4 +313,29 @@ func formatCell(s string, width int, align byte) string {
 	default: // 'L'
 		return string(runes) + strings.Repeat(" ", pad)
 	}
+}
+
+// numericCell pads a cell's right side so that, once right-aligned,
+// every number in the column has its decimal point in the same rune
+// position: short fractions pad out to the column's widest, and the
+// paren slot stays open on cells that are not accounting negatives.
+// Non-numeric cells (headers, "n/a") right-align at the units
+// position. Empty cells stay empty.
+func numericCell(s string, col colSpec) string {
+	if s == "" {
+		return s
+	}
+	slot := 0
+	if col.paren {
+		slot = 1
+	}
+	fracLen, hasParen, ok := numericParts(s)
+	pad := col.frac + slot
+	if ok {
+		pad = col.frac - fracLen + slot
+		if hasParen {
+			pad--
+		}
+	}
+	return s + strings.Repeat(" ", pad)
 }

@@ -121,7 +121,11 @@ The column spec is space-separated <width><align> tokens:
 
 	width   integer rune count, or "*" to auto-fill the remainder
 	        (at most one auto column)
-	align   L = left, R = right, C = center
+	align   L = left, R = right, C = center, N = numeric: cells
+	        align on the decimal point and never wrap; accounting
+	        negatives "(1.23)" reserve a trailing paren slot for
+	        the whole column, and non-numeric cells (a header,
+	        "n/a") right-align at the units position
 
 Cells WRAP by default: overflow continues on following lines,
 other cells padded blank, and such a multi-line row is an atomic
