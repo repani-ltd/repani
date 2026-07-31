@@ -184,7 +184,11 @@ and verbatim blocks stay monospace in both modes as deliberate
 typography: mono tables in a sans page read as set data, the stage is
 the most invasive remaining item (formatCell's pad-with-spaces dies,
 Layout returns structured cells), and no document wants it. This is a
-settled decision, not pending work. Everything below is the original
+settled decision, not pending work. **Amended 2026-07-31:** the
+bank-report document class fired a real-document trigger; stage 4 is
+reopened *narrowly* — numeric columns only, where statically-applied
+tabular figures preserve the character-grid model (§6). The rejection
+of proportional *text* cells stands. Everything below is the original
 estimate, kept for context:
 
 - **Metrics already exist.** `pdf.Width` (pdf/page.go, ~line 102) sums
@@ -336,6 +340,16 @@ Decisions, each with its load-bearing reason:
   per draw event (scroll, fling, damage — sustained at refresh rate).
   Continuous pinch-zoom: geometrically scale the stale list during the
   gesture, one real reflow on release.
+- **Pagination-dependent chrome belongs to the presentation pass, not
+  the format.** Chrome is ordinary ops emitted by the producer
+  (masthead = TextRun, gutter hairline = Rule, page number = TextRun);
+  backends cannot tell chrome from content, and that ignorance is the
+  design. Document-level chrome (masthead, byline, logo) survives any
+  presentation; page numbers, gutter rules to content depth, and
+  repeated lead-ins exist only where the geometry has pages — a
+  continuous-scroll presentation emits none, as a sibling render pass
+  sharing compose/flow. The semantic tag marks chrome runs so
+  selection, search, and accessibility skip them.
 
 Context worth keeping: a PDF content stream *is* a display list —
 PostScript with computation deliberately removed — so the PDF backend
@@ -350,7 +364,86 @@ work. Until then, `drawColumn`'s direct `pdf.Page` calls are the right
 implementation at N=1 — reifying the ops today would be the speculative
 machinery §4 warns against.
 
-## 6. Open questions
+## 6. Financial tables (decided 2026-07-31)
+
+Driver: bank-style reports — the first real document class pressing on
+tables. Two needs: sub-line annotations (a note under a table title,
+or under a value in a cell) and numbers that align in proportional
+type. Both resolve without touching flow's outer contract, the
+display list (§5), or the language's tightness.
+
+### Half-line notes (the size quantum)
+
+- **Two sizes only, as roles: full and half** — a note line occupies
+  exactly half the body leading. Not free point sizes: quantized to
+  the grid, the closed-set stance extended from faces to sizes. Not a
+  block type either — a `.notes` block may come later; nothing here
+  precludes it.
+- Flow counts half-lines: a mechanical ×2 on seg heights, capacity,
+  and minKeep; block totals snap to whole body lines at placement
+  (the §4 grid-snap principle again), so prose never learns
+  half-lines exist and the cross-column baseline grid survives.
+- In mono, a half-size note line holds exactly 2×`.width` runes — the
+  arithmetic stays character counting.
+- Note lines join their row's seg, so a note can never orphan from
+  its value at a split; a note row after the header rides in the
+  `repeat` segs and reappears when a table carries over — the
+  header-replay feature composing at zero cost.
+- Caveat to verify early: half of 12pt leading puts glyphs near 5pt —
+  legal-disclosure small; render a sample and look. Fallbacks if too
+  small: a 2/3 quantum (integer in sixth-lines, uglier) or full-size
+  `styleGray` (exists today).
+
+### `.table` grammar extensions
+
+Spec today: `"3L *L 4R!"` — width (or `*`), align `L`/`R`/`C`,
+optional `!` clips. Two extensions:
+
+- **`N` align class** (tbl heritage — troff tbl's `n` aligned on the
+  units digit): align on the decimal separator; column width = widest
+  integer part + separator + widest fraction. Ships in mono first —
+  pure character counting, no font work — and becomes digit-unit
+  arithmetic under tabular figures with no grammar change. Detail to
+  settle at implementation: accounting negatives `(1,234.56)` reserve
+  a trailing paren slot when any cell in the column uses them.
+- **Note rows**: a row prefixed `..` renders half-line under the
+  previous row, cells aligned to the same columns; an empty cell
+  means no note there. A note row directly after the header row is
+  the table-title explanation — one mechanism for both uses. (Marker
+  syntax provisional; settle with the first implementation.)
+
+### Tabular figures (probe facts, tmp/digitcheck, 2026-07-31)
+
+Embedded Fira Sans advances in milli-ems:
+
+- Default figures are proportional (`1`=433, `0`=558, `8`=551): sans
+  numbers do not align today — which is what the §3 stage-4 rejection
+  was protecting.
+- Figure space U+2007 = 560 in Regular AND Bold: the tabular variants
+  exist behind GSUB `tnum` (unparsed — pdf/ttf reads GPOS only), and
+  matching advances across weights would mean a bold totals row
+  aligns digit-for-digit with regular body rows. Verify post-remap.
+
+Decision: **apply `tnum` statically at embed time.** Parse GSUB
+SingleSubst (lookup type 1 — simpler than the PairPos machinery
+gpos.go already has, same coverage tables) and remap the ten digit
+codepoints in CharToGID to their tabular variants. No shaping engine,
+no runtime feature toggles: "figures are tabular" is a house decision
+like the four faces. Consequence: digits and figure space share one
+advance, so formatCell's padding model survives for numeric columns
+in sans — pad with U+2007 and the character grid is exact.
+
+### Order of work
+
+1. `N` class in mono (standalone value, no dependencies).
+2. Half-line note rows.
+3. Static `tnum` remap in pdf/ttf (verify cross-weight advances).
+4. Numeric sans columns via figure-space padding (after 3).
+5. Proportional text cells: stay parked per §3's amended rejection;
+   trigger — a real report that cannot live with mono or clipped
+   text cells.
+
+## 7. Open questions
 
 Open only when their triggers fire; resolved ones removed (fixed-point
 units landed as abstract integer measurer units — milli-ems at the PDF
