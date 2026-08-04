@@ -222,6 +222,61 @@ func equalLines(got, want []string) bool {
 	return true
 }
 
+func TestTable_NumColGeometry(t *testing.T) {
+	tbl := mustTable(t, "*L 10N")
+	tbl.Header("Client", "Amount")
+	tbl.Row("Alpha", "1,234.56")
+	tbl.Row("Gamma", "(2.00)")
+
+	tl, err := tbl.Layout(20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.NumCols) != 1 {
+		t.Fatalf("NumCols = %+v, want one", tl.NumCols)
+	}
+	c := tl.NumCols[0]
+	want := typesetNumCol()
+	if c != want {
+		t.Errorf("NumCol = %+v, want %+v", c, want)
+	}
+	// SepIndex names the rune cell the decimal points occupy in the
+	// formatted lines.
+	for _, row := range tl.Rows {
+		if i := strings.LastIndex(row[0], "."); i != c.SepIndex() {
+			t.Errorf("decimal at %d in %q, SepIndex = %d", i, row[0], c.SepIndex())
+		}
+	}
+}
+
+// typesetNumCol is the expected geometry for the table above: auto
+// column 9 wide, N column at [10,20), frac ".56" = 3, paren present.
+func typesetNumCol() NumCol {
+	return NumCol{Start: 10, End: 20, Frac: 3, Paren: true}
+}
+
+func TestSplitNumeric(t *testing.T) {
+	cases := []struct {
+		in, intPart, tail string
+		ok                bool
+	}{
+		{"1,234.56", "1,234", ".56", true},
+		{"(2,340.10)", "(2,340", ".10)", true},
+		{"(500)", "(500", ")", true},
+		{"315", "315", "", true},
+		{"n/a", "", "", false},
+		{"Amount", "", "", false},
+		{"", "", "", false},
+	}
+	for _, c := range cases {
+		intPart, tail, ok := SplitNumeric(c.in)
+		if intPart != c.intPart || tail != c.tail || ok != c.ok {
+			t.Errorf("SplitNumeric(%q) = %q, %q, %v; want %q, %q, %v",
+				c.in, intPart, tail, ok, c.intPart, c.tail, c.ok)
+		}
+	}
+}
+
 func TestTable_NumericColumnIntegers(t *testing.T) {
 	// No fractions, no parens: N degrades to plain right-align.
 	tbl := mustTable(t, "3L 5N")

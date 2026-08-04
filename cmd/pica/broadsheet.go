@@ -89,6 +89,19 @@ type sline struct {
 	style  style
 	href   string // non-empty: the line is a clickable link target
 	half   bool   // table note line: half size on half the leading
+	nums   []numSpan
+}
+
+// numSpan is one numeric table cell re-rendered in the sans face
+// with tabular figures (sans documents only): the mono line keeps
+// the cell blanked, and the number draws anchored at the column's
+// decimal position on the mono grid — integer part ending there,
+// fraction tail starting there — so alignment across rows is exact
+// by construction whatever the sans glyph widths are.
+type numSpan struct {
+	sep     int // rune index of the column's decimal cell
+	intPart string
+	tail    string
 }
 
 // typo is the writer's resolved typography for one document: body
@@ -319,17 +332,33 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Sans documents: numeric cells leave the mono grid and
+			// re-render in the sans face with tabular figures. The
+			// extraction runs over every full-size line; headers,
+			// separators, and "n/a" cells fail SplitNumeric and stay
+			// mono. Note lines stay mono half-size.
+			mark := func(lines []sline) []sline {
+				if !t.sans {
+					return lines
+				}
+				for i := range lines {
+					if !lines[i].half {
+						lines[i] = extractNums(lines[i], tl.NumCols)
+					}
+				}
+				return lines
+			}
 			if len(tl.Header) > 0 {
 				lines := toSlines(tl.Header)
 				lines = append(lines, halfSlines(tl.HeaderNotes)...)
 				lines = append(lines, sline{text: tl.Sep})
-				fb.segs = append(fb.segs, seg{lines: lines})
+				fb.segs = append(fb.segs, seg{lines: mark(lines)})
 				fb.repeat = 1
 			}
 			for j, row := range tl.Rows {
 				lines := toSlines(row)
 				lines = append(lines, halfSlines(tl.RowNotes[j])...)
-				fb.segs = append(fb.segs, seg{lines: lines})
+				fb.segs = append(fb.segs, seg{lines: mark(lines)})
 			}
 
 		case typeset.Pre:
@@ -371,6 +400,32 @@ func halfSlines(lines []string) []sline {
 		out[i] = sline{text: ln, half: true}
 	}
 	return out
+}
+
+// extractNums lifts a line's numeric N-column cells into spans and
+// blanks them out of the mono text. Trailing trim may have shortened
+// the line into or before a cell; the slice below clamps for that.
+func extractNums(ln sline, cols []typeset.NumCol) sline {
+	r := []rune(ln.text)
+	for _, c := range cols {
+		if c.Start >= len(r) {
+			continue
+		}
+		end := min(c.End, len(r))
+		raw := strings.TrimSpace(string(r[c.Start:end]))
+		intPart, tail, ok := typeset.SplitNumeric(raw)
+		if !ok {
+			continue
+		}
+		for i := c.Start; i < end; i++ {
+			r[i] = ' '
+		}
+		ln.nums = append(ln.nums, numSpan{sep: c.SepIndex(), intPart: intPart, tail: tail})
+	}
+	if len(ln.nums) > 0 {
+		ln.text = strings.TrimRight(string(r), " ")
+	}
+	return ln
 }
 
 // lineFor assembles a typeset.Line from words at natural spacing
@@ -734,7 +789,7 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 				p.Link(xw, y-t.ps*0.25, xw+w, y+t.ps, ln.href)
 			}
 
-		case ln.text != "":
+		case ln.text != "" || len(ln.nums) > 0:
 			font := pdf.Regular
 			if ln.style == styleBold {
 				font = pdf.Bold
@@ -749,14 +804,33 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			if ln.style == styleGray {
 				p.Gray(0.45)
 			}
-			p.SetFont(font, ps)
-			p.Text(x, y, ln.text)
+			if ln.text != "" {
+				p.SetFont(font, ps)
+				p.Text(x, y, ln.text)
+			}
 			if ln.style == styleGray {
 				p.Gray(0)
 			}
 			if ln.href != "" {
 				w := pdf.Width(ln.text, font, ps)
 				p.Link(x, y-ps*0.25, x+w, y+ps, ln.href)
+			}
+			// Numeric cells lifted off the mono grid: sans tabular
+			// figures at the mono size, anchored at the column's
+			// decimal cell. Sans digits (560) are narrower than mono
+			// cells (600), so spans never overrun their columns.
+			if len(ln.nums) > 0 {
+				adv := emWidth * ps
+				p.SetFont(pdf.Sans, ps)
+				for _, sp := range ln.nums {
+					sx := x + float64(sp.sep)*adv
+					if sp.intPart != "" {
+						p.Text(sx-pdf.Width(sp.intPart, pdf.Sans, ps), y, sp.intPart)
+					}
+					if sp.tail != "" {
+						p.Text(sx, y, sp.tail)
+					}
+				}
 			}
 		}
 	}

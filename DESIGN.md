@@ -433,12 +433,20 @@ like the four faces. Consequence: digits and figure space share one
 advance, so formatCell's padding model survives for numeric columns
 in sans — pad with U+2007 and the character grid is exact.
 
-### Order of work
+### Order of work (1–4 DONE 2026-08-04)
 
-1. `N` class in mono (standalone value, no dependencies).
-2. Half-line note rows.
-3. Static `tnum` remap in pdf/ttf (verify cross-weight advances).
-4. Numeric sans columns via figure-space padding (after 3).
+1. `N` class in mono — done.
+2. Half-line note rows — done.
+3. Static `tnum` remap in pdf/ttf — done; verified: all ten digits
+   and the figure space share one 560 milli-em advance in BOTH Fira
+   Sans weights (bold totals align with regular rows), and Fira's
+   tnum coverage brings minus and currency signs along for free.
+4. Numeric sans columns — done, via separator anchoring rather than
+   figure-space padding: numeric cells lift off the mono grid into
+   sans spans drawn against the column's fixed decimal cell
+   (integer part right-anchored, fraction tail left-anchored), so
+   alignment is exact by construction whatever the glyph widths.
+   Text cells stay mono, the deliberate look.
 5. Proportional text cells: stay parked per §3's amended rejection;
    trigger — a real report that cannot live with mono or clipped
    text cells.

@@ -136,9 +136,53 @@ type TableLayout struct {
 	Rows        [][]string
 	HeaderNotes []string   // half-grid note lines under the header
 	RowNotes    [][]string // parallel to Rows; nil = no notes
+	NumCols     []NumCol   // resolved N-column geometry, left to right
 
 	headerNotesText []string   // full-grid note lines, for Lines
 	rowNotesText    [][]string // parallel to Rows
+}
+
+// NumCol is one N column's resolved geometry on the rune grid: the
+// cell's [Start,End) offsets within a formatted line, the widest
+// fraction tail (separator included), and whether the column
+// reserves the accounting paren slot. A writer re-rendering numeric
+// cells in a proportional face anchors on SepIndex; the mono grid
+// needs none of this (alignment is baked into the padded strings).
+type NumCol struct {
+	Start, End int
+	Frac       int
+	Paren      bool
+}
+
+// SepIndex is the rune cell every decimal point in the column
+// occupies (one past the units digit when the column has no
+// fractions). Integer parts end there; fraction tails start there.
+func (c NumCol) SepIndex() int {
+	slot := 0
+	if c.Paren {
+		slot = 1
+	}
+	return c.End - slot - c.Frac
+}
+
+// SplitNumeric splits a numeric cell for separator-anchored drawing:
+// intPart is everything before the decimal separator (the opening
+// paren included), tail everything from the separator on (the
+// closing paren included). ok is false for content that does not
+// read as a number — headers, "n/a" — which stays as formatted.
+func SplitNumeric(s string) (intPart, tail string, ok bool) {
+	if _, _, ok = numericParts(s); !ok {
+		return "", "", false
+	}
+	core := strings.TrimSuffix(s, ")")
+	paren := ""
+	if core != s {
+		paren = ")"
+	}
+	if i := strings.LastIndex(core, "."); i >= 0 {
+		return core[:i], core[i:] + paren, true
+	}
+	return core, paren, true
 }
 
 // Lines flattens the layout in order for full-size output: header,
@@ -164,6 +208,16 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 		return nil, err
 	}
 	tl := &TableLayout{}
+	start := 0
+	for _, col := range cols {
+		if col.align == 'N' {
+			tl.NumCols = append(tl.NumCols, NumCol{
+				Start: start, End: start + col.width,
+				Frac: col.frac, Paren: col.paren,
+			})
+		}
+		start += col.width + 1
+	}
 	if t.header != nil {
 		tl.Header = formatRow(cols, t.header)
 		tl.Sep = separatorLine(cols)
