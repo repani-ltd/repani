@@ -132,6 +132,13 @@ func Parse(raw []byte) (font *TTFont, err error) {
 		return nil, err
 	}
 	charToGID := parseCmap(cmap)
+
+	// Tabular figures, statically (see gsub.go): remap before widths
+	// and the CID map are derived so every consumer sees the tabular
+	// glyphs.
+	if gsub, err := get("GSUB"); err == nil {
+		applyTnum(gsub, charToGID)
+	}
 	font.CharToGID = charToGID
 
 	// hmtx

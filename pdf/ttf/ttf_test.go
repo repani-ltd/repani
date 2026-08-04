@@ -40,6 +40,41 @@ func TestParseFiraMono(t *testing.T) {
 	}
 }
 
+func TestTabularFigures(t *testing.T) {
+	// applyTnum runs at Parse time: in both Fira Sans weights every
+	// digit must share one advance, and the figure space (U+2007)
+	// must match it, so figure-space padding aligns numbers exactly
+	// (DESIGN.md §6). Cross-weight equality means bold totals align
+	// with regular body rows.
+	widths := map[string]int{}
+	for _, name := range []string{"FiraSans-Regular.ttf", "FiraSans-Bold.ttf"} {
+		raw, err := os.ReadFile("../fonts/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := Parse(raw)
+		if err != nil {
+			t.Fatalf("Parse(%s): %v", name, err)
+		}
+		w0 := f.CIDWidths['0']
+		if w0 == 0 {
+			t.Fatalf("%s: no width for '0'", name)
+		}
+		for r := '1'; r <= '9'; r++ {
+			if w := f.CIDWidths[int(r)]; w != w0 {
+				t.Errorf("%s: width('%c') = %d, want %d", name, r, w, w0)
+			}
+		}
+		if w := f.CIDWidths[0x2007]; w != w0 {
+			t.Errorf("%s: figure space = %d, want digit width %d", name, w, w0)
+		}
+		widths[name] = w0
+	}
+	if widths["FiraSans-Regular.ttf"] != widths["FiraSans-Bold.ttf"] {
+		t.Errorf("tabular width differs across weights: %v", widths)
+	}
+}
+
 func TestSubsetKeepsUsedGlyphs(t *testing.T) {
 	f := loadFiraMono(t)
 	used := map[rune]bool{'H': true, 'i': true, 'λ': true}
