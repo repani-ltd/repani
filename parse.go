@@ -452,7 +452,15 @@ func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
 		return Block{}, fmt.Errorf("%w (line %d)", err, atLine)
 	}
 	for _, line := range body {
-		if strings.TrimSpace(line) == "" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// A ".." row is a half-size note annotating the row above
+		// (the header, when no data row precedes it). It never
+		// becomes the header itself.
+		if rest, ok := strings.CutPrefix(trimmed, ".."); ok {
+			tbl.Note(splitCells(rest)...)
 			continue
 		}
 		cells := splitCells(line)

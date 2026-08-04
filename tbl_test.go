@@ -168,6 +168,60 @@ func TestTable_NumericColumn(t *testing.T) {
 	}
 }
 
+func TestTable_NoteRows(t *testing.T) {
+	tbl := mustTable(t, "6L 5N")
+	tbl.Header("Client", "Amt")
+	tbl.Note("", "eur")
+	tbl.Row("Alpha", "12.50")
+	tbl.Note("prime broker", "")
+	tbl.Row("Beta", "3.00")
+
+	tl, err := tbl.Layout(12)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Half-grid notes: widths and the column gap double, cells
+	// left-align under their columns.
+	if want := []string{"              eur"}; !equalLines(tl.HeaderNotes, want) {
+		t.Errorf("HeaderNotes = %q, want %q", tl.HeaderNotes, want)
+	}
+	if want := []string{"prime broker"}; !equalLines(tl.RowNotes[0], want) {
+		t.Errorf("RowNotes[0] = %q, want %q", tl.RowNotes[0], want)
+	}
+	if tl.RowNotes[1] != nil {
+		t.Errorf("RowNotes[1] = %q, want none", tl.RowNotes[1])
+	}
+
+	// Plain-text form: notes render as ordinary full-size rows in
+	// document order.
+	got := strings.Join(tl.Lines(), "\n")
+	want := strings.Join([]string{
+		"Client Amt",
+		"       eur",
+		"------ -----",
+		"Alpha  12.50",
+		"prime",
+		"broker",
+		"Beta    3.00",
+	}, "\n")
+	if got != want {
+		t.Errorf("Lines():\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func equalLines(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestTable_NumericColumnIntegers(t *testing.T) {
 	// No fractions, no parens: N degrades to plain right-align.
 	tbl := mustTable(t, "3L 5N")

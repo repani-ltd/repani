@@ -281,6 +281,17 @@ func TestParse_TableHeaderless(t *testing.T) {
 	if !strings.Contains(out, "APOEL") || !strings.Contains(out, "Omonoia") {
 		t.Errorf("rows lost:\n%s", out)
 	}
+	// Note rows: ".." annotates the row above; before any data row
+	// it annotates the header, and it never becomes the header.
+	dn := mustParse(t, "T\n\n.table 6L 5N\nClient | Amt\n.. | eur\nAlpha | 12.50\n.. broker |\n.end\n")
+	tln, err := dn.Blocks[0].Table.Layout(12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tln.HeaderNotes) != 1 || len(tln.Rows) != 1 || len(tln.RowNotes[0]) != 1 {
+		t.Errorf("note layout = %+v", tln)
+	}
+
 	// Width variant: ".table 30 - SPEC".
 	d2 := mustParse(t, "T\n\n.table 30 - 6L *R\nA | 1\n.end\n")
 	if d2.Blocks[0].Width != 30 {

@@ -20,14 +20,18 @@ func mkSegs(prefix string, n int) []seg {
 
 func fixedCap(n int) func(int) int { return func(int) int { return n } }
 
-// checkCols verifies no column exceeds its capacity and returns the
-// flattened non-blank texts.
+// checkCols verifies no column exceeds its capacity (measured in
+// half-line units) and returns the flattened non-blank texts.
 func checkCols(t *testing.T, cols [][]sline, capacity func(int) int) []string {
 	t.Helper()
 	var flat []string
 	for i, col := range cols {
-		if len(col) > capacity(i) {
-			t.Fatalf("column %d holds %d lines, capacity %d", i, len(col), capacity(i))
+		units := 0
+		for _, ln := range col {
+			units += lineUnits(ln)
+		}
+		if units > 2*capacity(i) {
+			t.Fatalf("column %d holds %d half-line units, capacity %d lines", i, units, capacity(i))
 		}
 		for _, ln := range col {
 			if strings.TrimSpace(ln.text) != "" {
@@ -122,6 +126,66 @@ func TestFlow_TableSplitRepeatsHeader(t *testing.T) {
 	}
 	if len(rows) != 10 {
 		t.Fatalf("data rows = %d, want 10", len(rows))
+	}
+}
+
+func TestFlow_HalfLineSnap(t *testing.T) {
+	// A table whose noted row leaves the column at an odd half-line
+	// count: the next block snaps back to a whole body line via a
+	// blank half-line before its separator.
+	table := fblock{segs: []seg{
+		{lines: []sline{{text: "h"}, {text: "--"}}},
+		{lines: []sline{{text: "r1"}, {text: "n1", half: true}}},
+		{lines: []sline{{text: "r2"}}},
+	}, repeat: 1}
+	para := fblock{segs: []seg{{lines: []sline{{text: "p1"}}}}}
+
+	cols := flow([]fblock{table, para}, fixedCap(8))
+	checkCols(t, cols, fixedCap(8))
+	if len(cols) != 1 {
+		t.Fatalf("expected one column, got %d", len(cols))
+	}
+	got := cols[0]
+	wantTexts := []string{"h", "--", "r1", "n1", "r2", "", "", "p1"}
+	wantHalf := []bool{false, false, false, true, false, true, false, false}
+	if len(got) != len(wantTexts) {
+		t.Fatalf("column = %v, want %d lines", got, len(wantTexts))
+	}
+	for i := range got {
+		if got[i].text != wantTexts[i] || got[i].half != wantHalf[i] {
+			t.Fatalf("line %d = {%q half=%v}, want {%q half=%v}",
+				i, got[i].text, got[i].half, wantTexts[i], wantHalf[i])
+		}
+	}
+}
+
+func TestFlow_NoteStaysWithRow(t *testing.T) {
+	// Row segs carry their note lines, so a split can never orphan
+	// a note from its row, and the header repeats above it.
+	segs := []seg{{lines: []sline{{text: "h"}}}}
+	for i := 1; i <= 5; i++ {
+		lines := []sline{{text: fmt.Sprintf("r%d", i)}}
+		if i == 2 {
+			lines = append(lines, sline{text: "n2", half: true})
+		}
+		segs = append(segs, seg{lines: lines})
+	}
+	table := fblock{segs: segs, repeat: 1}
+
+	cols := flow([]fblock{table}, fixedCap(3))
+	checkCols(t, cols, fixedCap(3))
+	for i, col := range cols {
+		if col[0].text != "h" {
+			t.Fatalf("column %d does not start with the header: %v", i, col)
+		}
+		for j, ln := range col {
+			if ln.text != "r2" {
+				continue
+			}
+			if j+1 >= len(col) || col[j+1].text != "n2" || !col[j+1].half {
+				t.Fatalf("n2 does not follow r2 in column %d: %v", i, col)
+			}
+		}
 	}
 }
 

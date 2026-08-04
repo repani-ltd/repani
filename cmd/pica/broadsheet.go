@@ -88,6 +88,7 @@ type sline struct {
 	indent int      // proportional: leading offset in em-thousandths
 	style  style
 	href   string // non-empty: the line is a clickable link target
+	half   bool   // table note line: half size on half the leading
 }
 
 // typo is the writer's resolved typography for one document: body
@@ -150,12 +151,29 @@ func spread(ln typeset.Line, units int, m pdf.Measurer, last bool) []int {
 }
 
 // seg is an atomic run of lines: a paragraph line, a table row (all
-// its wrapped lines), a whole .pre block, ...
+// its wrapped lines plus its note lines), a whole .pre block, ...
 type seg struct {
 	lines []sline
 }
 
-func (s seg) height() int { return len(s.lines) }
+// height is in half-line units: a body line is 2, a note line 1.
+// The half-line is the flow grid's quantum (DESIGN.md §6); blocks
+// snap back to whole body lines at placement, so only table rows
+// with notes ever produce odd heights.
+func (s seg) height() int {
+	h := 0
+	for _, ln := range s.lines {
+		h += lineUnits(ln)
+	}
+	return h
+}
+
+func lineUnits(ln sline) int {
+	if ln.half {
+		return 1
+	}
+	return 2
+}
 
 // fblock is a flowable block: segments that may be split between
 // (never inside), with optional repeated lead-in after a split.
@@ -302,11 +320,16 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				return nil, err
 			}
 			if len(tl.Header) > 0 {
-				fb.segs = append(fb.segs, seg{lines: toSlines(tl.Header)})
+				lines := toSlines(tl.Header)
+				lines = append(lines, halfSlines(tl.HeaderNotes)...)
+				lines = append(lines, sline{text: tl.Sep})
+				fb.segs = append(fb.segs, seg{lines: lines})
 				fb.repeat = 1
 			}
-			for _, row := range tl.Rows {
-				fb.segs = append(fb.segs, seg{lines: toSlines(row)})
+			for j, row := range tl.Rows {
+				lines := toSlines(row)
+				lines = append(lines, halfSlines(tl.RowNotes[j])...)
+				fb.segs = append(fb.segs, seg{lines: lines})
 			}
 
 		case typeset.Pre:
@@ -342,6 +365,14 @@ func toSlines(lines []string) []sline {
 	return out
 }
 
+func halfSlines(lines []string) []sline {
+	out := make([]sline, len(lines))
+	for i, ln := range lines {
+		out[i] = sline{text: ln, half: true}
+	}
+	return out
+}
+
 // lineFor assembles a typeset.Line from words at natural spacing
 // under the measurer (the attribution line is never justified).
 func lineFor(words []string, m pdf.Measurer) typeset.Line {
@@ -363,41 +394,56 @@ func lineFor(words []string, m pdf.Measurer) typeset.Line {
 // .pre N) is re-emitted after each split. Atomic blocks move whole
 // unless taller than an entire fresh column. A heading is never
 // left at a column bottom without minKeep segments of what follows.
+//
+// Capacity is in body lines; internal accounting is in half-line
+// units (a body line is 2, a table note line 1). Every block starts
+// on a whole body line: placement pads an odd column height with a
+// blank half-line first, so half-lines stay confined inside the
+// block that made them and the cross-column baseline grid holds.
 func flow(blocks []fblock, capacity func(int) int) [][]sline {
 	var out [][]sline
 	var cur []sline
+	curH := 0 // height of cur in half-line units
 	colIdx := 0
 
 	closeCol := func() {
 		out = append(out, cur)
 		cur = nil
+		curH = 0
 		colIdx++
 	}
 	place := func(b fblock, upto int) {
+		if curH%2 != 0 {
+			cur = append(cur, sline{half: true})
+			curH++
+		}
 		if len(cur) > 0 && !b.tight {
 			cur = append(cur, sline{})
+			curH += 2
 		}
 		for _, s := range b.segs[:upto] {
 			cur = append(cur, s.lines...)
+			curH += s.height()
 		}
 	}
 
 	for i := 0; i < len(blocks); i++ {
 		b := blocks[i]
 		for {
-			colCap := capacity(colIdx)
+			colCap := 2 * capacity(colIdx)
 			sep := 0
 			if len(cur) > 0 && !b.tight {
-				sep = 1
+				sep = 2
 			}
-			avail := colCap - len(cur) - sep
+			snap := curH % 2
+			avail := colCap - curH - snap - sep
 			h := b.height()
 
 			// Keep-with-next: the heading and the first minKeep
 			// segments of the next block must fit together.
 			if b.keepNext && i+1 < len(blocks) && len(cur) > 0 {
 				next := blocks[i+1]
-				need := h + 1
+				need := h + 2
 				for _, s := range next.segs[:min(minKeep, len(next.segs))] {
 					need += s.height()
 				}
@@ -437,18 +483,20 @@ func flow(blocks []fblock, capacity func(int) int) [][]sline {
 	return out
 }
 
-// fitSegs returns how many leading segments of b fit in avail lines.
+// fitSegs returns how many leading segments of b fit in avail
+// half-line units.
 func fitSegs(b fblock, avail int) int {
-	k, lines := 0, 0
-	for k < len(b.segs) && lines+b.segs[k].height() <= avail {
-		lines += b.segs[k].height()
+	k, units := 0, 0
+	for k < len(b.segs) && units+b.segs[k].height() <= avail {
+		units += b.segs[k].height()
 		k++
 	}
 	return k
 }
 
 // splitSegs returns how many leading segments of b fit in avail
-// lines under the orphan/widow rules, or 0 for "move whole".
+// half-line units under the orphan/widow rules, or 0 for "move
+// whole".
 func splitSegs(b fblock, avail int) int {
 	if b.atomic {
 		return 0
@@ -610,21 +658,23 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 			p.Line(sheetMargin, ruleY, pageW-sheetMargin, ruleY, 1.0)
 		}
 
-		deepest := 0
+		deepest := 0 // column depth in half-line units
 		for c := 0; c < ncols; c++ {
 			idx := pg*ncols + c
 			if idx >= len(columns) {
 				break
 			}
-			if len(columns[idx]) > deepest {
-				deepest = len(columns[idx])
+			units := 0
+			for _, ln := range columns[idx] {
+				units += lineUnits(ln)
 			}
+			deepest = max(deepest, units)
 			x := sheetMargin + float64(c)*(colW+sheetGutter)
 			drawColumn(&p, columns[idx], x, colTop, colW, t)
 		}
 
 		// Hairline rules centered in the gutters, to content depth.
-		ruleBottom := max(colTop-float64(deepest)*lineH, colBottom)
+		ruleBottom := max(colTop-float64(deepest)*lineH/2, colBottom)
 		p.StrokeGray(0.55)
 		for c := 1; c < ncols; c++ {
 			x := sheetMargin + float64(c)*(colW+sheetGutter) - sheetGutter/2
@@ -650,7 +700,16 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 // fill the column.
 func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 	y := top - t.ps
-	for _, ln := range lines {
+	for i, ln := range lines {
+		// Leading precedes a line: each baseline sits its own slot
+		// below the previous one, so a half line advances lineH/2.
+		if i > 0 {
+			if ln.half {
+				y -= t.lineH / 2
+			} else {
+				y -= t.lineH
+			}
+		}
 		switch {
 		case ln.style == styleRule:
 			p.StrokeGray(0.3)
@@ -680,20 +739,26 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			if ln.style == styleBold {
 				font = pdf.Bold
 			}
+			ps := t.psMono
+			if ln.half {
+				// Table note line: half size on half the leading,
+				// formatted on the doubled rune grid so column
+				// offsets land under their full-size columns.
+				ps = t.psMono / 2
+			}
 			if ln.style == styleGray {
 				p.Gray(0.45)
 			}
-			p.SetFont(font, t.psMono)
+			p.SetFont(font, ps)
 			p.Text(x, y, ln.text)
 			if ln.style == styleGray {
 				p.Gray(0)
 			}
 			if ln.href != "" {
-				w := pdf.Width(ln.text, font, t.psMono)
-				p.Link(x, y-t.psMono*0.25, x+w, y+t.psMono, ln.href)
+				w := pdf.Width(ln.text, font, ps)
+				p.Link(x, y-ps*0.25, x+w, y+ps, ln.href)
 			}
 		}
-		y -= t.lineH
 	}
 }
 

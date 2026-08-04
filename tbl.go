@@ -25,7 +25,14 @@ var (
 type Table struct {
 	cols   []colSpec
 	header []string
-	rows   [][]string
+	rows   []tableRow
+}
+
+// tableRow is one source row: data, or a half-size note row
+// annotating the row (or header) above it.
+type tableRow struct {
+	cells []string
+	note  bool
 }
 
 type colSpec struct {
@@ -93,7 +100,16 @@ func (t *Table) Header(cells ...string) *Table {
 
 // Row appends a data row.
 func (t *Table) Row(cells ...string) *Table {
-	t.rows = append(t.rows, cells)
+	t.rows = append(t.rows, tableRow{cells: cells})
+	return t
+}
+
+// Note appends a note row: half-size annotation lines under the
+// nearest preceding data row, or under the header when no data row
+// precedes. Note cells left-align beneath their columns and wrap at
+// the half-size rune budget (twice the column width).
+func (t *Table) Note(cells ...string) *Table {
+	t.rows = append(t.rows, tableRow{cells: cells, note: true})
 	return t
 }
 
@@ -102,20 +118,40 @@ func (t *Table) Row(cells ...string) *Table {
 const separator = "-"
 
 // TableLayout is a table laid out at a concrete width. Header holds
-// the header lines plus the separator row; each element of Rows is
-// one data row's lines (more than one when a cell wrapped). A
-// column-splitting writer treats each row as atomic and repeats
-// Header after a split.
+// the header lines (Sep is the dashed separator row, "" when the
+// table is headerless); each element of Rows is one data row's lines
+// (more than one when a cell wrapped). A column-splitting writer
+// treats each row plus its notes as atomic and repeats the header
+// after a split.
+//
+// HeaderNotes and RowNotes hold note-row lines formatted on the
+// half-size grid: a half-size rune is half a body rune, so those
+// lines budget twice the runes and their column offsets are twice
+// the body offsets. Half-line writers draw them at half the body
+// size on half the leading; Lines() instead renders notes as
+// ordinary full-size rows for plain-text output.
 type TableLayout struct {
-	Header []string
-	Rows   [][]string
+	Header      []string
+	Sep         string
+	Rows        [][]string
+	HeaderNotes []string   // half-grid note lines under the header
+	RowNotes    [][]string // parallel to Rows; nil = no notes
+
+	headerNotesText []string   // full-grid note lines, for Lines
+	rowNotesText    [][]string // parallel to Rows
 }
 
-// Lines flattens the layout in order.
+// Lines flattens the layout in order for full-size output: header,
+// its notes, the separator, then each row with its notes.
 func (tl *TableLayout) Lines() []string {
 	out := append([]string{}, tl.Header...)
-	for _, r := range tl.Rows {
+	out = append(out, tl.headerNotesText...)
+	if tl.Sep != "" {
+		out = append(out, tl.Sep)
+	}
+	for i, r := range tl.Rows {
 		out = append(out, r...)
+		out = append(out, tl.rowNotesText[i]...)
 	}
 	return out
 }
@@ -130,12 +166,60 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 	tl := &TableLayout{}
 	if t.header != nil {
 		tl.Header = formatRow(cols, t.header)
-		tl.Header = append(tl.Header, separatorLine(cols))
+		tl.Sep = separatorLine(cols)
 	}
 	for _, row := range t.rows {
-		tl.Rows = append(tl.Rows, formatRow(cols, row))
+		if row.note {
+			half := noteRow(cols, row.cells, 2)
+			text := noteRow(cols, row.cells, 1)
+			if len(tl.Rows) == 0 {
+				tl.HeaderNotes = append(tl.HeaderNotes, half...)
+				tl.headerNotesText = append(tl.headerNotesText, text...)
+			} else {
+				i := len(tl.Rows) - 1
+				tl.RowNotes[i] = append(tl.RowNotes[i], half...)
+				tl.rowNotesText[i] = append(tl.rowNotesText[i], text...)
+			}
+			continue
+		}
+		tl.Rows = append(tl.Rows, formatRow(cols, row.cells))
+		tl.RowNotes = append(tl.RowNotes, nil)
+		tl.rowNotesText = append(tl.rowNotesText, nil)
 	}
 	return tl, nil
+}
+
+// noteRow formats one note row on a grid scaled by scale: scale 2 is
+// the half-size grid (widths and the column gap double), scale 1 the
+// full-size grid for plain-text output. Notes always left-align and
+// wrap.
+func noteRow(cols []colSpec, cells []string, scale int) []string {
+	stacks := make([][]string, len(cols))
+	height := 1
+	for i, col := range cols {
+		var s string
+		if i < len(cells) {
+			s = cells[i]
+		}
+		stacks[i] = wrapCell(s, col.width*scale)
+		if len(stacks[i]) > height {
+			height = len(stacks[i])
+		}
+	}
+	gap := strings.Repeat(" ", scale)
+	lines := make([]string, height)
+	for h := range lines {
+		parts := make([]string, len(cols))
+		for i, col := range cols {
+			var s string
+			if h < len(stacks[i]) {
+				s = stacks[i][h]
+			}
+			parts[i] = formatCell(s, colSpec{width: col.width * scale, align: 'L'})
+		}
+		lines[h] = strings.TrimRight(strings.Join(parts, gap), " ")
+	}
+	return lines
 }
 
 // fit resolves the auto-span column against the total width and
@@ -172,10 +256,10 @@ func (t *Table) fit(width int) ([]colSpec, error) {
 			continue
 		}
 		for _, row := range t.rows {
-			if i >= len(row) {
+			if row.note || i >= len(row.cells) {
 				continue
 			}
-			fracLen, hasParen, ok := numericParts(row[i])
+			fracLen, hasParen, ok := numericParts(row.cells[i])
 			if !ok {
 				continue
 			}

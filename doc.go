@@ -135,6 +135,15 @@ space; a header is followed by a dashed separator row. "|" always
 separates cells (there is no escape for a literal one), and cells
 beyond the spec's columns are dropped.
 
+A row starting with ".." is a NOTE ROW: an annotation attached to
+the data row above it (to the header when no data row precedes).
+Half-line writers render note cells at half the body size on half
+the leading, left-aligned under their columns with twice the rune
+budget; the plain-text writer renders them as ordinary full-size
+rows. A note never separates from its row at a column split, and
+a note row after the header travels with it when a table's header
+repeats. There is no escape for a leading literal "..".
+
 # Wrapping
 
 Paragraph filling is Knuth-Plass optimal line breaking with
