@@ -457,10 +457,15 @@ func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
 			continue
 		}
 		// A ".." row is a half-size note annotating the row above
-		// (the header, when no data row precedes it). It never
-		// becomes the header itself.
+		// (the header, when no data row precedes it); a "=" row is
+		// a total row, bold under a rule. Neither ever becomes the
+		// header itself.
 		if rest, ok := strings.CutPrefix(trimmed, ".."); ok {
 			tbl.Note(splitCells(rest)...)
+			continue
+		}
+		if rest, ok := strings.CutPrefix(trimmed, "="); ok {
+			tbl.Total(splitCells(rest)...)
 			continue
 		}
 		cells := splitCells(line)

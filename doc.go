@@ -135,6 +135,12 @@ space; a header is followed by a dashed separator row. "|" always
 separates cells (there is no escape for a literal one), and cells
 beyond the spec's columns are dropped.
 
+A row starting with "=" is a TOTAL ROW: formatted like a data row
+(its numbers weigh into N-column metrics) but set bold under a
+rule — a dash row in plain text, a hairline in writers whose
+medium draws real rules. There is no escape for a leading literal
+"=".
+
 A row starting with ".." is a NOTE ROW: an annotation attached to
 the data row above it (to the header when no data row precedes).
 Half-line writers render note cells at half the body size on half

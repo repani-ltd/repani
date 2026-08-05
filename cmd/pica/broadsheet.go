@@ -89,6 +89,7 @@ type sline struct {
 	style  style
 	href   string // non-empty: the line is a clickable link target
 	half   bool   // table note line: half size on half the leading
+	ruleW  int    // styleRule: width in mono grid runes (0 = full column)
 	nums   []numSpan
 }
 
@@ -114,6 +115,10 @@ type typo struct {
 	psMono float64 // pre/table point size; equals ps in mono mode
 	lineH  float64
 	units  int // sans: wrap width in thousandths of an em
+	// tableRules: table separators and total-row rules render as
+	// hairlines spanning the table instead of dash rows. A
+	// presentation identity (report), not a document attribute.
+	tableRules bool
 }
 
 // spread returns the inter-word advances for one composed line in
@@ -348,15 +353,32 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				}
 				return lines
 			}
+			// The separator/total rule: a dash row like the text
+			// writer's, or a hairline spanning the table when the
+			// presentation asks for real rules.
+			rule := func() sline {
+				if t.tableRules {
+					return sline{style: styleRule, ruleW: len([]rune(tl.Sep))}
+				}
+				return sline{text: tl.Sep}
+			}
 			if len(tl.Header) > 0 {
 				lines := toSlines(tl.Header)
 				lines = append(lines, halfSlines(tl.HeaderNotes)...)
-				lines = append(lines, sline{text: tl.Sep})
+				lines = append(lines, rule())
 				fb.segs = append(fb.segs, seg{lines: mark(lines)})
 				fb.repeat = 1
 			}
 			for j, row := range tl.Rows {
-				lines := toSlines(row)
+				rowLines := toSlines(row)
+				var lines []sline
+				if tl.Totals[j] {
+					for i := range rowLines {
+						rowLines[i].style = styleBold
+					}
+					lines = append(lines, rule())
+				}
+				lines = append(lines, rowLines...)
 				lines = append(lines, halfSlines(tl.RowNotes[j])...)
 				fb.segs = append(fb.segs, seg{lines: mark(lines)})
 			}
@@ -767,8 +789,14 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 		}
 		switch {
 		case ln.style == styleRule:
+			w := colW
+			if ln.ruleW > 0 {
+				// Table rule: span the table's rune width on the
+				// mono grid, not the whole column.
+				w = float64(ln.ruleW) * emWidth * t.psMono
+			}
 			p.StrokeGray(0.3)
-			p.Line(x, y+t.ps*0.35, x+colW, y+t.ps*0.35, 0.5)
+			p.Line(x, y+t.ps*0.35, x+w, y+t.ps*0.35, 0.5)
 
 		case len(ln.words) > 0:
 			font := pdf.Sans
@@ -821,11 +849,15 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			// cells (600), so spans never overrun their columns.
 			if len(ln.nums) > 0 {
 				adv := emWidth * ps
-				p.SetFont(pdf.Sans, ps)
+				sf := pdf.Sans
+				if ln.style == styleBold {
+					sf = pdf.SansBold
+				}
+				p.SetFont(sf, ps)
 				for _, sp := range ln.nums {
 					sx := x + float64(sp.sep)*adv
 					if sp.intPart != "" {
-						p.Text(sx-pdf.Width(sp.intPart, pdf.Sans, ps), y, sp.intPart)
+						p.Text(sx-pdf.Width(sp.intPart, sf, ps), y, sp.intPart)
 					}
 					if sp.tail != "" {
 						p.Text(sx, y, sp.tail)

@@ -1,6 +1,7 @@
 package typeset
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -220,6 +221,35 @@ func equalLines(got, want []string) bool {
 		}
 	}
 	return true
+}
+
+func TestTable_TotalRows(t *testing.T) {
+	tbl := mustTable(t, "6L 8N")
+	tbl.Header("Client", "Amt")
+	tbl.Row("Alpha", "100.00")
+	tbl.Row("Beta", "25.50")
+	tbl.Total("Total", "125.50")
+
+	got := render(t, tbl, 15)
+	want := strings.Join([]string{
+		"Client   Amt",
+		"------ --------",
+		"Alpha    100.00",
+		"Beta      25.50",
+		"------ --------",
+		"Total    125.50",
+	}, "\n")
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	tl, err := tbl.Layout(15)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []bool{false, false, true}; !slices.Equal(tl.Totals, want) {
+		t.Errorf("Totals = %v, want %v", tl.Totals, want)
+	}
 }
 
 func TestTable_NumColGeometry(t *testing.T) {

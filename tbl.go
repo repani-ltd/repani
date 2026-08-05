@@ -28,11 +28,13 @@ type Table struct {
 	rows   []tableRow
 }
 
-// tableRow is one source row: data, or a half-size note row
-// annotating the row (or header) above it.
+// tableRow is one source row: data, a half-size note row annotating
+// the row (or header) above it, or a total row set bold under a
+// rule.
 type tableRow struct {
 	cells []string
 	note  bool
+	total bool
 }
 
 type colSpec struct {
@@ -113,6 +115,15 @@ func (t *Table) Note(cells ...string) *Table {
 	return t
 }
 
+// Total appends a total row: formatted like a data row (its numbers
+// weigh into N-column metrics) but set bold under a rule by writers
+// whose medium can; the plain-text writer draws the rule as a dash
+// row.
+func (t *Table) Total(cells ...string) *Table {
+	t.rows = append(t.rows, tableRow{cells: cells, total: true})
+	return t
+}
+
 // separator is the character used to draw header underline rows.
 // ASCII "-" guarantees exact monospace alignment in any viewer.
 const separator = "-"
@@ -134,6 +145,7 @@ type TableLayout struct {
 	Header      []string
 	Sep         string
 	Rows        [][]string
+	Totals      []bool     // parallel to Rows: row is a total row
 	HeaderNotes []string   // half-grid note lines under the header
 	RowNotes    [][]string // parallel to Rows; nil = no notes
 	NumCols     []NumCol   // resolved N-column geometry, left to right
@@ -186,14 +198,18 @@ func SplitNumeric(s string) (intPart, tail string, ok bool) {
 }
 
 // Lines flattens the layout in order for full-size output: header,
-// its notes, the separator, then each row with its notes.
+// its notes, the separator, then each row with its notes. A total
+// row sits under its own dash rule.
 func (tl *TableLayout) Lines() []string {
 	out := append([]string{}, tl.Header...)
 	out = append(out, tl.headerNotesText...)
-	if tl.Sep != "" {
+	if len(tl.Header) > 0 {
 		out = append(out, tl.Sep)
 	}
 	for i, r := range tl.Rows {
+		if tl.Totals[i] {
+			out = append(out, tl.Sep)
+		}
 		out = append(out, r...)
 		out = append(out, tl.rowNotesText[i]...)
 	}
@@ -218,9 +234,12 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 		}
 		start += col.width + 1
 	}
+	// Sep is always computable; Lines and writers gate the header
+	// separator on Header presence, and total rows use it (dash
+	// form) regardless.
+	tl.Sep = separatorLine(cols)
 	if t.header != nil {
 		tl.Header = formatRow(cols, t.header)
-		tl.Sep = separatorLine(cols)
 	}
 	for _, row := range t.rows {
 		if row.note {
@@ -237,6 +256,7 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 			continue
 		}
 		tl.Rows = append(tl.Rows, formatRow(cols, row.cells))
+		tl.Totals = append(tl.Totals, row.total)
 		tl.RowNotes = append(tl.RowNotes, nil)
 		tl.rowNotesText = append(tl.rowNotesText, nil)
 	}
