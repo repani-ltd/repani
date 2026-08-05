@@ -6,11 +6,13 @@
 //	pica render <template> <data>   Go template + data -> source doc
 //	pica text   [file|-]            source doc -> fixed-width text page
 //	pica pdf    [file|-]            source doc -> N-column newspaper PDF
+//	pica report [file|-]            source doc -> single-column report PDF
 //
 // A typical pipeline:
 //
 //	pica render page.tmpl data.json | pica text     > page.txt
 //	pica render page.tmpl data.json | pica pdf -o page.pdf
+//	pica render page.tmpl data.json | pica report -o page.pdf
 //
 // Documents are self-contained: width, paper, columns, and body face
 // come from the document's layout trailer (.width/.paper/.cols/
@@ -71,6 +73,8 @@ func main() {
 		os.Exit(textCmd(os.Args[2:]))
 	case "pdf":
 		os.Exit(pdfCmd(os.Args[2:]))
+	case "report":
+		os.Exit(reportCmd(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 		os.Exit(0)
@@ -88,11 +92,13 @@ Usage:
   pica render [-txtar|-fact] [-o FILE] <template> <data|->
   pica text [-o FILE] [file|-]
   pica pdf [-o FILE] [file|-]
+  pica report [-o FILE] [file|-]
 
 render executes a Go template over JSON, FACT (-fact, implied by a
 .fact filename), or txtar (-txtar) data and emits a typeset source
-document; text and pdf render a source document (default stdin) to
-a fixed-width text page or an N-column newspaper PDF. Layout
+document; text, pdf, and report render a source document (default
+stdin) to a fixed-width text page, an N-column newspaper PDF, or a
+single-column report PDF (hairline table rules, page footer). Layout
 (width, paper, columns, font, language) comes from the document's
 trailer (.width/.paper/.cols/.font/.lang), not from flags. See the
 typeset package documentation for the source language.
