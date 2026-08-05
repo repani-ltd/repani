@@ -98,6 +98,45 @@ Go values — still no serialized format, no parser. The discipline above
 stands unchanged; what §5 settles is the shape of the values backends
 consume once a second backend exists.
 
+### Semantic markers, never style commands (decided 2026-08-05)
+
+The document layer contains zero presentational instructions, and
+that is a rule, not an accident: authors state what things ARE
+(`#` heading, `.quote`, `=` total row, `..` note, `N` numeric
+column); writers own how everything looks. Bold is a rendering some
+writers give some constructs — never something a document can ask
+for. Two enforcing arguments:
+
+- **Every construct must render in every writer, including the
+  fixed-width text page.** Semantic constructs degrade gracefully (a
+  total row becomes a dash rule, a heading stays a marked line);
+  "bold" has no monospace-text rendering at all — a style command
+  would be the first construct a first-class writer must silently
+  drop.
+- **Presentation-free documents are what keep "same source, N
+  writers" true** — and volume document fleets uniform, since
+  authors cannot restyle statement #4,017 differently from #4,016.
+  `\fB` is how troff documents rotted; the writer owning emphasis is
+  the same principle as the writer owning widths.
+
+Headings and totals both *render* bold; they share presentation, not
+meaning — and meaning is the interface. `sline.style` is the shared
+rendering channel inside the engine and stays unreachable from the
+document.
+
+When emphasis-in-prose demand fires, the addition is another
+semantic marker specific to the need (a lead-in construct, not
+"bold"), with its text rendering defined at birth. Note the deeper
+boundary waiting there: inline anything would be the language's
+first in-content syntax — content is escape-free verbatim text by
+design — so that step needs its own recorded decision, never a side
+effect of wanting emphasis.
+
+2026-08-05: `=`, `..`, and `N` are KEPT as permanent language
+surface regardless of how the bank-report demand develops — all
+three are semantic (a total, an attachment, a column data type),
+each with a text-writer rendering; none is a style command.
+
 ## 2. Architecture validation (paper check, done against real code)
 
 Three classic troff stress cases were checked against
@@ -411,6 +450,9 @@ optional `!` clips. Two extensions:
   means no note there. A note row directly after the header row is
   the table-title explanation — one mechanism for both uses. (Marker
   syntax provisional; settle with the first implementation.)
+
+(2026-08-05: `N`, `..`, and the later `=` total row are kept as
+permanent language surface — see §1's semantic-markers rule.)
 
 ### Tabular figures (probe facts, tmp/digitcheck, 2026-07-31)
 
