@@ -451,7 +451,49 @@ in sans — pad with U+2007 and the character grid is exact.
    trigger — a real report that cannot live with mono or clipped
    text cells.
 
-## 7. Open questions
+## 7. The report presentation (decided 2026-08-05)
+
+The broadsheet output judged as a client report reads "internal
+tool", and the diagnosis is §5's chrome principle in action: almost
+the whole gap is presentation, not engine. Broadsheet is a newspaper
+identity; reports need a sibling presentation sharing compose/flow
+wholesale. `pica report` is that writer — same source document, third
+writer alongside text and pdf, chosen at render time like the others.
+
+The identity, v1:
+
+- **Geometry**: one wide column, generous margins, no gutter rules.
+- **Title block**, left-aligned: title, gray byline/dateline, rule —
+  no masthead scaling.
+- **Footer**: "Page N of M", centered, gray. Page totals are known
+  after flow; nothing new in the engine.
+- **Real rules in tables.** The dashed separator row is the text
+  writer's necessity leaking into the PDF and is the loudest
+  internal-tool signal on the page. Table separators and total-row
+  rules render as hairlines via `styleRule` slines carrying a rune
+  width (rules span the table, not the column); the dash form
+  remains the text writer's and broadsheet's rendering. The knob is
+  presentation-owned (`typo`), not document-owned.
+- **Total rows** (core, small): a `.table` row prefixed `=` sets
+  bold with a rule above, kept atomic with its rule. The plain-text
+  writer renders the rule as a dash row. This is the one language
+  addition; banks close every table with one.
+
+Parked, with triggers (the §4 discipline):
+
+- **Heading size roles** (display/heading above full/half) — the
+  closed size set can grow the way half did, and heading slots snap
+  to whole lines on the existing unit grid (a display line is just
+  4 half-units). Trigger: a real report whose hierarchy reads flat.
+- **Row shading (zebra)** — needs a filled-rect primitive in pdf/
+  (gray fill; the grayscale stance holds). Trivial when wanted;
+  wanted only with a designer's eye on a real document.
+- **Logo chrome** — rides the earlier Form-XObject plan; report's
+  title block is where it lands. Trigger: a real brand asset.
+- **Sans text cells** — §6 item 5, unchanged. The NumCol span
+  machinery is the on-ramp when it fires.
+
+## 8. Open questions
 
 Open only when their triggers fire; resolved ones removed (fixed-point
 units landed as abstract integer measurer units — milli-ems at the PDF
