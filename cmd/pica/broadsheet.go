@@ -369,6 +369,22 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				fb.segs = append(fb.segs, seg{lines: mark(lines)})
 				fb.repeat = 1
 			}
+			// Uniform row pitch: when every row note fits a single
+			// half-line, every data row carries the half — noted
+			// rows use it, plain rows leave it blank air — so the
+			// table's vertical rhythm stays even. Variable heights
+			// are right only when notes wrap. Total rows sit under
+			// their rule and stay unpadded.
+			hasNote, fits := false, true
+			for _, n := range tl.RowNotes {
+				if len(n) > 0 {
+					hasNote = true
+				}
+				if len(n) > 1 {
+					fits = false
+				}
+			}
+			even := hasNote && fits
 			for j, row := range tl.Rows {
 				rowLines := toSlines(row)
 				var lines []sline
@@ -380,6 +396,9 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				}
 				lines = append(lines, rowLines...)
 				lines = append(lines, halfSlines(tl.RowNotes[j])...)
+				if even && len(tl.RowNotes[j]) == 0 && !tl.Totals[j] {
+					lines = append(lines, sline{half: true})
+				}
 				fb.segs = append(fb.segs, seg{lines: mark(lines)})
 			}
 

@@ -160,6 +160,48 @@ func TestExtractNums(t *testing.T) {
 	}
 }
 
+func TestCompose_EvenRowPitch(t *testing.T) {
+	// All notes fit one half-line: every data row is padded to the
+	// same 3-unit pitch; the total row stays unpadded under its
+	// rule.
+	src := "T\n\n.table 6L 5N\nClient | Amt\nAlpha | 1.00\n.. custody |\nBeta | 2.00\n= Total | 3.00\n.end\n\n.width 30\n"
+	doc, err := typeset.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks, err := compose(doc, typo{ps: 9, psMono: 9, lineH: 11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	segs := blocks[0].segs
+	// header(2 lines)=4, Alpha+note=3, Beta+pad=3, rule+Total=4.
+	want := []int{4, 3, 3, 4}
+	for i, s := range segs {
+		if s.height() != want[i] {
+			t.Errorf("seg %d height = %d, want %d (%+v)", i, s.height(), want[i], s.lines)
+		}
+	}
+
+	// A wrapping note switches the table back to variable heights:
+	// no padding anywhere.
+	src = "T\n\n.table 6L 5N\nClient | Amt\nAlpha | 1.00\n.. a very long custody annotation that wraps |\nBeta | 2.00\n.end\n\n.width 30\n"
+	doc, err = typeset.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks, err = compose(doc, typo{ps: 9, psMono: 9, lineH: 11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	segs = blocks[0].segs
+	if n := segs[1].height(); n <= 4 {
+		t.Errorf("wrapped note seg height = %d, want > 4", n)
+	}
+	if n := segs[2].height(); n != 2 {
+		t.Errorf("plain row seg height = %d, want 2 (no pad)", n)
+	}
+}
+
 func TestFlow_HalfLineSnap(t *testing.T) {
 	// A table whose noted row leaves the column at an odd half-line
 	// count: the next block snaps back to a whole body line via a
