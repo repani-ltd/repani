@@ -137,6 +137,39 @@ surface regardless of how the bank-report demand develops — all
 three are semantic (a total, an attachment, a column data type),
 each with a text-writer rendering; none is a style command.
 
+### The command-existence test (decided 2026-08-07)
+
+A dot-command earns core existence when all three hold:
+
+1. it carries meaning no other construct carries;
+2. every writer has an honest rendering of it; and
+3. the meaning is universal to documents, not to a domain.
+
+Corollaries, each closing a tempting wrong door:
+
+- **No layout-position commands** (`.subheader` and kin): they name
+  where something renders, not what it is — the style-command sin
+  one level up. Erased meaning is unrecoverable downstream: `.date`
+  can feed /CreationDate, future PDF/A XMP, a pipeline sort key; a
+  "subheader" string can only ever be drawn.
+- **No per-presentation command sets.** Presentations are writers;
+  writers consume shared semantics and never own vocabulary
+  (broadsheet and report render the same `.by`/`.date` differently
+  with zero presentation syntax). The §1 extension-package layer is
+  for semantic DOMAINS (a financial package registering financial
+  constructs — passes tests 1–2, fails 3 for core), not for
+  presentations. Presentation-specific commands are presentation
+  leaking into documents.
+- **No generic `.meta key value` escape hatch**: a flat
+  stringly-typed namespace replacing typed fields is the register
+  soup in miniature.
+
+Reviewed under the test, 2026-08-07: `.by` and `.date` are KEPT as
+core commands — authorship and date are the most universal document
+metadata there is (Dublin Core creator/date, -ms .AU/.DA), every
+writer renders them, and their typed meaning is load-bearing for
+future PDF metadata.
+
 ## 2. Architecture validation (paper check, done against real code)
 
 Three classic troff stress cases were checked against
