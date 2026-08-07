@@ -281,6 +281,19 @@ func TestParse_TableHeaderless(t *testing.T) {
 	if !strings.Contains(out, "APOEL") || !strings.Contains(out, "Omonoia") {
 		t.Errorf("rows lost:\n%s", out)
 	}
+	// Subsections: "## " is Heading level 2; a third level is a
+	// loud error, never silent structure.
+	dh := mustParse(t, "T\n\n# Section\n\n## Subsection\n\nprose\n")
+	if dh.Blocks[0].Level != 1 || dh.Blocks[1].Level != 2 {
+		t.Errorf("heading levels = %d, %d; want 1, 2", dh.Blocks[0].Level, dh.Blocks[1].Level)
+	}
+	if dh.Blocks[1].Text != "Subsection" {
+		t.Errorf("subsection text = %q", dh.Blocks[1].Text)
+	}
+	if _, err := Parse("T\n\n### Too deep\n"); err == nil {
+		t.Error("expected error for ### heading")
+	}
+
 	// Note rows: ".." annotates the row above; before any data row
 	// it annotates the header, and it never becomes the header.
 	dn := mustParse(t, "T\n\n.table 6L 5N\nClient | Amt\n.. | eur\nAlpha | 12.50\n.. broker |\n.end\n")

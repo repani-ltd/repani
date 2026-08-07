@@ -23,7 +23,11 @@ A document is UTF-8 text, structured by line:
 	                 EVERY unmarked line is prose (fill mode, as in
 	                 troff): structure is never inferred from
 	                 spacing, so aligned content must use .pre
-	# heading        a section heading (one level, as on the wire)
+	# heading        a section heading; "## heading" is a
+	## heading       subsection. Two levels, deliberately and
+	                 permanently ("###" is an error): two served
+	                 man pages for fifty years, and unbounded
+	                 depth is where document structure rots
 	---              a horizontal rule (3+ dashes, nothing else)
 	.table [W] SPEC  a table block: rows follow, first row is the
 	  a | b | c      header, cells separated by "|"; ends with .end.

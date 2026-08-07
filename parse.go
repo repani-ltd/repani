@@ -32,6 +32,7 @@ type Block struct {
 	Width  int      // TableBlk: fixed width from the spec (0 = document width)
 	Lines  []string // Pre
 	Repeat int      // Pre: leading lines a splitting writer repeats
+	Level  int      // Heading: 1 (section) or 2 (subsection)
 	// Tight marks a block that was contiguous with the previous one
 	// in the source (no blank line between); writers preserve that.
 	Tight bool
@@ -179,9 +180,18 @@ func Parse(src string) (*Doc, error) {
 			p.flush()
 			p.add(Block{Kind: RuleBlk})
 
+		case strings.HasPrefix(trimmed, "### "):
+			// Two heading levels, deliberately and permanently: a
+			// third would be silent structure rot, so it is loud.
+			return nil, fmt.Errorf("%w: headings have two levels (line %d)", ErrBadAttr, n)
+
+		case strings.HasPrefix(trimmed, "## "):
+			p.flush()
+			p.add(Block{Kind: Heading, Text: strings.TrimSpace(trimmed[3:]), Level: 2})
+
 		case strings.HasPrefix(trimmed, "# "):
 			p.flush()
-			p.add(Block{Kind: Heading, Text: strings.TrimSpace(trimmed[2:])})
+			p.add(Block{Kind: Heading, Text: strings.TrimSpace(trimmed[2:]), Level: 1})
 
 		default:
 			// Everything unmarked is prose -- fill mode, as in

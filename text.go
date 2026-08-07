@@ -46,7 +46,11 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 		return wrapParagraph(b.Text, width, h), nil
 
 	case Heading:
-		return []string{truncLine("# "+b.Text, width)}, nil
+		marker := "# "
+		if b.Level == 2 {
+			marker = "## "
+		}
+		return []string{truncLine(marker+b.Text, width)}, nil
 
 	case Quote:
 		inner := wrapParagraph(b.Text, width-2*quoteIndent, h)

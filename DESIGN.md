@@ -170,6 +170,29 @@ metadata there is (Dublin Core creator/date, -ms .AU/.DA), every
 writer renders them, and their typed meaning is load-bearing for
 future PDF metadata.
 
+### Naming and the DESIGN.md sufficiency check (2026-08-07)
+
+The language and tool are both called **pica** for now — three names
+(typeset, pica, plus a language name) confuse more than they
+distinguish at this stage. If the tool ever serves external users
+and needs a formal language spec, naming happens then ("galley" was
+the leading candidate: set matter before page makeup, which is
+exactly what a document here is).
+
+Dogfooding DESIGN.md against the language found one real gap and
+two confirmations. Added: `## heading` — a second heading level,
+capped at two permanently (`###` errors; man's .SH/.SS ran fifty
+years on two). Both levels pass the command-existence test, and the
+presentation side was independently anticipated by §7's parked
+heading roles — need arriving from both sides at once is the
+strongest build-trigger there is. PDF writers currently render both
+levels body-size bold (distinction lands with heading roles);
+`Block.Level` carries the semantics meanwhile. Confirmed rather
+than added: no inline markup (identifiers read fine bare, and mono
+presentations show no distinction anyway) and no nested items
+(nesting is where markdown's complexity lives). Numbered lists are
+the open borderline — see §8.
+
 ## 2. Architecture validation (paper check, done against real code)
 
 Three classic troff stress cases were checked against
@@ -580,3 +603,14 @@ layer; `.width` under sans is average lowercase advances, §3).
 - Registry shape: global `Register("table", handler)` vs a Renderer
   struct holding its command set (leaning the latter — global registries
   are the register-soup smell in miniature).
+- Numbered lists (proposed 2026-08-07, undecided). They pass the
+  command-existence test (order is meaning, every writer renders,
+  universal), and `.item` cannot fake them (it prepends its bullet).
+  Proposed syntax: `.n TEXT` — consecutive `.n` lines form one
+  ordered list, exactly as consecutive `.item` lines form a bulleted
+  one (tight, hanging indent), and the WRITER assigns the numbers
+  1..k. The numbers are presentation, the order is semantics:
+  authors never type digits, so inserting an item renumbers for free
+  and diffs stay clean. Cost: prose cannot cite "step 3" stably.
+  Trigger: the first document where numbering as plain prose
+  paragraphs actually reads worse.
