@@ -1,0 +1,123 @@
+// Drawing: composed lines onto a pdf.Page. The one layer that turns
+// slines into draw calls -- the seam the display list (DESIGN.md §5)
+// will eventually reify.
+package main
+
+import "github.com/pavlos/typeset/pdf"
+
+// emWidth is the body font's advance per rune in ems -- a metric of
+// the embedded font, not a style choice.
+var emWidth = pdf.EmWidth(pdf.Regular)
+
+// drawColumn renders one column's styled lines. Proportional lines
+// (words set) draw in the sans faces at the body size; text lines
+// are monospace -- everything in a mono document, and verbatim or
+// table content in a sans one, drawn at the size where .width runes
+// fill the column.
+func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
+	y := top - t.ps
+	if len(lines) > 0 {
+		// A column that opens with an oversize line needs its first
+		// baseline set for the larger glyphs.
+		if s := roleScale(lines[0].role); s > 1 {
+			y = top - t.ps*s
+		}
+	}
+	for i, ln := range lines {
+		// Leading precedes a line: each baseline sits its own slot
+		// below the previous one — half a line for a note, one and a
+		// half or two for the heading roles.
+		if i > 0 {
+			y -= t.lineH * float64(roleUnits(ln.role)) / 2
+		}
+		switch {
+		case ln.style == styleRule:
+			w := colW
+			if ln.ruleW > 0 {
+				// Table rule: span the table's rune width on the
+				// mono grid, not the whole column.
+				w = float64(ln.ruleW) * emWidth * t.psMono
+			}
+			p.StrokeGray(0.3)
+			p.Line(x, y+t.ps*0.35, x+w, y+t.ps*0.35, 0.5)
+
+		case len(ln.words) > 0:
+			font := pdf.Sans
+			if ln.style == styleBold {
+				font = pdf.SansBold
+			}
+			ps := t.ps * roleScale(ln.role)
+			if ln.style == styleGray {
+				p.Gray(0.45)
+			}
+			xw := x + float64(ln.indent)*t.ps/1000
+			p.SetFont(font, ps)
+			p.Words(xw, y, ln.words, ln.gaps)
+			if ln.style == styleGray {
+				p.Gray(0)
+			}
+			if ln.href != "" {
+				w := lineWidthPt(ln, font, ps)
+				p.Link(xw, y-ps*0.25, xw+w, y+ps, ln.href)
+			}
+
+		case ln.text != "" || len(ln.nums) > 0:
+			font := pdf.Regular
+			if ln.style == styleBold {
+				font = pdf.Bold
+			}
+			// Half lines are table notes formatted on the doubled
+			// rune grid, so column offsets land under their columns;
+			// heading roles scale up on their taller slots.
+			ps := t.psMono * roleScale(ln.role)
+			if ln.style == styleGray {
+				p.Gray(0.45)
+			}
+			if ln.text != "" {
+				p.SetFont(font, ps)
+				p.Text(x, y, ln.text)
+			}
+			if ln.style == styleGray {
+				p.Gray(0)
+			}
+			if ln.href != "" {
+				w := pdf.Width(ln.text, font, ps)
+				p.Link(x, y-ps*0.25, x+w, y+ps, ln.href)
+			}
+			// Numeric cells lifted off the mono grid: sans tabular
+			// figures at the mono size, anchored at the column's
+			// decimal cell. Sans digits (560) are narrower than mono
+			// cells (600), so spans never overrun their columns.
+			if len(ln.nums) > 0 {
+				adv := emWidth * ps
+				sf := pdf.Sans
+				if ln.style == styleBold {
+					sf = pdf.SansBold
+				}
+				p.SetFont(sf, ps)
+				for _, sp := range ln.nums {
+					sx := x + float64(sp.sep)*adv
+					if sp.intPart != "" {
+						p.Text(sx-pdf.Width(sp.intPart, sf, ps), y, sp.intPart)
+					}
+					if sp.tail != "" {
+						p.Text(sx, y, sp.tail)
+					}
+				}
+			}
+		}
+	}
+}
+
+// lineWidthPt is the drawn width of a proportional line in points.
+func lineWidthPt(ln sline, font pdf.Font, ps float64) float64 {
+	m := pdf.Measure(font)
+	u := 0
+	for _, w := range ln.words {
+		u += m.Width(w)
+	}
+	for _, g := range ln.gaps {
+		u += g
+	}
+	return float64(u) * ps / 1000
+}
