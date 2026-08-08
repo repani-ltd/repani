@@ -87,10 +87,49 @@ type sline struct {
 	gaps   []int    // len(words)-1 advances between them
 	indent int      // proportional: leading offset in em-thousandths
 	style  style
-	href   string // non-empty: the line is a clickable link target
-	half   bool   // table note line: half size on half the leading
-	ruleW  int    // styleRule: width in mono grid runes (0 = full column)
+	href   string   // non-empty: the line is a clickable link target
+	role   sizeRole // size role: body, half, heading, display
+	ruleW  int      // styleRule: width in mono grid runes (0 = full column)
 	nums   []numSpan
+}
+
+// sizeRole is the closed set of sizes, quantized to the half-line
+// grid (DESIGN.md §6, §7): every role is a slot of whole half-units
+// and a glyph scale, so flow stays integer arithmetic and the
+// cross-column baseline grid snaps back at block boundaries.
+type sizeRole uint8
+
+const (
+	roleBody    sizeRole = iota // 2 units, 1x — prose, table rows
+	roleHalf                    // 1 unit, 0.5x — table note lines
+	roleHeading                 // 3 units, 1.2x — "##" subsections
+	roleDisplay                 // 4 units, 1.5x — "#" sections
+)
+
+// roleUnits is the slot height in half-line units.
+func roleUnits(r sizeRole) int {
+	switch r {
+	case roleHalf:
+		return 1
+	case roleHeading:
+		return 3
+	case roleDisplay:
+		return 4
+	}
+	return 2
+}
+
+// roleScale is the glyph scale relative to the body size.
+func roleScale(r sizeRole) float64 {
+	switch r {
+	case roleHalf:
+		return 0.5
+	case roleHeading:
+		return 1.2
+	case roleDisplay:
+		return 1.5
+	}
+	return 1
 }
 
 // numSpan is one numeric table cell re-rendered in the sans face
@@ -186,12 +225,7 @@ func (s seg) height() int {
 	return h
 }
 
-func lineUnits(ln sline) int {
-	if ln.half {
-		return 1
-	}
-	return 2
-}
+func lineUnits(ln sline) int { return roleUnits(ln.role) }
 
 // fblock is a flowable block: segments that may be split between
 // (never inside), with optional repeated lead-in after a split.
@@ -298,14 +332,31 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 			}
 
 		case typeset.Heading:
+			// "#" sections set at the display role, "##" subsections
+			// at the heading role: larger glyphs on taller slots of
+			// the same half-line grid, so the hierarchy reads without
+			// flow learning anything new. The wrap measure shrinks by
+			// the glyph scale (bigger ems, same physical column).
+			role := roleDisplay
+			if blk.Level == 2 {
+				role = roleHeading
+			}
 			if t.sans {
+				measure := t.units * 2 / 3
+				if role == roleHeading {
+					measure = t.units * 5 / 6
+				}
 				m := pdf.Measure(pdf.SansBold)
-				for _, ln := range typeset.WrapLines(blk.Text, t.units, m, lang) {
-					sl := sline{words: ln.Words, gaps: spread(ln, t.units, m, true), style: styleBold}
+				for _, ln := range typeset.WrapLines(blk.Text, measure, m, lang) {
+					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true), style: styleBold, role: role}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, width), style: styleBold}}}}
+				budget := width * 2 / 3
+				if role == roleHeading {
+					budget = width * 5 / 6
+				}
+				fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, budget), style: styleBold, role: role}}}}
 			}
 			fb.keepNext = true // flow guards the no-next-block case
 			fb.atomic = true
@@ -347,7 +398,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 					return lines
 				}
 				for i := range lines {
-					if !lines[i].half {
+					if lines[i].role == roleBody {
 						lines[i] = extractNums(lines[i], tl.NumCols)
 					}
 				}
@@ -397,7 +448,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				lines = append(lines, rowLines...)
 				lines = append(lines, halfSlines(tl.RowNotes[j])...)
 				if even && len(tl.RowNotes[j]) == 0 && !tl.Totals[j] {
-					lines = append(lines, sline{half: true})
+					lines = append(lines, sline{role: roleHalf})
 				}
 				fb.segs = append(fb.segs, seg{lines: mark(lines)})
 			}
@@ -438,7 +489,7 @@ func toSlines(lines []string) []sline {
 func halfSlines(lines []string) []sline {
 	out := make([]sline, len(lines))
 	for i, ln := range lines {
-		out[i] = sline{text: ln, half: true}
+		out[i] = sline{text: ln, role: roleHalf}
 	}
 	return out
 }
@@ -510,7 +561,7 @@ func flow(blocks []fblock, capacity func(int) int) [][]sline {
 	}
 	place := func(b fblock, upto int) {
 		if curH%2 != 0 {
-			cur = append(cur, sline{half: true})
+			cur = append(cur, sline{role: roleHalf})
 			curH++
 		}
 		if len(cur) > 0 && !b.tight {
@@ -796,15 +847,19 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 // fill the column.
 func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 	y := top - t.ps
+	if len(lines) > 0 {
+		// A column that opens with an oversize line needs its first
+		// baseline set for the larger glyphs.
+		if s := roleScale(lines[0].role); s > 1 {
+			y = top - t.ps*s
+		}
+	}
 	for i, ln := range lines {
 		// Leading precedes a line: each baseline sits its own slot
-		// below the previous one, so a half line advances lineH/2.
+		// below the previous one — half a line for a note, one and a
+		// half or two for the heading roles.
 		if i > 0 {
-			if ln.half {
-				y -= t.lineH / 2
-			} else {
-				y -= t.lineH
-			}
+			y -= t.lineH * float64(roleUnits(ln.role)) / 2
 		}
 		switch {
 		case ln.style == styleRule:
@@ -822,18 +877,19 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			if ln.style == styleBold {
 				font = pdf.SansBold
 			}
+			ps := t.ps * roleScale(ln.role)
 			if ln.style == styleGray {
 				p.Gray(0.45)
 			}
 			xw := x + float64(ln.indent)*t.ps/1000
-			p.SetFont(font, t.ps)
+			p.SetFont(font, ps)
 			p.Words(xw, y, ln.words, ln.gaps)
 			if ln.style == styleGray {
 				p.Gray(0)
 			}
 			if ln.href != "" {
-				w := lineWidthPt(ln, font, t.ps)
-				p.Link(xw, y-t.ps*0.25, xw+w, y+t.ps, ln.href)
+				w := lineWidthPt(ln, font, ps)
+				p.Link(xw, y-ps*0.25, xw+w, y+ps, ln.href)
 			}
 
 		case ln.text != "" || len(ln.nums) > 0:
@@ -841,13 +897,10 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			if ln.style == styleBold {
 				font = pdf.Bold
 			}
-			ps := t.psMono
-			if ln.half {
-				// Table note line: half size on half the leading,
-				// formatted on the doubled rune grid so column
-				// offsets land under their full-size columns.
-				ps = t.psMono / 2
-			}
+			// Half lines are table notes formatted on the doubled
+			// rune grid, so column offsets land under their columns;
+			// heading roles scale up on their taller slots.
+			ps := t.psMono * roleScale(ln.role)
 			if ln.style == styleGray {
 				p.Gray(0.45)
 			}

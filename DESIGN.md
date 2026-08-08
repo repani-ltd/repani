@@ -185,9 +185,9 @@ capped at two permanently (`###` errors; man's .SH/.SS ran fifty
 years on two). Both levels pass the command-existence test, and the
 presentation side was independently anticipated by §7's parked
 heading roles — need arriving from both sides at once is the
-strongest build-trigger there is. PDF writers currently render both
-levels body-size bold (distinction lands with heading roles);
-`Block.Level` carries the semantics meanwhile. Confirmed rather
+strongest build-trigger there is. (Both levels rendered body-size
+bold for two days; heading roles landed 2026-08-07 — see §7.)
+Confirmed rather
 than added: no inline markup (identifiers read fine bare, and mono
 presentations show no distinction anyway) and no nested items
 (nesting is where markdown's complexity lives). Numbered lists are
@@ -469,11 +469,13 @@ display list (§5), or the language's tightness.
 
 ### Half-line notes (the size quantum)
 
-- **Two sizes only, as roles: full and half** — a note line occupies
-  exactly half the body leading. Not free point sizes: quantized to
-  the grid, the closed-set stance extended from faces to sizes. Not a
-  block type either — a `.notes` block may come later; nothing here
-  precludes it.
+- **Sizes are roles, quantized to the grid** — a note line occupies
+  exactly half the body leading. Not free point sizes: the
+  closed-set stance extended from faces to sizes. Not a block type
+  either — a `.notes` block may come later; nothing here precludes
+  it. (Originally "two sizes only: full and half"; the set grew to
+  {display, heading, full, half} on 2026-08-07 per §7's heading
+  roles — still closed, still whole half-units.)
 - Flow counts half-lines: a mechanical ×2 on seg heights, capacity,
   and minKeep; block totals snap to whole body lines at placement
   (the §4 grid-snap principle again), so prose never learns
@@ -579,10 +581,15 @@ The identity, v1:
 
 Parked, with triggers (the §4 discipline):
 
-- **Heading size roles** (display/heading above full/half) — the
-  closed size set can grow the way half did, and heading slots snap
-  to whole lines on the existing unit grid (a display line is just
-  4 half-units). Trigger: a real report whose hierarchy reads flat.
+- **Heading size roles** — DONE 2026-08-07. The trigger fired on
+  the language's own design document (11 report pages of flat
+  hierarchy). The closed size set grew exactly as sketched:
+  `sizeRole` = {display 4 units/1.5x for `#`, heading 3 units/1.2x
+  for `##`, full 2/1x, half 1/0.5x}; the `half bool` generalized
+  into the role, flow needed nothing (units were already the grid),
+  wrap measures shrink by the glyph scale (2/3 and 5/6 of units).
+  Possible later polish: continuation lines of a wrapped display
+  heading could take a tighter slot.
 - **Row shading (zebra)** — needs a filled-rect primitive in pdf/
   (gray fill; the grayscale stance holds). Trivial when wanted;
   wanted only with a designer's eye on a real document.

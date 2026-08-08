@@ -202,13 +202,39 @@ func TestCompose_EvenRowPitch(t *testing.T) {
 	}
 }
 
+func TestCompose_HeadingRoles(t *testing.T) {
+	// "#" composes at the display role (4 units), "##" at the
+	// heading role (3 units), in both font modes.
+	src := "T\n\n# Section\n\nprose\n\n## Subsection\n\nmore\n\n.width 30\n"
+	doc, err := typeset.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, typ := range []typo{
+		{ps: 9, psMono: 9, lineH: 11},
+		{sans: true, ps: 9, psMono: 9, lineH: 11, units: 30 * pdf.AvgAdvance(pdf.Sans)},
+	} {
+		blocks, err := compose(doc, typ)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sec, sub := blocks[0].segs[0], blocks[2].segs[0]
+		if r := sec.lines[0].role; r != roleDisplay || sec.height() != 4 {
+			t.Errorf("sans=%v: section role=%v height=%d, want display/4", typ.sans, r, sec.height())
+		}
+		if r := sub.lines[0].role; r != roleHeading || sub.height() != 3 {
+			t.Errorf("sans=%v: subsection role=%v height=%d, want heading/3", typ.sans, r, sub.height())
+		}
+	}
+}
+
 func TestFlow_HalfLineSnap(t *testing.T) {
 	// A table whose noted row leaves the column at an odd half-line
 	// count: the next block snaps back to a whole body line via a
 	// blank half-line before its separator.
 	table := fblock{segs: []seg{
 		{lines: []sline{{text: "h"}, {text: "--"}}},
-		{lines: []sline{{text: "r1"}, {text: "n1", half: true}}},
+		{lines: []sline{{text: "r1"}, {text: "n1", role: roleHalf}}},
 		{lines: []sline{{text: "r2"}}},
 	}, repeat: 1}
 	para := fblock{segs: []seg{{lines: []sline{{text: "p1"}}}}}
@@ -225,9 +251,10 @@ func TestFlow_HalfLineSnap(t *testing.T) {
 		t.Fatalf("column = %v, want %d lines", got, len(wantTexts))
 	}
 	for i := range got {
-		if got[i].text != wantTexts[i] || got[i].half != wantHalf[i] {
+		half := got[i].role == roleHalf
+		if got[i].text != wantTexts[i] || half != wantHalf[i] {
 			t.Fatalf("line %d = {%q half=%v}, want {%q half=%v}",
-				i, got[i].text, got[i].half, wantTexts[i], wantHalf[i])
+				i, got[i].text, half, wantTexts[i], wantHalf[i])
 		}
 	}
 }
@@ -239,7 +266,7 @@ func TestFlow_NoteStaysWithRow(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		lines := []sline{{text: fmt.Sprintf("r%d", i)}}
 		if i == 2 {
-			lines = append(lines, sline{text: "n2", half: true})
+			lines = append(lines, sline{text: "n2", role: roleHalf})
 		}
 		segs = append(segs, seg{lines: lines})
 	}
@@ -255,7 +282,7 @@ func TestFlow_NoteStaysWithRow(t *testing.T) {
 			if ln.text != "r2" {
 				continue
 			}
-			if j+1 >= len(col) || col[j+1].text != "n2" || !col[j+1].half {
+			if j+1 >= len(col) || col[j+1].text != "n2" || col[j+1].role != roleHalf {
 				t.Fatalf("n2 does not follow r2 in column %d: %v", i, col)
 			}
 		}
