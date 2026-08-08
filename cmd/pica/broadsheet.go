@@ -69,30 +69,16 @@ func paperSize(paper string) pdf.PageSize {
 // broadsheet renders a parsed document as the newspaper PDF.
 func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	ncols := doc.Layout.Cols
-	width := doc.Layout.Width
 	size := paperSize(doc.Layout.Paper)
 	pageW, pageH := size.Dimensions()
 	usableW := pageW - 2*sheetMargin
 	colW := (usableW - float64(ncols-1)*sheetGutter) / float64(ncols)
 
-	// Derived body size: the column holds exactly .width characters
-	// -- runes for the mono face, average lowercase advances for the
-	// sans face, so .width means the same visual density in both.
-	sans := doc.Layout.Font == "sans"
-	psMono := colW / (emWidth * float64(width))
-	ps := psMono
-	units := 0
-	if sans {
-		units = width * pdf.AvgAdvance(pdf.Sans)
-		ps = colW * 1000 / float64(units)
+	t, err := deriveTypo(doc, colW, false)
+	if err != nil {
+		return nil, err
 	}
-	if ps < minPs {
-		return nil, fmt.Errorf(
-			"derived body size %.1fpt is below %.1fpt: .width %d with .cols %d on %s leaves columns too narrow",
-			ps, minPs, width, ncols, doc.Layout.Paper)
-	}
-	lineH := ps * lineSpacing
-	t := typo{sans: sans, ps: ps, psMono: psMono, lineH: lineH, units: units}
+	sans, ps, lineH := t.sans, t.ps, t.lineH
 
 	// Masthead band on page one. The floor of 8 average characters
 	// keeps short titles from ballooning. A byline (.by/.date) adds
@@ -172,7 +158,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		}
 
 		deepest := 0 // column depth in half-line units
-		for c := 0; c < ncols; c++ {
+		for c := range ncols {
 			idx := pg*ncols + c
 			if idx >= len(columns) {
 				break

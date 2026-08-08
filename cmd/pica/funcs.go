@@ -177,11 +177,14 @@ func table(spec, header string, rows any, fields ...string) (string, error) {
 		return "", fmt.Errorf("table: rows is %T, want a slice", rows)
 	}
 	var b strings.Builder
-	b.WriteString(".table " + spec + "\n")
+	b.WriteString(".table ")
+	b.WriteString(spec)
+	b.WriteString("\n")
 	if header != "" {
-		b.WriteString(header + "\n")
+		b.WriteString(header)
+		b.WriteString("\n")
 	}
-	for i := 0; i < rv.Len(); i++ {
+	for i := range rv.Len() {
 		row, ok := rv.Index(i).Interface().(map[string]any)
 		if !ok {
 			return "", fmt.Errorf("table: row %d is %T, want an object", i, rv.Index(i).Interface())
@@ -194,7 +197,8 @@ func table(spec, header string, rows any, fields ...string) (string, error) {
 			}
 			cells[j] = fmt.Sprintf("%v", v)
 		}
-		b.WriteString(strings.Join(cells, " | ") + "\n")
+		b.WriteString(strings.Join(cells, " | "))
+		b.WriteString("\n")
 	}
 	b.WriteString(".end")
 	return b.String(), nil

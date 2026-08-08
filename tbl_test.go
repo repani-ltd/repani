@@ -50,13 +50,13 @@ func TestTable_AutoSpan(t *testing.T) {
 	tbl.Header("Day", "Forecast", "Temp")
 	tbl.Row("Mon", "Sunny", "25")
 
-	for _, ln := range strings.Split(render(t, tbl, 40), "\n") {
+	for ln := range strings.SplitSeq(render(t, tbl, 40), "\n") {
 		if len([]rune(ln)) > 40 {
 			t.Errorf("line exceeds 40 chars: %q", ln)
 		}
 	}
 	// The same table lays out at another width.
-	for _, ln := range strings.Split(render(t, tbl, 28), "\n") {
+	for ln := range strings.SplitSeq(render(t, tbl, 28), "\n") {
 		if len([]rune(ln)) > 28 {
 			t.Errorf("line exceeds 28 chars: %q", ln)
 		}

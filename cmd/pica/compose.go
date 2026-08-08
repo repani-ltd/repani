@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/pavlos/typeset"
@@ -109,6 +110,34 @@ type typo struct {
 	// hairlines spanning the table instead of dash rows. A
 	// presentation identity (report), not a document attribute.
 	tableRules bool
+}
+
+// deriveTypo resolves a presentation's typography from the document
+// layout and its column width: the measure holds exactly .width
+// characters — runes for the mono face, average lowercase advances
+// for the sans face, so .width means the same visual density in
+// both. This is THE size contract; every presentation derives
+// through it.
+func deriveTypo(doc *typeset.Doc, colW float64, tableRules bool) (typo, error) {
+	width := doc.Layout.Width
+	sans := doc.Layout.Font == "sans"
+	psMono := colW / (emWidth * float64(width))
+	ps := psMono
+	units := 0
+	if sans {
+		units = width * pdf.AvgAdvance(pdf.Sans)
+		ps = colW * 1000 / float64(units)
+	}
+	if ps < minPs {
+		return typo{}, fmt.Errorf(
+			"derived body size %.1fpt is below %.1fpt: .width %d on %s leaves the measure too narrow",
+			ps, minPs, width, doc.Layout.Paper)
+	}
+	return typo{
+		sans: sans, ps: ps, psMono: psMono,
+		lineH: ps * lineSpacing, units: units,
+		tableRules: tableRules,
+	}, nil
 }
 
 // spread returns the inter-word advances for one composed line in

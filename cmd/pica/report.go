@@ -47,28 +47,15 @@ func reportCmd(args []string) int {
 
 // report renders a parsed document as the report PDF.
 func report(doc *typeset.Doc) ([]byte, error) {
-	width := doc.Layout.Width
 	size := paperSize(doc.Layout.Paper)
 	pageW, pageH := size.Dimensions()
 	colW := pageW - 2*reportMargin
 
-	// Same body-size contract as the broadsheet: the measure holds
-	// exactly .width characters.
-	sans := doc.Layout.Font == "sans"
-	psMono := colW / (emWidth * float64(width))
-	ps := psMono
-	units := 0
-	if sans {
-		units = width * pdf.AvgAdvance(pdf.Sans)
-		ps = colW * 1000 / float64(units)
+	t, err := deriveTypo(doc, colW, true)
+	if err != nil {
+		return nil, err
 	}
-	if ps < minPs {
-		return nil, fmt.Errorf(
-			"derived body size %.1fpt is below %.1fpt: .width %d on %s leaves the report measure too narrow",
-			ps, minPs, width, doc.Layout.Paper)
-	}
-	lineH := ps * lineSpacing
-	t := typo{sans: sans, ps: ps, psMono: psMono, lineH: lineH, units: units, tableRules: true}
+	sans, ps, lineH := t.sans, t.ps, t.lineH
 
 	titleFont, bodyFont := pdf.Bold, pdf.Regular
 	if sans {

@@ -315,8 +315,8 @@ func TestFlow_MultiLineRowsAreAtomic(t *testing.T) {
 	// No column may contain an "a" line without its "b" line.
 	for i, col := range cols {
 		for j, ln := range col {
-			if strings.HasSuffix(ln.text, "a") {
-				if j+1 >= len(col) || col[j+1].text != strings.TrimSuffix(ln.text, "a")+"b" {
+			if rest, ok := strings.CutSuffix(ln.text, "a"); ok {
+				if j+1 >= len(col) || col[j+1].text != rest+"b" {
 					t.Fatalf("column %d split row %q mid-way", i, ln.text)
 				}
 			}
@@ -336,7 +336,7 @@ func TestFlow_BlockTallerThanColumnForceSplits(t *testing.T) {
 func TestBroadsheetEndToEnd(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("E2E TEST SHEET\n\n")
-	for i := 0; i < 48; i++ {
+	for i := range 48 {
 		fmt.Fprintf(&b, "# Section %d\n\n", i)
 		b.WriteString(strings.Repeat("The quick brown fox jumps over the lazy dog and keeps running through the sunlit meadow. ", 3))
 		b.WriteString("\n\n")

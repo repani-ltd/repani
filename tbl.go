@@ -268,32 +268,11 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 // full-size grid for plain-text output. Notes always left-align and
 // wrap.
 func noteRow(cols []colSpec, cells []string, scale int) []string {
-	stacks := make([][]string, len(cols))
-	height := 1
+	scaled := make([]colSpec, len(cols))
 	for i, col := range cols {
-		var s string
-		if i < len(cells) {
-			s = cells[i]
-		}
-		stacks[i] = wrapCell(s, col.width*scale)
-		if len(stacks[i]) > height {
-			height = len(stacks[i])
-		}
+		scaled[i] = colSpec{width: col.width * scale, align: 'L'}
 	}
-	gap := strings.Repeat(" ", scale)
-	lines := make([]string, height)
-	for h := range lines {
-		parts := make([]string, len(cols))
-		for i, col := range cols {
-			var s string
-			if h < len(stacks[i]) {
-				s = stacks[i][h]
-			}
-			parts[i] = formatCell(s, colSpec{width: col.width * scale, align: 'L'})
-		}
-		lines[h] = strings.TrimRight(strings.Join(parts, gap), " ")
-	}
-	return lines
+	return renderRow(scaled, cells, strings.Repeat(" ", scale))
 }
 
 // fit resolves the auto-span column against the total width and
@@ -381,7 +360,12 @@ func numericParts(s string) (fracLen int, hasParen bool, ok bool) {
 // formatRow renders one logical row, wrapping cells to their column
 // widths; the result is one or more physical lines.
 func formatRow(cols []colSpec, cells []string) []string {
-	// Wrap (or clip) each cell into its column's line stack.
+	return renderRow(cols, cells, " ")
+}
+
+// renderRow wraps each cell into its column's line stack and emits
+// the padded physical lines, columns joined by gap.
+func renderRow(cols []colSpec, cells []string, gap string) []string {
 	stacks := make([][]string, len(cols))
 	height := 1
 	for i, col := range cols {
@@ -402,7 +386,7 @@ func formatRow(cols []colSpec, cells []string) []string {
 	}
 
 	lines := make([]string, height)
-	for h := 0; h < height; h++ {
+	for h := range lines {
 		parts := make([]string, len(cols))
 		for i, col := range cols {
 			var s string
@@ -411,7 +395,7 @@ func formatRow(cols []colSpec, cells []string) []string {
 			}
 			parts[i] = formatCell(s, col)
 		}
-		lines[h] = strings.TrimRight(strings.Join(parts, " "), " ")
+		lines[h] = strings.TrimRight(strings.Join(parts, gap), " ")
 	}
 	return lines
 }
