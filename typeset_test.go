@@ -475,6 +475,20 @@ func TestOverlongWordWithoutPointsOverflows(t *testing.T) {
 	}
 }
 
+func TestSpecEmbedsLanguageReference(t *testing.T) {
+	// Spec is doc.go's comment body: the language sections must be
+	// present and the Go comment/package furniture stripped.
+	s := Spec()
+	for _, want := range []string{"# The language", "# Layout trailer", "# Tables", "# Non-goals"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("Spec() missing section %q", want)
+		}
+	}
+	if strings.Contains(s, "package typeset") || strings.Contains(s, "/*") {
+		t.Error("Spec() leaks source furniture")
+	}
+}
+
 func TestMergedPatternsCoverGreek(t *testing.T) {
 	// The merged all-sets hyphenator must find points in Greek
 	// (disjoint scripts: the sets cannot mis-hyphenate each other).

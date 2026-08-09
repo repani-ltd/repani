@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -153,5 +155,19 @@ func TestParseArchive(t *testing.T) {
 	}
 	if _, ok := markerName("--x--"); ok {
 		t.Error("non-marker recognized")
+	}
+}
+
+func TestCheckCmd(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.t")
+	bad := filepath.Join(dir, "bad.t")
+	os.WriteFile(good, []byte("T\n\nprose\n"), 0o644)
+	os.WriteFile(bad, []byte("T\n\n.bogus\n"), 0o644)
+	if got := checkCmd([]string{good}); got != 0 {
+		t.Errorf("check(good) = %d, want 0", got)
+	}
+	if got := checkCmd([]string{bad}); got != 1 {
+		t.Errorf("check(bad) = %d, want 1", got)
 	}
 }

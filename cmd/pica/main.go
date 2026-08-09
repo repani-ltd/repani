@@ -9,6 +9,11 @@
 //	pica pdf    [file|-]            source doc -> N-column newspaper PDF
 //	pica report [file|-]            source doc -> single-column report PDF
 //
+// Two oracles, so learning the language never requires the source:
+//
+//	pica spec                       print the language reference
+//	pica check  [file|-]            parse a source doc, report errors
+//
 // A typical pipeline:
 //
 //	pica render page.tmpl data.json | pica text     > page.txt
@@ -76,6 +81,10 @@ func main() {
 		os.Exit(pdfCmd(os.Args[2:]))
 	case "report":
 		os.Exit(reportCmd(os.Args[2:]))
+	case "spec":
+		os.Exit(specCmd(os.Args[2:]))
+	case "check":
+		os.Exit(checkCmd(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 		os.Exit(0)
@@ -94,12 +103,16 @@ Usage:
   pica text [-o FILE] [file|-]
   pica pdf [-o FILE] [file|-]
   pica report [-o FILE] [file|-]
+  pica spec [-o FILE]
+  pica check [file|-]
 
 render executes a Go template over JSON, FACT (-fact, implied by a
 .fact filename), or txtar (-txtar) data and emits a typeset source
 document; text, pdf, and report render a source document (default
 stdin) to a fixed-width text page, an N-column newspaper PDF, or a
-single-column report PDF (hairline table rules, page footer). Layout
+single-column report PDF (hairline table rules, page footer). spec
+prints the language reference embedded in this binary; check parses
+a document and reports errors without rendering. Layout
 (width, paper, columns, font) comes from the document's trailer
 (.width/.paper/.cols/.font), not from flags. See the typeset
 package documentation for the source language.

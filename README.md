@@ -43,6 +43,14 @@ The design center is the language (see `doc.go` for the spec):
     pica render ... | pica text            # source -> text page
     pica render ... | pica pdf -o p.pdf    # source -> newspaper PDF
     pica render ... | pica report -o p.pdf # source -> report PDF
+    pica spec                              # the language reference
+    pica check page.t                      # parse, report errors
+
+`spec` and `check` are the two oracles that make reading this
+repo's source unnecessary for authoring: the reference is embedded
+in the binary (it is `doc.go`'s package comment, so it cannot
+drift from the parser), and validation errors are loud and carry
+line numbers.
 
 `render` executes Go text/templates with value formatters (round,
 decimal, trunc, pad, shortTime, shortDate, dur) and one structure
