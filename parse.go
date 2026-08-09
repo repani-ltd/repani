@@ -59,7 +59,7 @@ type Layout struct {
 }
 
 // DefaultLayout is the layout of a document with no trailer.
-func DefaultLayout() Layout { return Layout{Width: 40, Paper: "a4", Cols: 3, Font: "mono"} }
+func DefaultLayout() Layout { return Layout{Width: 80, Paper: "a4", Cols: 1, Font: "mono"} }
 
 // Doc is a parsed document.
 type Doc struct {

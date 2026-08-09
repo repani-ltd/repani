@@ -26,7 +26,8 @@ The design center is the language (see `doc.go` for the spec):
   must pass the five-test gate in `doc.go`.
 - **Self-contained documents.** Width, paper, columns, and body
   face live in a layout trailer (`.width` / `.paper` / `.cols` /
-  `.font`, defaults 40/a4/3/mono; `.font sans` sets prose
+  `.font`, defaults 80/a4/1/mono -- an attribute-free document is
+  a single-column page; `.font sans` sets prose
   proportionally in the PDF; hyphenation always uses every embedded
   pattern set).
   No formatting flags anywhere: the same source always produces the

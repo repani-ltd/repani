@@ -217,9 +217,9 @@ term, and a star column that
 absorbs the rest of the measure.
 Cells wrap inside their column,
 rows that wrap are moved whole,
-and the dashed rule under the
-header is drawn by the renderer,
-not typed by the author.
+and the rule under the header
+is drawn by the renderer, not
+typed by the author.
 
 ---
 

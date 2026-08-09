@@ -587,7 +587,18 @@ The identity, v1:
   rules render as hairlines via `styleRule` slines carrying a rune
   width (rules span the table, not the column); the dash form
   remains the text writer's and broadsheet's rendering. The knob is
-  presentation-owned (`typo`), not document-owned.
+  presentation-owned (`typo`), not document-owned. **Amended
+  2026-08-09: hairlines are now universal in the PDF writers** —
+  agents choosing `report` over `pdf` specifically for the
+  hairlines were this decision's real-document verdict, real
+  newspapers rule with hairlines too, and the `typo.tableRules`
+  knob is deleted. The dash row is the text writer's alone. In the
+  same change the language defaults moved to `.cols 1` and
+  `.width 80`: the attribute-free document is now a plain
+  single-column page, and the newspaper is the presentation you
+  opt into with `.cols 2-6` — report stays the client-statement
+  identity (title block, footer, margins) and stops being
+  advertised as the generic single-column path.
 - **Total rows** (core, small): a `.table` row prefixed `=` sets
   bold with a rule above, kept atomic with its rule. The plain-text
   writer renders the rule as a dash row. This is the one language

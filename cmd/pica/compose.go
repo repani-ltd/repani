@@ -106,10 +106,6 @@ type typo struct {
 	psMono float64 // pre/table point size; equals ps in mono mode
 	lineH  float64
 	units  int // sans: wrap width in thousandths of an em
-	// tableRules: table separators and total-row rules render as
-	// hairlines spanning the table instead of dash rows. A
-	// presentation identity (report), not a document attribute.
-	tableRules bool
 }
 
 // deriveTypo resolves a presentation's typography from the document
@@ -118,7 +114,7 @@ type typo struct {
 // for the sans face, so .width means the same visual density in
 // both. This is THE size contract; every presentation derives
 // through it.
-func deriveTypo(doc *typeset.Doc, colW float64, tableRules bool) (typo, error) {
+func deriveTypo(doc *typeset.Doc, colW float64) (typo, error) {
 	width := doc.Layout.Width
 	sans := doc.Layout.Font == "sans"
 	psMono := colW / (emWidth * float64(width))
@@ -136,7 +132,6 @@ func deriveTypo(doc *typeset.Doc, colW float64, tableRules bool) (typo, error) {
 	return typo{
 		sans: sans, ps: ps, psMono: psMono,
 		lineH: ps * lineSpacing, units: units,
-		tableRules: tableRules,
 	}, nil
 }
 
@@ -383,14 +378,11 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				}
 				return lines
 			}
-			// The separator/total rule: a dash row like the text
-			// writer's, or a hairline spanning the table when the
-			// presentation asks for real rules.
+			// The separator/total rule: a hairline spanning the
+			// table. The dash row is the text writer's rendering;
+			// every PDF presentation draws the real rule.
 			rule := func() sline {
-				if t.tableRules {
-					return sline{style: styleRule, ruleW: len([]rune(tl.Sep))}
-				}
-				return sline{text: tl.Sep}
+				return sline{style: styleRule, ruleW: len([]rune(tl.Sep))}
 			}
 			if len(tl.Header) > 0 {
 				lines := toSlines(tl.Header)

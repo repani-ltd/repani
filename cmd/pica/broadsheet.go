@@ -74,7 +74,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	usableW := pageW - 2*sheetMargin
 	colW := (usableW - float64(ncols-1)*sheetGutter) / float64(ncols)
 
-	t, err := deriveTypo(doc, colW, false)
+	t, err := deriveTypo(doc, colW)
 	if err != nil {
 		return nil, err
 	}

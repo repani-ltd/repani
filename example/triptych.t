@@ -63,7 +63,7 @@ signature | a folded press sheet of consecutive pages
 colophon | the note that records how a book was made
 .end
 
-The specification for that table is one line in the source: a fixed nine-rune column for the term, and a star column that absorbs the rest of the measure. Cells wrap inside their column, rows that wrap are moved whole, and the dashed rule under the header is drawn by the renderer, not typed by the author.
+The specification for that table is one line in the source: a fixed nine-rune column for the term, and a star column that absorbs the rest of the measure. Cells wrap inside their column, rows that wrap are moved whole, and the rule under the header is drawn by the renderer, not typed by the author.
 
 ---
 

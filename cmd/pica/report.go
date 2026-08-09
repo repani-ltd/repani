@@ -1,10 +1,9 @@
 // Report presentation (DESIGN.md §7): the same source document
-// rendered as a single-column report rather than a newspaper —
-// generous margins, a left-aligned title block, hairline table
-// rules, a "Page N of M" footer. Layout comes from the document
-// trailer exactly as in the broadsheet; .cols is ignored, a report
-// is one wide column, so .width is the report's characters per
-// line.
+// rendered as a single-column client report rather than a
+// newspaper — generous margins, a left-aligned title block, a
+// "Page N of M" footer. Layout comes from the document trailer
+// exactly as in the broadsheet; .cols is ignored, a report is one
+// wide column, so .width is the report's characters per line.
 package main
 
 import (
@@ -51,7 +50,7 @@ func report(doc *typeset.Doc) ([]byte, error) {
 	pageW, pageH := size.Dimensions()
 	colW := pageW - 2*reportMargin
 
-	t, err := deriveTypo(doc, colW, true)
+	t, err := deriveTypo(doc, colW)
 	if err != nil {
 		return nil, err
 	}

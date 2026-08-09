@@ -3,8 +3,8 @@ Package typeset parses a minimal, troff-inspired source language
 into a typed document and renders it through width-disciplined
 writers: a plain-text writer (Doc.Text) for fixed-width monospace
 pages, and -- via the block model -- richer writers such as the
-pica newspaper and report PDFs, monospace by default and
-proportional prose with .font sans.
+pica PDFs, monospace by default and proportional prose with
+.font sans.
 
 The language inherits troff's principles, not its vocabulary:
 fill mode is the default (the writer owns wrapping, justification,
@@ -104,9 +104,9 @@ Layout commands are document-global and must appear after all
 content -- content following a layout command is an error. Each
 has a default, so an attribute-free document is fully determined:
 
-	.width N    characters per line/column     (default 40, 10-200)
+	.width N    characters per line/column     (default 80, 10-200)
 	.paper P    pdf paper: a4, a5, or letter   (default a4)
-	.cols N     pdf columns per page           (default 3, 1-6)
+	.cols N     pdf columns per page           (default 1, 1-6)
 	.font F     pdf body face: mono or sans    (default mono)
 
 Values outside the given ranges are parse errors. Hyphenation
@@ -141,7 +141,8 @@ Cells WRAP by default: overflow continues on following lines,
 other cells padded blank, and such a multi-line row is an atomic
 unit for column-splitting writers. Append "!" to a token to clip
 that column instead ("5L! 4R!"). Columns are joined by a single
-space; a header is followed by a dashed separator row. "|" always
+space; a header is followed by a separator rule (a dash row on the
+text page, a hairline in the PDFs). "|" always
 separates cells (there is no escape for a literal one), and cells
 beyond the spec's columns are dropped.
 

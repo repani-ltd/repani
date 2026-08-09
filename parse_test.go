@@ -406,9 +406,11 @@ func TestLangRemoved(t *testing.T) {
 }
 
 func TestTextQuoteItemByline(t *testing.T) {
+	// Explicit .width 40: the content is sized to wrap at that
+	// measure, independent of the language default.
 	src := "T\n\n.by A. Writer\n.date Today\n\n" +
 		".quote\nThe quick brown fox jumps over the lazy dog again and again and again.\n.attrib Aesop\n.end\n\n" +
-		".item first item that runs long enough to wrap onto a second line for sure\n.item second\n"
+		".item first item that runs long enough to wrap onto a second line for sure\n.item second\n\n.width 40\n"
 	d := mustParse(t, src)
 	out, err := d.Text()
 	if err != nil {
