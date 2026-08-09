@@ -1,7 +1,8 @@
 // Command pica renders typeset source documents (see the typeset
-// package for the language) to text pages and newspaper PDFs.
+// package for the language) to text pages, newspaper PDFs, and
+// report PDFs.
 //
-// Three orthogonal stages:
+// One generation stage, then a writer:
 //
 //	pica render <template> <data>   Go template + data -> source doc
 //	pica text   [file|-]            source doc -> fixed-width text page

@@ -3,8 +3,8 @@ Package typeset parses a minimal, troff-inspired source language
 into a typed document and renders it through width-disciplined
 writers: a plain-text writer (Doc.Text) for fixed-width monospace
 pages, and -- via the block model -- richer writers such as the
-pica newspaper PDF, monospace by default and proportional prose
-with .font sans.
+pica newspaper and report PDFs, monospace by default and
+proportional prose with .font sans.
 
 The language inherits troff's principles, not its vocabulary:
 fill mode is the default (the writer owns wrapping, justification,
@@ -35,7 +35,9 @@ A document is UTF-8 text, structured by line:
 	                 it applies only when smaller than the document
 	                 width (see Block.TableWidth). A "-" before
 	                 SPEC makes the table headerless: every row is
-	                 data, no separator rule.
+	                 data, no separator rule. Rows may be marked:
+	                 "=" opens a total row, ".." a note row -- see
+	                 the Tables section
 	.pre [N]         a verbatim block: the writer never refills it,
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a
@@ -85,10 +87,14 @@ LinkBlk as a ".link" meta line (which wire clients render as a
 proper link); the pdf writer renders headings bold and links as
 gray anchor text carrying a clickable annotation. A consumer that
 wants the data rather than a rendering walks Doc.Blocks directly.
-One rule binds the monospace writers: every block occupies the same
-line count in each, so a text page and a PDF column stay the same
-object. A .font sans document trades that identity away for
-proportional prose (its line breaks are measured, not counted).
+Line counts are deterministic in every writer, and for plain blocks
+a text page and a mono PDF column stay the same object. Two things
+deliberately trade that exact identity away: .font sans trades it
+for proportional prose (line breaks measured, not counted), and the
+PDF writers' size roles trade it for hierarchy and density (a
+heading occupies a taller slot at a larger scale; a table note row
+sets half-size on half the leading, where the text page renders it
+as an ordinary full-size row).
 Structural commands (.table, .pre, .end) and the layout trailer
 never appear in any output.
 
@@ -187,9 +193,9 @@ The vocabulary stays closed by policy, not accident. A new command
 enters the registry only if it passes five tests:
 
  1. It is expressible as a block with a deterministic line count
-    under the monospace measurer, so a text page and a PDF column
-    stay the same object (document metadata like .by lives in the
-    title zone, outside block flow, and passes by not flowing).
+    under the monospace measurer -- the flow arithmetic every keep
+    and split rule relies on (document metadata like .by lives in
+    the title zone, outside block flow, and passes by not flowing).
  2. It renders meaningfully in EVERY writer, the plain-text page
     included. Uniformly invisible (.rem) is meaningful; ignored by
     one writer but not another is not.
@@ -208,9 +214,9 @@ enters the registry only if it passes five tests:
 
 # Non-goals
 
-No inline emphasis (the monospace wire cannot express it), one
-heading level, no block nesting, no page-control commands in
-content, and no round-tripping: rendered output is a final
-artifact, not re-parseable source.
+No inline emphasis (the monospace wire cannot express it), no
+third heading level (two, permanently), no block nesting, no
+page-control commands in content, and no round-tripping: rendered
+output is a final artifact, not re-parseable source.
 */
 package typeset

@@ -14,7 +14,7 @@ type BlockKind int
 
 const (
 	Para     BlockKind = iota // flowing prose; writers wrap it
-	Heading                   // section heading (text without the "# ")
+	Heading                   // section (#) or subsection (##) heading; see Level
 	TableBlk                  // structured table
 	Pre                       // verbatim lines; atomic for column flow
 	RuleBlk                   // horizontal rule

@@ -3,8 +3,8 @@
 Status: design direction agreed 2026-07-22, nothing below is implemented
 unless marked "exists". This document is the handoff for whoever (human or
 agent) picks up the work. Read CLAUDE.md first for the pkg.fact navigation
-workflow. Line numbers cited below are anchors from when this was written;
-prefer the function names and re-locate via pkg.fact (`grep '\.file' pkg.fact`).
+workflow. References below name functions and files; locate them via
+pkg.fact (`grep '\.file' pkg.fact`).
 
 ## 1. The thesis
 
@@ -195,22 +195,23 @@ the open borderline — see §8.
 
 ## 2. Architecture validation (paper check, done against real code)
 
-Three classic troff stress cases were checked against
-`cmd/pica/broadsheet.go`. Two already exist and are clean; the third
+Three classic troff stress cases were checked against the cmd/pica
+engine (since split into compose.go, flow.go, draw.go, and the
+presentation files). Two already exist and are clean; the third
 defines the next core work item.
 
 ### Existing machinery (the vocabulary of the design)
 
-- `compose` (broadsheet.go, ~line 108): `typeset.Block` → `fblock`. This
+- `compose` (compose.go): `typeset.Block` → `fblock`. This
   IS the "diversion as value" primitive: an `fblock` is a pre-formatted,
   measurable, splittable box — `segs []seg`, `height()`, `rest(k)`,
   `repeat` (lead-in re-emitted after splits, e.g. table headers),
   `atomic`, `keepNext`, `tight`.
-- `flow(blocks, capacity func(col int) int) [][]sline` (~line 191): a
+- `flow(blocks, capacity func(col int) int) [][]sline` (flow.go): a
   **pure function** distributing blocks into columns. Orphan/widow rules
   via `minKeep`/`splitSegs`, forced progress via `forceSplit`.
-- The balance pass (~line 380) re-runs `flow` inside a binary search to
-  balance an underfull page. This establishes the house idiom:
+- The balance pass (broadsheet.go) re-runs `flow` inside a binary search
+  to balance an underfull page. This establishes the house idiom:
   **speculative pure re-layout**, cheap because flow is pure.
 
 ### Case results
@@ -286,7 +287,7 @@ tabular figures preserve the character-grid model (§6). The rejection
 of proportional *text* cells stands. Everything below is the original
 estimate, kept for context:
 
-- **Metrics already exist.** `pdf.Width` (pdf/page.go, ~line 102) sums
+- **Metrics already exist.** `pdf.Width` (pdf/page.go) sums
   per-codepoint advances from parsed TTF `CIDWidths`; `pdf/ttf` does the
   parsing. The pipeline just needs to call it earlier than draw time.
 - **The wrap DPs are unit-agnostic.** `raggedDP`/`justifyDP` (wrap.go)
@@ -323,7 +324,8 @@ and that representation change ripples through APIs (not algorithms).
    (wrapped lines + column x/width); text backend joins with padding, PDF
    backend positions. (~1 day)
 5. **Geometry contract.** "Column holds exactly `.width` runes"
-   (broadsheet.go, point-size derivation ~line 343) dissolves; redefine
+   (the point-size derivation, now `deriveTypo` in compose.go)
+   dissolves; redefine
    `.width` (e.g. as average-character-width units using the font's real
    average advance). Small code, real design decision. (~0.5 day)
 
