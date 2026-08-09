@@ -9,6 +9,57 @@ import (
 	"github.com/pavlos/typeset"
 )
 
+// TestOfficialExamples pins the two committed example documents:
+// the triptych (newspaper) and the statement (report). The text
+// output is golden; the PDF must render deterministically through
+// the example's own presentation.
+func TestOfficialExamples(t *testing.T) {
+	cases := []struct {
+		name, src, golden string
+		render            func(*typeset.Doc) ([]byte, error)
+	}{
+		{"triptych", "../../example/triptych.t", "../../example/triptych.txt", broadsheet},
+		{"statement", "../../example/statement.t", "../../example/statement.txt", report},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src, err := os.ReadFile(c.src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc, err := typeset.Parse(string(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := doc.Text()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := os.ReadFile(c.golden)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page != string(want) {
+				t.Errorf("text output differs from committed %s", c.golden)
+			}
+			a, err := c.render(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := c.render(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(string(a), "%PDF-1.3") {
+				t.Fatal("not a PDF")
+			}
+			if string(a) != string(b) {
+				t.Fatal("PDF bytes not deterministic")
+			}
+		})
+	}
+}
+
 // renderExample runs the example through the same pipeline as
 // `pica render -txtar | pica text` and returns the page text.
 func renderExample(t *testing.T) string {

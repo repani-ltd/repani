@@ -60,12 +60,24 @@ balanced across its columns. `report` is the same engine in a
 single-column identity: left title block, hairline table rules,
 "Page N of M" footer.
 
-`example/` is a complete bulletin: wrapped English and Greek
-prose, tables at two widths, a `.pre` METAR line, `.link` sources.
+`example/` holds three official documents, each enforced by golden
+tests:
 
-    pica render -txtar example/page.tmpl example/content.txtar | pica text
+- a complete data-driven bulletin (template + txtar): wrapped
+  English and Greek prose, tables at two widths, a `.pre` METAR
+  line, `.link` sources --
 
-The committed `example/expected.txt` is enforced by a golden test.
+      pica render -txtar example/page.tmpl example/content.txtar | pica text
+
+- `triptych.t`, the self-describing newspaper: quotations,
+  bulleted refusals, a glossary table that splits with its header,
+  a ledger with a repeated lead-in, and a priced table showing
+  subsections, decimal-aligned N columns, half-size notes, and a
+  bold total (`pica pdf`);
+- `statement.t`, the client report: heading hierarchy, annotated
+  N-column tables with totals, settlement details in `.pre`,
+  disclosures as items, a `.rem` provenance line that never
+  renders (`pica report`).
 
 ## pdf/
 
