@@ -358,6 +358,18 @@ has a trigger, not a date:
 - **`.alias` + doc-repo-as-module** — design only when repeated
   authoring pain appears in real documents; the packaging story rides
   with the registry.
+- **`.lang`** — REMOVED 2026-08-09, the command audit's one cut.
+  By doc.go's own admission it existed "for when sets sharing a
+  script are added" — a command admitted for a hypothetical future,
+  which the vocabulary gate's demand test forbids. The embedded
+  sets (en, el) are script-disjoint, so the merged all-sets
+  hyphenator is correct for every expressible document; removal
+  also deleted `Layout.Lang` and the `lang` parameter from all
+  three exported wrap primitives. Re-admit when either trigger
+  fires, designed for whichever demand arrives: (a) a same-script
+  pattern set lands (the original rationale), or (b) PDF /Lang or
+  PDF/A metadata needs a document language — in which case the
+  right command is BCP 47 metadata, not a pattern selector.
 - **Images** — parked; no image block exists. If a real document forces
   one, the boundary is settled (2026-07-31): **block-level only, height
   snapped to whole multiples of the leading, no floats, no inline

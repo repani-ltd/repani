@@ -406,7 +406,7 @@ func renderRow(cols []colSpec, cells []string, gap string) []string {
 // one word per line. A word that is longer than the column even
 // after hyphenation is hard-cut into chunks. Cells hyphenate with
 // every embedded pattern set (cell content is short and often
-// mixed; .lang applies to prose).
+// mixed).
 func wrapCell(s string, width int) []string {
 	var out []string
 	for _, ln := range flattenLines(wrapRagged(s, width, hyphenPenaltyCell, Mono, defaultHyphenator)) {

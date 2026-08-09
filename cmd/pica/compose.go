@@ -233,7 +233,6 @@ func (b fblock) height() int {
 // modes.
 func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 	width := doc.Layout.Width
-	lang := doc.Layout.Lang
 	var out []fblock
 	for _, blk := range doc.Blocks {
 		fb := fblock{tight: blk.Tight}
@@ -241,14 +240,14 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 		case typeset.Para:
 			if t.sans {
 				m := pdf.Measure(pdf.Sans)
-				lines := typeset.JustifyLines(blk.Text, t.units, m, lang)
+				lines := typeset.JustifyLines(blk.Text, t.units, m)
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, gaps: spread(ln, t.units, m, last)}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				for _, ln := range typeset.JustifyParagraph(blk.Text, width, lang) {
+				for _, ln := range typeset.JustifyParagraph(blk.Text, width) {
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: ln}}})
 				}
 			}
@@ -261,7 +260,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				m := pdf.Measure(pdf.Sans)
 				qi := 2 * m.Space()
 				measure := t.units - 2*qi
-				lines := typeset.JustifyLines(blk.Text, measure, m, lang)
+				lines := typeset.JustifyLines(blk.Text, measure, m)
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: qi}
@@ -274,7 +273,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				for _, ln := range typeset.JustifyParagraph(blk.Text, width-4, lang) {
+				for _, ln := range typeset.JustifyParagraph(blk.Text, width-4) {
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: "  " + ln}}})
 				}
 				if blk.Attrib != "" {
@@ -290,7 +289,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				m := pdf.Measure(pdf.Sans)
 				ii := m.Width(bullet) + m.Space()
 				measure := t.units - ii
-				lines := typeset.JustifyLines(blk.Text, measure, m, lang)
+				lines := typeset.JustifyLines(blk.Text, measure, m)
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: ii}
@@ -302,7 +301,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				for i, ln := range typeset.JustifyParagraph(blk.Text, width-2, lang) {
+				for i, ln := range typeset.JustifyParagraph(blk.Text, width-2) {
 					pre := "  "
 					if i == 0 {
 						pre = bullet + " "
@@ -327,7 +326,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 					measure = t.units * 5 / 6
 				}
 				m := pdf.Measure(pdf.SansBold)
-				for _, ln := range typeset.WrapLines(blk.Text, measure, m, lang) {
+				for _, ln := range typeset.WrapLines(blk.Text, measure, m) {
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true), style: styleBold, role: role}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}

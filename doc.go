@@ -108,13 +108,13 @@ has a default, so an attribute-free document is fully determined:
 	.paper P    pdf paper: a4, a5, or letter   (default a4)
 	.cols N     pdf columns per page           (default 3, 1-6)
 	.font F     pdf body face: mono or sans    (default mono)
-	.lang L     hyphenation patterns: en or el (default: all sets)
 
-Values outside the given ranges are parse errors. The embedded
-pattern sets cover disjoint scripts, so the all-sets default
-hyphenates English and Greek prose correctly side by side; .lang
-exists for when sets sharing a script are added, where mixed
-patterns would mis-hyphenate.
+Values outside the given ranges are parse errors. Hyphenation
+always uses every embedded pattern set: the embedded scripts are
+disjoint, so the merged set hyphenates English and Greek prose
+correctly side by side. (A .lang selector existed and was removed
+-- it only earns existence when sets sharing a script are added,
+where mixed patterns would mis-hyphenate.)
 
 There is no font-size attribute: the PDF body size is derived so a
 column holds exactly .width characters -- runes for the mono face
@@ -179,9 +179,8 @@ fits; only a fragment with no valid break overflows the line.
 JustifyParagraph is the monospace paragraph-level primitive for
 writers holding parsed Para blocks; WrapLines and JustifyLines are
 the measured structured primitives; all document structure goes
-through Parse. Each primitive takes the document's .lang value to
-select the hyphenation pattern set ("" = all embedded sets); table
-cells always hyphenate with all sets.
+through Parse. Every primitive hyphenates with every embedded
+pattern set.
 
 Widths count runes, not display cells: double-width (CJK) glyphs
 misalign. The package targets scripts where one rune is one
@@ -203,9 +202,8 @@ enters the registry only if it passes five tests:
     (a quotation, an item), not where it goes. Page and column
     control stay writer-owned.
  4. It has a troff or TeX ancestor to point to (.quote is ms's
-    .QP, .item is .IP, .rem is troff's comment, .lang is TeX's
-    \language): four decades of typesetting have already named
-    most things worth naming.
+    .QP, .item is .IP, .rem is troff's comment): four decades of
+    typesetting have already named most things worth naming.
  5. A real document is already waiting to use it: demand precedes
     entry, so every command ships together with its first user.
     A command admitted for a hypothetical future is a permanent

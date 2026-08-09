@@ -56,7 +56,6 @@ type Layout struct {
 	Paper string // "a4", "a5", or "letter"
 	Cols  int    // pdf columns per page
 	Font  string // "mono" or "sans"; proportional writers honor it
-	Lang  string // hyphenation pattern set; "" = all embedded sets
 }
 
 // DefaultLayout is the layout of a document with no trailer.
@@ -349,11 +348,6 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 		default:
 			return bad()
 		}
-	case ".lang":
-		if _, ok := hyphenators[rest]; !ok {
-			return bad()
-		}
-		return set(func() { p.doc.Layout.Lang = rest })
 	}
 	return false, nil
 }

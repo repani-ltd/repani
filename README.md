@@ -24,10 +24,11 @@ The design center is the language (see `doc.go` for the spec):
   PDF), `.by`/`.date` bylines, `.rem` comments. Unknown dot
   commands are parse errors, never silent passthrough; additions
   must pass the five-test gate in `doc.go`.
-- **Self-contained documents.** Width, paper, columns, body face,
-  and hyphenation language live in a layout trailer (`.width` /
-  `.paper` / `.cols` / `.font` / `.lang`, defaults 40/a4/3/mono/all
-  pattern sets; `.font sans` sets prose proportionally in the PDF).
+- **Self-contained documents.** Width, paper, columns, and body
+  face live in a layout trailer (`.width` / `.paper` / `.cols` /
+  `.font`, defaults 40/a4/3/mono; `.font sans` sets prose
+  proportionally in the PDF; hyphenation always uses every embedded
+  pattern set).
   No formatting flags anywhere: the same source always produces the
   same output -- the PDF byte-identically (no timestamps).
 - **Zero wire cost.** Every typeset command is consumed at

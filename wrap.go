@@ -81,11 +81,12 @@ func checkWidth(width int) {
 // WrapLines wraps ONE paragraph ragged-right under the measurer,
 // with the prose hyphen penalty. This is the structured primitive
 // behind wrapParagraph; proportional writers consume the Lines
-// directly. lang selects the hyphenation pattern set ("" = all
-// embedded sets); writers pass the document's Layout.Lang.
-func WrapLines(para string, width int, m Measurer, lang string) []Line {
+// directly. Hyphenation uses every embedded pattern set (the
+// embedded scripts are disjoint, so the merged set is correct for
+// each).
+func WrapLines(para string, width int, m Measurer) []Line {
 	checkWidth(width)
-	return wrapRagged(para, width, hyphenPenaltyProse, m, hyphenatorFor(lang))
+	return wrapRagged(para, width, hyphenPenaltyProse, m, defaultHyphenator)
 }
 
 // JustifyLines chooses justified line breaks under the measurer,
@@ -93,21 +94,19 @@ func WrapLines(para string, width int, m Measurer, lang string) []Line {
 // non-final line's slack (width minus Line.Width) across its gaps.
 // With a proportional measurer the slack may be negative -- a line
 // may exceed width by up to a third of a space per gap -- and the
-// caller compresses the gaps by that amount. lang selects the
-// hyphenation pattern set ("" = all embedded sets).
-func JustifyLines(para string, width int, m Measurer, lang string) []Line {
+// caller compresses the gaps by that amount.
+func JustifyLines(para string, width int, m Measurer) []Line {
 	checkWidth(width)
-	return justifyWrap(para, width, m, hyphenatorFor(lang))
+	return justifyWrap(para, width, m, defaultHyphenator)
 }
 
 // JustifyParagraph wraps ONE paragraph of prose with the gap-aware
 // breaker and flushes every non-final line, returning the lines.
 // This is the paragraph-level primitive for writers that already
-// hold parsed Para blocks (the pica gazette); lang selects the
-// hyphenation pattern set ("" = all embedded sets).
-func JustifyParagraph(para string, width int, lang string) []string {
+// hold parsed Para blocks (the pica gazette).
+func JustifyParagraph(para string, width int) []string {
 	checkWidth(width)
-	lines := flattenLines(justifyWrap(para, width, Mono, hyphenatorFor(lang)))
+	lines := flattenLines(justifyWrap(para, width, Mono, defaultHyphenator))
 	for i := 0; i < len(lines)-1; i++ {
 		lines[i] = justifyLine(lines[i], width)
 	}

@@ -100,9 +100,9 @@ render executes a Go template over JSON, FACT (-fact, implied by a
 document; text, pdf, and report render a source document (default
 stdin) to a fixed-width text page, an N-column newspaper PDF, or a
 single-column report PDF (hairline table rules, page footer). Layout
-(width, paper, columns, font, language) comes from the document's
-trailer (.width/.paper/.cols/.font/.lang), not from flags. See the
-typeset package documentation for the source language.
+(width, paper, columns, font) comes from the document's trailer
+(.width/.paper/.cols/.font), not from flags. See the typeset
+package documentation for the source language.
 `)
 }
 

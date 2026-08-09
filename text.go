@@ -22,7 +22,7 @@ func (d *Doc) Text() (string, error) {
 	if bl := d.Byline(); bl != "" {
 		out = append(out, truncLine(bl, width))
 	}
-	h := hyphenatorFor(d.Layout.Lang)
+	h := defaultHyphenator
 	for _, b := range d.Blocks {
 		lines, err := renderBlock(b, width, h)
 		if err != nil {

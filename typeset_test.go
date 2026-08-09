@@ -133,7 +133,7 @@ func TestWidthPanics(t *testing.T) {
 			t.Fatal("JustifyParagraph with width 0 did not panic")
 		}
 	}()
-	JustifyParagraph("hello", 0, "")
+	JustifyParagraph("hello", 0)
 }
 
 // --- Wrap ---
@@ -176,7 +176,7 @@ func TestJustifyGapCost(t *testing.T) {
 
 func TestJustify_FlushLines(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies"
-	lines := JustifyParagraph(input, testWidth, "")
+	lines := JustifyParagraph(input, testWidth)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -211,7 +211,7 @@ func maxConsecutiveSpaces(s string) int {
 func TestJustify_MaxGap(t *testing.T) {
 	// With enough words, no justified gap should exceed 3 spaces.
 	input := "The unprecedented international collaboration has fundamentally transformed the interconnected Mediterranean communities over the past several decades of cooperation"
-	lines := JustifyParagraph(input, testWidth, "")
+	lines := JustifyParagraph(input, testWidth)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -229,7 +229,7 @@ func TestJustify_PrefersHyphenOverWideGaps(t *testing.T) {
 	// without hyphenation. The algorithm should hyphenate to keep
 	// inter-word gaps narrow.
 	input := "Transformation internationally recognized and comprehensive collaboration"
-	lines := JustifyParagraph(input, testWidth, "")
+	lines := JustifyParagraph(input, testWidth)
 	for i, ln := range lines[:len(lines)-1] {
 		gap := maxConsecutiveSpaces(ln)
 		if gap > 3 {
@@ -286,7 +286,7 @@ func (fakeMeasurer) Space() int { return 5 }
 func TestWrapLines_MeasuredFits(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing illuminated butterflies"
 	m := fakeMeasurer{}
-	lines := WrapLines(input, 300, m, "")
+	lines := WrapLines(input, 300, m)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -315,7 +315,7 @@ func TestJustifyLines_MeasuredSlack(t *testing.T) {
 	input := "The unprecedented international collaboration has fundamentally transformed the interconnected communities over several decades"
 	m := fakeMeasurer{}
 	width := 300
-	lines := JustifyLines(input, width, m, "")
+	lines := JustifyLines(input, width, m)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -357,7 +357,7 @@ func TestJustifyLines_ShrinkAbsorbsWord(t *testing.T) {
 	// alternative. The optimum is a shrunk five-word first line and
 	// a natural two-word last line.
 	m := wideMeasurer{}
-	lines := JustifyLines("aaaa bbbb cccc dddd eeee ffff gggg", 230, m, "")
+	lines := JustifyLines("aaaa bbbb cccc dddd eeee ffff gggg", 230, m)
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines, got %d: %v", len(lines), lines)
 	}
@@ -406,7 +406,7 @@ func TestJustifyLines_MonoNeverShrinks(t *testing.T) {
 	// The monospace measurer has no sub-character shrink: every
 	// line must fit within width at natural spacing.
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	for _, ln := range JustifyLines(input, testWidth, Mono, "") {
+	for _, ln := range JustifyLines(input, testWidth, Mono) {
 		if ln.Width > testWidth {
 			t.Errorf("mono line overfull: %d > %d: %v", ln.Width, testWidth, ln.Words)
 		}
@@ -415,9 +415,9 @@ func TestJustifyLines_MonoNeverShrinks(t *testing.T) {
 
 func TestJustifyLines_MonoMatchesJustifyParagraph(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	lines := JustifyLines(input, testWidth, Mono, "")
+	lines := JustifyLines(input, testWidth, Mono)
 	flat := flattenLines(lines)
-	want := JustifyParagraph(input, testWidth, "")
+	want := JustifyParagraph(input, testWidth)
 	if len(flat) != len(want) {
 		t.Fatalf("line count %d != %d", len(flat), len(want))
 	}
@@ -434,7 +434,7 @@ func TestJustifyLines_MonoMatchesJustifyParagraph(t *testing.T) {
 func TestWrapVsJustify_Differ(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
 	ragged := strings.Join(wrapParagraph(input, testWidth, defaultHyphenator), "\n")
-	justified := strings.Join(JustifyParagraph(input, testWidth, ""), "\n")
+	justified := strings.Join(JustifyParagraph(input, testWidth), "\n")
 	if ragged == justified {
 		t.Error("ragged and justified output should differ")
 	}
@@ -446,8 +446,8 @@ func TestOverlongWordHyphenates(t *testing.T) {
 	const word = "internationalization" // 20 runes
 	const width = 12
 	for name, lines := range map[string][]Line{
-		"ragged":  WrapLines(word, width, Mono, ""),
-		"justify": JustifyLines(word, width, Mono, ""),
+		"ragged":  WrapLines(word, width, Mono),
+		"justify": JustifyLines(word, width, Mono),
 	} {
 		if len(lines) < 2 {
 			t.Errorf("%s: %q at width %d stayed on one line", name, word, width)
@@ -469,21 +469,17 @@ func TestOverlongWordWithoutPointsOverflows(t *testing.T) {
 	// No hyphenation points: the word has nowhere to break and
 	// overflows -- the documented fallback.
 	const word = "aaaaaaaaaaaaaaaaaaaa" // no valid Liang points
-	lines := WrapLines(word, 12, Mono, "")
+	lines := WrapLines(word, 12, Mono)
 	if len(lines) != 1 || lines[0].Width != 20 {
 		t.Errorf("expected a single overflowing line, got %v", lines)
 	}
 }
 
-func TestLangSelectsPatternSet(t *testing.T) {
+func TestMergedPatternsCoverGreek(t *testing.T) {
+	// The merged all-sets hyphenator must find points in Greek
+	// (disjoint scripts: the sets cannot mis-hyphenate each other).
 	const word = "θερμοκρασία"
-	if pts := hyphenatorFor("el").Hyphenate(word); len(pts) == 0 {
-		t.Error("el patterns found no points in a Greek word")
-	}
-	if pts := hyphenatorFor("en").Hyphenate(word); len(pts) != 0 {
-		t.Errorf("en patterns hyphenated a Greek word: %v", pts)
-	}
-	if pts := hyphenatorFor("").Hyphenate(word); len(pts) == 0 {
-		t.Error("default (all sets) found no points in a Greek word")
+	if pts := defaultHyphenator.Hyphenate(word); len(pts) == 0 {
+		t.Error("merged pattern sets found no points in a Greek word")
 	}
 }

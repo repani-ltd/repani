@@ -396,16 +396,12 @@ func TestByDate(t *testing.T) {
 	}
 }
 
-func TestLangAttr(t *testing.T) {
-	d := mustParse(t, "T\n\nprose\n\n.lang el\n")
-	if d.Layout.Lang != "el" {
-		t.Errorf("Lang = %q, want el", d.Layout.Lang)
-	}
-	if _, err := Parse("T\n\n.lang de\n"); !errors.Is(err, ErrBadAttr) {
-		t.Errorf(".lang de err = %v, want ErrBadAttr", err)
-	}
-	if _, err := Parse("T\n\n.lang en\n.lang el\n"); !errors.Is(err, ErrDuplicateAttr) {
-		t.Errorf("duplicate .lang err = %v, want ErrDuplicateAttr", err)
+func TestLangRemoved(t *testing.T) {
+	// .lang was removed (DESIGN.md: admitted for a hypothetical
+	// future, failing the vocabulary gate's demand test). The
+	// closed vocabulary makes the removal loud, never silent.
+	if _, err := Parse("T\n\n.lang el\n"); err == nil {
+		t.Error("expected .lang to be an unknown-command error")
 	}
 }
 
