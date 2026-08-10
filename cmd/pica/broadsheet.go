@@ -23,6 +23,19 @@ const (
 	mastRuleGap = 4.0  // extra white on each side of the masthead rule
 )
 
+// pageMargin derives the margin from the declared column count, the
+// same way the point size derives from .width: geometry is
+// writer-owned but a function of the document's layout. Multi-column
+// pages spend their real estate to the edges, newspaper-fashion; a
+// single measure takes the book margin — the report's, so pica's
+// two single-column outputs share one geometry.
+func pageMargin(ncols int) float64 {
+	if ncols == 1 {
+		return reportMargin
+	}
+	return sheetMargin
+}
+
 func pdfCmd(args []string) int {
 	fs := flag.NewFlagSet("pdf", flag.ExitOnError)
 	out := fs.String("o", "", "output file (default stdout)")
@@ -71,7 +84,8 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	ncols := doc.Layout.Cols
 	size := paperSize(doc.Layout.Paper)
 	pageW, pageH := size.Dimensions()
-	usableW := pageW - 2*sheetMargin
+	margin := pageMargin(ncols)
+	usableW := pageW - 2*margin
 	colW := (usableW - float64(ncols-1)*sheetGutter) / float64(ncols)
 
 	t, err := deriveTypo(doc, colW)
@@ -83,7 +97,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	// Masthead band on page one. The floor of 8 average characters
 	// keeps short titles from ballooning. A byline (.by/.date) adds
 	// a centered dateline row under the masthead.
-	topY := pageH - sheetMargin
+	topY := pageH - margin
 	title := doc.Title
 	mastFont, bodyFont := pdf.Bold, pdf.Regular
 	if sans {
@@ -101,7 +115,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 	ruleY := headerBottom - mastRuleGap
 	colTopFirst := ruleY - mastRuleGap - lineH*0.6
 	colTopRest := topY
-	colBottom := sheetMargin
+	colBottom := margin
 
 	linesFirst := int((colTopFirst - colBottom) / lineH)
 	linesRest := int((colTopRest - colBottom) / lineH)
@@ -154,7 +168,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 				p.Gray(0)
 			}
 			p.StrokeGray(0)
-			p.Line(sheetMargin, ruleY, pageW-sheetMargin, ruleY, 1.0)
+			p.Line(margin, ruleY, pageW-margin, ruleY, 1.0)
 		}
 
 		deepest := 0 // column depth in half-line units
@@ -168,7 +182,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 				units += lineUnits(ln)
 			}
 			deepest = max(deepest, units)
-			x := sheetMargin + float64(c)*(colW+sheetGutter)
+			x := margin + float64(c)*(colW+sheetGutter)
 			drawColumn(&p, columns[idx], x, colTop, colW, t)
 		}
 
@@ -176,7 +190,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		ruleBottom := max(colTop-float64(deepest)*lineH/2, colBottom)
 		p.StrokeGray(0.55)
 		for c := 1; c < ncols; c++ {
-			x := sheetMargin + float64(c)*(colW+sheetGutter) - sheetGutter/2
+			x := margin + float64(c)*(colW+sheetGutter) - sheetGutter/2
 			p.Line(x, colTop, x, ruleBottom, 0.4)
 		}
 
@@ -184,7 +198,7 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 		p.SetFont(bodyFont, ps*0.9)
 		p.Gray(0.4)
 		num := fmt.Sprintf("- %d -", pg+1)
-		p.Text((pageW-pdf.Width(num, bodyFont, ps*0.9))/2, sheetMargin/2-2, num)
+		p.Text((pageW-pdf.Width(num, bodyFont, ps*0.9))/2, margin/2-2, num)
 		p.Gray(0)
 
 		pdoc.Add(&p)

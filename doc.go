@@ -121,10 +121,12 @@ column holds exactly .width characters -- runes for the mono face
 (columnWidth / (0.6em x .width)), average lowercase advances for
 the sans face -- and both writers compose at the same character
 density, so a text page stays typographically one column of the
-PDF. Note the direction: page margins are fixed by the writer and
-the column width by the paper, so a LARGER .width means SMALLER
-type (more characters across the same fixed measure), and a
-smaller .width means larger type. With .font sans, prose and headings set proportionally with
+PDF. Note the direction: the writer owns the page margins, derived
+from the layout (a single-column page takes a book margin,
+multi-column pages the newspaper's thin one), and the paper fixes
+the page, so a LARGER .width means SMALLER type (more characters
+across the same fixed measure) and a smaller .width means larger
+type. With .font sans, prose and headings set proportionally with
 measured justification; verbatim blocks and tables keep their
 monospace layout (the text writer ignores .font entirely).
 

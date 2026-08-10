@@ -598,7 +598,15 @@ The identity, v1:
   single-column page, and the newspaper is the presentation you
   opt into with `.cols 2-6` — report stays the client-statement
   identity (title block, footer, margins) and stops being
-  advertised as the generic single-column path.
+  advertised as the generic single-column path. 2026-08-10: the
+  broadsheet margin now derives from `.cols` the way point size
+  derives from `.width` — `.cols 1` takes the report's book margin
+  (54pt; pica's two single-column outputs share one geometry),
+  `.cols 2-6` the newspaper's thin 40pt. Not a knob: geometry stays
+  writer-owned, computed from what the document declares. A
+  `.margin` attribute was considered and rejected as the first
+  "render me in this style" trailer attribute — the slope to
+  .fontsize.
 - **Total rows** (core, small): a `.table` row prefixed `=` sets
   bold with a rule above, kept atomic with its rule. The plain-text
   writer renders the rule as a dash row. This is the one language
