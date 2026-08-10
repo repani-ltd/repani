@@ -66,6 +66,7 @@ type Doc struct {
 	Title  string
 	By     string // .by byline ("" = none)
 	Date   string // .date dateline ("" = none)
+	Rights string // .rights imprint/copyright notice ("" = none)
 	Layout Layout
 	Blocks []Block
 }
@@ -238,7 +239,7 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 	case ".end":
 		return 0, fmt.Errorf("%w (line %d)", ErrStrayEnd, n)
 
-	case ".by", ".date":
+	case ".by", ".date", ".rights":
 		return i, p.meta(word, rest, n)
 
 	case ".quote":
@@ -372,8 +373,11 @@ func (p *parser) meta(word, rest string, n int) error {
 		return fmt.Errorf("%w: %s (line %d)", ErrMetaAfterContent, word, n)
 	}
 	field := &p.doc.By
-	if word == ".date" {
+	switch word {
+	case ".date":
 		field = &p.doc.Date
+	case ".rights":
+		field = &p.doc.Rights
 	}
 	if *field != "" {
 		return fmt.Errorf("%w: %s (line %d)", ErrDuplicateAttr, word, n)

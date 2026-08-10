@@ -193,6 +193,17 @@ metadata there is (Dublin Core creator/date, -ms .AU/.DA), every
 writer renders them, and their typed meaning is load-bearing for
 future PDF metadata.
 
+Admitted under the test, 2026-08-10: `.rights` — imprint/copyright
+metadata (Dublin Core rights/publisher; -mm's .PF ancestry for the
+rendering). The PDF writers set it small and gray in the bottom
+margin of every page with the page number moved flush right; the
+text page closes with it as a final line (no per-page footer in the
+medium — the honest form, like the total row's dash rule). The name
+`.footer` was rejected first: it names where, not what — the
+layout-position corollary's first live test. Once, before content,
+like `.by`; the semantic field can feed XMP dc:rights when the
+PDF/A trigger fires.
+
 ### Naming and the DESIGN.md sufficiency check (2026-08-07)
 
 The language and tool are both called **pica** for now — three names

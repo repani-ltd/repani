@@ -405,6 +405,26 @@ func TestLangRemoved(t *testing.T) {
 	}
 }
 
+func TestRightsMeta(t *testing.T) {
+	d := mustParse(t, "T\n.rights © 2026 Pica Custody Ltd\n\nprose\n")
+	if d.Rights != "© 2026 Pica Custody Ltd" {
+		t.Errorf("Rights = %q", d.Rights)
+	}
+	if _, err := Parse("T\n.rights a\n.rights b\n"); !errors.Is(err, ErrDuplicateAttr) {
+		t.Errorf("duplicate .rights err = %v", err)
+	}
+	if _, err := Parse("T\n\nprose\n\n.rights late\n"); !errors.Is(err, ErrMetaAfterContent) {
+		t.Errorf(".rights after content err = %v", err)
+	}
+	out, err := d.Text()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(out, "\n© 2026 Pica Custody Ltd\n") {
+		t.Errorf("text page does not close with the rights line:\n%s", out)
+	}
+}
+
 func TestItemFillsLikeProse(t *testing.T) {
 	// Unmarked lines directly under .item continue its text; a
 	// blank line, a marked line, or the next .item ends it. .rem

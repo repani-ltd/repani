@@ -1,6 +1,7 @@
 QUARTERLY CLIENT STATEMENT
 .by Treasury Reporting
 .date 2026-06-30
+.rights © 2026 Pica Custody Ltd — private and confidential
 .rem source: ledger.fact 2026-Q2 rev 4b1 -- this line never renders
 
 # Holdings summary

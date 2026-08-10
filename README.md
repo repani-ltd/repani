@@ -21,7 +21,9 @@ The design center is the language (see `doc.go` for the spec):
   are half-size notes), `.pre [N] … .end` verbatim blocks,
   `.quote … .end` quotations with `.attrib`, `.item` bulleted
   lists, `.link URL [TITLE]` link references (clickable in the
-  PDF), `.by`/`.date` bylines, `.rem` comments. Unknown dot
+  PDF), `.by`/`.date` bylines, `.rights` imprint/copyright (a
+  page footer in the PDFs, a closing line in text), `.rem`
+  comments. Unknown dot
   commands are parse errors, never silent passthrough; additions
   must pass the five-test gate in `doc.go`.
 - **Self-contained documents.** Width, paper, columns, and body

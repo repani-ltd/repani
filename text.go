@@ -36,6 +36,11 @@ func (d *Doc) Text() (string, error) {
 		}
 		out = append(out, lines...)
 	}
+	// The rights notice closes the page: the text medium has no
+	// per-page footer, so the honest rendering is a final line.
+	if d.Rights != "" {
+		out = append(out, "", truncLine(d.Rights, width))
+	}
 	return strings.Join(out, "\n") + "\n", nil
 }
 

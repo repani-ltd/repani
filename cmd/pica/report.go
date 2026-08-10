@@ -117,11 +117,18 @@ func report(doc *typeset.Doc) ([]byte, error) {
 		}
 		drawColumn(&p, col, reportMargin, colTop, colW, t)
 
-		// Footer: page number with the total, known after flow.
+		// Footer: page number with the total, known after flow;
+		// centered — unless a rights notice is present, in which
+		// case the notice takes the left and the number the right.
 		p.SetFont(bodyFont, ps*0.85)
 		p.Gray(0.5)
 		num := fmt.Sprintf("Page %d of %d", pg+1, len(columns))
-		p.Text((pageW-pdf.Width(num, bodyFont, ps*0.85))/2, reportMargin/2-2, num)
+		if doc.Rights != "" {
+			p.Text(reportMargin, reportMargin/2-2, doc.Rights)
+			p.Text(pageW-reportMargin-pdf.Width(num, bodyFont, ps*0.85), reportMargin/2-2, num)
+		} else {
+			p.Text((pageW-pdf.Width(num, bodyFont, ps*0.85))/2, reportMargin/2-2, num)
+		}
 		p.Gray(0)
 
 		pdoc.Add(&p)
