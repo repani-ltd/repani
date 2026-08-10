@@ -16,11 +16,12 @@ import (
 // Writer identity constants (points). These are the gazette's
 // typography, not document attributes.
 const (
-	sheetMargin = 40.0
-	sheetGutter = 20.0
-	lineSpacing = 1.25 // line height in ems
-	minPs       = 4.5  // readability floor for the derived body size
-	mastRuleGap = 4.0  // extra white on each side of the masthead rule
+	sheetMargin     = 40.0
+	sheetGutter     = 20.0
+	lineSpacing     = 1.25 // line height in ems, short measures
+	lineSpacingWide = 1.35 // line height in ems, long measures
+	minPs           = 4.5  // readability floor for the derived body size
+	mastRuleGap     = 4.0  // extra white on each side of the masthead rule
 )
 
 // pageMargin derives the margin from the declared column count, the

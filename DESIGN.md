@@ -643,7 +643,12 @@ The identity, v1:
   writer-owned, computed from what the document declares. A
   `.margin` attribute was considered and rejected as the first
   "render me in this style" trailer attribute — the slope to
-  .fontsize.
+  .fontsize. 2026-08-10, same pattern a third time: leading
+  derives from the measure (`leadingFor`) — 1.25 ems up to 50
+  characters per line, 1.35 beyond — the classic rule that longer
+  lines need more air, and the fix for long-measure pages reading
+  dense ("too bold"): perceived blackness is page color, and
+  leading is half of page color.
 - **Total rows** (core, small): a `.table` row prefixed `=` sets
   bold with a rule above, kept atomic with its rule. The plain-text
   writer renders the rule as a dash row. This is the one language

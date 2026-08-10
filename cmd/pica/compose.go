@@ -147,8 +147,20 @@ func deriveTypo(doc *typeset.Doc, colW float64) (typo, error) {
 	}
 	return typo{
 		sans: sans, ps: ps, psMono: psMono,
-		lineH: ps * lineSpacing, units: units,
+		lineH: ps * leadingFor(width), units: units,
 	}, nil
+}
+
+// leadingFor derives the leading from the measure — the classic
+// rule that longer lines need more air between them: newspaper
+// leading up to 50 characters per line, book leading beyond. Like
+// the margin, it is writer-owned geometry computed from the
+// declared layout, never a knob.
+func leadingFor(width int) float64 {
+	if width <= 50 {
+		return lineSpacing
+	}
+	return lineSpacingWide
 }
 
 // spread returns the inter-word advances for one composed line in
