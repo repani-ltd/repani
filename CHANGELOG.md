@@ -10,6 +10,12 @@ Additions for embedding the server inside an owning process (the
 Quietcasting station is the first consumer). Wire and on-disk formats
 are unchanged.
 
+### Client
+- CLIENT.txt reserves value `fmt 0x02` for KV documents: a payload of
+  typed key-value entries in the Quietcasting KV encoding (qcrf
+  SPEC.t). Reservation only — unspecified until its first consumer;
+  entry values themselves stay untyped by design.
+
 ### Server
 - Registration is now optional: constructing a Server with neither
   `RegisterKey` nor `RegisterKeyFile` disables in-band registration —

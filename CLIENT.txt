@@ -18,9 +18,17 @@
   value_len counts fmt plus payload.
 
     0x00        raw — payload is the value verbatim
-    0x01..0xFF  reserved for future encodings (e.g. compression,
-                msgpack). A reader that does not recognise fmt treats
-                the value as opaque and does not decode it.
+    0x02        reserved: KV document — payload is a sequence of
+                typed key-value entries in the Quietcasting KV
+                encoding (qcrf SPEC.t, section KV container). The
+                ecosystem's one structured codec; a vault value
+                that needs named, typed fields uses this rather
+                than a new encoding. Unspecified until its first
+                consumer arrives; reserved here so nothing else
+                takes the code point.
+    0x01, 0x03..0xFF  reserved for future encodings (e.g.
+                compression). A reader that does not recognise fmt
+                treats the value as opaque and does not decode it.
 
   Tombstones are unaffected: a deletion is the protocol's empty value
   (value_len = 0, no fmt byte). The fmt byte appears only in non-empty
