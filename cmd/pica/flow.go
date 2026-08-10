@@ -58,13 +58,24 @@ func flow(blocks []fblock, capacity func(int) int) [][]sline {
 			avail := colCap - curH - snap - sep
 			h := b.height()
 
-			// Keep-with-next: the heading and the first minKeep
-			// segments of the next block must fit together.
+			// Keep-with-next: the heading must fit together with the
+			// opening of what it introduces. Keep-next blocks chain —
+			// a section heading directly over a subsection heading
+			// binds through it to the subsection's first content —
+			// so the need walks the run of keepNext blocks whole
+			// (each with its separator) and ends with the first
+			// minKeep segments of the first ordinary block.
 			if b.keepNext && i+1 < len(blocks) && len(cur) > 0 {
-				next := blocks[i+1]
-				need := h + 2
-				for _, s := range next.segs[:min(minKeep, len(next.segs))] {
-					need += s.height()
+				need := h
+				j := i + 1
+				for ; j < len(blocks) && blocks[j].keepNext; j++ {
+					need += 2 + blocks[j].height()
+				}
+				if j < len(blocks) {
+					need += 2
+					for _, s := range blocks[j].segs[:min(minKeep, len(blocks[j].segs))] {
+						need += s.height()
+					}
 				}
 				if avail < need {
 					closeCol()

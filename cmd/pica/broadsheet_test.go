@@ -202,6 +202,33 @@ func TestCompose_EvenRowPitch(t *testing.T) {
 	}
 }
 
+func TestFlow_HeadingChainKeeps(t *testing.T) {
+	// A section heading directly over a subsection heading must
+	// bind through it to the subsection's first content: the keep
+	// walks the chain, so neither heading strands at a column foot.
+	filler := fblock{segs: mkSegs("fill", 5)}
+	h1 := fblock{segs: []seg{{lines: []sline{{text: "h1", style: styleBold}}}}, keepNext: true, atomic: true}
+	h2 := fblock{segs: []seg{{lines: []sline{{text: "h2", style: styleBold}}}}, keepNext: true, atomic: true}
+	para := fblock{segs: mkSegs("para", 4)}
+
+	// Capacity 10 lines: h1 alone plus h2's opening would fit after
+	// the filler (the one-level keep), but the chain through h2 to
+	// para's first minKeep lines does not — both headings must move.
+	cols := flow([]fblock{filler, h1, h2, para}, fixedCap(10))
+	checkCols(t, cols, fixedCap(10))
+	if len(cols) < 2 {
+		t.Fatalf("expected a column break, got %d column(s)", len(cols))
+	}
+	for _, ln := range cols[0] {
+		if ln.text == "h1" || ln.text == "h2" {
+			t.Fatalf("heading %q stranded in column 0: %v", ln.text, cols[0])
+		}
+	}
+	if cols[1][0].text != "h1" || cols[1][2].text != "h2" {
+		t.Fatalf("column 1 does not open with the heading chain: %v", cols[1])
+	}
+}
+
 func TestCompose_HeadingRoles(t *testing.T) {
 	// "#" composes at the display role (4 units), "##" at the
 	// heading role (3 units), in both font modes.
