@@ -229,6 +229,37 @@ func TestFlow_HeadingChainKeeps(t *testing.T) {
 	}
 }
 
+func TestCompose_ItemRunGaps(t *testing.T) {
+	// A tight run containing a turnover gets a half-line gap after
+	// every item but the last, glued into each item's final seg; an
+	// all single-line run stays tight.
+	src := "T\n\n.item alpha\n.item a rather long item that certainly wraps here\n.item omega\n\n.item one\n.item two\n\n.width 20\n"
+	doc, err := typeset.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks, err := compose(doc, typo{ps: 9, psMono: 9, lineH: 11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 5 {
+		t.Fatalf("blocks = %d, want 5", len(blocks))
+	}
+	endsHalf := func(fb fblock) bool {
+		s := fb.segs[len(fb.segs)-1]
+		return s.lines[len(s.lines)-1].role == roleHalf
+	}
+	for i, want := range []bool{true, true, false, false, false} {
+		if got := endsHalf(blocks[i]); got != want {
+			t.Errorf("block %d trailing half spacer = %v, want %v", i, got, want)
+		}
+	}
+	if blocks[1].segs[0].height() != 2 || blocks[0].height() != 3 {
+		t.Errorf("unexpected heights: first item %d units, wrapped item first seg %d",
+			blocks[0].height(), blocks[1].segs[0].height())
+	}
+}
+
 func TestCompose_HeadingRoles(t *testing.T) {
 	// "#" composes at the display role (4 units), "##" at the
 	// heading role (3 units), in both font modes.

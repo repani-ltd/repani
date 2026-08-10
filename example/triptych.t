@@ -149,7 +149,7 @@ The column flow has a short list of refusals, and the pleasure of a long documen
 .item no table continued without its header row
 .item no ledger continued without its declared lead-in
 
-Each of those lines is one .item command: a bullet, a hanging indent for the turnovers, and no blank line between neighbors, so the list reads as a single fixture.
+Each of those lines is one .item command: a bullet and a hanging indent for the turnovers. Because the items in this run turn over, the renderer sets a half line of air between them; a run of one-liners packs tight.
 
 None of these refusals are suggestions to the author. They are properties of the flow function, and the flow is pure: the same blocks poured into the same capacities give the same columns, every run. That purity is what makes the final trick affordable. When the document ends before its last page is full, the engine re-runs the whole flow at smaller and smaller column capacities until the last page's columns carry nearly equal weight. The page you finish on should look composed, not abandoned mid-pour.
 

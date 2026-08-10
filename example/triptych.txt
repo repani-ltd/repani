@@ -383,11 +383,12 @@ them over the frame:
   its declared lead-in
 
 Each of those lines is one .item
-command: a bullet, a hanging
-indent for the turnovers,
-and no blank line between
-neighbors, so the list reads as
-a single fixture.
+command: a bullet and a hanging
+indent for the turnovers.
+Because the items in this run
+turn over, the renderer sets a
+half line of air between them; a
+run of one-liners packs tight.
 
 None of these refusals are
 suggestions to the author.

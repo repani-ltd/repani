@@ -229,7 +229,17 @@ func (b fblock) height() int {
 func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 	width := doc.Layout.Width
 	var out []fblock
-	for _, blk := range doc.Blocks {
+	for bi := 0; bi < len(doc.Blocks); bi++ {
+		blk := doc.Blocks[bi]
+		if blk.Kind == typeset.Item {
+			run := []typeset.Block{blk}
+			for bi+1 < len(doc.Blocks) && doc.Blocks[bi+1].Kind == typeset.Item && doc.Blocks[bi+1].Tight {
+				bi++
+				run = append(run, doc.Blocks[bi])
+			}
+			out = append(out, composeItems(run, t, width)...)
+			continue
+		}
 		fb := fblock{tight: blk.Tight}
 		switch blk.Kind {
 		case typeset.Para:
@@ -275,33 +285,6 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 					s := trunc("-- "+blk.Attrib, width-4)
 					s = strings.Repeat(" ", width-2-len([]rune(s))) + s
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: s}}})
-				}
-			}
-
-		case typeset.Item:
-			// A bullet with a hanging indent for continuation lines.
-			if t.sans {
-				m := pdf.Measure(pdf.Sans)
-				ii := m.Width(bullet) + m.Space()
-				measure := t.units - ii
-				lines := typeset.JustifyLines(blk.Text, measure, m)
-				for i, ln := range lines {
-					last := i == len(lines)-1
-					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: ii}
-					if i == 0 {
-						sl.words = append([]string{bullet}, ln.Words...)
-						sl.gaps = append([]int{m.Space()}, sl.gaps...)
-						sl.indent = 0
-					}
-					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
-				}
-			} else {
-				for i, ln := range typeset.JustifyParagraph(blk.Text, width-2) {
-					pre := "  "
-					if i == 0 {
-						pre = bullet + " "
-					}
-					fb.segs = append(fb.segs, seg{lines: []sline{{text: pre + ln}}})
 				}
 			}
 
@@ -447,6 +430,64 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 		}
 	}
 	return out, nil
+}
+
+// composeItems renders a tight run of items. When any item in the
+// run turns over, a half-line gap separates the items — the same
+// conditional, quantized policy as the table row pitch: an all
+// single-line run stays classically tight, a wrapped run gets air
+// so turnovers cannot be misread as sibling items. The spacer joins
+// each item's LAST seg, so a split between items lands after it (an
+// invisible half-line at a column bottom) and a column can never
+// open with a stranded gap. The text writer has no half-line and
+// keeps every run tight.
+func composeItems(run []typeset.Block, t typo, width int) []fblock {
+	fbs := make([]fblock, len(run))
+	wrapped := false
+	for i, blk := range run {
+		fbs[i] = composeItem(blk, t, width)
+		if len(fbs[i].segs) > 1 {
+			wrapped = true
+		}
+	}
+	if wrapped {
+		for i := range fbs[:len(fbs)-1] {
+			last := &fbs[i].segs[len(fbs[i].segs)-1]
+			last.lines = append(last.lines, sline{role: roleHalf})
+		}
+	}
+	return fbs
+}
+
+// composeItem renders one bulleted item: a bullet, then the text
+// with a hanging indent for continuation lines.
+func composeItem(blk typeset.Block, t typo, width int) fblock {
+	fb := fblock{tight: blk.Tight}
+	if t.sans {
+		m := pdf.Measure(pdf.Sans)
+		ii := m.Width(bullet) + m.Space()
+		measure := t.units - ii
+		lines := typeset.JustifyLines(blk.Text, measure, m)
+		for i, ln := range lines {
+			last := i == len(lines)-1
+			sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: ii}
+			if i == 0 {
+				sl.words = append([]string{bullet}, ln.Words...)
+				sl.gaps = append([]int{m.Space()}, sl.gaps...)
+				sl.indent = 0
+			}
+			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+		}
+	} else {
+		for i, ln := range typeset.JustifyParagraph(blk.Text, width-2) {
+			pre := "  "
+			if i == 0 {
+				pre = bullet + " "
+			}
+			fb.segs = append(fb.segs, seg{lines: []sline{{text: pre + ln}}})
+		}
+	}
+	return fb
 }
 
 func toSlines(lines []string) []sline {

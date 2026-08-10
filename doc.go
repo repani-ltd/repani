@@ -99,7 +99,9 @@ for proportional prose (line breaks measured, not counted), and the
 PDF writers' size roles trade it for hierarchy and density (a
 heading occupies a taller slot at a larger scale; a table note row
 sets half-size on half the leading, where the text page renders it
-as an ordinary full-size row).
+as an ordinary full-size row; a tight item run in which any item
+turns over gains half-line gaps between items, where the text page
+stays tight).
 Structural commands (.table, .pre, .end) and the layout trailer
 never appear in any output.
 

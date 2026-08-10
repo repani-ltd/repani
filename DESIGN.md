@@ -153,6 +153,13 @@ gone: hard-wrapped source means the same thing everywhere. Cost
 accepted: a paragraph can no longer directly follow an item
 without a blank line — an ambiguous pattern no real document used.
 
+Same day, presentation-side: a tight item run in which any item
+turns over gains half-line gaps between items in the PDF writers —
+conditional like the table row-pitch policy, quantized to the
+half-line, the spacer glued into each item's last seg so a split
+can never strand a gap at a column top. The text page stays tight
+(no half-line in the medium).
+
 ### The command-existence test (decided 2026-08-07)
 
 A dot-command earns core existence when all three hold:
