@@ -665,8 +665,17 @@ Parked, with triggers (the §4 discipline):
   wanted only with a designer's eye on a real document.
 - **Logo chrome** — rides the earlier Form-XObject plan; report's
   title block is where it lands. Trigger: a real brand asset.
-- **Sans text cells** — §6 item 5, unchanged. The NumCol span
-  machinery is the on-ramp when it fires.
+- **Sans text cells** — DONE 2026-08-10, narrowed once more: the
+  `P` column class declares a prose column (tbl's T{...T} blocks
+  are the ancestor). Mono documents and the text page lay P out
+  exactly as L; in sans documents the PDF writers wrap the cell
+  under the real measurer at the column's mono measure and draw
+  the lines as positioned sans spans at the column's grid offset —
+  the numSpan lift-off pattern generalized, with row heights
+  correct by construction because LayoutMeasured owns them.
+  Headers stay mono (a label is data). The full proportional grid
+  (columns in points, no mono skeleton) remains rejected with the
+  original §3 rationale.
 
 ## 8. Open questions
 

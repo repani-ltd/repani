@@ -61,7 +61,7 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 				p.Link(xw, y-ps*0.25, xw+w, y+ps, ln.href)
 			}
 
-		case ln.text != "" || len(ln.nums) > 0:
+		case ln.text != "" || len(ln.nums) > 0 || len(ln.prose) > 0:
 			font := pdf.Regular
 			if ln.style == styleBold {
 				font = pdf.Bold
@@ -88,7 +88,7 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			// figures at the mono size, anchored at the column's
 			// decimal cell. Sans digits (560) are narrower than mono
 			// cells (600), so spans never overrun their columns.
-			if len(ln.nums) > 0 {
+			if len(ln.nums) > 0 || len(ln.prose) > 0 {
 				adv := emWidth * ps
 				sf := pdf.Sans
 				if ln.style == styleBold {
@@ -103,6 +103,11 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 					if sp.tail != "" {
 						p.Text(sx, y, sp.tail)
 					}
+				}
+				// Prose cells: measured sans lines at the column's
+				// grid offset, ragged at natural spacing.
+				for _, sp := range ln.prose {
+					p.Words(x+float64(sp.start)*adv, y, sp.words, sp.gaps)
 				}
 			}
 		}

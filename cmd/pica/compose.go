@@ -43,6 +43,18 @@ type sline struct {
 	role   sizeRole // size role: body, half, heading, display
 	ruleW  int      // styleRule: width in mono grid runes (0 = full column)
 	nums   []numSpan
+	prose  []proseSpan
+}
+
+// proseSpan is one measured line of a P (prose) table cell in a
+// sans document: the mono grid reserves the cell's space blank, and
+// the line draws in the sans face at the column's grid offset. The
+// grid stays mono; only declared prose lifts off it — the same
+// narrowing that made numeric columns cheap.
+type proseSpan struct {
+	start int // rune offset of the column on the mono grid
+	words []string
+	gaps  []int
 }
 
 // sizeRole is the closed set of sizes, quantized to the half-line
@@ -341,7 +353,18 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 			fb.atomic = true
 
 		case typeset.TableBlk:
-			tl, err := blk.Table.Layout(blk.TableWidth(width))
+			// Sans documents measure P (prose) cells with the sans
+			// measurer at the column's mono measure (rune width x
+			// the mono advance in em-thousandths); mono documents
+			// lay P out as L.
+			var tl *typeset.TableLayout
+			var err error
+			if t.sans {
+				tl, err = blk.Table.LayoutMeasured(
+					blk.TableWidth(width), pdf.Measure(pdf.Sans), int(emWidth*1000))
+			} else {
+				tl, err = blk.Table.Layout(blk.TableWidth(width))
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -392,6 +415,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 			even := hasNote && fits
 			for j, row := range tl.Rows {
 				rowLines := toSlines(row)
+				attachProse(rowLines, tl, j)
 				var lines []sline
 				if tl.Totals[j] {
 					for i := range rowLines {
@@ -504,6 +528,28 @@ func halfSlines(lines []string) []sline {
 		out[i] = sline{text: ln, role: roleHalf}
 	}
 	return out
+}
+
+// attachProse hangs a row's measured P-cell lines (LayoutMeasured
+// only; RowProse is nil otherwise) onto the row's slines as
+// positioned sans spans at natural spacing.
+func attachProse(rowLines []sline, tl *typeset.TableLayout, j int) {
+	if j >= len(tl.RowProse) || tl.RowProse[j] == nil {
+		return
+	}
+	m := pdf.Measure(pdf.Sans)
+	for k, lines := range tl.RowProse[j] {
+		for h, ln := range lines {
+			if h >= len(rowLines) {
+				break
+			}
+			rowLines[h].prose = append(rowLines[h].prose, proseSpan{
+				start: tl.ProseCols[k].Start,
+				words: ln.Words,
+				gaps:  spread(ln, 0, m, true),
+			})
+		}
+	}
 }
 
 // extractNums lifts a line's numeric N-column cells into spans and

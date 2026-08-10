@@ -229,6 +229,42 @@ func TestFlow_HeadingChainKeeps(t *testing.T) {
 	}
 }
 
+func TestCompose_ProseCells(t *testing.T) {
+	// In a sans document a P cell's measured lines attach to the
+	// row's slines as positioned spans at the column's grid offset,
+	// and the mono text reserves the space blank.
+	src := "T\n\n.table 6L *P\nkey | meaning\nem | the point size squared, the unit of horizontal measure\n.end\n\n.width 30\n.font sans\n"
+	doc, err := typeset.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	units := 30 * pdf.AvgAdvance(pdf.Sans)
+	blocks, err := compose(doc, typo{sans: true, ps: 9, psMono: 9, lineH: 11, units: units})
+	if err != nil {
+		t.Fatal(err)
+	}
+	segs := blocks[0].segs
+	row := segs[1].lines // header seg first, then the row
+	found := 0
+	for _, ln := range row {
+		for _, sp := range ln.prose {
+			if sp.start != 7 {
+				t.Errorf("prose span start = %d, want 7", sp.start)
+			}
+			if len(sp.words) == 0 {
+				t.Error("empty prose span")
+			}
+			found++
+		}
+		if strings.Contains(ln.text, "point") {
+			t.Errorf("prose content leaked into mono text: %q", ln.text)
+		}
+	}
+	if found == 0 {
+		t.Fatal("no prose spans attached")
+	}
+}
+
 func TestCompose_ItemRunGaps(t *testing.T) {
 	// A tight run containing a turnover gets a half-line gap after
 	// every item but the last, glued into each item's final seg; an

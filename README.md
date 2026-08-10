@@ -17,8 +17,9 @@ The design center is the language (see `doc.go` for the spec):
 - **Explicit structure, closed vocabulary.** `# heading` and
   `## subsection` (two levels, permanently), `---` rules,
   `.table … .end` (cells wrap by default, `!` clips, `N` columns
-  align on the decimal point, `=` rows are bold totals, `..` rows
-  are half-size notes), `.pre [N] … .end` verbatim blocks,
+  align on the decimal point, `P` columns hold prose set in the
+  body face under `.font sans`, `=` rows are bold totals, `..`
+  rows are half-size notes), `.pre [N] … .end` verbatim blocks,
   `.quote … .end` quotations with `.attrib`, `.item` bulleted
   lists, `.link URL [TITLE]` link references (clickable in the
   PDF), `.by`/`.date` bylines, `.rights` imprint/copyright (a

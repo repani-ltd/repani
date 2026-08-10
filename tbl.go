@@ -12,7 +12,7 @@ import (
 var (
 	ErrTableEmptySpec    = errors.New("typeset: empty column spec")
 	ErrTableInvalidToken = errors.New("typeset: invalid column token")
-	ErrTableInvalidAlign = errors.New("typeset: column align must be L, R, C, or N")
+	ErrTableInvalidAlign = errors.New("typeset: column align must be L, R, C, N, or P")
 	ErrTableAutoConflict = errors.New("typeset: only one auto-span column allowed")
 	ErrTableInvalidWidth = errors.New("typeset: invalid column width")
 	ErrTableAutoNoRoom   = errors.New("typeset: no space left for auto-span column")
@@ -71,7 +71,7 @@ func NewTable(spec string) (*Table, error) {
 			return nil, fmt.Errorf("%w: %q", ErrTableInvalidToken, tok)
 		}
 		alignChar := tok[len(tok)-1]
-		if alignChar != 'L' && alignChar != 'R' && alignChar != 'C' && alignChar != 'N' {
+		if !strings.ContainsRune("LRCNP", rune(alignChar)) {
 			return nil, fmt.Errorf("%w: %q", ErrTableInvalidAlign, tok)
 		}
 		cols[i].align = alignChar
@@ -149,6 +149,14 @@ type TableLayout struct {
 	HeaderNotes []string   // half-grid note lines under the header
 	RowNotes    [][]string // parallel to Rows; nil = no notes
 	NumCols     []NumCol   // resolved N-column geometry, left to right
+	ProseCols   []ProseCol // resolved P-column geometry, left to right
+
+	// RowProse holds P cells' measured lines (LayoutMeasured only):
+	// RowProse[row][k] are the wrapped lines of the cell in
+	// ProseCols[k]. The formatted Rows reserve that cell's space
+	// blank at the measured height; a positioning writer draws the
+	// lines at the column's grid offset.
+	RowProse [][][]Line
 
 	headerNotesText []string   // full-grid note lines, for Lines
 	rowNotesText    [][]string // parallel to Rows
@@ -175,6 +183,15 @@ func (c NumCol) SepIndex() int {
 		slot = 1
 	}
 	return c.End - slot - c.Frac
+}
+
+// ProseCol is one P column's [Start,End) rune interval on the full
+// grid. A P (prose) cell renders as the mono grid's L in the text
+// writer and in mono documents; LayoutMeasured additionally wraps
+// its content under a real measurer for writers that set prose
+// cells in the body face.
+type ProseCol struct {
+	Start, End int
 }
 
 // SplitNumeric splits a numeric cell for separator-anchored drawing:
@@ -218,7 +235,23 @@ func (tl *TableLayout) Lines() []string {
 
 // Layout lays the table out to fit in width total runes. Errors when
 // the fixed columns exceed width or an auto-span column has no room.
+// P columns render as L: the mono grid is the layout.
 func (t *Table) Layout(width int) (*TableLayout, error) {
+	return t.layout(width, nil, 0)
+}
+
+// LayoutMeasured is Layout with prose cells measured: each P
+// column's cells wrap under m at the column's measure — its rune
+// width times runeUnits, the mono advance expressed in m's units
+// (em-thousandths at the drawing size). The formatted Rows reserve
+// each P cell's space blank at the measured height; the measured
+// lines land in RowProse for positioned drawing. Everything else —
+// grid, splits, notes, N metrics — is exactly Layout.
+func (t *Table) LayoutMeasured(width int, m Measurer, runeUnits int) (*TableLayout, error) {
+	return t.layout(width, m, runeUnits)
+}
+
+func (t *Table) layout(width int, m Measurer, runeUnits int) (*TableLayout, error) {
 	cols, err := t.fit(width)
 	if err != nil {
 		return nil, err
@@ -226,10 +259,15 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 	tl := &TableLayout{}
 	start := 0
 	for _, col := range cols {
-		if col.align == 'N' {
+		switch col.align {
+		case 'N':
 			tl.NumCols = append(tl.NumCols, NumCol{
 				Start: start, End: start + col.width,
 				Frac: col.frac, Paren: col.paren,
+			})
+		case 'P':
+			tl.ProseCols = append(tl.ProseCols, ProseCol{
+				Start: start, End: start + col.width,
 			})
 		}
 		start += col.width + 1
@@ -255,12 +293,42 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 			}
 			continue
 		}
-		tl.Rows = append(tl.Rows, formatRow(cols, row.cells))
+		var prose [][]Line
+		var heights map[int]int
+		if m != nil && len(tl.ProseCols) > 0 {
+			prose = make([][]Line, len(tl.ProseCols))
+			heights = map[int]int{}
+			k := 0
+			for i, col := range cols {
+				if col.align != 'P' {
+					continue
+				}
+				var s string
+				if i < len(row.cells) {
+					s = row.cells[i]
+				}
+				lines := wrapCellMeasured(s, col.width*runeUnits, m)
+				prose[k] = lines
+				heights[i] = max(1, len(lines))
+				k++
+			}
+		}
+		tl.Rows = append(tl.Rows, renderRowProse(cols, row.cells, heights))
+		tl.RowProse = append(tl.RowProse, prose)
 		tl.Totals = append(tl.Totals, row.total)
 		tl.RowNotes = append(tl.RowNotes, nil)
 		tl.rowNotesText = append(tl.rowNotesText, nil)
 	}
 	return tl, nil
+}
+
+// wrapCellMeasured wraps prose cell content under a real measurer
+// at the given measure, with the cell-tuned hyphen penalty.
+func wrapCellMeasured(s string, measure int, m Measurer) []Line {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return wrapRagged(s, measure, hyphenPenaltyCell, m, defaultHyphenator)
 }
 
 // noteRow formats one note row on a grid scaled by scale: scale 2 is
@@ -272,7 +340,7 @@ func noteRow(cols []colSpec, cells []string, scale int) []string {
 	for i, col := range cols {
 		scaled[i] = colSpec{width: col.width * scale, align: 'L'}
 	}
-	return renderRow(scaled, cells, strings.Repeat(" ", scale))
+	return renderRow(scaled, cells, strings.Repeat(" ", scale), nil)
 }
 
 // fit resolves the auto-span column against the total width and
@@ -360,12 +428,20 @@ func numericParts(s string) (fracLen int, hasParen bool, ok bool) {
 // formatRow renders one logical row, wrapping cells to their column
 // widths; the result is one or more physical lines.
 func formatRow(cols []colSpec, cells []string) []string {
-	return renderRow(cols, cells, " ")
+	return renderRowProse(cols, cells, nil)
+}
+
+// renderRowProse is renderRow with measured-prose overrides: for a
+// column index present in proseHeights, the cell's space is
+// reserved blank at that height (the measured lines draw
+// positioned, outside the mono grid). A nil map is plain renderRow.
+func renderRowProse(cols []colSpec, cells []string, proseHeights map[int]int) []string {
+	return renderRow(cols, cells, " ", proseHeights)
 }
 
 // renderRow wraps each cell into its column's line stack and emits
 // the padded physical lines, columns joined by gap.
-func renderRow(cols []colSpec, cells []string, gap string) []string {
+func renderRow(cols []colSpec, cells []string, gap string, proseHeights map[int]int) []string {
 	stacks := make([][]string, len(cols))
 	height := 1
 	for i, col := range cols {
@@ -373,7 +449,10 @@ func renderRow(cols []colSpec, cells []string, gap string) []string {
 		if i < len(cells) {
 			s = cells[i]
 		}
-		if col.clip || col.align == 'N' {
+		if h, ok := proseHeights[i]; ok {
+			// Measured prose cell: blank lines hold the space.
+			stacks[i] = make([]string, h)
+		} else if col.clip || col.align == 'N' {
 			// N columns never wrap: a broken number is worse
 			// than a truncated one.
 			stacks[i] = []string{s}

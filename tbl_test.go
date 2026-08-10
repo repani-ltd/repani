@@ -252,6 +252,52 @@ func TestTable_TotalRows(t *testing.T) {
 	}
 }
 
+func TestTable_ProseColumn(t *testing.T) {
+	tbl := mustTable(t, "4L *P")
+	tbl.Header("key", "meaning")
+	tbl.Row("em", "the point size squared, the unit of measure")
+	tbl.Row("box", "a rectangle")
+
+	// Mono path: P lays out exactly as L.
+	tlm, err := tbl.Layout(20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tlm.ProseCols) != 1 || tlm.ProseCols[0] != (ProseCol{Start: 5, End: 20}) {
+		t.Errorf("ProseCols = %+v", tlm.ProseCols)
+	}
+	if tlm.RowProse[0] != nil {
+		t.Error("mono Layout must not measure prose cells")
+	}
+	if !strings.Contains(tlm.Rows[0][0], "the point size") {
+		t.Errorf("mono P cell not laid out as L: %q", tlm.Rows[0])
+	}
+
+	// Measured path: a wider measurer than mono (600 units/rune vs
+	// Mono's 1) exercises real measuring; the formatted rows
+	// reserve the cell blank at the measured height.
+	tl, err := tbl.LayoutMeasured(20, Mono, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := tl.RowProse[0][0]
+	if len(lines) == 0 {
+		t.Fatal("no measured prose lines")
+	}
+	if got := len(tl.Rows[0]); got != max(1, len(lines)) {
+		t.Errorf("row height %d, measured lines %d", got, len(lines))
+	}
+	for _, physical := range tl.Rows[0] {
+		if strings.Contains(physical, "point") {
+			t.Errorf("measured P cell not blanked: %q", physical)
+		}
+	}
+	// The mono cells still render on the grid.
+	if !strings.HasPrefix(tl.Rows[0][0], "em") {
+		t.Errorf("mono cell missing: %q", tl.Rows[0][0])
+	}
+}
+
 func TestTable_NumColGeometry(t *testing.T) {
 	tbl := mustTable(t, "*L 10N")
 	tbl.Header("Client", "Amount")

@@ -153,7 +153,13 @@ The column spec is space-separated <width><align> tokens:
 	        align on the decimal point and never wrap; accounting
 	        negatives "(1.23)" reserve a trailing paren slot for
 	        the whole column, and non-numeric cells (a header,
-	        "n/a") right-align at the units position
+	        "n/a") right-align at the units position.
+	        P = prose: the cell holds running prose. In mono
+	        documents and the text page it lays out exactly as L;
+	        in a sans document the PDF writers set the cell in the
+	        body face, ragged, wrapped at the column's measure —
+	        code columns stay mono, prose columns read as prose.
+	        The column's header cell stays mono (a label is data)
 
 Cells WRAP by default: overflow continues on following lines,
 other cells padded blank, and such a multi-line row is an atomic
