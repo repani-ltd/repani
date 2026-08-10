@@ -194,18 +194,15 @@ func broadsheet(doc *typeset.Doc) ([]byte, error) {
 			p.Line(x, colTop, x, ruleBottom, 0.4)
 		}
 
-		// Bottom margin line: the page number, centered — unless a
-		// rights notice is present, in which case the notice takes
-		// the left and the number moves flush right.
+		// Bottom margin line, centered: the page number alone, or
+		// joined to the rights notice in one combined footer.
 		p.SetFont(bodyFont, ps*0.9)
 		p.Gray(0.4)
 		num := fmt.Sprintf("- %d -", pg+1)
 		if doc.Rights != "" {
-			p.Text(margin, margin/2-2, doc.Rights)
-			p.Text(pageW-margin-pdf.Width(num, bodyFont, ps*0.9), margin/2-2, num)
-		} else {
-			p.Text((pageW-pdf.Width(num, bodyFont, ps*0.9))/2, margin/2-2, num)
+			num = fmt.Sprintf("%s · page %d", doc.Rights, pg+1)
 		}
+		p.Text((pageW-pdf.Width(num, bodyFont, ps*0.9))/2, margin/2-2, num)
 		p.Gray(0)
 
 		pdoc.Add(&p)

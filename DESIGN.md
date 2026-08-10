@@ -195,10 +195,13 @@ future PDF metadata.
 
 Admitted under the test, 2026-08-10: `.rights` — imprint/copyright
 metadata (Dublin Core rights/publisher; -mm's .PF ancestry for the
-rendering). The PDF writers set it small and gray in the bottom
-margin of every page with the page number moved flush right; the
-text page closes with it as a final line (no per-page footer in the
-medium — the honest form, like the total row's dash rule). The name
+rendering). The PDF writers join it to the page number in one
+small gray centered footer line on every page (a left/right split
+was tried first and rejected for symmetry; centered-combined also
+survives the thin newspaper margin, where a stacked second line
+would fall inside printers' unprintable zone); the text page
+closes with it as a final line (no per-page footer in the medium —
+the honest form, like the total row's dash rule). The name
 `.footer` was rejected first: it names where, not what — the
 layout-position corollary's first live test. Once, before content,
 like `.by`; the semantic field can feed XMP dc:rights when the

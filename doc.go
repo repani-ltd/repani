@@ -72,11 +72,11 @@ A document is UTF-8 text, structured by line:
 	                 appear once, and only before the first
 	                 content block
 	.rights TEXT     imprint/copyright metadata (publisher name,
-	                 rights notice). The PDF writers set it small
-	                 and gray in the bottom margin of every page,
-	                 moving the page number flush right; the text
-	                 page closes with it as a final line. Once,
-	                 before the first content block, like .by
+	                 rights notice). The PDF writers join it to
+	                 the page number in one small gray centered
+	                 footer line on every page; the text page
+	                 closes with it as a final line. Once, before
+	                 the first content block, like .by
 	.rem TEXT        a comment: dropped from every output, valid
 	                 anywhere -- it does not end a paragraph and
 	                 may follow the layout trailer. Inside .pre,
