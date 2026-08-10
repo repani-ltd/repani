@@ -276,7 +276,7 @@ func TestTable_ProseColumn(t *testing.T) {
 	// Measured path: a wider measurer than mono (600 units/rune vs
 	// Mono's 1) exercises real measuring; the formatted rows
 	// reserve the cell blank at the measured height.
-	tl, err := tbl.LayoutMeasured(20, Mono, 1)
+	tl, err := tbl.LayoutMeasured(20, Mono, nil, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

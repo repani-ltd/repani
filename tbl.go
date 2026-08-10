@@ -150,6 +150,8 @@ type TableLayout struct {
 	RowNotes    [][]string // parallel to Rows; nil = no notes
 	NumCols     []NumCol   // resolved N-column geometry, left to right
 	ProseCols   []ProseCol // resolved P-column geometry, left to right
+	Cols        []ProseCol // every column's [Start,End) rune interval
+	Aligns      []byte     // every column's align letter, parallel to Cols
 
 	// RowProse holds P cells' measured lines (LayoutMeasured only):
 	// RowProse[row][k] are the wrapped lines of the cell in
@@ -157,6 +159,13 @@ type TableLayout struct {
 	// blank at the measured height; a positioning writer draws the
 	// lines at the column's grid offset.
 	RowProse [][][]Line
+
+	// HeaderProse holds the header cells' measured lines, one entry
+	// per column (LayoutMeasured with a header measurer only): the
+	// header row is the table's labels, set in the body face by
+	// writers that can. The formatted Header reserves the space
+	// blank, as with RowProse.
+	HeaderProse [][]Line
 
 	headerNotesText []string   // full-grid note lines, for Lines
 	rowNotesText    [][]string // parallel to Rows
@@ -237,7 +246,7 @@ func (tl *TableLayout) Lines() []string {
 // the fixed columns exceed width or an auto-span column has no room.
 // P columns render as L: the mono grid is the layout.
 func (t *Table) Layout(width int) (*TableLayout, error) {
-	return t.layout(width, nil, 0)
+	return t.layout(width, nil, nil, 0)
 }
 
 // LayoutMeasured is Layout with prose cells measured: each P
@@ -245,13 +254,16 @@ func (t *Table) Layout(width int) (*TableLayout, error) {
 // width times runeUnits, the mono advance expressed in m's units
 // (em-thousandths at the drawing size). The formatted Rows reserve
 // each P cell's space blank at the measured height; the measured
-// lines land in RowProse for positioned drawing. Everything else —
-// grid, splits, notes, N metrics — is exactly Layout.
-func (t *Table) LayoutMeasured(width int, m Measurer, runeUnits int) (*TableLayout, error) {
-	return t.layout(width, m, runeUnits)
+// lines land in RowProse for positioned drawing. When mHead is
+// non-nil, every header cell is measured the same way under it
+// (the header row is the table's labels, set in the body face) and
+// lands in HeaderProse. Everything else — grid, splits, notes, N
+// metrics — is exactly Layout.
+func (t *Table) LayoutMeasured(width int, m, mHead Measurer, runeUnits int) (*TableLayout, error) {
+	return t.layout(width, m, mHead, runeUnits)
 }
 
-func (t *Table) layout(width int, m Measurer, runeUnits int) (*TableLayout, error) {
+func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayout, error) {
 	cols, err := t.fit(width)
 	if err != nil {
 		return nil, err
@@ -259,6 +271,8 @@ func (t *Table) layout(width int, m Measurer, runeUnits int) (*TableLayout, erro
 	tl := &TableLayout{}
 	start := 0
 	for _, col := range cols {
+		tl.Cols = append(tl.Cols, ProseCol{Start: start, End: start + col.width})
+		tl.Aligns = append(tl.Aligns, col.align)
 		switch col.align {
 		case 'N':
 			tl.NumCols = append(tl.NumCols, NumCol{
@@ -277,7 +291,26 @@ func (t *Table) layout(width int, m Measurer, runeUnits int) (*TableLayout, erro
 	// form) regardless.
 	tl.Sep = separatorLine(cols)
 	if t.header != nil {
-		tl.Header = formatRow(cols, t.header)
+		if mHead != nil {
+			// Measured header: every cell wraps under the header
+			// measurer at its column's measure, the formatted lines
+			// reserve the space blank, and the measured lines land
+			// in HeaderProse for the writer to set in the body face.
+			tl.HeaderProse = make([][]Line, len(cols))
+			heights := map[int]int{}
+			for i, col := range cols {
+				var s string
+				if i < len(t.header) {
+					s = t.header[i]
+				}
+				lines := wrapCellMeasured(s, col.width*runeUnits, mHead)
+				tl.HeaderProse[i] = lines
+				heights[i] = max(1, len(lines))
+			}
+			tl.Header = renderRowProse(cols, t.header, heights)
+		} else {
+			tl.Header = formatRow(cols, t.header)
+		}
 	}
 	for _, row := range t.rows {
 		if row.note {

@@ -42,17 +42,21 @@ type sline struct {
 	href   string   // non-empty: the line is a clickable link target
 	role   sizeRole // size role: body, half, heading, display
 	ruleW  int      // styleRule: width in mono grid runes (0 = full column)
-	nums   []numSpan
-	prose  []proseSpan
+	// ruleSegs: per-column rule segments in grid runes (tables);
+	// when set it wins over ruleW.
+	ruleSegs [][2]int
+	nums     []numSpan
+	prose    []proseSpan
 }
 
-// proseSpan is one measured line of a P (prose) table cell in a
-// sans document: the mono grid reserves the cell's space blank, and
-// the line draws in the sans face at the column's grid offset. The
-// grid stays mono; only declared prose lifts off it — the same
-// narrowing that made numeric columns cheap.
+// proseSpan is one measured line of a table cell set in the body
+// face (a P prose cell, or a header label) in a sans document: the
+// mono grid reserves the cell's space blank, and the line draws at
+// off — em-thousandths from the column origin at the drawing size,
+// so spans can also right-align or center within their column. The
+// grid stays mono; only declared prose and labels lift off it.
 type proseSpan struct {
-	start int // rune offset of the column on the mono grid
+	off   int // em-thousandths from the table's left edge
 	words []string
 	gaps  []int
 }
@@ -360,8 +364,8 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 			var tl *typeset.TableLayout
 			var err error
 			if t.sans {
-				tl, err = blk.Table.LayoutMeasured(
-					blk.TableWidth(width), pdf.Measure(pdf.Sans), int(emWidth*1000))
+				tl, err = blk.Table.LayoutMeasured(blk.TableWidth(width),
+					pdf.Measure(pdf.Sans), pdf.Measure(pdf.SansBold), runeUnits)
 			} else {
 				tl, err = blk.Table.Layout(blk.TableWidth(width))
 			}
@@ -384,14 +388,22 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				}
 				return lines
 			}
-			// The separator/total rule: a hairline spanning the
-			// table. The dash row is the text writer's rendering;
-			// every PDF presentation draws the real rule.
+			// The separator/total rule: per-column hairline segments
+			// mirroring the dash runs of the text writer's separator
+			// row — the dash form always carried the column
+			// structure; the segments keep it.
 			rule := func() sline {
-				return sline{style: styleRule, ruleW: len([]rune(tl.Sep))}
+				return sline{style: styleRule, ruleSegs: dashRuns(tl.Sep)}
 			}
 			if len(tl.Header) > 0 {
 				lines := toSlines(tl.Header)
+				// The header row is the table's labels: bold, and in
+				// sans documents set in the body face as positioned
+				// spans over blank-reserved grid space.
+				for i := range lines {
+					lines[i].style = styleBold
+				}
+				attachHeaderProse(lines, tl)
 				lines = append(lines, halfSlines(tl.HeaderNotes)...)
 				lines = append(lines, rule())
 				fb.segs = append(fb.segs, seg{lines: mark(lines)})
@@ -514,6 +526,26 @@ func composeItem(blk typeset.Block, t typo, width int) fblock {
 	return fb
 }
 
+// dashRuns parses the separator row's dash runs into [start,end)
+// rune intervals — one per column.
+func dashRuns(sep string) [][2]int {
+	var runs [][2]int
+	start := -1
+	for i, r := range []rune(sep) {
+		switch {
+		case r == '-' && start < 0:
+			start = i
+		case r != '-' && start >= 0:
+			runs = append(runs, [2]int{start, i})
+			start = -1
+		}
+	}
+	if start >= 0 {
+		runs = append(runs, [2]int{start, len([]rune(sep))})
+	}
+	return runs
+}
+
 func toSlines(lines []string) []sline {
 	out := make([]sline, len(lines))
 	for i, ln := range lines {
@@ -530,6 +562,11 @@ func halfSlines(lines []string) []sline {
 	return out
 }
 
+// runeUnits is the mono advance in em-thousandths: the conversion
+// between the table's rune grid and measurer units at the drawing
+// size.
+var runeUnits = int(emWidth * 1000)
+
 // attachProse hangs a row's measured P-cell lines (LayoutMeasured
 // only; RowProse is nil otherwise) onto the row's slines as
 // positioned sans spans at natural spacing.
@@ -544,7 +581,39 @@ func attachProse(rowLines []sline, tl *typeset.TableLayout, j int) {
 				break
 			}
 			rowLines[h].prose = append(rowLines[h].prose, proseSpan{
-				start: tl.ProseCols[k].Start,
+				off:   tl.ProseCols[k].Start * runeUnits,
+				words: ln.Words,
+				gaps:  spread(ln, 0, m, true),
+			})
+		}
+	}
+}
+
+// attachHeaderProse hangs the measured header labels onto the
+// header slines, honoring each column's alignment: N and R labels
+// right-align at the column's end, C centers, L and P sit at the
+// column start — so a numeric column's label hangs over its
+// numbers.
+func attachHeaderProse(headLines []sline, tl *typeset.TableLayout) {
+	if tl.HeaderProse == nil {
+		return
+	}
+	m := pdf.Measure(pdf.SansBold)
+	for c, lines := range tl.HeaderProse {
+		col := tl.Cols[c]
+		for h, ln := range lines {
+			if h >= len(headLines) {
+				break
+			}
+			off := col.Start * runeUnits
+			switch tl.Aligns[c] {
+			case 'N', 'R':
+				off = col.End*runeUnits - ln.Width
+			case 'C':
+				off = col.Start*runeUnits + ((col.End-col.Start)*runeUnits-ln.Width)/2
+			}
+			headLines[h].prose = append(headLines[h].prose, proseSpan{
+				off:   off,
 				words: ln.Words,
 				gaps:  spread(ln, 0, m, true),
 			})

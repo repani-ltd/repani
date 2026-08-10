@@ -158,15 +158,17 @@ The column spec is space-separated <width><align> tokens:
 	        documents and the text page it lays out exactly as L;
 	        in a sans document the PDF writers set the cell in the
 	        body face, ragged, wrapped at the column's measure —
-	        code columns stay mono, prose columns read as prose.
-	        The column's header cell stays mono (a label is data)
+	        code columns stay mono, prose columns read as prose
 
 Cells WRAP by default: overflow continues on following lines,
 other cells padded blank, and such a multi-line row is an atomic
 unit for column-splitting writers. Append "!" to a token to clip
 that column instead ("5L! 4R!"). Columns are joined by a single
-space; a header is followed by a separator rule (a dash row on the
-text page, a hairline in the PDFs). "|" always
+space. The header row is the table's labels: the PDF writers set
+it bold — in the body face under .font sans, honoring each
+column's alignment — over a separator rule drawn as one hairline
+segment per column (the text page keeps mono headers and its dash
+row, whose dash runs are the same segments). "|" always
 separates cells (there is no escape for a literal one), and cells
 beyond the spec's columns are dropped.
 

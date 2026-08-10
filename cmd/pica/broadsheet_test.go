@@ -248,8 +248,8 @@ func TestCompose_ProseCells(t *testing.T) {
 	found := 0
 	for _, ln := range row {
 		for _, sp := range ln.prose {
-			if sp.start != 7 {
-				t.Errorf("prose span start = %d, want 7", sp.start)
+			if sp.off != 7*runeUnits {
+				t.Errorf("prose span off = %d, want %d", sp.off, 7*runeUnits)
 			}
 			if len(sp.words) == 0 {
 				t.Error("empty prose span")
@@ -259,6 +259,16 @@ func TestCompose_ProseCells(t *testing.T) {
 		if strings.Contains(ln.text, "point") {
 			t.Errorf("prose content leaked into mono text: %q", ln.text)
 		}
+	}
+	// The header row is labels: bold, blanked on the grid, drawn as
+	// spans, over a per-column segmented rule.
+	head := segs[0].lines
+	if head[0].style != styleBold || len(head[0].prose) != 2 {
+		t.Errorf("header line: style=%v spans=%d, want bold with 2 spans", head[0].style, len(head[0].prose))
+	}
+	last := head[len(head)-1]
+	if last.style != styleRule || len(last.ruleSegs) != 2 {
+		t.Errorf("header rule: style=%v segs=%v, want rule with 2 segments", last.style, last.ruleSegs)
 	}
 	if found == 0 {
 		t.Fatal("no prose spans attached")

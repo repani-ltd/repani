@@ -32,14 +32,22 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 		}
 		switch {
 		case ln.style == styleRule:
-			w := colW
-			if ln.ruleW > 0 {
-				// Table rule: span the table's rune width on the
-				// mono grid, not the whole column.
-				w = float64(ln.ruleW) * emWidth * t.psMono
-			}
 			p.StrokeGray(0.3)
-			p.Line(x, y+t.ps*0.35, x+w, y+t.ps*0.35, 0.5)
+			ry := y + t.ps*0.35
+			if len(ln.ruleSegs) > 0 {
+				// Table rule: one hairline segment per column,
+				// mirroring the dash runs of the text separator.
+				adv := emWidth * t.psMono
+				for _, sg := range ln.ruleSegs {
+					p.Line(x+float64(sg[0])*adv, ry, x+float64(sg[1])*adv, ry, 0.5)
+				}
+			} else {
+				w := colW
+				if ln.ruleW > 0 {
+					w = float64(ln.ruleW) * emWidth * t.psMono
+				}
+				p.Line(x, ry, x+w, ry, 0.5)
+			}
 
 		case len(ln.words) > 0:
 			font := pdf.Sans
@@ -104,10 +112,10 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 						p.Text(sx, y, sp.tail)
 					}
 				}
-				// Prose cells: measured sans lines at the column's
-				// grid offset, ragged at natural spacing.
+				// Prose cells and header labels: measured sans lines
+				// at their column offsets, ragged at natural spacing.
 				for _, sp := range ln.prose {
-					p.Words(x+float64(sp.start)*adv, y, sp.words, sp.gaps)
+					p.Words(x+float64(sp.off)*ps/1000, y, sp.words, sp.gaps)
 				}
 			}
 		}

@@ -673,9 +673,17 @@ Parked, with triggers (the §4 discipline):
   the lines as positioned sans spans at the column's grid offset —
   the numSpan lift-off pattern generalized, with row heights
   correct by construction because LayoutMeasured owns them.
-  Headers stay mono (a label is data). The full proportional grid
-  (columns in points, no mono skeleton) remains rejected with the
-  original §3 rationale.
+  The full proportional grid (columns in points, no mono skeleton)
+  remains rejected with the original §3 rationale. Follow-up, same
+  day: the "headers stay mono (a label is data)" call was reversed
+  on review of real output — a label is NOT data, it is the
+  table's own furniture, read as a phrase rather than scanned as a
+  grid. The header row is now bold in the body face (SansBold /
+  Mono Bold), each label honoring its column's alignment (a
+  numeric column's label right-aligns over its numbers), and the
+  separator rule draws as one hairline segment per column —
+  restoring the column structure the text writer's dash runs
+  always carried and the single hairline had flattened.
 
 ## 8. Open questions
 
