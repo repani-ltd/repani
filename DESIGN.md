@@ -648,7 +648,12 @@ The identity, v1:
   characters per line, 1.35 beyond — the classic rule that longer
   lines need more air, and the fix for long-measure pages reading
   dense ("too bold"): perceived blackness is page color, and
-  leading is half of page color.
+  leading is half of page color. Parked second lever if density
+  still reads dark: swap the sans body weight from Fira Sans
+  Regular (a sturdy screen-first weight) to Fira Sans Book (the
+  family's continuous-reading weight; same OFL release, TTF must
+  be added to pdf/fonts). Note it reflows every sans document —
+  Book's advances differ — so judge on the leading first.
 - **Total rows** (core, small): a `.table` row prefixed `=` sets
   bold with a rule above, kept atomic with its rule. The plain-text
   writer renders the rule as a dash row. This is the one language
