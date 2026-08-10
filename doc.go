@@ -58,9 +58,14 @@ A document is UTF-8 text, structured by line:
 	                 second .attrib, or content after .attrib is
 	                 an error
 	.item TEXT       one bulleted list item: a bullet (U+2022),
-	                 then TEXT with continuation lines hanging 2
-	                 characters. Consecutive .item lines set tight
-	                 (no blank line between); items do not nest
+	                 then TEXT, rendered with turnover lines
+	                 hanging 2 characters. TEXT fills like a
+	                 paragraph: unmarked lines directly under the
+	                 command continue the item's text, and a blank
+	                 line or any marked line ends it — hard-wrapped
+	                 source means the same thing everywhere.
+	                 Consecutive .item lines set tight (no blank
+	                 line between); items do not nest
 	.by TEXT         byline and dateline metadata: rendered under
 	.date TEXT       the title as "by TEXT -- DATE" (whichever
 	                 parts are present; see Doc.Byline). Each may

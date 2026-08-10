@@ -405,6 +405,37 @@ func TestLangRemoved(t *testing.T) {
 	}
 }
 
+func TestItemFillsLikeProse(t *testing.T) {
+	// Unmarked lines directly under .item continue its text; a
+	// blank line, a marked line, or the next .item ends it. .rem
+	// is transparent, as it is for paragraphs.
+	src := "T\n\n" +
+		".item first item wraps\nonto a second source line\n" +
+		".item second item\n.rem invisible\nstill the second item\n\n" +
+		"a fresh paragraph\n\n" +
+		".item third\n# Heading\n"
+	d := mustParse(t, src)
+	want := []struct {
+		kind BlockKind
+		text string
+	}{
+		{Item, "first item wraps onto a second source line"},
+		{Item, "second item still the second item"},
+		{Para, "a fresh paragraph"},
+		{Item, "third"},
+		{Heading, "Heading"},
+	}
+	if len(d.Blocks) != len(want) {
+		t.Fatalf("blocks = %d, want %d: %+v", len(d.Blocks), len(want), d.Blocks)
+	}
+	for i, w := range want {
+		if d.Blocks[i].Kind != w.kind || d.Blocks[i].Text != w.text {
+			t.Errorf("block %d = kind %v %q, want kind %v %q",
+				i, d.Blocks[i].Kind, d.Blocks[i].Text, w.kind, w.text)
+		}
+	}
+}
+
 func TestTextQuoteItemByline(t *testing.T) {
 	// Explicit .width 40: the content is sized to wrap at that
 	// measure, independent of the language default.

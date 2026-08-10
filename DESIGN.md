@@ -137,6 +137,22 @@ surface regardless of how the bank-report demand develops — all
 three are semantic (a total, an attachment, a column data type),
 each with a text-writer rendering; none is a style command.
 
+### Items fill like prose (decided 2026-08-10)
+
+`.item` text was the one place an author had to manage source line
+length: its TEXT ended at the command's line, so hard-wrapping an
+item — legal and idiomatic for every paragraph — silently split it
+into an item plus an orphan paragraph. A real document (qcrf's
+SPEC.t, agent-authored with uniformly hard-wrapped source) hit
+exactly this, and `pica check` had nothing to say: silent
+structural corruption, the language's own named enemy. Now an
+item's text fills exactly as a paragraph does — the command's line
+plus following unmarked lines, ended by a blank line or any marked
+line (`.rem` transparent, as for paragraphs). The asymmetry is
+gone: hard-wrapped source means the same thing everywhere. Cost
+accepted: a paragraph can no longer directly follow an item
+without a blank line — an ambiguous pattern no real document used.
+
 ### The command-existence test (decided 2026-08-07)
 
 A dot-command earns core existence when all three hold:

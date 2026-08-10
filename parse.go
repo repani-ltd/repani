@@ -122,6 +122,7 @@ type parser struct {
 	doc      *Doc
 	para     []string // accumulating prose lines
 	blankRun bool     // a blank line precedes the next block
+	openItem bool     // the last block is an .item still filling
 	attrs    map[string]bool
 }
 
@@ -195,7 +196,15 @@ func Parse(src string) (*Doc, error) {
 		default:
 			// Everything unmarked is prose -- fill mode, as in
 			// troff. Aligned or preformatted content must say .pre;
-			// the parser never infers structure from spacing.
+			// the parser never infers structure from spacing. An
+			// unmarked line directly under an .item continues that
+			// item's text: items fill exactly as paragraphs do, so
+			// hard-wrapped source means the same thing everywhere.
+			if p.openItem {
+				last := &p.doc.Blocks[len(p.doc.Blocks)-1]
+				last.Text += " " + trimmed
+				continue
+			}
 			p.para = append(p.para, trimmed)
 		}
 	}
@@ -254,6 +263,7 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		}
 		p.flush()
 		p.add(Block{Kind: Item, Text: rest})
+		p.openItem = true
 		return i, nil
 
 	case ".pre":
@@ -410,10 +420,13 @@ func (p *parser) add(b Block) {
 	b.Tight = !p.blankRun
 	p.doc.Blocks = append(p.doc.Blocks, b)
 	p.blankRun = false
+	p.openItem = false
 }
 
-// flush closes the accumulating paragraph, if any.
+// flush closes the accumulating paragraph, if any, and ends any
+// still-filling item (a blank line or any marked line ends both).
 func (p *parser) flush() {
+	p.openItem = false
 	if len(p.para) > 0 {
 		p.add(Block{Kind: Para, Text: strings.Join(p.para, " ")})
 		p.para = nil
