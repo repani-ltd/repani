@@ -125,7 +125,9 @@ stdin) to a fixed-width text page, an N-column newspaper PDF, or a
 single-column report PDF (hairline table rules, page footer); html
 renders one document to a semantic <article> fragment, or, with
 -txtar, assembles a whole page from an archive: NAME.t is the
-document, page.tmpl the html/template, data.fact typed values,
+document (or NAME.t.tmpl, a text/template over data.fact that
+emits it -- pica render inline), page.tmpl the html/template,
+data.fact typed values,
 *.html and *.svg raw trusted fragments (see the html subcommand's
 source for the data the template sees). spec
 prints the language reference embedded in this binary; check parses

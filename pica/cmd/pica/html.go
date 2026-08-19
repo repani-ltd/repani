@@ -4,6 +4,10 @@
 //
 //	NAME.t      the document selected by -page NAME; rendered by the
 //	            writer and handed to the template as .Article
+//	NAME.t.tmpl the same, but first executed as a text/template
+//	            over data.fact (the language and functions of pica
+//	            render), so prose states each fact once; a page has
+//	            one of NAME.t and NAME.t.tmpl, never both
 //	page.tmpl   the Go html/template executed for the page
 //	data.fact   typed values under their keys (optional)
 //	*.html      raw trusted fragments under their stem (.mark for
@@ -22,6 +26,7 @@ import (
 	"fmt"
 	"html/template"
 	"strings"
+	texttemplate "text/template"
 
 	"repani.com/pica"
 )
@@ -90,13 +95,17 @@ func htmlPage(archive, page string) ([]byte, error) {
 		return nil, errors.New("txtar: empty archive")
 	}
 	var docSrc, tmplSrc string
-	haveDoc, haveTmpl := false, false
+	haveDoc, haveTmpl, docIsTmpl := false, false, false
 	var factSrc []byte
 	raw := map[string]template.HTML{}
 	for _, f := range files {
 		switch {
-		case f.name == page+".t":
+		case f.name == page+".t" || f.name == page+".t.tmpl":
+			if haveDoc {
+				return nil, fmt.Errorf("txtar: both %s.t and %s.t.tmpl present", page, page)
+			}
 			docSrc, haveDoc = f.data, true
+			docIsTmpl = f.name == page+".t.tmpl"
 		case f.name == "page.tmpl":
 			tmplSrc, haveTmpl = f.data, true
 		case f.name == "data.fact":
@@ -110,21 +119,37 @@ func htmlPage(archive, page string) ([]byte, error) {
 		}
 	}
 	if !haveDoc {
-		return nil, fmt.Errorf("txtar: no member %s.t", page)
+		return nil, fmt.Errorf("txtar: no member %s.t or %s.t.tmpl", page, page)
 	}
 	if !haveTmpl {
 		return nil, errors.New("txtar: no member page.tmpl")
 	}
-	doc, err := pica.Parse(docSrc)
-	if err != nil {
-		return nil, err
-	}
 	facts := map[string]any{}
+	var err error
 	if factSrc != nil {
 		facts, err = bindFacts(factSrc)
 		if err != nil {
 			return nil, fmt.Errorf("data.fact: %w", err)
 		}
+	}
+	if docIsTmpl {
+		// pica render, inline: text/template over the facts with
+		// render's functions, emitting pica source. One difference:
+		// a missing key is an error here, not a blank -- a page
+		// that states a fact the data does not hold must not ship.
+		t, err := texttemplate.New(page + ".t.tmpl").Option("missingkey=error").Funcs(funcMap()).Parse(docSrc)
+		if err != nil {
+			return nil, fmt.Errorf("%s.t.tmpl: %w", page, err)
+		}
+		var b strings.Builder
+		if err := t.Execute(&b, facts); err != nil {
+			return nil, fmt.Errorf("%s.t.tmpl: %w", page, err)
+		}
+		docSrc = b.String()
+	}
+	doc, err := pica.Parse(docSrc)
+	if err != nil {
+		return nil, err
 	}
 	tmpl, err := template.New("page.tmpl").Option("missingkey=zero").Funcs(funcMap()).Parse(tmplSrc)
 	if err != nil {
