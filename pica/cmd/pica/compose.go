@@ -130,7 +130,7 @@ type typo struct {
 // for the sans face, so .width means the same visual density in
 // both. This is THE size contract; every presentation derives
 // through it.
-func deriveTypo(doc *typeset.Doc, colW float64) (typo, error) {
+func deriveTypo(doc *pica.Doc, colW float64) (typo, error) {
 	width := doc.Layout.Width
 	sans := doc.Layout.Font == "sans"
 	psMono := colW / (emWidth * float64(width))
@@ -172,7 +172,7 @@ func leadingFor(width int) float64 {
 // way. A dash-final justified line targets units plus the hyphen
 // hang, mirroring the breaker, so the hyphen protrudes into the
 // margin and the flush edge stays optically straight.
-func spread(ln typeset.Line, units int, m pdf.Measurer, last bool) []int {
+func spread(ln pica.Line, units int, m pdf.Measurer, last bool) []int {
 	k := len(ln.Words) - 1
 	if k <= 0 {
 		return nil
@@ -184,7 +184,7 @@ func spread(ln typeset.Line, units int, m pdf.Measurer, last bool) []int {
 	}
 	slack := units - ln.Width
 	if !last && strings.HasSuffix(ln.Words[k], "-") {
-		slack += typeset.HangHyphen(m)
+		slack += pica.HangHyphen(m)
 	}
 	if last || slack == 0 {
 		return gaps
@@ -254,14 +254,14 @@ func (b fblock) height() int {
 // Proportional (sans) documents compose prose as measured word
 // lines; verbatim blocks and tables keep monospace layout in both
 // modes.
-func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
+func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 	width := doc.Layout.Width
 	var out []fblock
 	for bi := 0; bi < len(doc.Blocks); bi++ {
 		blk := doc.Blocks[bi]
-		if blk.Kind == typeset.Item {
-			run := []typeset.Block{blk}
-			for bi+1 < len(doc.Blocks) && doc.Blocks[bi+1].Kind == typeset.Item && doc.Blocks[bi+1].Tight {
+		if blk.Kind == pica.Item {
+			run := []pica.Block{blk}
+			for bi+1 < len(doc.Blocks) && doc.Blocks[bi+1].Kind == pica.Item && doc.Blocks[bi+1].Tight {
 				bi++
 				run = append(run, doc.Blocks[bi])
 			}
@@ -270,22 +270,22 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 		}
 		fb := fblock{tight: blk.Tight}
 		switch blk.Kind {
-		case typeset.Para:
+		case pica.Para:
 			if t.sans {
 				m := pdf.Measure(pdf.Sans)
-				lines := typeset.JustifyLines(blk.Text, t.units, m)
+				lines := pica.JustifyLines(blk.Text, t.units, m)
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, gaps: spread(ln, t.units, m, last)}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				for _, ln := range typeset.JustifyParagraph(blk.Text, width) {
+				for _, ln := range pica.JustifyParagraph(blk.Text, width) {
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: ln}}})
 				}
 			}
 
-		case typeset.Quote:
+		case pica.Quote:
 			// Inset two spaces on both sides; the attribution line is
 			// right-aligned to the quote's right margin. Mirrors the
 			// text writer's geometry (see typeset doc.go).
@@ -293,7 +293,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				m := pdf.Measure(pdf.Sans)
 				qi := 2 * m.Space()
 				measure := t.units - 2*qi
-				lines := typeset.JustifyLines(blk.Text, measure, m)
+				lines := pica.JustifyLines(blk.Text, measure, m)
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: qi}
@@ -306,7 +306,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				for _, ln := range typeset.JustifyParagraph(blk.Text, width-4) {
+				for _, ln := range pica.JustifyParagraph(blk.Text, width-4) {
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: "  " + ln}}})
 				}
 				if blk.Attrib != "" {
@@ -316,7 +316,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				}
 			}
 
-		case typeset.Heading:
+		case pica.Heading:
 			// "#" sections set at the display role, "##" subsections
 			// at the heading role: larger glyphs on taller slots of
 			// the same half-line grid, so the hierarchy reads without
@@ -332,7 +332,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 					measure = t.units * 5 / 6
 				}
 				m := pdf.Measure(pdf.SansBold)
-				for _, ln := range typeset.WrapLines(blk.Text, measure, m) {
+				for _, ln := range pica.WrapLines(blk.Text, measure, m) {
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true), style: styleBold, role: role}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
@@ -346,11 +346,11 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 			fb.keepNext = true // flow guards the no-next-block case
 			fb.atomic = true
 
-		case typeset.RuleBlk:
+		case pica.RuleBlk:
 			fb.segs = []seg{{lines: []sline{{style: styleRule}}}}
 			fb.atomic = true
 
-		case typeset.LinkBlk:
+		case pica.LinkBlk:
 			url, title, _ := strings.Cut(blk.Text, " ")
 			label := title
 			if label == "" {
@@ -368,12 +368,12 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 			}
 			fb.atomic = true
 
-		case typeset.TableBlk:
+		case pica.TableBlk:
 			// Sans documents measure P (prose) cells with the sans
 			// measurer at the column's mono measure (rune width x
 			// the mono advance in em-thousandths); mono documents
 			// lay P out as L.
-			var tl *typeset.TableLayout
+			var tl *pica.TableLayout
 			var err error
 			if t.sans {
 				tl, err = blk.Table.LayoutMeasured(blk.TableWidth(width),
@@ -455,7 +455,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 				fb.segs = append(fb.segs, seg{lines: mark(lines)})
 			}
 
-		case typeset.Pre:
+		case pica.Pre:
 			lines := make([]sline, len(blk.Lines))
 			for j, ln := range blk.Lines {
 				lines[j] = sline{text: trunc(ln, width)}
@@ -489,7 +489,7 @@ func compose(doc *typeset.Doc, t typo) ([]fblock, error) {
 // invisible half-line at a column bottom) and a column can never
 // open with a stranded gap. The text writer has no half-line and
 // keeps every run tight.
-func composeItems(run []typeset.Block, t typo, width int) []fblock {
+func composeItems(run []pica.Block, t typo, width int) []fblock {
 	fbs := make([]fblock, len(run))
 	wrapped := false
 	for i, blk := range run {
@@ -509,13 +509,13 @@ func composeItems(run []typeset.Block, t typo, width int) []fblock {
 
 // composeItem renders one bulleted item: a bullet, then the text
 // with a hanging indent for continuation lines.
-func composeItem(blk typeset.Block, t typo, width int) fblock {
+func composeItem(blk pica.Block, t typo, width int) fblock {
 	fb := fblock{tight: blk.Tight}
 	if t.sans {
 		m := pdf.Measure(pdf.Sans)
 		ii := m.Width(bullet) + m.Space()
 		measure := t.units - ii
-		lines := typeset.JustifyLines(blk.Text, measure, m)
+		lines := pica.JustifyLines(blk.Text, measure, m)
 		for i, ln := range lines {
 			last := i == len(lines)-1
 			sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: ii}
@@ -527,7 +527,7 @@ func composeItem(blk typeset.Block, t typo, width int) fblock {
 			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 		}
 	} else {
-		for i, ln := range typeset.JustifyParagraph(blk.Text, width-2) {
+		for i, ln := range pica.JustifyParagraph(blk.Text, width-2) {
 			pre := "  "
 			if i == 0 {
 				pre = bullet + " "
@@ -582,7 +582,7 @@ var runeUnits = int(emWidth * 1000)
 // attachProse hangs a row's measured P-cell lines (LayoutMeasured
 // only; RowProse is nil otherwise) onto the row's slines as
 // positioned sans spans at natural spacing.
-func attachProse(rowLines []sline, tl *typeset.TableLayout, j int) {
+func attachProse(rowLines []sline, tl *pica.TableLayout, j int) {
 	if j >= len(tl.RowProse) || tl.RowProse[j] == nil {
 		return
 	}
@@ -606,7 +606,7 @@ func attachProse(rowLines []sline, tl *typeset.TableLayout, j int) {
 // right-align at the column's end, C centers, L and P sit at the
 // column start — so a numeric column's label hangs over its
 // numbers.
-func attachHeaderProse(headLines []sline, tl *typeset.TableLayout) {
+func attachHeaderProse(headLines []sline, tl *pica.TableLayout) {
 	if tl.HeaderProse == nil {
 		return
 	}
@@ -636,7 +636,7 @@ func attachHeaderProse(headLines []sline, tl *typeset.TableLayout) {
 // extractNums lifts a line's numeric N-column cells into spans and
 // blanks them out of the mono text. Trailing trim may have shortened
 // the line into or before a cell; the slice below clamps for that.
-func extractNums(ln sline, cols []typeset.NumCol) sline {
+func extractNums(ln sline, cols []pica.NumCol) sline {
 	r := []rune(ln.text)
 	for _, c := range cols {
 		if c.Start >= len(r) {
@@ -644,7 +644,7 @@ func extractNums(ln sline, cols []typeset.NumCol) sline {
 		}
 		end := min(c.End, len(r))
 		raw := strings.TrimSpace(string(r[c.Start:end]))
-		intPart, tail, ok := typeset.SplitNumeric(raw)
+		intPart, tail, ok := pica.SplitNumeric(raw)
 		if !ok {
 			continue
 		}
@@ -659,9 +659,9 @@ func extractNums(ln sline, cols []typeset.NumCol) sline {
 	return ln
 }
 
-// lineFor assembles a typeset.Line from words at natural spacing
+// lineFor assembles a pica.Line from words at natural spacing
 // under the measurer (the attribution line is never justified).
-func lineFor(words []string, m pdf.Measurer) typeset.Line {
+func lineFor(words []string, m pdf.Measurer) pica.Line {
 	w := 0
 	for i, s := range words {
 		if i > 0 {
@@ -669,5 +669,5 @@ func lineFor(words []string, m pdf.Measurer) typeset.Line {
 		}
 		w += m.Width(s)
 	}
-	return typeset.Line{Words: words, Width: w}
+	return pica.Line{Words: words, Width: w}
 }

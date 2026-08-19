@@ -16,7 +16,7 @@ import (
 func TestOfficialExamples(t *testing.T) {
 	cases := []struct {
 		name, src, golden string
-		render            func(*typeset.Doc) ([]byte, error)
+		render            func(*pica.Doc) ([]byte, error)
 	}{
 		{"triptych", "../../example/triptych.t", "../../example/triptych.txt", broadsheet},
 		{"statement", "../../example/statement.t", "../../example/statement.txt", report},
@@ -27,7 +27,7 @@ func TestOfficialExamples(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			doc, err := typeset.Parse(string(src))
+			doc, err := pica.Parse(string(src))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -87,7 +87,7 @@ func renderExample(t *testing.T) string {
 	if err := tmpl.Execute(&buf, data); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := typeset.Parse(buf.String())
+	doc, err := pica.Parse(buf.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestExamplePDF(t *testing.T) {
 	if err := tmpl.Execute(&buf, data); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := typeset.Parse(buf.String())
+	doc, err := pica.Parse(buf.String())
 	if err != nil {
 		t.Fatal(err)
 	}

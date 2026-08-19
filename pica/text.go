@@ -2,7 +2,7 @@
 // the document describes. Its typographic identity is fixed:
 // ragged-right paragraphs, verbatim blocks truncated at width,
 // layout commands consumed. See doc.go.
-package typeset
+package pica
 
 import (
 	"fmt"

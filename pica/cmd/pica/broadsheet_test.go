@@ -133,7 +133,7 @@ func TestExtractNums(t *testing.T) {
 	// Grid: "Alpha      1,234.56 " — N column at [10,20), frac 3,
 	// paren slot. The cell content lifts into a span anchored at
 	// SepIndex and the mono text is blanked behind it.
-	cols := []typeset.NumCol{{Start: 10, End: 20, Frac: 3, Paren: true}}
+	cols := []pica.NumCol{{Start: 10, End: 20, Frac: 3, Paren: true}}
 
 	ln := extractNums(sline{text: "Alpha       1,234.56"}, cols)
 	if len(ln.nums) != 1 {
@@ -165,7 +165,7 @@ func TestCompose_EvenRowPitch(t *testing.T) {
 	// same 3-unit pitch; the total row stays unpadded under its
 	// rule.
 	src := "T\n\n.table 6L 5N\nClient | Amt\nAlpha | 1.00\n.. custody |\nBeta | 2.00\n= Total | 3.00\n.end\n\n.width 30\n"
-	doc, err := typeset.Parse(src)
+	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestCompose_EvenRowPitch(t *testing.T) {
 	// A wrapping note switches the table back to variable heights:
 	// no padding anywhere.
 	src = "T\n\n.table 6L 5N\nClient | Amt\nAlpha | 1.00\n.. a very long custody annotation that wraps |\nBeta | 2.00\n.end\n\n.width 30\n"
-	doc, err = typeset.Parse(src)
+	doc, err = pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestCompose_ProseCells(t *testing.T) {
 	// row's slines as positioned spans at the column's grid offset,
 	// and the mono text reserves the space blank.
 	src := "T\n\n.table 6L *P\nkey | meaning\nem | the point size squared, the unit of horizontal measure\n.end\n\n.width 30\n.font sans\n"
-	doc, err := typeset.Parse(src)
+	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestCompose_ItemRunGaps(t *testing.T) {
 	// every item but the last, glued into each item's final seg; an
 	// all single-line run stays tight.
 	src := "T\n\n.item alpha\n.item a rather long item that certainly wraps here\n.item omega\n\n.item one\n.item two\n\n.width 20\n"
-	doc, err := typeset.Parse(src)
+	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestCompose_HeadingRoles(t *testing.T) {
 	// "#" composes at the display role (4 units), "##" at the
 	// heading role (3 units), in both font modes.
 	src := "T\n\n# Section\n\nprose\n\n## Subsection\n\nmore\n\n.width 30\n"
-	doc, err := typeset.Parse(src)
+	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestBroadsheetEndToEnd(t *testing.T) {
 	}
 	b.WriteString(".table 6L *L 4R\nDay | Conditions | Temp\nMon | Sunny with a strengthening westerly breeze | 25\nTue | Cloudy | 22\n.end\n")
 
-	doc, err := typeset.Parse(b.String())
+	doc, err := pica.Parse(b.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +475,7 @@ func TestBroadsheetEndToEnd(t *testing.T) {
 
 func TestBroadsheet_DerivedSizeFloor(t *testing.T) {
 	src := "T\n\nbody text here\n\n.paper a5\n.cols 4\n"
-	doc, err := typeset.Parse(src)
+	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +521,7 @@ func TestSpread_NegativeSlackCompressesGaps(t *testing.T) {
 	for _, w := range words {
 		wsum += m.Width(w)
 	}
-	ln := typeset.Line{Words: words, Width: wsum + 2*m.Space()}
+	ln := pica.Line{Words: words, Width: wsum + 2*m.Space()}
 	units := ln.Width - 100 // wrap width 100 units narrower than natural
 	gaps := spread(ln, units, m, false)
 	total := wsum
@@ -554,9 +554,9 @@ func TestSpread_DashFinalLineHangsHyphen(t *testing.T) {
 	for _, w := range words {
 		wsum += m.Width(w)
 	}
-	ln := typeset.Line{Words: words, Width: wsum + 2*m.Space()}
+	ln := pica.Line{Words: words, Width: wsum + 2*m.Space()}
 	units := ln.Width // pretend the line naturally fills the width
-	hang := typeset.HangHyphen(m)
+	hang := pica.HangHyphen(m)
 	if hang <= 0 {
 		t.Fatal("sans hyphen hang should be positive")
 	}
@@ -581,7 +581,7 @@ func TestBroadsheet_Sans(t *testing.T) {
 	src := "The Daily Fable\n\n# Weather\n\n" +
 		strings.Repeat("The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow. ", 6) +
 		"\n\n.table 10L 6R\nCity | Temp\nAthens | 31\nNicosia | 34\n.end\n\n.link https://example.com Example\n\n.width 40\n.cols 2\n.font sans\n"
-	doc, err := typeset.Parse(src)
+	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +610,7 @@ func TestBroadsheet_NewBlocks(t *testing.T) {
 		".item first item that runs long enough to wrap onto another line for sure\n.item second item\n\n" +
 		strings.Repeat("Plain prose follows the list and fills the columns evenly. ", 4) + "\n"
 	for _, trailer := range []string{"\n.width 40\n.cols 2\n", "\n.width 40\n.cols 2\n.font sans\n"} {
-		doc, err := typeset.Parse("The Daily Fable" + body + trailer)
+		doc, err := pica.Parse("The Daily Fable" + body + trailer)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -174,7 +174,7 @@ func textCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "pica text: %v\n", err)
 		return 1
 	}
-	doc, err := typeset.Parse(string(src))
+	doc, err := pica.Parse(string(src))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica text: %v\n", err)
 		return 1

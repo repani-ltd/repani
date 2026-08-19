@@ -1,6 +1,6 @@
 // The spec and check subcommands: the two oracles that make
 // reading the typeset source unnecessary. spec prints the language
-// reference embedded in this binary (typeset.Spec — doc.go's
+// reference embedded in this binary (pica.Spec — doc.go's
 // package comment, so it cannot drift from the parser); check
 // parses a document and reports its errors without rendering.
 package main
@@ -21,7 +21,7 @@ func specCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, "pica spec: takes no input (the spec ships in the binary)")
 		return 1
 	}
-	return writeOutput(*out, []byte(typeset.Spec()))
+	return writeOutput(*out, []byte(pica.Spec()))
 }
 
 func checkCmd(args []string) int {
@@ -36,7 +36,7 @@ func checkCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "pica check: %v\n", err)
 		return 1
 	}
-	if _, err := typeset.Parse(string(src)); err != nil {
+	if _, err := pica.Parse(string(src)); err != nil {
 		fmt.Fprintf(os.Stderr, "pica check: %v\n", err)
 		return 1
 	}

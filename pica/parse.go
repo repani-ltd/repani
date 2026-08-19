@@ -1,6 +1,6 @@
 // Parse: source text -> Doc, the typed block model consumed by the
 // writers. The language is specified in doc.go.
-package typeset
+package pica
 
 import (
 	"errors"

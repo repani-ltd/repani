@@ -51,7 +51,7 @@ func pdfCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "pica pdf: %v\n", err)
 		return 1
 	}
-	doc, err := typeset.Parse(string(src))
+	doc, err := pica.Parse(string(src))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica pdf: %v\n", err)
 		return 1
@@ -81,7 +81,7 @@ func paperSize(paper string) pdf.PageSize {
 }
 
 // broadsheet renders a parsed document as the newspaper PDF.
-func broadsheet(doc *typeset.Doc) ([]byte, error) {
+func broadsheet(doc *pica.Doc) ([]byte, error) {
 	ncols := doc.Layout.Cols
 	size := paperSize(doc.Layout.Paper)
 	pageW, pageH := size.Dimensions()

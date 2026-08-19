@@ -1,4 +1,4 @@
-package typeset
+package pica
 
 import (
 	"strings"

@@ -9,7 +9,7 @@
 // The cost constants are calibrated in characters squared, so every
 // slack-derived cost is normalized by the measurer's space width
 // before it meets them.
-package typeset
+package pica
 
 import (
 	"fmt"

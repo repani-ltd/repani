@@ -1,6 +1,6 @@
 // Table renderer: wrapped cells by default, "!" clips a column.
 // Spec syntax and rendering rules live in doc.go.
-package typeset
+package pica
 
 import (
 	"errors"

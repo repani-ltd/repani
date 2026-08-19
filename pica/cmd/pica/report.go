@@ -31,7 +31,7 @@ func reportCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "pica report: %v\n", err)
 		return 1
 	}
-	doc, err := typeset.Parse(string(src))
+	doc, err := pica.Parse(string(src))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pica report: %v\n", err)
 		return 1
@@ -45,7 +45,7 @@ func reportCmd(args []string) int {
 }
 
 // report renders a parsed document as the report PDF.
-func report(doc *typeset.Doc) ([]byte, error) {
+func report(doc *pica.Doc) ([]byte, error) {
 	size := paperSize(doc.Layout.Paper)
 	pageW, pageH := size.Dimensions()
 	colW := pageW - 2*reportMargin

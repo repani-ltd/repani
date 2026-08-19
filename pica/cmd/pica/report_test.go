@@ -26,7 +26,7 @@ func TestReport_Smoke(t *testing.T) {
 		".width 78",
 	}, "\n") + "\n"
 
-	doc, err := typeset.Parse(src)
+	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}

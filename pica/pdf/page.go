@@ -180,7 +180,7 @@ func widthUnits(s string, f *ttf.TTFont) int {
 }
 
 // Measurer reports text widths for one font in thousandths of an
-// em, independent of point size. It satisfies typeset.Measurer
+// em, independent of point size. It satisfies pica.Measurer
 // structurally, connecting the line breakers to real font metrics.
 type Measurer struct{ f *ttf.TTFont }
 

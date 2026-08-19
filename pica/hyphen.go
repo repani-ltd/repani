@@ -1,7 +1,7 @@
 // Knuth-Liang hyphenation. TeX pattern files for English and
 // Greek are embedded at compile time. Algorithm summary lives
 // in doc.go.
-package typeset
+package pica
 
 import (
 	_ "embed"

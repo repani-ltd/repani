@@ -1,5 +1,5 @@
 /*
-Package typeset parses a minimal, troff-inspired source language
+Package pica parses a minimal, troff-inspired source language
 into a typed document and renders it through width-disciplined
 writers: a plain-text writer (Doc.Text) for fixed-width monospace
 pages, and -- via the block model -- richer writers such as the
@@ -244,4 +244,4 @@ third heading level (two, permanently), no block nesting, no
 page-control commands in content, and no round-tripping: rendered
 output is a final artifact, not re-parseable source.
 */
-package typeset
+package pica
