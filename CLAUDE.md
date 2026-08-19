@@ -19,7 +19,13 @@ was deleted on 2026-07-21 as dead code while quietcasting-go's qcpub
 depended on it, and that tool silently stopped building for a month.
 Conversely, nothing in kv is a general primitive: vault types,
 client, server and wire are ASCON-KV protocol surface and stay here;
-primitives (ascon, golay, lz4s) live in the public module.
+primitives (ascon, golay, lz4s) live in the public module. `store`
+included (assessed 2026-08-19): its item identity (`Entry.ID`, a
+domain-separated XOF), order (canonical `(TsMs, EntryID)`), set hash
+and on-disk record are all PROTOCOL.txt definitions, so it is the
+protocol's entry set with durability, not a generic log. Extracting a
+generic `logset` primitive only makes sense when a second protocol
+needs one -- two consumers shape the interface, one does not.
 
 ## Build and test
 
