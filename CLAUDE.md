@@ -3,8 +3,10 @@
 ASCON-KV: append-only key-value vault store with client, server, and wire
 protocol. See PROTOCOL.txt and CLIENT.txt for the protocol and client specs.
 
-The Ascon primitives (XOF128, AEAD128) live in the sibling module
-`../prim` (`repani.com/prim/ascon`, local `replace` in go.mod).
+The Ascon primitives (XOF128, AEAD128) come from the public module
+`repani.com` (`repani.com/prim/ascon`, checkout `../../repani`);
+the workspace `go.work` at the repo root supplies it, so go.mod
+carries no replace or require for it.
 
 ## Build and test
 
@@ -66,11 +68,11 @@ Rules:
 - Read the pkg.fact diff as the impact report of your edit.
 - pkg.fact travels in your commit automatically: the git pre-commit hook
   regenerates and stages it for packages with staged `.go` changes
-  (per-clone; reinstall from `../flat/docs/pre-commit` after a fresh
-  clone).
+  (per-clone; reinstall at the repo root from
+  `../repani/fact/docs/pre-commit` after a fresh clone).
 - Manual fallback when hooks are missing or report errors:
   `fact project -w <pkg-dir>` regenerates, `fact project -check <pkg-dir>`
-  verifies freshness (`fact` is built from the sibling `../flat` repo:
-  `go install ./cmd/fact`).
+  verifies freshness (`fact` is built from the public repo:
+  `cd ../repani && GOBIN=~/bin go install ./fact/cmd/fact`).
 - If pkg.fact and source seem to disagree, the projection is stale: trust
   the source, then regenerate.
