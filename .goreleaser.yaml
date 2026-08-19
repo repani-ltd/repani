@@ -37,7 +37,13 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
-    files: [LICENSE, NOTICE, pica/README.md, pica/pdf/fonts/OFL.txt]
+    files:
+      - LICENSE
+      - NOTICE
+      - src: pica/README.md
+        dst: README.md
+      - src: pica/pdf/fonts/OFL.txt
+        dst: OFL.txt
   - id: fact
     ids: [fact]
     name_template: "fact_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -45,7 +51,11 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
-    files: [LICENSE, NOTICE, fact/SPEC.t]
+    files:
+      - LICENSE
+      - NOTICE
+      - src: fact/SPEC.t
+        dst: SPEC.t
 
 checksum:
   name_template: "checksums.txt"
