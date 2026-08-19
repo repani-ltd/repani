@@ -33,3 +33,9 @@ known-answer or round-trip tests; the tests are the contract.
 - Documentation in pica: `pica spec`, `pica check FILE.t` (see
   `~/repos/CLAUDE.md`).
 - Build and test the whole module: `go build ./... && go test ./...`.
+- Versions are annotated git tags `vMAJOR.MINOR.PATCH` on `main`,
+  one series for the whole module; v0.x while the API moves (MINOR
+  = API change, PATCH = fix/docs), v1.0.0 = frozen surface, and a
+  breaking successor is a new module path, never `/v2`. Procedure
+  and history: `repani-private/ops/runbooks.t`, "Publish a module
+  version".
