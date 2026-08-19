@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pavlos/kv/vault"
+	"repani.com/kv/vault"
 )
 
 // On-disk log format:

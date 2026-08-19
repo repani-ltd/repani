@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
+	"repani.com/kv/vault"
+	"repani.com/kv/wire"
 )
 
 func nowMs() uint64 { return uint64(time.Now().UnixMilli()) }

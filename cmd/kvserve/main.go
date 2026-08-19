@@ -33,8 +33,8 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
-	"github.com/pavlos/kv/server"
-	"github.com/pavlos/kv/vault"
+	"repani.com/kv/server"
+	"repani.com/kv/vault"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module github.com/pavlos/kv
+module repani.com/kv
 
 go 1.25.0
 
@@ -12,3 +12,7 @@ require (
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 )
+
+require repani.com/prim v0.0.0
+
+replace repani.com/prim => ../prim

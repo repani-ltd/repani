@@ -3,7 +3,7 @@
 // exposes a canonical-order view and a set hash; see PROTOCOL.txt.
 package store
 
-import "github.com/pavlos/kv/vault"
+import "repani.com/kv/vault"
 
 // Store is the contract both the client and the server depend on.
 // Implementations must be safe for concurrent use.

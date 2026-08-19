@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pavlos/kv/vault"
+	"repani.com/kv/vault"
 )
 
 func mkEntry(t *testing.T, rk vault.RootKey, ts uint64, key, value string) vault.Entry {

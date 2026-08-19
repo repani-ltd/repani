@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"sort"
 
-	"github.com/pavlos/kv/ascon"
+	"repani.com/prim/ascon"
 )
 
 // SortCanonical sorts entries in place by (TsMs asc, EntryID asc),

@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
+	"repani.com/kv/vault"
+	"repani.com/kv/wire"
 )
 
 // Sentinel errors for the owner API.

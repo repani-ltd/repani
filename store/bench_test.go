@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pavlos/kv/vault"
+	"repani.com/kv/vault"
 )
 
 // benchEntries returns n distinct sealed entries of realistic size.

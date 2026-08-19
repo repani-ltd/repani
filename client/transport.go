@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pavlos/kv/wire"
+	"repani.com/kv/wire"
 )
 
 // ErrNoBaseURL reports an HTTPTransport constructed without a server

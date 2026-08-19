@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pavlos/kv/server"
-	"github.com/pavlos/kv/store"
-	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
+	"repani.com/kv/server"
+	"repani.com/kv/store"
+	"repani.com/kv/vault"
+	"repani.com/kv/wire"
 )
 
 var testRegKey = vault.RegisterKey{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
+	"repani.com/kv/vault"
+	"repani.com/kv/wire"
 )
 
 // ownerServer returns a registration-disabled server and a harness for

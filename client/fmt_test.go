@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/pavlos/kv/store"
-	"github.com/pavlos/kv/vault"
+	"repani.com/kv/store"
+	"repani.com/kv/vault"
 )
 
 // TestPutFmtRoundTrip checks that a format tag written with PutFmt

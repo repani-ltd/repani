@@ -46,10 +46,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/pavlos/kv/client"
-	"github.com/pavlos/kv/store"
-	"github.com/pavlos/kv/vault"
 	"golang.org/x/term"
+	"repani.com/kv/client"
+	"repani.com/kv/store"
+	"repani.com/kv/vault"
 )
 
 const defaultHTTPTimeout = 60 * time.Second

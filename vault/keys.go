@@ -7,7 +7,7 @@ import (
 	"crypto/rand"
 	"errors"
 
-	"github.com/pavlos/kv/ascon"
+	"repani.com/prim/ascon"
 )
 
 // Sizes. RootKey is 20 bytes (160 bits): comfortably above the

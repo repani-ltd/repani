@@ -19,5 +19,5 @@ func:runSingle.calls: list(str) = ["awaitShutdown", "http.Server.ListenAndServe"
 func:runSingle.exported: bool = false
 func:runSingle.file: str = "main.go"
 func:runSingle.sig: str = "func(h http.Handler, addr string, certFile string, keyFile string, rto time.Duration, wto time.Duration, ito time.Duration, grace time.Duration, stop chan os.Signal, data string, maxVaults uint64)"
-imports: list(str) = ["context", "crypto/tls", "errors", "flag", "fmt", "github.com/pavlos/kv/server", "github.com/pavlos/kv/vault", "golang.org/x/crypto/acme/autocert", "log", "net/http", "os", "os/signal", "syscall", "time"]
-pkg.path: str = "github.com/pavlos/kv/cmd/kvserve"
+imports: list(str) = ["context", "crypto/tls", "errors", "flag", "fmt", "golang.org/x/crypto/acme/autocert", "log", "net/http", "os", "os/signal", "repani.com/kv/server", "repani.com/kv/vault", "syscall", "time"]
+pkg.path: str = "repani.com/kv/cmd/kvserve"

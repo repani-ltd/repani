@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pavlos/kv/ascon"
-	"github.com/pavlos/kv/store"
-	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
+	"repani.com/kv/store"
+	"repani.com/kv/vault"
+	"repani.com/kv/wire"
+	"repani.com/prim/ascon"
 )
 
 // fmtRaw is the value-encoding tag for a verbatim value (CLIENT.txt).

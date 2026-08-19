@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pavlos/kv/store"
-	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
+	"repani.com/kv/store"
+	"repani.com/kv/vault"
+	"repani.com/kv/wire"
 )
 
 // Quotas configure per-vault limits.

@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pavlos/kv/vault"
+	"repani.com/kv/vault"
 )
 
 const (

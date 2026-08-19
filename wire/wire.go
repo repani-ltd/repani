@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pavlos/kv/ascon"
-	"github.com/pavlos/kv/vault"
+	"repani.com/kv/vault"
+	"repani.com/prim/ascon"
 )
 
 // Version is the frame version byte.

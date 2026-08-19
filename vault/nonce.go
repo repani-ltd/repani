@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/pavlos/kv/ascon"
+	"repani.com/prim/ascon"
 )
 
 // hedgedNonce derives a 16-byte nonce from a domain, optional context,

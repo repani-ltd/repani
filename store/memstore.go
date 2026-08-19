@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/pavlos/kv/vault"
+	"repani.com/kv/vault"
 )
 
 // MemStore is an in-memory Store backed by a map plus a lazily

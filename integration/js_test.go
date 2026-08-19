@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pavlos/kv/ascon"
-	"github.com/pavlos/kv/vault"
-	"github.com/pavlos/kv/wire"
+	"repani.com/kv/vault"
+	"repani.com/kv/wire"
+	"repani.com/prim/ascon"
 )
 
 // jsVectors builds the cross-implementation vector set consumed by
@@ -42,13 +42,13 @@ func jsVectors(t *testing.T) map[string]any {
 	reg := vault.DeriveRegKey(regk)
 
 	out := map[string]any{
-		"rootKey":     h(rk[:]),
-		"registerKey": h(regk[:]),
-		"aeadKey":     h(aeadKey[:]),
-		"vaultID":     h(vid[:]),
-		"authKey":     h(ak[:]),
-		"c2s":         h(c2s[:]),
-		"s2c":         h(s2c[:]),
+		"rootKey":         h(rk[:]),
+		"registerKey":     h(regk[:]),
+		"aeadKey":         h(aeadKey[:]),
+		"vaultID":         h(vid[:]),
+		"authKey":         h(ak[:]),
+		"c2s":             h(c2s[:]),
+		"s2c":             h(s2c[:]),
 		"reg":             h(reg[:]),
 		"rootKeyBlob":     vault.EncodeRootKey(rk),
 		"registerKeyBlob": vault.EncodeRegisterKey(regk),
