@@ -30,8 +30,8 @@ func TestHTMLPage(t *testing.T) {
 	s := string(out)
 	for _, want := range []string{
 		"<title>Hello &amp; welcome · Repani &lt;Ltd&gt;</title>", // escaped in context
-		`<header><svg><circle r="1"/></svg> index w60</header>`,    // raw member trusted
-		"<article>\n<h1>Hello &amp; welcome</h1>",                   // article trusted, its own escaping kept
+		`<header><svg><circle r="1"/></svg> index w60</header>`,   // raw member trusted
+		"<article>\n<h1>Hello &amp; welcome</h1>",                 // article trusted, its own escaping kept
 		"<footer>(c) R</footer>",
 	} {
 		if !strings.Contains(s, want) {
