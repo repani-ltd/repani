@@ -18,6 +18,9 @@ always produces the same output.
 A document is UTF-8 text, structured by line:
 
 	TITLE            the first non-blank line is the title, no prefix
+	                 (only .rem comments may precede it; any other
+	                 command in title position is an error, never a
+	                 title)
 	prose            consecutive plain lines form one paragraph;
 	                 a blank line ends it; the writer wraps it.
 	                 EVERY unmarked line is prose (fill mode, as in
@@ -89,7 +92,13 @@ command (dot followed by a lowercase letter; ". " and ".." begin
 ordinary text) but is not in the registry is a parse error. The
 lexing rule matches the wire's, with one authoring-side tolerance:
 leading whitespace is ignored here, while the wire lexes at
-column 0.
+column 0. The command word ends at the first space or tab, and
+runs of either separate it from its argument. Line endings may
+be LF or CRLF; the CR is never content, not even inside .pre.
+
+Parse also lays every table out against the document width, so
+a table whose columns cannot fit is a parse error (with its
+line): a document Parse accepts, every writer renders.
 
 Every command is part of the typesetting language: Parse types each
 into a Doc block, and each writer decides that block's rendering in
@@ -204,6 +213,9 @@ monospace grid), and a line-final hyphen hangs 70% of its width
 into the right margin so the flush edge stays optically straight.
 A word wider than the measure is hyphenated at whatever point
 fits; only a fragment with no valid break overflows the line.
+An explicit hyphen in a compound is a break point after the
+hyphen (after the last of a run), never before it, and never
+leaving fewer than two letters on either side.
 WrapLines and JustifyLines are the measured structured
 primitives; JustifyParagraph is the monospace paragraph-level
 convenience for writers holding parsed Para blocks -- exactly

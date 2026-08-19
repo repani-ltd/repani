@@ -603,3 +603,61 @@ func TestItemGeometry(t *testing.T) {
 		t.Errorf("runeLen(Bullet+\" \") = %d, want ItemIndent %d", runeLen(Bullet+" "), ItemIndent)
 	}
 }
+
+func TestRemMayPrecedeTitle(t *testing.T) {
+	doc, err := Parse(".rem draft\n\nT\n\nBody.\n")
+	if err != nil || doc.Title != "T" {
+		t.Fatalf("Parse: title=%q err=%v", doc.Title, err)
+	}
+}
+
+func TestCRLFSource(t *testing.T) {
+	doc, err := Parse("T\r\n\r\n.pre\r\nabc\r\n.end\r\n\r\npara\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Blocks[0].Lines[0] != "abc" {
+		t.Fatalf(".pre line kept CR: %q", doc.Blocks[0].Lines[0])
+	}
+	if doc.Blocks[1].Text != "para" {
+		t.Fatalf("para = %q", doc.Blocks[1].Text)
+	}
+}
+
+func TestTabAfterCommandWord(t *testing.T) {
+	doc, err := Parse("T\n\n.item\tfoo\n.item  \t bar\n")
+	if err != nil || len(doc.Blocks) != 2 || doc.Blocks[0].Text != "foo" || doc.Blocks[1].Text != "bar" {
+		t.Fatalf("Parse: %+v err=%v", doc.Blocks, err)
+	}
+}
+
+func TestTableHeaderlessMarkerSpacing(t *testing.T) {
+	for _, src := range []string{"T\n\n.table 40 - 5L\n1\n.end\n", "T\n\n.table 40  -  5L\n1\n.end\n", "T\n\n.table\t- 5L\n1\n.end\n"} {
+		if _, err := Parse(src); err != nil {
+			t.Errorf("Parse(%q): %v", src, err)
+		}
+	}
+}
+
+func TestTableLayoutErrorAtParse(t *testing.T) {
+	// A table that cannot fit the document width is a parse error
+	// (so pica check rejects it), with the .table line number.
+	_, err := Parse("T\n\n.table 50L 50L\na|b\nc|d\n.end\n")
+	if err == nil || !errors.Is(err, ErrTableOverflow) || !strings.Contains(err.Error(), "line 3") {
+		t.Fatalf("Parse: err=%v, want ErrTableOverflow at line 3", err)
+	}
+	// The same table fits once the trailer widens the page.
+	if _, err := Parse("T\n\n.table 50L 50L\na|b\nc|d\n.end\n\n.width 120\n"); err != nil {
+		t.Fatalf("Parse with .width 120: %v", err)
+	}
+}
+
+func TestEmptyPreSeparatesNothing(t *testing.T) {
+	doc, err := Parse("T\n\n.pre\n.end\nafter\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].Tight {
+		t.Fatalf("blocks=%+v", doc.Blocks)
+	}
+}

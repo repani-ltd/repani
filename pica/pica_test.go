@@ -510,3 +510,20 @@ func TestHyphenateCompoundShortPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestHyphenateDoubleHyphenBreaksAfterRun(t *testing.T) {
+	// "abcd--efgh...": the only explicit break is after the second
+	// hyphen; breaking between them would head a line with "-".
+	w := "abcd--efghijklmnop"
+	for _, p := range defaultHyphenator.Hyphenate(w) {
+		if []rune(w)[p] == '-' {
+			t.Errorf("Hyphenate(%q): point %d strands a hyphen", w, p)
+		}
+	}
+	lines := WrapLines(w, 5, Mono)
+	for _, l := range lines {
+		if len(l.Words) > 0 && strings.HasPrefix(l.Words[0], "-") {
+			t.Errorf("line starts with hyphen: %q", l.Words)
+		}
+	}
+}

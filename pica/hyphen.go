@@ -134,7 +134,10 @@ func (h *hyphenator) Hyphenate(word string) []int {
 	// pos is the index after the hyphen; the prefix before the
 	// hyphen must keep the 2-letter guard, as must the suffix.
 	for pos := 3; pos < len(runes)-1; pos++ {
-		if runes[pos-1] == '-' {
+		// After a run of hyphens ("--"), break only after the
+		// last one: a break inside the run would head the next
+		// line with "-".
+		if runes[pos-1] == '-' && runes[pos] != '-' {
 			points = insertPoint(points, start+pos)
 		}
 	}

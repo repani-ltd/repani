@@ -36,6 +36,10 @@ type Block struct {
 	// Tight marks a block that was contiguous with the previous one
 	// in the source (no blank line between); writers preserve that.
 	Tight bool
+	// Line is the 1-based source line that opened the block (the
+	// command line, or the first line of a paragraph); it only
+	// serves error messages.
+	Line int
 }
 
 // TableWidth resolves a table block's layout width against the
@@ -124,6 +128,8 @@ func isRule(trimmed string) bool {
 
 // parser carries the scan state.
 type parser struct {
+	line     int // 1-based line being parsed
+	paraLine int // line that opened the accumulating paragraph
 	doc      *Doc
 	para     []string // accumulating prose lines
 	blankRun bool     // a blank line precedes the next block
@@ -138,22 +144,26 @@ func (p *parser) inTrail() bool { return len(p.attrs) > 0 }
 
 // Parse turns source text into a Doc.
 func Parse(src string) (*Doc, error) {
+	// CRLF sources are accepted everywhere: the CR is line ending,
+	// never content, so .pre lines do not keep it.
+	src = strings.ReplaceAll(src, "\r\n", "\n")
 	lines := strings.Split(strings.TrimRight(src, "\n"), "\n")
 	p := &parser{
 		doc:   &Doc{Layout: defaultLayout()},
 		attrs: map[string]bool{},
 	}
 
-	// Title: the first non-blank line.
+	// Title: the first non-blank line that is not a comment (.rem
+	// is valid anywhere, including above the title).
 	i := 0
-	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+	for i < len(lines) && (strings.TrimSpace(lines[i]) == "" || commandWord(strings.TrimSpace(lines[i])) == ".rem") {
 		i++
 	}
 	if i == len(lines) {
 		return nil, ErrEmptyDoc
 	}
 	if isDotCommand(strings.TrimSpace(lines[i])) {
-		// A command in title position would otherwise be taken
+		// Any other command in title position would be taken
 		// literally as the title and silently not applied.
 		return nil, fmt.Errorf("%w: line %d is a command, not a title", ErrEmptyDoc, i+1)
 	}
@@ -165,6 +175,7 @@ func Parse(src string) (*Doc, error) {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 		n := i + 1 // 1-based line number for errors
+		p.line = n
 
 		if trimmed == "" {
 			p.flush()
@@ -215,10 +226,26 @@ func Parse(src string) (*Doc, error) {
 				last.Text += " " + trimmed
 				continue
 			}
+			if len(p.para) == 0 {
+				p.paraLine = n
+			}
 			p.para = append(p.para, trimmed)
 		}
 	}
 	p.flush()
+	// Tables are laid out against the document width, which is
+	// known only once the trailer has been read; a table that
+	// cannot fit is a document error, reported here so that Parse
+	// (and therefore pica check) rejects every document a writer
+	// would reject.
+	for _, b := range p.doc.Blocks {
+		if b.Kind != TableBlk {
+			continue
+		}
+		if _, err := b.Table.Layout(b.TableWidth(p.doc.Layout.Width)); err != nil {
+			return nil, fmt.Errorf("%w (line %d)", err, b.Line)
+		}
+	}
 	return p.doc, nil
 }
 
@@ -227,8 +254,7 @@ func Parse(src string) (*Doc, error) {
 // error.
 func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 	n := i + 1
-	word, rest, _ := strings.Cut(trimmed, " ")
-	rest = strings.TrimSpace(rest)
+	word, rest := splitCommand(trimmed)
 
 	// A comment is invisible everywhere -- it neither ends a
 	// paragraph nor counts as content in the trailer.
@@ -292,6 +318,9 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		body, next, err := collectUntilEnd(lines, i, ".pre")
 		if err != nil {
 			return 0, err
+		}
+		if len(body) == 0 {
+			return next, nil // renders nothing, so it separates nothing
 		}
 		p.add(Block{Kind: Pre, Lines: body, Repeat: repeat})
 		return next, nil
@@ -407,7 +436,7 @@ func parseQuoteBlock(body []string, atLine int) (Block, error) {
 	attrib := ""
 	for _, line := range body {
 		trimmed := strings.TrimSpace(line)
-		word, rest, _ := strings.Cut(trimmed, " ")
+		word, rest := splitCommand(trimmed)
 		switch {
 		case trimmed == "":
 
@@ -434,6 +463,9 @@ func parseQuoteBlock(body []string, atLine int) (Block, error) {
 func (p *parser) add(b Block) {
 	// blankRun starts true, so the first block is never Tight.
 	b.Tight = !p.blankRun
+	if b.Line == 0 {
+		b.Line = p.line
+	}
 	p.doc.Blocks = append(p.doc.Blocks, b)
 	p.blankRun = false
 	p.openItem = false
@@ -444,7 +476,7 @@ func (p *parser) add(b Block) {
 func (p *parser) flush() {
 	p.openItem = false
 	if len(p.para) > 0 {
-		p.add(Block{Kind: Para, Text: strings.Join(p.para, " ")})
+		p.add(Block{Kind: Para, Text: strings.Join(p.para, " "), Line: p.paraLine})
 		p.para = nil
 	}
 }
@@ -468,6 +500,7 @@ func collectUntilEnd(lines []string, open int, kind string) ([]string, int, erro
 // header nor rows is an error, like an empty .quote.
 func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
 	fixed := 0
+	spec = strings.Join(strings.Fields(spec), " ")
 	first, rest, _ := strings.Cut(spec, " ")
 	if w, err := strconv.Atoi(first); err == nil {
 		if w < 1 {
@@ -527,4 +560,25 @@ func splitCells(line string) []string {
 		out[i] = strings.TrimSpace(p)
 	}
 	return out
+}
+
+// commandWord returns the dot command word of a trimmed line
+// ("" when the line is not a command). The word ends at the first
+// space or tab.
+func commandWord(trimmed string) string {
+	if !isDotCommand(trimmed) {
+		return ""
+	}
+	w, _ := splitCommand(trimmed)
+	return w
+}
+
+// splitCommand splits a trimmed command line into its word and
+// the rest, on any run of spaces or tabs.
+func splitCommand(trimmed string) (word, rest string) {
+	i := strings.IndexAny(trimmed, " \t")
+	if i < 0 {
+		return trimmed, ""
+	}
+	return trimmed[:i], strings.TrimSpace(trimmed[i:])
 }
