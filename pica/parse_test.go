@@ -508,3 +508,12 @@ func TestTextQuoteItemByline(t *testing.T) {
 		t.Errorf("no hanging continuation line:\n%s", out)
 	}
 }
+
+func TestTitleCannotBeCommand(t *testing.T) {
+	// A dot command in title position is an error, not a title
+	// that silently swallows the layout.
+	_, err := Parse(".width 40\n\nBody.\n")
+	if !errors.Is(err, ErrEmptyDoc) {
+		t.Fatalf("Parse with command as first line: err=%v, want ErrEmptyDoc", err)
+	}
+}

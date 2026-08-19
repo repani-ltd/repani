@@ -10,13 +10,13 @@ import (
 )
 
 var (
-	ErrTableEmptySpec    = errors.New("typeset: empty column spec")
-	ErrTableInvalidToken = errors.New("typeset: invalid column token")
-	ErrTableInvalidAlign = errors.New("typeset: column align must be L, R, C, N, or P")
-	ErrTableAutoConflict = errors.New("typeset: only one auto-span column allowed")
-	ErrTableInvalidWidth = errors.New("typeset: invalid column width")
-	ErrTableAutoNoRoom   = errors.New("typeset: no space left for auto-span column")
-	ErrTableOverflow     = errors.New("typeset: column widths exceed table width")
+	ErrTableEmptySpec    = errors.New("pica: empty column spec")
+	ErrTableInvalidToken = errors.New("pica: invalid column token")
+	ErrTableInvalidAlign = errors.New("pica: column align must be L, R, C, N, or P")
+	ErrTableAutoConflict = errors.New("pica: only one auto-span column allowed")
+	ErrTableInvalidWidth = errors.New("pica: invalid column width")
+	ErrTableAutoNoRoom   = errors.New("pica: no space left for auto-span column")
+	ErrTableOverflow     = errors.New("pica: column widths exceed table width")
 )
 
 // Table is a fixed-width table builder. The column spec is parsed at
@@ -574,7 +574,11 @@ func formatCell(s string, col colSpec) string {
 // position: short fractions pad out to the column's widest, and the
 // paren slot stays open on cells that are not accounting negatives.
 // Non-numeric cells (headers, "n/a") right-align at the units
-// position. Empty cells stay empty.
+// position. Empty cells stay empty. The column metrics come from
+// the data rows only, so a header (or total) cell that happens to
+// read as a number with a longer fraction than any data row cannot
+// be aligned on the point; it is right-aligned flush instead of
+// producing a negative pad.
 func numericCell(s string, col colSpec) string {
 	if s == "" {
 		return s
@@ -591,5 +595,5 @@ func numericCell(s string, col colSpec) string {
 			pad--
 		}
 	}
-	return s + strings.Repeat(" ", pad)
+	return s + strings.Repeat(" ", max(pad, 0))
 }

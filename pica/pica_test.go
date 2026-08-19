@@ -484,7 +484,7 @@ func TestSpecEmbedsLanguageReference(t *testing.T) {
 			t.Errorf("Spec() missing section %q", want)
 		}
 	}
-	if strings.Contains(s, "package typeset") || strings.Contains(s, "/*") {
+	if strings.Contains(s, "package pica") || strings.Contains(s, "/*") {
 		t.Error("Spec() leaks source furniture")
 	}
 }
@@ -495,5 +495,18 @@ func TestMergedPatternsCoverGreek(t *testing.T) {
 	const word = "θερμοκρασία"
 	if pts := defaultHyphenator.Hyphenate(word); len(pts) == 0 {
 		t.Error("merged pattern sets found no points in a Greek word")
+	}
+}
+
+func TestHyphenateCompoundShortPrefix(t *testing.T) {
+	// The explicit-hyphen break keeps the 2-letter guard on the
+	// prefix: "e-mail" must not break as "e-" | "mail".
+	for _, w := range []string{"e-mail", "a--bcdefghij"} {
+		runes := []rune(w)
+		for _, p := range defaultHyphenator.Hyphenate(w) {
+			if p < 3 {
+				t.Errorf("Hyphenate(%q): point %d strands %q", w, p, string(runes[:p]))
+			}
+		}
 	}
 }

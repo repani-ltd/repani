@@ -1,6 +1,7 @@
 package fact
 
 import (
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -218,5 +219,35 @@ func TestUnmarshalZeroAndNone(t *testing.T) {
 	}
 	if out.None != nil || out.Absent != nil || out.Missing != "" {
 		t.Errorf("absent/none handling: %+v", out)
+	}
+}
+
+// TestMarshalRejectsUnparseableValues: Marshal must never emit a
+// fact Parse rejects — non-finite floats and out-of-range datetimes
+// are errors, not lines.
+func TestMarshalRejectsUnparseableValues(t *testing.T) {
+	type fl struct{ F float64 }
+	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if _, err := Marshal(fl{F: v}); err == nil {
+			t.Errorf("Marshal(float %v): want error", v)
+		}
+	}
+	type dt struct{ T time.Time }
+	far := time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := Marshal(dt{T: far}); err == nil {
+		t.Error("Marshal(year 10000): want error")
+	}
+}
+
+// TestMarshalFloat32 pins the shortest float32 spelling: 0.1 stays
+// 0.1, not the float64 rendering of the widened value.
+func TestMarshalFloat32(t *testing.T) {
+	type f struct{ X float32 }
+	out, err := Marshal(f{X: 0.1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "x: float = 0.1\n"; string(out) != want {
+		t.Errorf("got %q, want %q", out, want)
 	}
 }

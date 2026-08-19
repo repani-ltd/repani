@@ -1,5 +1,5 @@
 // The spec and check subcommands: the two oracles that make
-// reading the typeset source unnecessary. spec prints the language
+// reading the pica source unnecessary. spec prints the language
 // reference embedded in this binary (pica.Spec — doc.go's
 // package comment, so it cannot drift from the parser); check
 // parses a document and reports its errors without rendering.

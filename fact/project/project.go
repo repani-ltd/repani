@@ -124,6 +124,9 @@ func Lines(target string) ([]string, error) {
 		g.typeFacts(n, ifaces)
 		g.methodFacts(n)
 	}
+	if g.err != nil {
+		return nil, g.err
+	}
 	for _, name := range pkg.Scope().Names() {
 		if !fact.IsSegment(name) {
 			continue
@@ -147,6 +150,11 @@ type gen struct {
 	lines []string
 	// bodies maps top-level functions to their AST bodies for call edges.
 	bodies map[types.Object]*ast.BlockStmt
+	// methodIDs maps each compound method id (R_M) to the "R.M" that
+	// produced it, so a second receiver/method pair flattening to the
+	// same id is reported instead of emitting duplicate keys.
+	methodIDs map[string]string
+	err       error
 }
 
 func (g *gen) fact(key, typ, val string) {
@@ -264,7 +272,17 @@ func (g *gen) methodFacts(n *types.Named) {
 		if !fact.IsSegment(m.Name()) {
 			continue
 		}
-		k := "method:" + name + "_" + m.Name()
+		id := name + "_" + m.Name()
+		if prev, dup := g.methodIDs[id]; dup {
+			g.err = fmt.Errorf("%s: method id %q is ambiguous: %s and %s.%s flatten to the same compound id (SPEC §11.2); rename one",
+				g.pkg.Path(), id, prev, name, m.Name())
+			return
+		}
+		if g.methodIDs == nil {
+			g.methodIDs = map[string]string{}
+		}
+		g.methodIDs[id] = name + "." + m.Name()
+		k := "method:" + id
 		g.fact(k+".sig", "str", jstr(types.TypeString(m.Type(), g.qual)))
 		g.fact(k+".file", "str", jstr(g.file(m.Pos())))
 		g.fact(k+".receiver", "str", jstr(name))

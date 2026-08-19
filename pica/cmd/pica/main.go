@@ -1,4 +1,4 @@
-// Command pica renders typeset source documents (see the typeset
+// Command pica renders pica source documents (see the pica
 // package for the language) to text pages, newspaper PDFs, and
 // report PDFs.
 //
@@ -30,7 +30,7 @@
 // render executes a Go text/template with value-formatting helpers
 // (round, decimal, trunc, pad, shortTime, shortDate, dur) and the
 // data-driven "table" helper (emits a .table block from a rows
-// slice plus field names); the template's OUTPUT is a typeset
+// slice plus field names); the template's OUTPUT is a pica
 // source document -- templates contain no layout calls.
 //
 // Data is FACT (a *.fact file or -fact), JSON (default otherwise),
@@ -107,14 +107,14 @@ Usage:
   pica check [file|-]
 
 render executes a Go template over JSON, FACT (-fact, implied by a
-.fact filename), or txtar (-txtar) data and emits a typeset source
+.fact filename), or txtar (-txtar) data and emits a pica source
 document; text, pdf, and report render a source document (default
 stdin) to a fixed-width text page, an N-column newspaper PDF, or a
 single-column report PDF (hairline table rules, page footer). spec
 prints the language reference embedded in this binary; check parses
 a document and reports errors without rendering. Layout
 (width, paper, columns, font) comes from the document's trailer
-(.width/.paper/.cols/.font), not from flags. See the typeset
+(.width/.paper/.cols/.font), not from flags. See the pica
 package documentation for the source language.
 `)
 }

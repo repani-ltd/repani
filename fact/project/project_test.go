@@ -178,3 +178,32 @@ func TestProjectionIgnoresNonDeclarationEdits(t *testing.T) {
 		t.Errorf("body-only edit changed the projection:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
+
+// TestProjectMethodIDCollision: receiver A_B with method C and
+// receiver A with method B_C flatten to the same compound id; the
+// generator must report that, not emit duplicate keys.
+func TestProjectMethodIDCollision(t *testing.T) {
+	dir := t.TempDir()
+	src := `package amb
+
+type A struct{}
+
+func (A) B_C() {}
+
+type A_B struct{}
+
+func (A_B) C() {}
+`
+	for name, body := range map[string]string{
+		"go.mod": "module amb\n\ngo 1.25\n",
+		"amb.go": src,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := Lines(dir)
+	if err == nil || !strings.Contains(err.Error(), "A_B_C") || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("Lines: err=%v, want method id collision diagnostic", err)
+	}
+}

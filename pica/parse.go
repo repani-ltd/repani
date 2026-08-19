@@ -87,14 +87,14 @@ func (d *Doc) Byline() string {
 
 // Sentinel errors for Parse.
 var (
-	ErrEmptyDoc          = errors.New("typeset: document has no title line")
-	ErrUnknownCommand    = errors.New("typeset: unknown dot command")
-	ErrUnterminatedBlock = errors.New("typeset: block without .end")
-	ErrStrayEnd          = errors.New("typeset: .end without an open block")
-	ErrContentAfterTrail = errors.New("typeset: content after a layout command")
-	ErrDuplicateAttr     = errors.New("typeset: duplicate command")
-	ErrBadAttr           = errors.New("typeset: invalid command value")
-	ErrMetaAfterContent  = errors.New("typeset: .by/.date must precede content")
+	ErrEmptyDoc          = errors.New("pica: document has no title line")
+	ErrUnknownCommand    = errors.New("pica: unknown dot command")
+	ErrUnterminatedBlock = errors.New("pica: block without .end")
+	ErrStrayEnd          = errors.New("pica: .end without an open block")
+	ErrContentAfterTrail = errors.New("pica: content after a layout command")
+	ErrDuplicateAttr     = errors.New("pica: duplicate command")
+	ErrBadAttr           = errors.New("pica: invalid command value")
+	ErrMetaAfterContent  = errors.New("pica: .by/.date must precede content")
 )
 
 // isDotCommand applies the wire lexing rule: a dot followed by a
@@ -147,6 +147,11 @@ func Parse(src string) (*Doc, error) {
 	}
 	if i == len(lines) {
 		return nil, ErrEmptyDoc
+	}
+	if isDotCommand(strings.TrimSpace(lines[i])) {
+		// A command in title position would otherwise be taken
+		// literally as the title and silently not applied.
+		return nil, fmt.Errorf("%w: line %d is a command, not a title", ErrEmptyDoc, i+1)
 	}
 	p.doc.Title = strings.TrimSpace(lines[i])
 	p.blankRun = true

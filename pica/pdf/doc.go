@@ -1,12 +1,12 @@
 /*
-Package pdf is an absolutely minimal PDF writer for typeset text
+Package pdf is an absolutely minimal PDF writer for pica text
 pages: enough of PDF 1.3 to put subset-embedded TrueType text and
 hairlines on fixed-size pages, and nothing else.
 
 Four fonts are embedded (SIL OFL; see fonts/README.md), covering
 Latin, Greek, and Cyrillic. Fira Mono Regular and Bold have a
 uniform 600/1000 em advance -- so rune-counted monospace layout
-(the typeset package's output) maps to exact geometry: a line of N
+(the pica package's output) maps to exact geometry: a line of N
 runes at font size S is N * 0.6 * S points wide. Fira Sans Regular
 and Bold are proportional: their text is measured through Measurer
 (per-codepoint advances plus GPOS pair kerning) and drawn word by

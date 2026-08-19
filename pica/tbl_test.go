@@ -312,7 +312,7 @@ func TestTable_NumColGeometry(t *testing.T) {
 		t.Fatalf("NumCols = %+v, want one", tl.NumCols)
 	}
 	c := tl.NumCols[0]
-	want := typesetNumCol()
+	want := expectedNumCol()
 	if c != want {
 		t.Errorf("NumCol = %+v, want %+v", c, want)
 	}
@@ -325,9 +325,9 @@ func TestTable_NumColGeometry(t *testing.T) {
 	}
 }
 
-// typesetNumCol is the expected geometry for the table above: auto
+// expectedNumCol is the expected geometry for the table above: auto
 // column 9 wide, N column at [10,20), frac ".56" = 3, paren present.
-func typesetNumCol() NumCol {
+func expectedNumCol() NumCol {
 	return NumCol{Start: 10, End: 20, Frac: 3, Paren: true}
 }
 
@@ -430,5 +430,20 @@ func TestTable_CellsHyphenate(t *testing.T) {
 		if len([]rune(ln)) > 17 {
 			t.Errorf("line exceeds cell width: %q", ln)
 		}
+	}
+}
+
+func TestTable_NumericHeaderLongerFraction(t *testing.T) {
+	// A header that reads as a number with a longer fraction than
+	// any data row must not panic on a negative pad; it right-aligns
+	// flush like any non-aligned cell.
+	tbl := mustTable(t, "6N")
+	tbl.Header("1.50")
+	tbl.Row("2")
+	tbl.Row("(3)")
+	got := render(t, tbl, 6)
+	want := "  1.50\n------\n    2\n   (3)"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

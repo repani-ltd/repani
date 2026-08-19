@@ -24,19 +24,25 @@ func syndrome(r uint32) uint32 {
 }
 
 func init() {
+	// set records a pattern under its syndrome and counts the
+	// slot only the first time it is filled, so a generator that
+	// collides two patterns leaves filled short of 2048.
 	filled := 1 // syndrome 0 -> pattern 0
+	set := func(e uint32) {
+		s := syndrome(e)
+		if golaySyn[s] == 0 {
+			filled++
+		}
+		golaySyn[s] = e
+	}
 	for a := 0; a < 23; a++ {
 		ea := uint32(1) << a
-		golaySyn[syndrome(ea)] = ea
-		filled++
+		set(ea)
 		for b := a + 1; b < 23; b++ {
 			eb := ea | 1<<b
-			golaySyn[syndrome(eb)] = eb
-			filled++
+			set(eb)
 			for c := b + 1; c < 23; c++ {
-				ec := eb | 1<<c
-				golaySyn[syndrome(ec)] = ec
-				filled++
+				set(eb | 1<<c)
 			}
 		}
 	}
@@ -54,11 +60,13 @@ func Encode(data uint16) uint32 {
 	return cw23<<1 | uint32(bits.OnesCount32(cw23))&1
 }
 
-// Decode decodes a 24-bit received word. data is the
+// Decode decodes a 24-bit received word; bits above 23 are
+// ignored, as Encode ignores data bits above 11. data is the
 // best-effort 12 data bits regardless of ok; ok reports whether
 // the word decoded within radius 3 (up to 3 bit errors
 // corrected, 4 detected).
 func Decode(cw uint32) (data uint16, ok bool) {
+	cw &= 0xFFFFFF
 	r23 := cw >> 1
 	e := golaySyn[syndrome(r23)]
 	c23 := r23 ^ e

@@ -74,7 +74,7 @@ func flattenLines(lines []Line) []string {
 // a programmer error, not an input condition.
 func checkWidth(width int) {
 	if width <= 0 {
-		panic(fmt.Sprintf("typeset: width must be positive, got %d", width))
+		panic(fmt.Sprintf("pica: width must be positive, got %d", width))
 	}
 }
 

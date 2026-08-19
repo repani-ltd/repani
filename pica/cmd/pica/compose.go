@@ -288,7 +288,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 		case pica.Quote:
 			// Inset two spaces on both sides; the attribution line is
 			// right-aligned to the quote's right margin. Mirrors the
-			// text writer's geometry (see typeset doc.go).
+			// text writer's geometry (see pica doc.go).
 			if t.sans {
 				m := pdf.Measure(pdf.Sans)
 				qi := 2 * m.Space()

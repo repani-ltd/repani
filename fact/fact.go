@@ -30,7 +30,7 @@ const (
 
 // Type is one of the twenty-one legal type shapes of SPEC §4.2.
 type Type struct {
-	Raw      string   // exact (canonical) type expression, e.g. "list(ref(step))"
+	Raw      string // exact (canonical) type expression, e.g. "list(ref(step))"
 	Base     BaseKind
 	Optional bool     // T?
 	List     bool     // list(T)

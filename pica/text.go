@@ -103,7 +103,7 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 		return out, nil
 
 	default:
-		panic(fmt.Sprintf("typeset: unknown block kind %d", b.Kind))
+		panic(fmt.Sprintf("pica: unknown block kind %d", b.Kind))
 	}
 }
 

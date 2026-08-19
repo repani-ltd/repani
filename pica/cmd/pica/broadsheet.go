@@ -1,4 +1,4 @@
-// The pdf subcommand: render a typeset source document as an
+// The pdf subcommand: render a pica source document as an
 // N-column newspaper. Geometry comes entirely from the document's
 // layout trailer (self-contained: same source, same PDF bytes); the
 // body point size is derived from column width and .width.

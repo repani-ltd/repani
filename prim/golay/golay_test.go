@@ -70,3 +70,29 @@ func TestGolayDetect4(t *testing.T) {
 		}
 	}
 }
+
+// TestGolayDecodeHighBits checks that bits above 23 are ignored
+// rather than indexing the syndrome table out of range.
+func TestGolayDecodeHighBits(t *testing.T) {
+	cw := Encode(0x5A5)
+	got, ok := Decode(cw | 1<<24 | 1<<31)
+	if !ok || got != 0x5A5 {
+		t.Fatalf("Decode with high bits set: got %#x ok=%v", got, ok)
+	}
+}
+
+// TestGolaySyndromeTable checks the table is a bijection: every
+// entry round-trips through syndrome and has weight <= 3.
+func TestGolaySyndromeTable(t *testing.T) {
+	for s, e := range golaySyn {
+		if s == 0 {
+			if e != 0 {
+				t.Fatalf("syndrome 0 maps to %#x", e)
+			}
+			continue
+		}
+		if e == 0 || bits.OnesCount32(e) > 3 || syndrome(e) != uint32(s) {
+			t.Fatalf("syndrome %#x: bad pattern %#x", s, e)
+		}
+	}
+}

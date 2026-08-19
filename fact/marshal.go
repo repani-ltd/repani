@@ -83,6 +83,13 @@ func (m *marshaller) emit(key, typeExpr string, v Value) error {
 	if err := checkKey(key, 0); err != nil {
 		return fmt.Errorf("fact: %s", err.Msg)
 	}
+	// The value is re-checked as its line token so that Marshal can
+	// never emit a fact Parse would reject (NaN, ±Inf, a datetime
+	// outside 0001-9999): the checker is the single authority on
+	// value syntax.
+	if _, err := checkValue(t, v.token(), 0); err != nil {
+		return fmt.Errorf("fact: key %q: %s", key, err.Msg)
+	}
 	m.facts = append(m.facts, Fact{Key: key, Type: t, Value: v})
 	return nil
 }
@@ -256,7 +263,9 @@ func scalarToken(key string, v reflect.Value) (string, error) {
 			return "", fmt.Errorf("fact: key %q: %d overflows 64-bit signed integer", key, v.Uint())
 		}
 		return strconv.FormatUint(v.Uint(), 10), nil
-	case reflect.Float32, reflect.Float64:
+	case reflect.Float32:
+		return strconv.FormatFloat(v.Float(), 'g', -1, 32), nil
+	case reflect.Float64:
 		return strconv.FormatFloat(v.Float(), 'g', -1, 64), nil
 	case reflect.String:
 		return Quote(v.String()), nil
