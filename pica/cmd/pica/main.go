@@ -105,8 +105,10 @@ func main() {
 	}
 }
 
-func usage() {
-	fmt.Fprint(stderr, `pica -- troff-inspired typesetting
+func usage() { fmt.Fprint(stderr, usageText()) }
+
+func usageText() string {
+	return `pica -- troff-inspired typesetting
 
 Usage:
   pica render [-txtar|-fact] [-o FILE] <template> <data|->
@@ -141,7 +143,7 @@ documentation for the source language.
 Flags may appear before, between, or after the positionals; "--"
 ends flag parsing. Exit status is 1 for an input, parse, render,
 or write error and 2 for a usage error.
-`)
+`
 }
 
 // newFlags returns the flag set of subcommand cmd. Flag errors are

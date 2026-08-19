@@ -230,36 +230,5 @@ pattern set.
 Widths count runes, not display cells: double-width (CJK) glyphs
 misalign. The package targets scripts where one rune is one
 monospace cell.
-
-# Growing the vocabulary
-
-The vocabulary stays closed by policy, not accident. A new command
-enters the registry only if it passes five tests:
-
- 1. It is expressible as a block with a deterministic line count
-    under the monospace measurer -- the flow arithmetic every keep
-    and split rule relies on (document metadata like .by lives in
-    the title zone, outside block flow, and passes by not flowing).
- 2. It renders meaningfully in EVERY writer, the plain-text page
-    included. Uniformly invisible (.rem) is meaningful; ignored by
-    one writer but not another is not.
- 3. It states content semantics, never geometry: what something IS
-    (a quotation, an item), not where it goes. Page and column
-    control stay writer-owned.
- 4. It has a troff or TeX ancestor to point to (.quote is ms's
-    .QP, .item is .IP, .rem is troff's comment): four decades of
-    typesetting have already named most things worth naming.
- 5. A real document is already waiting to use it: demand precedes
-    entry, so every command ships together with its first user.
-    A command admitted for a hypothetical future is a permanent
-    promise made on no evidence -- the other four tests measure
-    quality, this one measures need.
-
-# Non-goals
-
-No inline emphasis (the monospace wire cannot express it), no
-third heading level (two, permanently), no block nesting, no
-page-control commands in content, and no round-tripping: rendered
-output is a final artifact, not re-parseable source.
 */
 package pica

@@ -12,7 +12,10 @@ var docSource string
 // comment, embedded at build time, so the text is definitionally
 // the spec of the parser compiled into the binary. Tools print it
 // (pica spec) so authors and agents learn the language without ever
-// opening the package source.
+// opening the package source; the CLI appends its own usage so one
+// command teaches both the format and the tool. Maintainer doctrine
+// (admission tests for new commands, non-goals) lives in DESIGN.t,
+// not here.
 func Spec() string {
 	s := docSource
 	if i := strings.Index(s, "/*"); i >= 0 {

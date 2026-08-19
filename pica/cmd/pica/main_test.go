@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"repani.com/pica"
 )
 
 func TestParseTxtar_FactsAndContent(t *testing.T) {
@@ -328,5 +330,16 @@ func TestTextCmd_StdinAndPrefix(t *testing.T) {
 	_, errOut := capture(t, func() { rc2 = textCmd([]string{"a", "b"}) })
 	if rc2 != 2 || !strings.HasPrefix(errOut, "pica text: ") {
 		t.Errorf("two inputs: rc=%d stderr=%q", rc2, errOut)
+	}
+}
+
+// pica spec teaches the tool as well as the format: the CLI usage
+// is appended to the language reference.
+func TestSpecIncludesUsage(t *testing.T) {
+	out := pica.Spec() + "\n# The pica CLI\n\n" + usageText()
+	for _, want := range []string{"# The pica CLI", "pica html", "pica render", "pica check"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("spec output missing %q", want)
+		}
 	}
 }

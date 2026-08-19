@@ -5,6 +5,9 @@ FACT is a line-oriented format for facts about systems, designed for AI agents r
 FACT exists primarily as a projection format: a generated, read-only index of a codebase (canonically: a Go module) that lets agents navigate and reason about code structure at grep cost. Configuration files are the degenerate — and fully supported — case where the facts are the whole system rather than a projection of one.
 
 Recommended file extension: .fact
+Authoring reference: fact spec (doc.go's package comment, embedded
+in the binary) is what an agent needs to read and write FACT; this
+document is the normative standard behind it.
 MIME type (provisional): text/x-fact
 
 Changes from v0.1: segments and enum symbols are now case-sensitive [a-zA-Z0-9_] (§3, §4.1) — required because projected identifiers (Go) are case-sensitive and case is semantic; primary-purpose reframing (§1); projection profile added (§11); storage and commit convention for projections (§11.1); validation scope fixed to one file per package for projections (§5, §6.2 — per-package files share singleton keys and must not be concatenated for validation); third-party projection convention (§11.5); external-reference boundary rule (§6.4); findings from a real Go extraction simulation incorporated (§12).

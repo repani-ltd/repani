@@ -479,9 +479,15 @@ func TestSpecEmbedsLanguageReference(t *testing.T) {
 	// Spec is doc.go's comment body: the language sections must be
 	// present and the Go comment/package furniture stripped.
 	s := Spec()
-	for _, want := range []string{"# The language", "# Layout trailer", "# Tables", "# Non-goals"} {
+	for _, want := range []string{"# The language", "# Layout trailer", "# Tables", "# Wrapping"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("Spec() missing section %q", want)
+		}
+	}
+	// Maintainer doctrine lives in DESIGN.t, not the spec.
+	for _, gone := range []string{"# Growing the vocabulary", "# Non-goals"} {
+		if strings.Contains(s, gone) {
+			t.Errorf("Spec() carries maintainer section %q", gone)
 		}
 	}
 	if strings.Contains(s, "package pica") || strings.Contains(s, "/*") {

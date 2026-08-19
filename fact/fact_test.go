@@ -351,3 +351,46 @@ func TestPlainStringMatchesJSON(t *testing.T) {
 		}
 	}
 }
+
+// The "tools explain themselves" rule: Spec is the package comment,
+// carries the authoring sections, and leaks no source furniture or
+// maintainer material; its error catalogue matches the parser's
+// codes.
+func TestSpecEmbedsReference(t *testing.T) {
+	s := Spec()
+	for _, want := range []string{"# The line", "# Keys", "# Types", "# References",
+		"# Canonical form", "# Validation errors", "# JSON encoding", "# Projections: pkg.fact"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("Spec() missing section %q", want)
+		}
+	}
+	if strings.Contains(s, "package fact") || strings.Contains(s, "/*") {
+		t.Error("Spec() leaks source furniture")
+	}
+	for _, code := range []string{"E001", "E002", "E003", "E004", "E005", "E006", "E007", "E008", "E009", "E010"} {
+		if !strings.Contains(s, code) {
+			t.Errorf("Spec() missing error code %s", code)
+		}
+	}
+	// Spot-check the spec against the parser: a violation of each
+	// documented kind yields its documented code.
+	cases := map[string]string{
+		"E001": "not a fact\n",
+		"E004": "k: list(list(int)) = []\n",
+		"E005": "k: enum(a|b) = c\n",
+		"E007": "k: int = 1\nk: int = 2\n",
+	}
+	for code, src := range cases {
+		facts, errs := Parse([]byte(src))
+		errs = append(errs, Validate(facts)...)
+		found := false
+		for _, e := range errs {
+			if strings.Contains(e.Error(), code) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("input for %s produced %v", code, errs)
+		}
+	}
+}

@@ -20,6 +20,7 @@ const usage = `usage: fact <command> [flags] [file]
 Reads the file argument, or stdin if omitted.
 
 commands:
+  spec           print the FACT reference embedded in this binary
   validate       check a .fact file; report errors, one per line
   fmt [-w]       print canonical form (-w: rewrite the file in place)
   encode         convert .fact to the canonical JSON encoding
@@ -162,6 +163,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	switch cmd {
+	case "spec":
+		if len(rest) > 0 {
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		// The reference teaches the format; the same command
+		// teaches the tool: usage is appended from the same
+		// string the CLI prints, so neither can drift.
+		fmt.Fprint(stdout, fact.Spec()+"\n# The fact CLI\n\n"+usage)
+		return 0
 	case "validate":
 		facts, errs := fact.Load(data)
 		if report(errs) {

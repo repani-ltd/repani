@@ -30,6 +30,10 @@ known-answer or round-trip tests; the tests are the contract.
   and import paths, source last -- and log every such question in
   `~/repos/pkgfact-usage.fact` (outside git; rules and evaluation
   recipes in `~/repos/pkgfact-usage.md`).
+- Tools explain themselves: every published CLI ships `TOOL spec`
+  (the reference, embedded in the binary) and `TOOL check|validate`
+  (errors on a file). The full rule: "Tools explain themselves" in
+  `~/repos/CLAUDE.md`.
 - Documentation in pica: `pica spec`, `pica check FILE.t` (see
   `~/repos/CLAUDE.md`).
 - Build and test the whole module: `go build ./... && go test ./...`.

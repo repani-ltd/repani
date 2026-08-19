@@ -22,7 +22,10 @@ func specCmd(args []string) int {
 		fmt.Fprintln(stderr, "pica spec: takes no input (the spec ships in the binary)")
 		return 2
 	}
-	return writeOutput("spec", *out, []byte(pica.Spec()))
+	// The spec teaches the format; the same command teaches the
+	// tool: append the CLI usage, from the same string -h prints,
+	// so neither can drift from the binary that serves them.
+	return writeOutput("spec", *out, []byte(pica.Spec()+"\n# The pica CLI\n\n"+usageText()))
 }
 
 func checkCmd(args []string) int {
