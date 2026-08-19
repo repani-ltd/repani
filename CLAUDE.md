@@ -22,8 +22,8 @@ common.
 - Navigation in Go code: pkg.fact first for declaration-level
   questions, `gopls rename` for identifier renames, grep for text
   and import paths, source last -- and log every such question in
-  `~/repos/repani-private/docs/pkgfact-usage.fact` (rules and
-  evaluation recipes in `docs/pkgfact-usage.md` there).
+  `~/repos/pkgfact-usage.fact` (outside git; rules and evaluation
+  recipes in `~/repos/pkgfact-usage.md`).
 - Documentation in pica: `pica spec`, `pica check FILE.t` (see
   `~/repos/CLAUDE.md`).
 - Build and test the whole module: `go build ./... && go test ./...`.
