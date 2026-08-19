@@ -5,8 +5,9 @@ its own CLAUDE.md with the project rules; this file holds what is
 common.
 
 - Import paths are `repani.com/<dir>/...`; the module is the repo
-  root, so never add a nested go.mod (the only exception is
-  `pica/tmp`, a scratch module that is deliberately outside).
+  root, so never add a nested go.mod. Experiments and scratch work
+  live outside this repo (`~/repos/research`, `~/repos/tmp`), never
+  in it; retired work goes to `~/repos/_attic` with history.
 - READMEs and CLAUDE.md stay Markdown (consumed by GitHub / Claude
   Code); all other documentation is pica `.t`.
 - CLIs live in `<project>/cmd/<tool>`: `pica/cmd/pica`,
