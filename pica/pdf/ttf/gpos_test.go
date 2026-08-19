@@ -2,6 +2,7 @@ package ttf
 
 import (
 	"os"
+	"sync"
 	"testing"
 )
 
@@ -57,4 +58,26 @@ func TestKernFiraMonoIsZero(t *testing.T) {
 			t.Errorf("Kern(%q, %q) = %d, want 0 for monospace", pair[0], pair[1], got)
 		}
 	}
+}
+
+// Fonts are package-level singletons in pdf; Kern must be safe to
+// call from many goroutines (run under -race).
+func TestKernConcurrent(t *testing.T) {
+	f := loadFont(t, "FiraSans-Regular.ttf")
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 200 {
+				a, b := rune('A'+i%26), rune('a'+i%26)
+				f.Kern(a, b)
+				f.Kern(b, a)
+				if got := f.Kern('A', 'V'); got != -45 {
+					t.Errorf("Kern(A, V) = %d, want -45", got)
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }

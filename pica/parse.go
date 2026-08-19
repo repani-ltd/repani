@@ -58,8 +58,8 @@ type Layout struct {
 	Font  string // "mono" or "sans"; proportional writers honor it
 }
 
-// DefaultLayout is the layout of a document with no trailer.
-func DefaultLayout() Layout { return Layout{Width: 80, Paper: "a4", Cols: 1, Font: "mono"} }
+// defaultLayout is the layout of a document with no trailer.
+func defaultLayout() Layout { return Layout{Width: 80, Paper: "a4", Cols: 1, Font: "mono"} }
 
 // Doc is a parsed document.
 type Doc struct {
@@ -85,7 +85,11 @@ func (d *Doc) Byline() string {
 	}
 }
 
-// Sentinel errors for Parse.
+// Sentinel errors for Parse. ErrBadAttr covers every malformed
+// line in the closed vocabulary -- a command with a bad or missing
+// value, a command out of its place (.attrib outside .quote, a
+// third heading level), an empty block; the wrapping message names
+// the fault.
 var (
 	ErrEmptyDoc          = errors.New("pica: document has no title line")
 	ErrUnknownCommand    = errors.New("pica: unknown dot command")
@@ -93,8 +97,8 @@ var (
 	ErrStrayEnd          = errors.New("pica: .end without an open block")
 	ErrContentAfterTrail = errors.New("pica: content after a layout command")
 	ErrDuplicateAttr     = errors.New("pica: duplicate command")
-	ErrBadAttr           = errors.New("pica: invalid command value")
-	ErrMetaAfterContent  = errors.New("pica: .by/.date must precede content")
+	ErrBadAttr           = errors.New("pica: invalid command or value")
+	ErrMetaAfterContent  = errors.New("pica: metadata commands (.by, .date, .rights) must precede content")
 )
 
 // isDotCommand applies the wire lexing rule: a dot followed by a
@@ -136,7 +140,7 @@ func (p *parser) inTrail() bool { return len(p.attrs) > 0 }
 func Parse(src string) (*Doc, error) {
 	lines := strings.Split(strings.TrimRight(src, "\n"), "\n")
 	p := &parser{
-		doc:   &Doc{Layout: DefaultLayout()},
+		doc:   &Doc{Layout: defaultLayout()},
 		attrs: map[string]bool{},
 	}
 
@@ -189,7 +193,7 @@ func Parse(src string) (*Doc, error) {
 		case strings.HasPrefix(trimmed, "### "):
 			// Two heading levels, deliberately and permanently: a
 			// third would be silent structure rot, so it is loud.
-			return nil, fmt.Errorf("%w: headings have two levels (line %d)", ErrBadAttr, n)
+			return nil, fmt.Errorf("%w: \"###\" heading: headings have two levels (line %d)", ErrBadAttr, n)
 
 		case strings.HasPrefix(trimmed, "## "):
 			p.flush()
@@ -236,20 +240,23 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		return i, err
 	}
 
+	// A stray .end is a stray .end wherever it sits, the trailer
+	// included.
+	if word == ".end" {
+		return 0, fmt.Errorf("%w (line %d)", ErrStrayEnd, n)
+	}
+
 	if p.inTrail() {
 		return 0, fmt.Errorf("%w (line %d)", ErrContentAfterTrail, n)
 	}
 
 	switch word {
-	case ".end":
-		return 0, fmt.Errorf("%w (line %d)", ErrStrayEnd, n)
-
 	case ".by", ".date", ".rights":
 		return i, p.meta(word, rest, n)
 
 	case ".quote":
 		p.flush()
-		body, next, err := collectUntilEnd(lines, i+1, ".quote")
+		body, next, err := collectUntilEnd(lines, i, ".quote")
 		if err != nil {
 			return 0, err
 		}
@@ -278,11 +285,11 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		if rest != "" {
 			v, err := strconv.Atoi(rest)
 			if err != nil || v < 0 {
-				return 0, fmt.Errorf("%w: .pre %q (line %d)", ErrBadAttr, rest, n)
+				return 0, fmt.Errorf("%w: .pre %q: the repeat count must be a non-negative integer (line %d)", ErrBadAttr, rest, n)
 			}
 			repeat = v
 		}
-		body, next, err := collectUntilEnd(lines, i+1, ".pre")
+		body, next, err := collectUntilEnd(lines, i, ".pre")
 		if err != nil {
 			return 0, err
 		}
@@ -291,7 +298,7 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 
 	case ".table":
 		p.flush()
-		body, next, err := collectUntilEnd(lines, i+1, ".table")
+		body, next, err := collectUntilEnd(lines, i, ".table")
 		if err != nil {
 			return 0, err
 		}
@@ -324,8 +331,8 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 // validation) in one place. Returns handled == false for words that
 // are not layout commands.
 func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err error) {
-	bad := func() (bool, error) {
-		return true, fmt.Errorf("%w: %s %q (line %d)", ErrBadAttr, word, rest, n)
+	bad := func(want string) (bool, error) {
+		return true, fmt.Errorf("%w: %s %q: want %s (line %d)", ErrBadAttr, word, rest, want, n)
 	}
 	set := func(apply func()) (bool, error) {
 		p.flush()
@@ -341,7 +348,7 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 	case ".width":
 		v, err := strconv.Atoi(rest)
 		if err != nil || v < 10 || v > 200 {
-			return bad()
+			return bad("10-200")
 		}
 		return set(func() { p.doc.Layout.Width = v })
 	case ".paper":
@@ -349,12 +356,12 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 		case "a4", "a5", "letter":
 			return set(func() { p.doc.Layout.Paper = rest })
 		default:
-			return bad()
+			return bad("a4, a5, or letter")
 		}
 	case ".cols":
 		v, err := strconv.Atoi(rest)
 		if err != nil || v < 1 || v > 6 {
-			return bad()
+			return bad("1-6")
 		}
 		return set(func() { p.doc.Layout.Cols = v })
 	case ".font":
@@ -362,14 +369,14 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 		case "mono", "sans":
 			return set(func() { p.doc.Layout.Font = rest })
 		default:
-			return bad()
+			return bad("mono or sans")
 		}
 	}
 	return false, nil
 }
 
-// meta handles the .by/.date header commands: document metadata
-// that must precede all content blocks, once each.
+// meta handles the metadata commands (.by, .date, .rights): each
+// must precede all content blocks and appear at most once.
 func (p *parser) meta(word, rest string, n int) error {
 	if rest == "" {
 		return fmt.Errorf("%w: %s wants text (line %d)", ErrBadAttr, word, n)
@@ -442,31 +449,35 @@ func (p *parser) flush() {
 	}
 }
 
-// collectUntilEnd gathers lines from start until a lone ".end",
-// returning the body and the index of the .end line.
-func collectUntilEnd(lines []string, start int, kind string) ([]string, int, error) {
-	for j := start; j < len(lines); j++ {
+// collectUntilEnd gathers the lines after the block opener at
+// lines[open] until a lone ".end", returning the body and the index
+// of the .end line.
+func collectUntilEnd(lines []string, open int, kind string) ([]string, int, error) {
+	for j := open + 1; j < len(lines); j++ {
 		if strings.TrimSpace(lines[j]) == ".end" {
-			return lines[start:j], j, nil
+			return lines[open+1 : j], j, nil
 		}
 	}
-	return nil, 0, fmt.Errorf("%w: %s opened at line %d", ErrUnterminatedBlock, kind, start)
+	return nil, 0, fmt.Errorf("%w: %s opened at line %d", ErrUnterminatedBlock, kind, open+1)
 }
 
 // parseTableBlock builds a TableBlk from a .table spec (with
 // optional leading fixed width, then an optional "-" for a
 // headerless table) and its |-separated rows. Unless "-" is given,
-// the first non-empty row is the header.
+// the first non-empty row is the header. A table with neither
+// header nor rows is an error, like an empty .quote.
 func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
 	fixed := 0
-	if first, rest, ok := strings.Cut(spec, " "); ok {
-		if w, err := strconv.Atoi(first); err == nil {
-			if w < 1 {
-				return Block{}, fmt.Errorf("%w: .table width %q (line %d)", ErrBadAttr, first, atLine)
-			}
-			fixed = w
-			spec = rest
+	first, rest, _ := strings.Cut(spec, " ")
+	if w, err := strconv.Atoi(first); err == nil {
+		if w < 1 {
+			return Block{}, fmt.Errorf("%w: .table width %q: want a positive integer (line %d)", ErrBadAttr, first, atLine)
 		}
+		if rest == "" {
+			return Block{}, fmt.Errorf("%w: .table %s: width but no column spec (line %d)", ErrBadAttr, first, atLine)
+		}
+		fixed = w
+		spec = rest
 	}
 	header := true
 	if rest, ok := strings.CutPrefix(spec, "- "); ok {
@@ -494,13 +505,16 @@ func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
 			tbl.Total(splitCells(rest)...)
 			continue
 		}
-		cells := splitCells(line)
+		cells := splitCells(trimmed)
 		if header {
 			tbl.Header(cells...)
 			header = false
 		} else {
 			tbl.Row(cells...)
 		}
+	}
+	if tbl.header == nil && len(tbl.rows) == 0 {
+		return Block{}, fmt.Errorf("%w: empty .table (line %d)", ErrBadAttr, atLine)
 	}
 	return Block{Kind: TableBlk, Table: tbl, Width: fixed}, nil
 }

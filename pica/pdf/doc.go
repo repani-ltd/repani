@@ -22,11 +22,14 @@ Usage:
 	doc.Add(&p)
 	os.WriteFile("out.pdf", doc.Bytes(), 0o644)
 
-Fonts are subset per document to the runes actually shown, and a
-ToUnicode CMap is emitted so text remains selectable, copyable, and
-searchable in viewers. Text encoding is Identity-H with the
-codepoint as CID; codepoints above the Basic Multilingual Plane are
-replaced with U+FFFD.
+Fonts are subset per document to the runes actually shown (the
+BaseFont carries the ISO 32000 subset tag, derived from that rune
+set so output stays deterministic), and a ToUnicode CMap is emitted
+so text remains selectable, copyable, and searchable in viewers.
+Text encoding is Identity-H with the codepoint as CID; codepoints
+above the Basic Multilingual Plane are drawn and measured as U+FFFD.
+Info strings (Title, Creator) are PDF text strings -- UTF-16BE when
+not ASCII -- and link URIs are percent-encoded to 7-bit ASCII.
 
 The writer originates from an internal reporting tool and was
 trimmed to this surface: subset text, hairlines, grayscale, and

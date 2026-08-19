@@ -37,7 +37,8 @@ A document is UTF-8 text, structured by line:
 	                 SPEC makes the table headerless: every row is
 	                 data, no separator rule. Rows may be marked:
 	                 "=" opens a total row, ".." a note row -- see
-	                 the Tables section
+	                 the Tables section. A table with no rows at
+	                 all (not even a header) is an error
 	.pre [N]         a verbatim block: the writer never refills it,
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a
@@ -203,10 +204,11 @@ monospace grid), and a line-final hyphen hangs 70% of its width
 into the right margin so the flush edge stays optically straight.
 A word wider than the measure is hyphenated at whatever point
 fits; only a fragment with no valid break overflows the line.
-JustifyParagraph is the monospace paragraph-level primitive for
-writers holding parsed Para blocks; WrapLines and JustifyLines are
-the measured structured primitives; all document structure goes
-through Parse. Every primitive hyphenates with every embedded
+WrapLines and JustifyLines are the measured structured
+primitives; JustifyParagraph is the monospace paragraph-level
+convenience for writers holding parsed Para blocks -- exactly
+JustifyLines under Mono, flattened and flushed; all document
+structure goes through Parse. Every primitive hyphenates with every embedded
 pattern set.
 
 Widths count runes, not display cells: double-width (CJK) glyphs

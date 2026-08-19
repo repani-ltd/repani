@@ -48,8 +48,9 @@ type Line struct {
 	Width int
 }
 
-// lineOf assembles a Line from words, measuring the natural width.
-func lineOf(parts []string, m Measurer) Line {
+// LineOf assembles a Line from words, measuring the natural width
+// under m (word widths plus one space per gap).
+func LineOf(parts []string, m Measurer) Line {
 	w := 0
 	for i, p := range parts {
 		if i > 0 {
@@ -102,11 +103,12 @@ func JustifyLines(para string, width int, m Measurer) []Line {
 
 // JustifyParagraph wraps ONE paragraph of prose with the gap-aware
 // breaker and flushes every non-final line, returning the lines.
-// This is the paragraph-level primitive for writers that already
-// hold parsed Para blocks (the pica gazette).
+// It is exactly JustifyLines under Mono, flattened, with each
+// non-final line's slack distributed as whole spaces: the
+// paragraph-level convenience for writers that already hold parsed
+// Para blocks (the pica gazette).
 func JustifyParagraph(para string, width int) []string {
-	checkWidth(width)
-	lines := flattenLines(justifyWrap(para, width, Mono, defaultHyphenator))
+	lines := flattenLines(JustifyLines(para, width, Mono))
 	for i := 0; i < len(lines)-1; i++ {
 		lines[i] = justifyLine(lines[i], width)
 	}
@@ -251,7 +253,7 @@ func breakLines(para string, m Measurer, h *hyphenator, dp func(words []word, st
 			dp(words, j, j+1, cost, next, hyph)
 		}
 		i = j
-		lines = append(lines, lineOf(parts, m))
+		lines = append(lines, LineOf(parts, m))
 	}
 
 	return lines
@@ -361,8 +363,9 @@ func tryHyphenAt(w word, spaceUsed, width int, penalty, tailCost float64, m Meas
 }
 
 // hyphenPenaltyJustify is the cost of a hyphen break in justified
-// mode. Much smaller than the ragged-right penalty (100 in
-// tryHyphenAt) because justification spreads slack across the
+// mode. Much smaller than the ragged-right penalties
+// (hyphenPenaltyProse, hyphenPenaltyCell) because justification
+// spreads slack across the
 // inter-word gaps -- hyphenation creates an additional gap,
 // spreading slack more evenly and reducing the maximum gap width.
 const hyphenPenaltyJustify = 6

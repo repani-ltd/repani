@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"repani.com/pica/pdf/ttf"
 )
@@ -164,12 +165,13 @@ func (d *Doc) Bytes() []byte {
 		if err != nil {
 			panic("pdf: font subset: " + err.Error())
 		}
+		name := subsetName(font.PostScriptName, used)
 		toUnicodeID := b.add(pdfToUnicode(len(b.objs), used))
 		fontFileID := b.add(pdfFontFile(len(b.objs), subset.Data))
 		cidToGIDMapID := b.add(pdfCIDToGIDMap(len(b.objs), subset.CIDToGID))
-		descriptorID := b.add(pdfFontDescriptor(len(b.objs), font, fontFileID))
-		cidFontID := b.add(pdfCIDFont(len(b.objs), font, subset.Widths, font.DefaultWidth, descriptorID, cidToGIDMapID))
-		fontType0IDs[i] = b.add(pdfType0Font(len(b.objs), font, cidFontID, toUnicodeID))
+		descriptorID := b.add(pdfFontDescriptor(len(b.objs), font, name, fontFileID))
+		cidFontID := b.add(pdfCIDFont(len(b.objs), name, subset.Widths, font.DefaultWidth, descriptorID, cidToGIDMapID))
+		fontType0IDs[i] = b.add(pdfType0Font(len(b.objs), name, cidFontID, toUnicodeID))
 	}
 
 	// 3. Resources shared by all pages.
@@ -277,10 +279,10 @@ func pdfCatalog(id, openActionRef, pagesRef int) []byte {
 func pdfInfo(id int, creator, title string) []byte {
 	o := newObj(id)
 	if creator != "" {
-		o.field("Creator", "("+escapeString(creator)+")")
+		o.field("Creator", textString(creator))
 	}
 	if title != "" {
-		o.field("Title", "("+escapeString(title)+")")
+		o.field("Title", textString(title))
 	}
 	return o.bytes()
 }
@@ -310,7 +312,7 @@ func pdfPage(id, contentID, parentID, resourcesID int, annotIDs []int) []byte {
 // visible border.
 func pdfLinkAnnot(id int, a linkAnnot) []byte {
 	o := newObj(id)
-	o.field("A", fmt.Sprintf("<< /S /URI /URI (%s) >>", escapeString(a.url)))
+	o.field("A", fmt.Sprintf("<< /S /URI /URI %s >>", uriString(a.url)))
 	o.field("Border", "[ 0 0 0 ]")
 	o.field("Rect", fmt.Sprintf("[ %s %s %s %s ]", ff(a.x0), ff(a.y0), ff(a.x1), ff(a.y1)))
 	o.field("Subtype", "/Link")
@@ -318,10 +320,60 @@ func pdfLinkAnnot(id int, a linkAnnot) []byte {
 	return o.bytes()
 }
 
-// escapeString escapes a PDF literal string's special characters.
-func escapeString(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `(`, `\(`, `)`, `\)`)
-	return r.Replace(s)
+// textString encodes s as a PDF text string (ISO 32000 7.9.2.2):
+// ASCII text as a literal string with \, (, ), CR and LF escaped;
+// anything else as UTF-16BE with a byte-order mark in a hex string,
+// since literal strings are PDFDocEncoding, not UTF-8.
+func textString(s string) string {
+	for _, r := range s {
+		if r >= 0x80 {
+			var buf strings.Builder
+			buf.WriteString("<FEFF")
+			for _, u := range utf16.Encode([]rune(s)) {
+				fmt.Fprintf(&buf, "%04X", u)
+			}
+			buf.WriteString(">")
+			return buf.String()
+		}
+	}
+	return literalString(s)
+}
+
+// uriString encodes a URI for a /URI action: 7-bit ASCII per ISO
+// 32000 12.6.4.7, so non-ASCII bytes are percent-encoded (RFC 3986)
+// rather than misread as PDFDocEncoding.
+func uriString(u string) string {
+	var buf strings.Builder
+	for i := 0; i < len(u); i++ {
+		if c := u[i]; c >= 0x80 {
+			fmt.Fprintf(&buf, "%%%02X", c)
+		} else {
+			buf.WriteByte(c)
+		}
+	}
+	return literalString(buf.String())
+}
+
+// literalString wraps ASCII s as a PDF literal string, escaping \,
+// (, ), CR and LF.
+func literalString(s string) string {
+	var buf strings.Builder
+	buf.WriteByte('(')
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '\\', '(', ')':
+			buf.WriteByte('\\')
+			buf.WriteByte(c)
+		case '\r':
+			buf.WriteString(`\r`)
+		case '\n':
+			buf.WriteString(`\n`)
+		default:
+			buf.WriteByte(c)
+		}
+	}
+	buf.WriteByte(')')
+	return buf.String()
 }
 
 func pdfStream(id int, content []byte, compress bool) []byte {
@@ -371,22 +423,44 @@ func pdfResources(id int, fonts []Font, fontIDs []int) []byte {
 	return o.bytes()
 }
 
-func pdfType0Font(id int, font *ttf.TTFont, cidFontID, toUnicodeID int) []byte {
+// subsetName returns the BaseFont/FontName of an embedded subset:
+// the PostScript name behind the six-uppercase-letter subset tag ISO
+// 32000 9.6.4 requires. The tag is derived from the used-rune set,
+// so identical documents keep identical bytes.
+func subsetName(psName string, used map[rune]bool) string {
+	cps := make([]int, 0, len(used))
+	for r := range used {
+		cps = append(cps, int(r))
+	}
+	sort.Ints(cps)
+	h := md5.New()
+	for _, cp := range cps {
+		fmt.Fprintf(h, "%d,", cp)
+	}
+	sum := h.Sum(nil)
+	tag := make([]byte, 6)
+	for i := range tag {
+		tag[i] = 'A' + sum[i]%26
+	}
+	return string(tag) + "+" + psName
+}
+
+func pdfType0Font(id int, name string, cidFontID, toUnicodeID int) []byte {
 	o := newObj(id)
 	o.field("Type", "/Font")
 	o.field("Subtype", "/Type0")
-	o.field("BaseFont", "/"+font.PostScriptName)
+	o.field("BaseFont", "/"+name)
 	o.field("Encoding", "/Identity-H")
 	o.field("DescendantFonts", fmt.Sprintf("[ %d 0 R ]", cidFontID))
 	o.field("ToUnicode", fmt.Sprintf("%d 0 R", toUnicodeID))
 	return o.bytes()
 }
 
-func pdfCIDFont(id int, font *ttf.TTFont, widths map[int]int, defaultW int, descriptorID, cidToGIDMapID int) []byte {
+func pdfCIDFont(id int, name string, widths map[int]int, defaultW int, descriptorID, cidToGIDMapID int) []byte {
 	o := newObj(id)
 	o.field("Type", "/Font")
 	o.field("Subtype", "/CIDFontType2")
-	o.field("BaseFont", "/"+font.PostScriptName)
+	o.field("BaseFont", "/"+name)
 	o.field("CIDSystemInfo", "<< /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>")
 	o.field("FontDescriptor", fmt.Sprintf("%d 0 R", descriptorID))
 	o.field("DW", strconv.Itoa(defaultW))
@@ -434,10 +508,10 @@ func pdfWidthsArray(widths map[int]int, defaultW int) string {
 	return buf.String()
 }
 
-func pdfFontDescriptor(id int, font *ttf.TTFont, fontFileID int) []byte {
+func pdfFontDescriptor(id int, font *ttf.TTFont, name string, fontFileID int) []byte {
 	o := newObj(id)
 	o.field("Type", "/FontDescriptor")
-	o.field("FontName", "/"+font.PostScriptName)
+	o.field("FontName", "/"+name)
 	o.field("Flags", strconv.Itoa(font.Flags))
 	o.field("FontBBox", fmt.Sprintf("[ %d %d %d %d ]", font.BBox[0], font.BBox[1], font.BBox[2], font.BBox[3]))
 	o.field("ItalicAngle", fmt.Sprintf("%.1f", font.ItalicAngle))
@@ -482,7 +556,8 @@ func zlibCompress(data []byte) []byte {
 
 // buildToUnicodeCMap generates a ToUnicode CMap for the used runes,
 // merging consecutive codepoints into bfrange entries (max 100 per
-// block, per the PDF spec).
+// block, per the PDF spec). A range may differ only in its last
+// byte, so runs break at every xxFF boundary.
 func buildToUnicodeCMap(used map[rune]bool) string {
 	cps := make([]int, 0, len(used))
 	for r := range used {
@@ -496,7 +571,7 @@ func buildToUnicodeCMap(used map[rune]bool) string {
 	for i < len(cps) {
 		start := cps[i]
 		end := start
-		for i+1 < len(cps) && cps[i+1] == end+1 {
+		for i+1 < len(cps) && cps[i+1] == end+1 && end&0xFF != 0xFF {
 			i++
 			end = cps[i]
 		}

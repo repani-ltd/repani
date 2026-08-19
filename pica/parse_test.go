@@ -20,7 +20,7 @@ func TestParse_TitleAndDefaults(t *testing.T) {
 	if d.Title != "Weather Limassol" {
 		t.Errorf("Title = %q", d.Title)
 	}
-	if d.Layout != DefaultLayout() {
+	if d.Layout != defaultLayout() {
 		t.Errorf("Layout = %+v", d.Layout)
 	}
 	if len(d.Blocks) != 1 || d.Blocks[0].Kind != Para {
@@ -487,12 +487,12 @@ func TestTextQuoteItemByline(t *testing.T) {
 		t.Errorf("no indented quote lines:\n%s", out)
 	}
 	for _, ln := range quote {
-		if runeLen(ln) > 40-quoteIndent {
+		if runeLen(ln) > 40-QuoteIndent {
 			t.Errorf("quote line exceeds inset measure: %q", ln)
 		}
 	}
-	if len(attrib) != 1 || runeLen(attrib[0]) != 40-quoteIndent {
-		t.Errorf("attrib not right-aligned to width-%d: %q", quoteIndent, attrib)
+	if len(attrib) != 1 || runeLen(attrib[0]) != 40-QuoteIndent {
+		t.Errorf("attrib not right-aligned to width-%d: %q", QuoteIndent, attrib)
 	}
 	if len(items) != 2 {
 		t.Errorf("item lines = %q, want 2 bulleted", items)
@@ -515,5 +515,91 @@ func TestTitleCannotBeCommand(t *testing.T) {
 	_, err := Parse(".width 40\n\nBody.\n")
 	if !errors.Is(err, ErrEmptyDoc) {
 		t.Fatalf("Parse with command as first line: err=%v, want ErrEmptyDoc", err)
+	}
+}
+
+func TestParse_ErrorPrecision(t *testing.T) {
+	// Each malformed line names its actual fault and wraps the
+	// sentinel that classifies it.
+	tests := []struct {
+		name, src string
+		want      error
+		msg       string
+	}{
+		{"width without spec", "T\n\n.table 3\na | b\n.end\n", ErrBadAttr, "no column spec"},
+		{".end in trailer", "T\n\nBody.\n\n.width 40\n.end\n", ErrStrayEnd, ".end"},
+		{"empty table", "T\n\n.table 4L\n\n.end\n", ErrBadAttr, "empty .table"},
+		{"third heading level", "T\n\n### deep\n", ErrBadAttr, "two levels"},
+		{"bad layout value", "T\n\n.cols 9\n", ErrBadAttr, "want 1-6"},
+		{"unterminated reports opener line", "T\n\n\n.quote\nwords\n", ErrUnterminatedBlock, "opened at line 4"},
+		{"rights after content", "T\n\nBody.\n\n.rights Me\n", ErrMetaAfterContent, ".rights"},
+	}
+	for _, tc := range tests {
+		_, err := Parse(tc.src)
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%s: err = %v, want %v", tc.name, err, tc.want)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.msg) {
+			t.Errorf("%s: err = %q, want it to mention %q", tc.name, err, tc.msg)
+		}
+	}
+	// A header-only table is content, not empty.
+	if _, err := Parse("T\n\n.table 4L\na\n.end\n"); err != nil {
+		t.Errorf("header-only table rejected: %v", err)
+	}
+}
+
+func TestText_TableNotesAndTotalsOrder(t *testing.T) {
+	// Lines() order through the text writer: header, its notes, the
+	// separator, rows with their notes, and a total row under its
+	// own rule.
+	src := "T\n\n.table 6L 6N\nClient | Amt\n.. | eur\nAlpha | 10.00\n.. prime | \nBeta | 2.50\n= Total | 12.50\n.end\n"
+	out, err := mustParse(t, src).Text()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{
+		"T",
+		"",
+		"Client Amt",
+		"       eur",
+		"------ ------",
+		"Alpha   10.00",
+		"prime",
+		"Beta     2.50",
+		"------ ------",
+		"Total   12.50",
+	}, "\n") + "\n"
+	if out != want {
+		t.Errorf("Text():\n%s\nwant:\n%s", out, want)
+	}
+}
+
+func TestAttribLine(t *testing.T) {
+	// The attribution right-aligns to the quote's right margin and
+	// truncates to the quote measure (width - 2*QuoteIndent).
+	tests := []struct {
+		attrib string
+		width  int
+		want   string
+	}{
+		{"Aesop", 20, "          -- Aesop"},
+		{"Somebody Very Long-Winded", 16, "  -- Somebody "},
+		{"", 10, "     -- "},
+	}
+	for _, tc := range tests {
+		if got := AttribLine(tc.attrib, tc.width); got != tc.want {
+			t.Errorf("AttribLine(%q, %d) = %q, want %q", tc.attrib, tc.width, got, tc.want)
+		}
+	}
+}
+
+func TestItemGeometry(t *testing.T) {
+	// The bullet and its space are exactly the item indent, so the
+	// first line and the turnover lines start the text in the same
+	// column.
+	if runeLen(Bullet+" ") != ItemIndent {
+		t.Errorf("runeLen(Bullet+\" \") = %d, want ItemIndent %d", runeLen(Bullet+" "), ItemIndent)
 	}
 }

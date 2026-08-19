@@ -64,6 +64,7 @@ func (p *Page) tjRuns(s string) {
 	prev := rune(-1)
 	start := 0
 	for i, r := range s {
+		r = bmp(r)
 		if prev >= 0 {
 			if k := f.Kern(prev, r); k != 0 {
 				p.hexString(s[start:i])
@@ -81,13 +82,21 @@ func (p *Page) tjRuns(s string) {
 func (p *Page) hexString(s string) {
 	p.buf.WriteByte('<')
 	for _, r := range s {
-		if r > 0xFFFF {
-			r = 0xFFFD
-		}
+		r = bmp(r)
 		fmt.Fprintf(&p.buf, "%04X", r)
 		p.recordRune(r)
 	}
 	p.buf.WriteByte('>')
+}
+
+// bmp folds r into the Basic Multilingual Plane: Identity-H CIDs are
+// two bytes, so runes above U+FFFF are replaced with U+FFFD, both
+// when drawn and when measured.
+func bmp(r rune) rune {
+	if r > 0xFFFF {
+		return 0xFFFD
+	}
+	return r
 }
 
 // Words draws words on one line starting at (x, y) in the current
@@ -166,6 +175,7 @@ func widthUnits(s string, f *ttf.TTFont) int {
 	total := 0
 	prev := rune(-1)
 	for _, r := range s {
+		r = bmp(r)
 		if w, ok := f.CIDWidths[int(r)]; ok {
 			total += w
 		} else {

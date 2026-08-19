@@ -18,9 +18,9 @@ import (
 // source.
 func (d *Doc) Text() (string, error) {
 	width := d.Layout.Width
-	out := []string{truncLine(d.Title, width)}
+	out := []string{TruncLine(d.Title, width)}
 	if bl := d.Byline(); bl != "" {
-		out = append(out, truncLine(bl, width))
+		out = append(out, TruncLine(bl, width))
 	}
 	h := defaultHyphenator
 	for _, b := range d.Blocks {
@@ -39,7 +39,7 @@ func (d *Doc) Text() (string, error) {
 	// The rights notice closes the page: the text medium has no
 	// per-page footer, so the honest rendering is a final line.
 	if d.Rights != "" {
-		out = append(out, "", truncLine(d.Rights, width))
+		out = append(out, "", TruncLine(d.Rights, width))
 	}
 	return strings.Join(out, "\n") + "\n", nil
 }
@@ -55,27 +55,27 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 		if b.Level == 2 {
 			marker = "## "
 		}
-		return []string{truncLine(marker+b.Text, width)}, nil
+		return []string{TruncLine(marker+b.Text, width)}, nil
 
 	case Quote:
-		inner := wrapParagraph(b.Text, width-2*quoteIndent, h)
+		inner := wrapParagraph(b.Text, width-2*QuoteIndent, h)
 		out := make([]string, len(inner), len(inner)+1)
 		for i, ln := range inner {
-			out[i] = strings.Repeat(" ", quoteIndent) + ln
+			out[i] = strings.Repeat(" ", QuoteIndent) + ln
 		}
 		if b.Attrib != "" {
-			out = append(out, attribLine(b.Attrib, width))
+			out = append(out, AttribLine(b.Attrib, width))
 		}
 		return out, nil
 
 	case Item:
-		inner := wrapParagraph(b.Text, width-itemIndent, h)
+		inner := wrapParagraph(b.Text, width-ItemIndent, h)
 		out := make([]string, len(inner))
 		for i, ln := range inner {
 			if i == 0 {
-				out[i] = bullet + " " + ln
+				out[i] = Bullet + " " + ln
 			} else {
-				out[i] = "  " + ln
+				out[i] = strings.Repeat(" ", ItemIndent) + ln
 			}
 		}
 		return out, nil
@@ -98,7 +98,7 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 	case Pre:
 		out := make([]string, len(b.Lines))
 		for i, ln := range b.Lines {
-			out[i] = truncLine(ln, width)
+			out[i] = TruncLine(ln, width)
 		}
 		return out, nil
 
@@ -107,29 +107,30 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 	}
 }
 
-// Monospace indents for the structured prose blocks: a quote is
-// inset quoteIndent runes on BOTH sides; an item hangs its
-// continuation lines itemIndent runes under the bullet. Writers
-// share these so the blocks occupy identical line counts. The
-// bullet is U+2022, covered by all four embedded faces (a full
-// 600/1000 em cell in Fira Mono).
+// Monospace geometry of the structured prose blocks, shared by
+// every writer so the blocks occupy identical line counts: a quote
+// is inset QuoteIndent runes on BOTH sides; an item's first line
+// opens with Bullet and a space, which together are ItemIndent
+// runes wide, and its turnover lines hang ItemIndent runes under
+// the bullet. The bullet is U+2022, covered by all four embedded
+// faces (a full 600/1000 em cell in Fira Mono).
 const (
-	quoteIndent = 2
-	itemIndent  = 2
-	bullet      = "•"
+	QuoteIndent = 2
+	ItemIndent  = 2
+	Bullet      = "•"
 )
 
-// attribLine renders a quote attribution right-aligned to the
-// quote's right margin (width - quoteIndent): "-- WHO", truncated
-// to the quote measure if need be.
-func attribLine(attrib string, width int) string {
-	s := truncLine("-- "+attrib, width-2*quoteIndent)
-	return strings.Repeat(" ", width-quoteIndent-runeLen(s)) + s
+// AttribLine renders a quote attribution right-aligned to the
+// quote's right margin (width - QuoteIndent): "-- WHO", truncated
+// to the quote measure (width - 2*QuoteIndent) if need be.
+func AttribLine(attrib string, width int) string {
+	s := TruncLine("-- "+attrib, width-2*QuoteIndent)
+	return strings.Repeat(" ", width-QuoteIndent-runeLen(s)) + s
 }
 
-// truncLine hard-cuts a line to width runes. Byte length bounds rune
+// TruncLine hard-cuts a line to width runes. Byte length bounds rune
 // length, so most lines return without allocating.
-func truncLine(s string, width int) string {
+func TruncLine(s string, width int) string {
 	if len(s) <= width {
 		return s
 	}

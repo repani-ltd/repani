@@ -8,7 +8,7 @@ package ttf
 import (
 	"math"
 	"math/bits"
-	"sort"
+	"sync"
 )
 
 // kernSub is one PairPos subtable. Exactly one of pairs (format 1)
@@ -27,11 +27,16 @@ type kernSub struct {
 // coverage and pair match wins; values accumulate across lookups.
 type kernLookup struct{ subs []kernSub }
 
-// kern holds a font's parsed kerning state plus the pair cache. The
-// cache is not safe for concurrent use, like the rest of the package.
+// kern holds a font's parsed kerning state plus the pair cache.
+// Fonts are shared singletons measured from many goroutines, so the
+// cache is guarded by mu; a full precomputed table would be too big
+// (Fira Sans kerns some 260,000 codepoint pairs through its class
+// matrices).
 type kern struct {
 	lookups []kernLookup
-	cache   map[uint32]int
+
+	mu    sync.Mutex
+	cache map[uint32]int
 }
 
 // Kern returns the kerning adjustment between codepoints a and b in
@@ -43,6 +48,8 @@ func (f *TTFont) Kern(a, b rune) int {
 	}
 	k := f.kern
 	key := uint32(a)<<16 | uint32(b)
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	if v, ok := k.cache[key]; ok {
 		return v
 	}
@@ -96,48 +103,10 @@ func parseKern(g []byte) (k *kern) {
 			k = nil
 		}
 	}()
-	featOff := int(readU16(g, 6))
-	lookOff := int(readU16(g, 8))
-
-	idx := map[int]bool{}
-	for i := range int(readU16(g, featOff)) {
-		rec := featOff + 2 + i*6
-		if string(g[rec:rec+4]) != "kern" {
-			continue
-		}
-		fo := featOff + int(readU16(g, rec+4))
-		for j := range int(readU16(g, fo+2)) {
-			idx[int(readU16(g, fo+4+j*2))] = true
-		}
-	}
-	if len(idx) == 0 {
-		return nil
-	}
-	order := make([]int, 0, len(idx))
-	for li := range idx {
-		order = append(order, li)
-	}
-	sort.Ints(order)
-
-	numLookups := int(readU16(g, lookOff))
 	var lookups []kernLookup
-	for _, li := range order {
-		if li >= numLookups {
-			continue
-		}
-		lo := lookOff + int(readU16(g, lookOff+2+li*2))
-		typ := readU16(g, lo)
+	for _, lo := range featureLookups(g, "kern") {
 		var lk kernLookup
-		for s := range int(readU16(g, lo+4)) {
-			so := lo + int(readU16(g, lo+6+s*2))
-			t := typ
-			if t == 9 { // extension positioning: real subtable behind a u32 offset
-				t = readU16(g, so+2)
-				so += int(readU32(g, so+4))
-			}
-			if t != 2 {
-				continue
-			}
+		for _, so := range lookupSubtables(g, lo, 2, 9) {
 			lk.subs = append(lk.subs, parsePairPos(g, so))
 		}
 		if len(lk.subs) > 0 {

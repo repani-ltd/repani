@@ -39,7 +39,7 @@ type tableRow struct {
 
 type colSpec struct {
 	width int
-	align byte // 'L', 'R', 'C', 'N'
+	align byte // 'L', 'R', 'C', 'N', or 'P'
 	auto  bool // width computed from remaining space
 	clip  bool // truncate instead of wrapping ("!" suffix)
 
@@ -129,8 +129,10 @@ func (t *Table) Total(cells ...string) *Table {
 const separator = "-"
 
 // TableLayout is a table laid out at a concrete width. Header holds
-// the header lines (Sep is the dashed separator row, "" when the
-// table is headerless); each element of Rows is one data row's lines
+// the header lines (nil when the table is headerless); Sep is the
+// dashed separator row, always computed: it underlines the header
+// when there is one and sits above every total row regardless. Each
+// element of Rows is one data row's lines
 // (more than one when a cell wrapped). A column-splitting writer
 // treats each row plus its notes as atomic and repeats the header
 // after a split.
@@ -149,8 +151,8 @@ type TableLayout struct {
 	HeaderNotes []string   // half-grid note lines under the header
 	RowNotes    [][]string // parallel to Rows; nil = no notes
 	NumCols     []NumCol   // resolved N-column geometry, left to right
-	ProseCols   []ProseCol // resolved P-column geometry, left to right
-	Cols        []ProseCol // every column's [Start,End) rune interval
+	ProseCols   []Span     // resolved P-column intervals, left to right
+	Cols        []Span     // every column's [Start,End) rune interval
 	Aligns      []byte     // every column's align letter, parallel to Cols
 
 	// RowProse holds P cells' measured lines (LayoutMeasured only):
@@ -171,16 +173,26 @@ type TableLayout struct {
 	rowNotesText    [][]string // parallel to Rows
 }
 
-// NumCol is one N column's resolved geometry on the rune grid: the
-// cell's [Start,End) offsets within a formatted line, the widest
-// fraction tail (separator included), and whether the column
-// reserves the accounting paren slot. A writer re-rendering numeric
-// cells in a proportional face anchors on SepIndex; the mono grid
-// needs none of this (alignment is baked into the padded strings).
-type NumCol struct {
+// Span is one column's [Start,End) rune interval on the full grid:
+// the cell's offsets within a formatted line. TableLayout.Cols
+// holds one per column; ProseCols the P columns' only, whose cells
+// LayoutMeasured additionally wraps under a real measurer for
+// writers that set prose cells in the body face (in the text
+// writer and mono documents a P cell lays out as L).
+type Span struct {
 	Start, End int
-	Frac       int
-	Paren      bool
+}
+
+// NumCol is one N column's resolved geometry on the rune grid: its
+// Span, the widest fraction tail (separator included), and whether
+// the column reserves the accounting paren slot. A writer
+// re-rendering numeric cells in a proportional face anchors on
+// SepIndex; the mono grid needs none of this (alignment is baked
+// into the padded strings).
+type NumCol struct {
+	Span
+	Frac  int
+	Paren bool
 }
 
 // SepIndex is the rune cell every decimal point in the column
@@ -194,22 +206,13 @@ func (c NumCol) SepIndex() int {
 	return c.End - slot - c.Frac
 }
 
-// ProseCol is one P column's [Start,End) rune interval on the full
-// grid. A P (prose) cell renders as the mono grid's L in the text
-// writer and in mono documents; LayoutMeasured additionally wraps
-// its content under a real measurer for writers that set prose
-// cells in the body face.
-type ProseCol struct {
-	Start, End int
-}
-
 // SplitNumeric splits a numeric cell for separator-anchored drawing:
 // intPart is everything before the decimal separator (the opening
 // paren included), tail everything from the separator on (the
 // closing paren included). ok is false for content that does not
 // read as a number — headers, "n/a" — which stays as formatted.
 func SplitNumeric(s string) (intPart, tail string, ok bool) {
-	if _, _, ok = numericParts(s); !ok {
+	if !isNumeric(s) {
 		return "", "", false
 	}
 	core := strings.TrimSuffix(s, ")")
@@ -271,18 +274,14 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 	tl := &TableLayout{}
 	start := 0
 	for _, col := range cols {
-		tl.Cols = append(tl.Cols, ProseCol{Start: start, End: start + col.width})
+		span := Span{Start: start, End: start + col.width}
+		tl.Cols = append(tl.Cols, span)
 		tl.Aligns = append(tl.Aligns, col.align)
 		switch col.align {
 		case 'N':
-			tl.NumCols = append(tl.NumCols, NumCol{
-				Start: start, End: start + col.width,
-				Frac: col.frac, Paren: col.paren,
-			})
+			tl.NumCols = append(tl.NumCols, NumCol{Span: span, Frac: col.frac, Paren: col.paren})
 		case 'P':
-			tl.ProseCols = append(tl.ProseCols, ProseCol{
-				Start: start, End: start + col.width,
-			})
+			tl.ProseCols = append(tl.ProseCols, span)
 		}
 		start += col.width + 1
 	}
@@ -307,9 +306,9 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 				tl.HeaderProse[i] = lines
 				heights[i] = max(1, len(lines))
 			}
-			tl.Header = renderRowProse(cols, t.header, heights)
+			tl.Header = renderRow(cols, t.header, " ", heights)
 		} else {
-			tl.Header = formatRow(cols, t.header)
+			tl.Header = renderRow(cols, t.header, " ", nil)
 		}
 	}
 	for _, row := range t.rows {
@@ -346,7 +345,7 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 				k++
 			}
 		}
-		tl.Rows = append(tl.Rows, renderRowProse(cols, row.cells, heights))
+		tl.Rows = append(tl.Rows, renderRow(cols, row.cells, " ", heights))
 		tl.RowProse = append(tl.RowProse, prose)
 		tl.Totals = append(tl.Totals, row.total)
 		tl.RowNotes = append(tl.RowNotes, nil)
@@ -428,15 +427,10 @@ func (t *Table) fit(width int) ([]colSpec, error) {
 	return cols, nil
 }
 
-// numericParts reports whether a cell reads as a number and, if so,
-// the rune length of its fraction tail (decimal separator included)
-// and whether it is an accounting negative with a trailing ")". A
-// number contains at least one digit and only digits, grouping and
-// sign punctuation, currency marks, or percent.
-func numericParts(s string) (fracLen int, hasParen bool, ok bool) {
-	if s == "" {
-		return 0, false, false
-	}
+// isNumeric reports whether a cell reads as a number: at least one
+// digit and only digits, grouping and sign punctuation, currency
+// marks, or percent.
+func isNumeric(s string) bool {
 	hasDigit := false
 	for _, r := range s {
 		switch {
@@ -444,36 +438,30 @@ func numericParts(s string) (fracLen int, hasParen bool, ok bool) {
 			hasDigit = true
 		case strings.ContainsRune(".,+-−()$€%", r):
 		default:
-			return 0, false, false
+			return false
 		}
 	}
-	if !hasDigit {
+	return hasDigit
+}
+
+// numericParts is SplitNumeric reduced to the column metrics: the
+// rune length of the fraction tail (decimal separator included,
+// closing paren excluded) and whether the cell is an accounting
+// negative with a trailing ")".
+func numericParts(s string) (fracLen int, hasParen bool, ok bool) {
+	_, tail, ok := SplitNumeric(s)
+	if !ok {
 		return 0, false, false
 	}
-	core := strings.TrimSuffix(s, ")")
-	hasParen = core != s
-	if i := strings.LastIndex(core, "."); i >= 0 {
-		fracLen = runeLen(core[i:])
-	}
-	return fracLen, hasParen, true
-}
-
-// formatRow renders one logical row, wrapping cells to their column
-// widths; the result is one or more physical lines.
-func formatRow(cols []colSpec, cells []string) []string {
-	return renderRowProse(cols, cells, nil)
-}
-
-// renderRowProse is renderRow with measured-prose overrides: for a
-// column index present in proseHeights, the cell's space is
-// reserved blank at that height (the measured lines draw
-// positioned, outside the mono grid). A nil map is plain renderRow.
-func renderRowProse(cols []colSpec, cells []string, proseHeights map[int]int) []string {
-	return renderRow(cols, cells, " ", proseHeights)
+	frac, hasParen := strings.CutSuffix(tail, ")")
+	return runeLen(frac), hasParen, true
 }
 
 // renderRow wraps each cell into its column's line stack and emits
-// the padded physical lines, columns joined by gap.
+// the padded physical lines, columns joined by gap. For a column
+// index present in proseHeights the cell's space is reserved blank
+// at that height instead (the measured lines draw positioned,
+// outside the mono grid); a nil map renders every cell.
 func renderRow(cols []colSpec, cells []string, gap string, proseHeights map[int]int) []string {
 	stacks := make([][]string, len(cols))
 	height := 1

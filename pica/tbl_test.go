@@ -263,7 +263,7 @@ func TestTable_ProseColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tlm.ProseCols) != 1 || tlm.ProseCols[0] != (ProseCol{Start: 5, End: 20}) {
+	if len(tlm.ProseCols) != 1 || tlm.ProseCols[0] != (Span{Start: 5, End: 20}) {
 		t.Errorf("ProseCols = %+v", tlm.ProseCols)
 	}
 	if tlm.RowProse[0] != nil {
@@ -328,7 +328,7 @@ func TestTable_NumColGeometry(t *testing.T) {
 // expectedNumCol is the expected geometry for the table above: auto
 // column 9 wide, N column at [10,20), frac ".56" = 3, paren present.
 func expectedNumCol() NumCol {
-	return NumCol{Start: 10, End: 20, Frac: 3, Paren: true}
+	return NumCol{Span: Span{Start: 10, End: 20}, Frac: 3, Paren: true}
 }
 
 func TestSplitNumeric(t *testing.T) {
@@ -445,5 +445,62 @@ func TestTable_NumericHeaderLongerFraction(t *testing.T) {
 	want := "  1.50\n------\n    2\n   (3)"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestTable_LayoutMeasuredHeader(t *testing.T) {
+	tbl := mustTable(t, "6L 5N")
+	tbl.Header("Client name", "Amt")
+	tbl.Row("Alpha", "12.50")
+	plain, err := tbl.Layout(12)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		mHead      Measurer
+		wantHeight int // header lines; 0 = same as Layout
+	}{
+		{"nil header measurer", nil, 0},
+		{"mono header measurer", Mono, 2},
+		{"wide header measurer at ten units per rune", wideMeasurer{}, 2},
+	}
+	for _, tc := range tests {
+		runeUnits := 1
+		if tc.mHead != nil {
+			runeUnits = tc.mHead.Width("x")
+		}
+		tl, err := tbl.LayoutMeasured(12, Mono, tc.mHead, runeUnits)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if tc.mHead == nil {
+			if tl.HeaderProse != nil {
+				t.Errorf("%s: HeaderProse = %v, want nil", tc.name, tl.HeaderProse)
+			}
+			if !equalLines(tl.Header, plain.Header) {
+				t.Errorf("%s: Header = %q, want Layout's %q", tc.name, tl.Header, plain.Header)
+			}
+			continue
+		}
+		if len(tl.HeaderProse) != 2 {
+			t.Fatalf("%s: HeaderProse has %d columns, want 2", tc.name, len(tl.HeaderProse))
+		}
+		if got := len(tl.Header); got != tc.wantHeight {
+			t.Errorf("%s: header height %d, want %d", tc.name, got, tc.wantHeight)
+		}
+		if got := len(tl.HeaderProse[0]); got != tc.wantHeight {
+			t.Errorf("%s: measured lines %d, want %d", tc.name, got, tc.wantHeight)
+		}
+		for _, ln := range tl.Header {
+			if strings.TrimSpace(ln) != "" {
+				t.Errorf("%s: measured header not blanked: %q", tc.name, ln)
+			}
+		}
+		// Everything else is exactly Layout.
+		if !equalLines(tl.Rows[0], plain.Rows[0]) || tl.Sep != plain.Sep {
+			t.Errorf("%s: rows/sep differ from Layout", tc.name)
+		}
 	}
 }

@@ -38,7 +38,7 @@ func TestFuncMap_Render(t *testing.T) {
 
 func TestFuncMap_AllFunctions(t *testing.T) {
 	fm := funcMap()
-	expected := []string{"round", "decimal", "trunc", "pad", "shortTime", "shortDate", "dur"}
+	expected := []string{"round", "decimal", "trunc", "pad", "shortTime", "shortDate", "dur", "table"}
 	for _, name := range expected {
 		if _, ok := fm[name]; !ok {
 			t.Errorf("missing function %q in funcMap", name)
@@ -89,7 +89,10 @@ func TestDecimal(t *testing.T) {
 	}
 }
 
+// TestTrunc exercises the helper as bound in the FuncMap (it is
+// pica.TruncLine; the binding is what templates see).
 func TestTrunc(t *testing.T) {
+	trunc := funcMap()["trunc"].(func(string, int) string)
 	cases := []struct {
 		in   string
 		n    int

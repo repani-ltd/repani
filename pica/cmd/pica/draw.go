@@ -35,18 +35,14 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			p.StrokeGray(0.3)
 			ry := y + t.ps*0.35
 			if len(ln.ruleSegs) > 0 {
-				// Table rule: one hairline segment per column,
-				// mirroring the dash runs of the text separator.
+				// Table rule: one hairline segment per column
+				// interval on the mono grid.
 				adv := emWidth * t.psMono
 				for _, sg := range ln.ruleSegs {
-					p.Line(x+float64(sg[0])*adv, ry, x+float64(sg[1])*adv, ry, 0.5)
+					p.Line(x+float64(sg.Start)*adv, ry, x+float64(sg.End)*adv, ry, 0.5)
 				}
 			} else {
-				w := colW
-				if ln.ruleW > 0 {
-					w = float64(ln.ruleW) * emWidth * t.psMono
-				}
-				p.Line(x, ry, x+w, ry, 0.5)
+				p.Line(x, ry, x+colW, ry, 0.5)
 			}
 
 		case len(ln.words) > 0:

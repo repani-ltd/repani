@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"repani.com/pica"
 )
 
 // funcMap returns the pica template function set.
@@ -20,7 +23,7 @@ func funcMap() template.FuncMap {
 		"decimal": decimal,
 
 		// String.
-		"trunc": trunc,
+		"trunc": pica.TruncLine,
 		"pad":   pad,
 
 		// Time / date / duration.
@@ -77,15 +80,6 @@ func decimal(v any, n int) (string, error) {
 	return strconv.FormatFloat(f, 'f', n, 64), nil
 }
 
-// trunc truncates a string to n runes.
-func trunc(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
-}
-
 // pad pads s with spaces on the right to width n runes. If s is
 // longer than n runes, it is truncated.
 func pad(s string, n int) string {
@@ -96,23 +90,31 @@ func pad(s string, n int) string {
 	return s + strings.Repeat(" ", n-len(r))
 }
 
+// dateTimeLayouts are the ISO 8601 datetime forms the time helpers
+// accept (the Z07:00 layout also parses a literal "Z"); shortTime
+// and shortDate each add their own non-datetime forms.
+var dateTimeLayouts = []string{
+	"2006-01-02T15:04:05Z07:00",
+	"2006-01-02T15:04Z",
+}
+
+// parseAny parses s against the datetime layouts, then extra.
+func parseAny(s string, extra ...string) (time.Time, bool) {
+	for _, f := range slices.Concat(dateTimeLayouts, extra) {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // shortTime extracts HH:MM from a time string. Accepts ISO 8601
 // datetimes, time-only strings, and space-separated datetimes.
 // Returns the original string if no time can be parsed (template
 // helpers must always return a usable string).
 func shortTime(s string) string {
-	formats := []string{
-		"2006-01-02T15:04:05Z",
-		"2006-01-02T15:04:05Z07:00",
-		"2006-01-02T15:04Z",
-		"2006-01-02 15:04:05",
-		"15:04:05",
-		"15:04",
-	}
-	for _, f := range formats {
-		if t, err := time.Parse(f, s); err == nil {
-			return t.Format("15:04")
-		}
+	if t, ok := parseAny(s, "2006-01-02 15:04:05", "15:04:05", "15:04"); ok {
+		return t.Format("15:04")
 	}
 	return s
 }
@@ -121,16 +123,8 @@ func shortTime(s string) string {
 // the short form "Mon DD" (3-letter weekday + day). Returns the
 // input unchanged if it cannot be parsed.
 func shortDate(s string) string {
-	formats := []string{
-		"2006-01-02T15:04:05Z",
-		"2006-01-02T15:04:05Z07:00",
-		"2006-01-02T15:04Z",
-		"2006-01-02",
-	}
-	for _, f := range formats {
-		if t, err := time.Parse(f, s); err == nil {
-			return t.Format("Mon 02")
-		}
+	if t, ok := parseAny(s, "2006-01-02"); ok {
+		return t.Format("Mon 02")
 	}
 	return s
 }

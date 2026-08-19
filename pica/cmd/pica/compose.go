@@ -11,10 +11,6 @@ import (
 	"repani.com/pica/pdf"
 )
 
-// bullet is the .item marker, matching the text writer's (U+2022,
-// covered by all four embedded faces).
-const bullet = "•"
-
 // ── Styled lines and flow blocks ────────────────────────────────────
 
 type style byte
@@ -41,10 +37,9 @@ type sline struct {
 	style  style
 	href   string   // non-empty: the line is a clickable link target
 	role   sizeRole // size role: body, half, heading, display
-	ruleW  int      // styleRule: width in mono grid runes (0 = full column)
-	// ruleSegs: per-column rule segments in grid runes (tables);
-	// when set it wins over ruleW.
-	ruleSegs [][2]int
+	// ruleSegs: styleRule drawn as one hairline per column interval
+	// (table rules); empty draws the full column width.
+	ruleSegs []pica.Span
 	nums     []numSpan
 	prose    []proseSpan
 }
@@ -140,10 +135,13 @@ func deriveTypo(doc *pica.Doc, colW float64) (typo, error) {
 		units = width * pdf.AvgAdvance(pdf.Sans)
 		ps = colW * 1000 / float64(units)
 	}
-	if ps < minPs {
+	// The floor guards the smaller of the two sizes: in sans mode
+	// the mono size (tables, verbatim) is the smaller one, since
+	// the average sans advance is narrower than the mono cell.
+	if small := min(ps, psMono); small < minPs {
 		return typo{}, fmt.Errorf(
 			"derived body size %.1fpt is below %.1fpt: .width %d on %s leaves the measure too narrow",
-			ps, minPs, width, doc.Layout.Paper)
+			small, minPs, width, doc.Layout.Paper)
 	}
 	return typo{
 		sans: sans, ps: ps, psMono: psMono,
@@ -286,12 +284,12 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 			}
 
 		case pica.Quote:
-			// Inset two spaces on both sides; the attribution line is
-			// right-aligned to the quote's right margin. Mirrors the
-			// text writer's geometry (see pica doc.go).
+			// Inset pica.QuoteIndent spaces on both sides; the
+			// attribution line is right-aligned to the quote's right
+			// margin. Mirrors the text writer's geometry.
 			if t.sans {
 				m := pdf.Measure(pdf.Sans)
-				qi := 2 * m.Space()
+				qi := pica.QuoteIndent * m.Space()
 				measure := t.units - 2*qi
 				lines := pica.JustifyLines(blk.Text, measure, m)
 				for i, ln := range lines {
@@ -300,19 +298,18 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 				if blk.Attrib != "" {
-					ln := lineFor(strings.Fields("-- "+blk.Attrib), m)
+					ln := pica.LineOf(strings.Fields("-- "+blk.Attrib), m)
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true),
 						indent: qi + max(0, measure-ln.Width)}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				for _, ln := range pica.JustifyParagraph(blk.Text, width-4) {
-					fb.segs = append(fb.segs, seg{lines: []sline{{text: "  " + ln}}})
+				inset := strings.Repeat(" ", pica.QuoteIndent)
+				for _, ln := range pica.JustifyParagraph(blk.Text, width-2*pica.QuoteIndent) {
+					fb.segs = append(fb.segs, seg{lines: []sline{{text: inset + ln}}})
 				}
 				if blk.Attrib != "" {
-					s := trunc("-- "+blk.Attrib, width-4)
-					s = strings.Repeat(" ", width-2-len([]rune(s))) + s
-					fb.segs = append(fb.segs, seg{lines: []sline{{text: s}}})
+					fb.segs = append(fb.segs, seg{lines: []sline{{text: pica.AttribLine(blk.Attrib, width)}}})
 				}
 			}
 
@@ -321,27 +318,29 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 			// at the heading role: larger glyphs on taller slots of
 			// the same half-line grid, so the hierarchy reads without
 			// flow learning anything new. The wrap measure shrinks by
-			// the glyph scale (bigger ems, same physical column).
+			// the glyph scale (bigger ems, same physical column); a
+			// heading longer than its measure wraps in both modes.
 			role := roleDisplay
 			if blk.Level == 2 {
 				role = roleHeading
 			}
-			if t.sans {
-				measure := t.units * 2 / 3
+			shrink := func(measure int) int {
 				if role == roleHeading {
-					measure = t.units * 5 / 6
+					return measure * 5 / 6
 				}
-				m := pdf.Measure(pdf.SansBold)
+				return measure * 2 / 3
+			}
+			if t.sans {
+				measure, m := shrink(t.units), pdf.Measure(pdf.SansBold)
 				for _, ln := range pica.WrapLines(blk.Text, measure, m) {
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true), style: styleBold, role: role}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				budget := width * 2 / 3
-				if role == roleHeading {
-					budget = width * 5 / 6
+				for _, ln := range pica.WrapLines(blk.Text, shrink(width), pica.Mono) {
+					sl := sline{text: strings.Join(ln.Words, " "), style: styleBold, role: role}
+					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
-				fb.segs = []seg{{lines: []sline{{text: trunc(blk.Text, budget), style: styleBold, role: role}}}}
 			}
 			fb.keepNext = true // flow guards the no-next-block case
 			fb.atomic = true
@@ -364,7 +363,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				}
 				fb.segs = []seg{{lines: []sline{{words: []string{label}, style: styleGray, href: url}}}}
 			} else {
-				fb.segs = []seg{{lines: []sline{{text: trunc(label, width), style: styleGray, href: url}}}}
+				fb.segs = []seg{{lines: []sline{{text: pica.TruncLine(label, width), style: styleGray, href: url}}}}
 			}
 			fb.atomic = true
 
@@ -400,12 +399,11 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				}
 				return lines
 			}
-			// The separator/total rule: per-column hairline segments
-			// mirroring the dash runs of the text writer's separator
-			// row — the dash form always carried the column
-			// structure; the segments keep it.
+			// The separator/total rule: one hairline segment per
+			// column interval — the PDF form of the text writer's
+			// dashed separator row.
 			rule := func() sline {
-				return sline{style: styleRule, ruleSegs: dashRuns(tl.Sep)}
+				return sline{style: styleRule, ruleSegs: tl.Cols}
 			}
 			if len(tl.Header) > 0 {
 				lines := toSlines(tl.Header)
@@ -458,7 +456,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 		case pica.Pre:
 			lines := make([]sline, len(blk.Lines))
 			for j, ln := range blk.Lines {
-				lines[j] = sline{text: trunc(ln, width)}
+				lines[j] = sline{text: pica.TruncLine(ln, width)}
 			}
 			if blk.Repeat > 0 && blk.Repeat < len(lines) {
 				// Repeated lead-in becomes its own segment; the rest
@@ -513,49 +511,29 @@ func composeItem(blk pica.Block, t typo, width int) fblock {
 	fb := fblock{tight: blk.Tight}
 	if t.sans {
 		m := pdf.Measure(pdf.Sans)
-		ii := m.Width(bullet) + m.Space()
+		ii := m.Width(pica.Bullet) + m.Space()
 		measure := t.units - ii
 		lines := pica.JustifyLines(blk.Text, measure, m)
 		for i, ln := range lines {
 			last := i == len(lines)-1
 			sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: ii}
 			if i == 0 {
-				sl.words = append([]string{bullet}, ln.Words...)
+				sl.words = append([]string{pica.Bullet}, ln.Words...)
 				sl.gaps = append([]int{m.Space()}, sl.gaps...)
 				sl.indent = 0
 			}
 			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 		}
 	} else {
-		for i, ln := range pica.JustifyParagraph(blk.Text, width-2) {
-			pre := "  "
+		for i, ln := range pica.JustifyParagraph(blk.Text, width-pica.ItemIndent) {
+			pre := strings.Repeat(" ", pica.ItemIndent)
 			if i == 0 {
-				pre = bullet + " "
+				pre = pica.Bullet + " "
 			}
 			fb.segs = append(fb.segs, seg{lines: []sline{{text: pre + ln}}})
 		}
 	}
 	return fb
-}
-
-// dashRuns parses the separator row's dash runs into [start,end)
-// rune intervals — one per column.
-func dashRuns(sep string) [][2]int {
-	var runs [][2]int
-	start := -1
-	for i, r := range []rune(sep) {
-		switch {
-		case r == '-' && start < 0:
-			start = i
-		case r != '-' && start >= 0:
-			runs = append(runs, [2]int{start, i})
-			start = -1
-		}
-	}
-	if start >= 0 {
-		runs = append(runs, [2]int{start, len([]rune(sep))})
-	}
-	return runs
 }
 
 func toSlines(lines []string) []sline {
@@ -657,17 +635,4 @@ func extractNums(ln sline, cols []pica.NumCol) sline {
 		ln.text = strings.TrimRight(string(r), " ")
 	}
 	return ln
-}
-
-// lineFor assembles a pica.Line from words at natural spacing
-// under the measurer (the attribution line is never justified).
-func lineFor(words []string, m pdf.Measurer) pica.Line {
-	w := 0
-	for i, s := range words {
-		if i > 0 {
-			w += m.Space()
-		}
-		w += m.Width(s)
-	}
-	return pica.Line{Words: words, Width: w}
 }

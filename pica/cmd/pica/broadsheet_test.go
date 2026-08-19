@@ -133,7 +133,7 @@ func TestExtractNums(t *testing.T) {
 	// Grid: "Alpha      1,234.56 " — N column at [10,20), frac 3,
 	// paren slot. The cell content lifts into a span anchored at
 	// SepIndex and the mono text is blanked behind it.
-	cols := []pica.NumCol{{Start: 10, End: 20, Frac: 3, Paren: true}}
+	cols := []pica.NumCol{{Span: pica.Span{Start: 10, End: 20}, Frac: 3, Paren: true}}
 
 	ln := extractNums(sline{text: "Alpha       1,234.56"}, cols)
 	if len(ln.nums) != 1 {
@@ -624,6 +624,70 @@ func TestBroadsheet_NewBlocks(t *testing.T) {
 		}
 		if string(b1) != string(b2) {
 			t.Errorf("broadsheet with new blocks is not deterministic (%s)", strings.TrimSpace(trailer))
+		}
+	}
+}
+
+// TestDeriveTypo_FloorGuardsMonoSize: in a sans document the mono
+// size (tables, verbatim) is the smaller of the two derived sizes;
+// the readability floor must catch it even when the body size passes.
+func TestDeriveTypo_FloorGuardsMonoSize(t *testing.T) {
+	doc, err := pica.Parse("T\n\nbody\n\n.width 40\n.font sans\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A column where the mono size lands just under the floor.
+	colW := emWidth * 40 * (minPs - 0.1)
+	sansPs := colW * 1000 / float64(40*pdf.AvgAdvance(pdf.Sans))
+	if sansPs < minPs {
+		t.Fatalf("premise: sans body size %.2f must clear the floor %.1f", sansPs, minPs)
+	}
+	if _, err := deriveTypo(doc, colW); err == nil {
+		t.Fatal("expected floor error for the mono size")
+	}
+	doc.Layout.Font = "mono"
+	if _, err := deriveTypo(doc, colW); err == nil {
+		t.Fatal("expected floor error in mono mode too")
+	}
+}
+
+// TestCompose_HeadingWraps: a heading longer than its shrunken
+// measure wraps in both modes (mono used to truncate silently).
+func TestCompose_HeadingWraps(t *testing.T) {
+	long := "A very long section heading that cannot fit on one line"
+	doc, err := pica.Parse("T\n\n# " + long + "\n\nprose\n\n.width 30\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, typ := range []typo{
+		{ps: 9, psMono: 9, lineH: 11},
+		{sans: true, ps: 9, psMono: 9, lineH: 11, units: 30 * pdf.AvgAdvance(pdf.Sans)},
+	} {
+		blocks, err := compose(doc, typ)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h := blocks[0]
+		if len(h.segs) < 2 {
+			t.Fatalf("sans=%v: heading composed as %d line(s), want a wrap", typ.sans, len(h.segs))
+		}
+		var words []string
+		for _, sg := range h.segs {
+			ln := sg.lines[0]
+			if ln.role != roleDisplay || ln.style != styleBold {
+				t.Errorf("sans=%v: wrapped heading line lost role/style", typ.sans)
+			}
+			if typ.sans {
+				words = append(words, ln.words...)
+			} else {
+				if n := len([]rune(ln.text)); n > 30*2/3 {
+					t.Errorf("mono heading line %q is %d runes, budget %d", ln.text, n, 30*2/3)
+				}
+				words = append(words, strings.Fields(ln.text)...)
+			}
+		}
+		if got := strings.Join(words, " "); got != long {
+			t.Errorf("sans=%v: heading text %q, want %q (nothing truncated)", typ.sans, got, long)
 		}
 	}
 }
