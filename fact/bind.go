@@ -35,8 +35,10 @@ func Bind(facts []Fact) (map[string]any, error) {
 	root := map[string]any{}
 	reg := map[string]map[string]any{} // marker -> shared instance map
 	kinds := map[string]bool{}         // key prefix through the kind ("api.day")
-	for _, f := range facts {
+	markers := make([]string, len(facts))
+	for i, f := range facts {
 		marker, prefix := keyMarker(f.Key)
+		markers[i] = marker
 		if marker == "" {
 			continue
 		}
@@ -48,8 +50,8 @@ func Bind(facts []Fact) (map[string]any, error) {
 	// Instance facts first, so their registry maps are wired into the
 	// tree before any singleton key walks the same path.
 	for _, pass := range [2]bool{true, false} {
-		for _, f := range facts {
-			marker, _ := keyMarker(f.Key)
+		for i, f := range facts {
+			marker := markers[i]
 			if (marker != "") != pass {
 				continue
 			}
@@ -151,6 +153,9 @@ func bindScalar(t Type, tok string, reg map[string]map[string]any) (any, error) 
 	case Float:
 		return strconv.ParseFloat(tok, 64)
 	case Str:
+		if plainString(tok) {
+			return tok[1 : len(tok)-1], nil
+		}
 		var s string
 		if err := json.Unmarshal([]byte(tok), &s); err != nil {
 			return nil, err

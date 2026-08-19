@@ -191,13 +191,17 @@ func checkKey(key string, n int) *Error {
 // keyMarker returns the instance marker ("kind:id") in key and the key
 // prefix up to and including it, or "" for singleton keys.
 func keyMarker(key string) (marker, prefix string) {
-	segs := strings.Split(key, ".")
-	for i, seg := range segs {
-		if strings.Contains(seg, ":") {
-			return seg, strings.Join(segs[:i+1], ".")
-		}
+	colon := strings.IndexByte(key, ':')
+	if colon < 0 {
+		return "", ""
 	}
-	return "", ""
+	start := strings.LastIndexByte(key[:colon], '.') + 1
+	end := strings.IndexByte(key[colon:], '.')
+	if end < 0 {
+		return key[start:], key
+	}
+	end += colon
+	return key[start:end], key[:end]
 }
 
 // parseType recognizes the twenty-one legal shapes and rejects everything else.
@@ -292,33 +296,30 @@ func splitList(body string) ([]string, bool) {
 		return nil, true
 	}
 	var elems []string
-	var cur strings.Builder
+	start := 0
 	inStr, esc := false, false
-	for _, r := range body {
+	for i := 0; i < len(body); i++ {
+		c := body[i]
 		switch {
 		case inStr:
-			cur.WriteRune(r)
 			if esc {
 				esc = false
-			} else if r == '\\' {
+			} else if c == '\\' {
 				esc = true
-			} else if r == '"' {
+			} else if c == '"' {
 				inStr = false
 			}
-		case r == '"':
+		case c == '"':
 			inStr = true
-			cur.WriteRune(r)
-		case r == ',':
-			elems = append(elems, strings.TrimSpace(cur.String()))
-			cur.Reset()
-		default:
-			cur.WriteRune(r)
+		case c == ',':
+			elems = append(elems, strings.TrimSpace(body[start:i]))
+			start = i + 1
 		}
 	}
 	if inStr {
 		return nil, false
 	}
-	elems = append(elems, strings.TrimSpace(cur.String()))
+	elems = append(elems, strings.TrimSpace(body[start:]))
 	for _, e := range elems {
 		if e == "" {
 			return nil, false
@@ -512,11 +513,29 @@ func isJSONNumber(s string) bool {
 // canonString checks tok is a JSON string literal and re-encodes it
 // canonically (deterministic escaping, HTML escaping off).
 func canonString(tok string) (string, bool) {
+	if plainString(tok) {
+		return tok, true
+	}
 	var s string
 	if err := json.Unmarshal([]byte(tok), &s); err != nil || !strings.HasPrefix(tok, `"`) {
 		return "", false
 	}
 	return Quote(s), true
+}
+
+// plainString reports whether tok is a quoted string of printable ASCII
+// without backslashes or inner quotes — a JSON string literal that is
+// its own canonical encoding, so the json round trip can be skipped.
+func plainString(tok string) bool {
+	if len(tok) < 2 || tok[0] != '"' || tok[len(tok)-1] != '"' {
+		return false
+	}
+	for i := 1; i < len(tok)-1; i++ {
+		if c := tok[i]; c < 0x20 || c > 0x7e || c == '"' || c == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 // Quote renders s as a canonical FACT str value token (a JSON string

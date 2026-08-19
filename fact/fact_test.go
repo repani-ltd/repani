@@ -2,6 +2,7 @@ package fact
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -336,5 +337,17 @@ func TestMergeByConcatenation(t *testing.T) {
 	facts := mustParse(t, a+b)
 	if len(facts) != 2 {
 		t.Errorf("concatenated disjoint files should validate, got %d facts", len(facts))
+	}
+}
+
+func TestPlainStringMatchesJSON(t *testing.T) {
+	for _, tok := range []string{`"abc"`, `" ~!@#$%^&*()<>&'"`, `""`, `"a\"b"`, `"a\\b"`, `"é"`, `"a` + "\x7f" + `"`} {
+		var s string
+		if err := json.Unmarshal([]byte(tok), &s); err != nil {
+			t.Fatalf("%s: %v", tok, err)
+		}
+		if plainString(tok) && Quote(s) != tok { // the fast path must be exact
+			t.Errorf("plainString(%s) but canonical is %s", tok, Quote(s))
+		}
 	}
 }
