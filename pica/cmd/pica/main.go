@@ -89,6 +89,8 @@ func main() {
 		os.Exit(pdfCmd(os.Args[2:]))
 	case "report":
 		os.Exit(reportCmd(os.Args[2:]))
+	case "html":
+		os.Exit(htmlCmd(os.Args[2:]))
 	case "spec":
 		os.Exit(specCmd(os.Args[2:]))
 	case "check":
@@ -111,6 +113,8 @@ Usage:
   pica text [-o FILE] [file|-]
   pica pdf [-mark] [-o FILE] [file|-]
   pica report [-mark] [-o FILE] [file|-]
+  pica html [-o FILE] [file|-]
+  pica html -txtar -page NAME [-o FILE] [archive|-]
   pica spec [-o FILE]
   pica check [file|-]
 
@@ -118,7 +122,12 @@ render executes a Go template over JSON, FACT (-fact, implied by a
 .fact filename), or txtar (-txtar) data and emits a pica source
 document; text, pdf, and report render a source document (default
 stdin) to a fixed-width text page, an N-column newspaper PDF, or a
-single-column report PDF (hairline table rules, page footer). spec
+single-column report PDF (hairline table rules, page footer); html
+renders one document to a semantic <article> fragment, or, with
+-txtar, assembles a whole page from an archive: NAME.t is the
+document, page.tmpl the html/template, data.fact typed values,
+*.html and *.svg raw trusted fragments (see the html subcommand's
+source for the data the template sees). spec
 prints the language reference embedded in this binary; check parses
 a document and reports errors without rendering. Layout
 (width, paper, columns, font) comes from the document's trailer

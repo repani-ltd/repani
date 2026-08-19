@@ -3,9 +3,11 @@
 A minimal, troff-inspired source language and typesetter.
 Documents are parsed once into a typed block model and exported by
 writers: a fixed-width text page (for byte-frugal transports like
-Quietcasting), an N-column newspaper-style PDF, and a single-column
+Quietcasting), an N-column newspaper-style PDF, a single-column
 report PDF -- monospace by default, proportional prose with
-`.font sans`.
+`.font sans` -- and a semantic HTML `<article>` fragment (`pica
+html`), which with `-txtar` assembles a whole page from one archive
+holding the document, a Go html/template, facts and raw fragments.
 
 The design center is the language (see `doc.go` for the spec):
 

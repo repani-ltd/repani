@@ -2,9 +2,10 @@
 Package pica parses a minimal, troff-inspired source language
 into a typed document and renders it through width-disciplined
 writers: a plain-text writer (Doc.Text) for fixed-width monospace
-pages, and -- via the block model -- richer writers such as the
-pica PDFs, monospace by default and proportional prose with
-.font sans.
+pages, an HTML writer (Doc.HTML) for one semantic <article>
+fragment the browser lays out, and -- via the block model --
+richer writers such as the pica PDFs, monospace by default and
+proportional prose with .font sans.
 
 The language inherits troff's principles, not its vocabulary:
 fill mode is the default (the writer owns wrapping, justification,
@@ -106,7 +107,10 @@ its own output format. The text writer's target format is the
 quietcasting wire markup, so it serializes Heading as "# text" and
 LinkBlk as a ".link" meta line (which wire clients render as a
 proper link); the pdf writer renders headings bold and links as
-gray anchor text carrying a clickable annotation. A consumer that
+gray anchor text carrying a clickable annotation; the HTML writer
+emits the element that carries the meaning (h2/h3, ul/li, table
+with thead, blockquote, a real <a>) and lets the browser wrap, so
+layout commands and widths are consumed, not rendered. A consumer that
 wants the data rather than a rendering walks Doc.Blocks directly.
 Line counts are deterministic in every writer, and for plain blocks
 a text page and a mono PDF column stay the same object. Two things
