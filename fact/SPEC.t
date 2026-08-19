@@ -77,7 +77,7 @@ segment(.segment)*
 .item Instance marker: at most one segment in the path may take the form kind:id, where kind and id are each valid segment strings. This segment declares that the subtree rooted there is an instance (record) of kind. By convention, kind is lowercase even in projections (type:Approver, func:Submit — the kind vocabulary belongs to the generator, the id belongs to the source).
 .item Zero instance markers → the fact belongs to the singleton namespace.
 .item Two or more instance markers in one key → error. (This enforces "no nested records" at the key level. Nested identity is expressed by compound ids or refs, e.g. method:Service_Settle, never by nested markers.)
-.item The marker may appear at any segment position; validators MUST require that a given kind:id prefix appears at a consistent position across all facts of one instance.
+.item The marker may appear at any segment position; validators MUST require that a given kind:id marker appears under one key prefix — the same segments before it, hence the same position — across all facts of one instance. The subtree rooted at the marker is the instance; an instance has one root, not one root per namespace.
 .item Dots are namespacing, not structure. server.tls.enabled does not imply an object server.tls exists. There is no tree; there is only the set of lines.
 
 Examples:
@@ -100,11 +100,11 @@ Projection namespacing note: because only one marker is allowed, a projection of
 Type — Values — Notes:
 
 .item bool — true, false — Sugar for enum(true|false); semantically there are six base types
-.item int — JSON integer syntax, 64-bit signed range — No width variants; the value is the truth
+.item int — JSON integer syntax, 64-bit signed range — No width variants; the value is the truth; -0 is the value 0 and canonicalizes to 0 (one spelling per value, §8)
 .item float — JSON number syntax with . or exponent — IEEE 754 double
 .item str — JSON string syntax, double-quoted — JSON escaping rules exactly (\", \\, \n, \t, \uXXXX)
 .item datetime — 2026-07-20 or 2026-09-01T09:30:00Z, unquoted — Strict RFC 3339 subset, UTC only; two forms, both canonical as written; see below (new in v0.3)
-.item enum(a|b|c) — One of the listed bare symbols — Symbols follow segment rules ([a-zA-Z0-9_], start with letter, case-sensitive); at least one symbol; written unquoted in the value
+.item enum(a|b|c) — One of the listed bare symbols — Symbols follow segment rules ([a-zA-Z0-9_], start with letter, case-sensitive); at least one symbol; written unquoted in the value. The word none is reserved (it is the absence value of optional types, §7) and is not a legal symbol: an enum listing it is E004, since the symbol could never be written as a value
 .item ref(kind) — The instance marker of an instance of kind, written kind:id — See §6
 
 The datetime type (new in v0.3). A UTC point in time or a calendar date, written unquoted in exactly two forms:
@@ -143,7 +143,7 @@ The type grammar is deliberately non-recursive. The complete set of legal type e
 .item A file denotes an unordered set of facts. Line order carries no meaning. Concatenation of files with disjoint fact sets (followed by duplicate checking) is a valid merge primitive. Config files are disjoint by authorship, so config merges by concatenation; per-package projection files are not disjoint (each asserts the same singleton keys, e.g. imports) and compose by directory layout instead (§11.1), never by concatenation.
 .item Duplicate keys are an error. Not last-wins, not merge — error. Silent override is how bugs hide from agents.
 .item Existence rule: an instance kind:id exists iff at least one fact line contains that marker. Nothing exists by implication; empty records cannot exist.
-.item Totality rule (config profile): absence of a key is never a default. "Deliberately nothing" must be asserted: route:health.auth: ref(policy)? = none. Absent (nothing was decided — investigate) and asserted none (decided: nothing — trust) are different states, and the distinction is load-bearing for agents reading configs they did not write.
+.item Totality rule (config profile): absence of a key is never a default. "Deliberately nothing" must be asserted: route:health.auth: ref(policy)? = none. Absent (nothing was decided — investigate) and asserted none (decided: nothing — trust) are different states, and the distinction is load-bearing for agents reading configs they did not write. The rule is stated for keys because only keys carry values: a namespace (a dotted prefix, the subtree a language binding maps to a nested record) has no none — by the existence rule nothing exists by implication, so a binding that serializes an absent record can only omit its subtree, and a reader cannot tell that from a record nobody decided about. Where "decided: no record" must be readable, assert it with an explicit optional key.
 .item Completeness rule (projection profile): a projection is total over its declared scope — every declaration in scope appears. Within that scope, absence of a fact kind means the generator does not emit it, never that the source lacks it. Generators MUST document their fact vocabulary (see §11.2).
 
 ---
@@ -216,7 +216,7 @@ Consequences: independently materialized equal fact sets are byte-identical; equ
 # 9. Validation Algorithm
 
 .item 1. Lex each line independently (fact/comment/blank; split fact into key, type, value). Failures are per-line with line numbers; no cascading errors — a property of the stateless grammar.
-.item 2. Key check: segment rules ([a-zA-Z0-9_], letter-first); at most one marker; consistent marker position per instance.
+.item 2. Key check: segment rules ([a-zA-Z0-9_], letter-first); at most one marker; consistent marker prefix per instance.
 .item 3. Type check: the expression is one of the twenty-one legal shapes.
 .item 4. Value check: value inhabits the type's domain (enum symbol listed; none only under ?; list elements inhabit the base type; JSON scalar syntax valid; datetime form, calendar validity, and Z per §4.1).
 .item 5. Duplicate check: no key twice in the validation set.
@@ -384,6 +384,7 @@ base_type     = "bool" | "int" | "float" | "str" | "datetime"
               | "enum(" , symbol , { "|" , symbol } , ")"
               | "ref(" , segment , ")" ;
 symbol        = letter , { letter | digit | "_" } ;
+                (* except the reserved word "none", §4.1 *)
 
 value         = scalar | "none" | list_value ;
                 (* "none" legal only for optional types;
@@ -415,15 +416,15 @@ No recursive production exists: type does not reference itself, list elements ar
 Code — Condition — Example message:
 
 .item E001 — Line is not a fact/comment/blank — line 12: cannot lex line
-.item E002 — Invalid key segment — line 3: segment "9lives" must start with a letter
+.item E002 — Invalid key segment — line 3: segment "9lives" must start with a letter / line 4: segment "tls-mode" contains characters outside [a-zA-Z0-9_]
 .item E003 — Multiple instance markers — line 7: key contains two markers ("pkg:transfer" and "type:Service")
-.item E004 — Illegal type expression — line 9: "list(list(int))" — wrappers do not compose
+.item E004 — Illegal type expression — line 9: "list(list(int))" is not one of the twenty-one legal type shapes (wrappers do not compose) / line 10: "enum(none|some)": none is reserved and cannot be an enum symbol
 .item E005 — Value outside type domain — line 5: "put" is not in enum(get|post) / line 6: "2026-09-01T09:30:00+02:00" — datetime is UTC only (write Z)
-.item E006 — none on non-optional type — line 8: none requires optional type (add "?")
+.item E006 — none on non-optional type — line 8: none requires optional type (add "?") / line 9 (list type): lists have no none; use []
 .item E007 — Duplicate fact — line 15: duplicate of key "server.port" (first at line 2)
 .item E008 — Unresolved reference — line 11: ref(policy) "policy:makerr" — no such instance
 .item E009 — Ref kind mismatch — line 11: "step:make" is a step, expected ref(policy)
-.item E010 — Inconsistent marker position — instance "route:transfer": marker at segment 1 and segment 2 across lines
+.item E010 — Inconsistent marker prefix — line 7: instance "route:transfer": inconsistent marker prefix ("route:transfer" vs "api.route:transfer")
 .item W001 — (lint) Enum drift — key suffix "method" under kind "route" has differing symbol sets
 .item W002 — (lint) Non-canonical form — file is valid but not canonically sorted/spaced
 

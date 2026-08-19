@@ -87,6 +87,36 @@ func TestBindPathCollision(t *testing.T) {
 	}
 }
 
+func TestBindMarkerAtNonLeadingPosition(t *testing.T) {
+	m := mustBind(t, "api.route:a.path: str = \"/a\"\napi.order: list(ref(route)) = [route:a]\n")
+	api := m["api"].(map[string]any)
+	inst := api["route"].(map[string]any)["a"].(map[string]any)
+	if inst["path"] != "/a" {
+		t.Errorf("api.route.a.path = %#v", inst["path"])
+	}
+	if rows := api["order"].([]any); len(rows) != 1 || rows[0].(map[string]any)["path"] != "/a" {
+		t.Errorf("ref did not resolve to the instance: %#v", api["order"])
+	}
+}
+
+// A singleton key inside a kind's namespace is a view collision, not a
+// silent merge (day.foo vs day:d1.hi), at any depth.
+func TestBindKindSingletonMix(t *testing.T) {
+	for _, src := range []string{
+		"day.foo: int = 1\nday:d1.hi: int = 2\n",
+		"day.d1.hi: int = 1\nday:d1.lo: int = 2\n",
+		"day: int = 1\nday:d1.lo: int = 2\n",
+		"api.day.x: int = 1\napi.day:d1.lo: int = 2\n",
+	} {
+		facts := mustParse(t, src)
+		if _, err := Bind(facts); err == nil || !strings.Contains(err.Error(), "collides with instance kind") {
+			t.Errorf("%q: want kind collision error, got %v", src, err)
+		}
+	}
+	// Different roots are fine.
+	mustBind(t, "api.day.x: int = 1\nday:d1.lo: int = 2\n")
+}
+
 func TestBindTemplateExecution(t *testing.T) {
 	m := mustBind(t, `title: str = "Weather"
 current.temp: float = 26.437

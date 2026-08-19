@@ -4,12 +4,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"repani.com/fact"
 	"repani.com/fact/project"
@@ -24,10 +24,11 @@ commands:
   fmt [-w]       print canonical form (-w: rewrite the file in place)
   encode         convert .fact to the canonical JSON encoding
   decode         convert the JSON encoding to canonical .fact
-  project [-w|-check] [-o path] [dir|import-path]
+  project [-w|-o path] [-check] [dir|import-path]
                  project a Go package's declaration layer to canonical .fact
                  (stdout by default; -w writes <dir>/pkg.fact read-only;
-                 -check verifies the target is fresh — the CI gate;
+                 -o writes to path instead; -check verifies the target is
+                 fresh instead of writing — the CI gate;
                  an import path projects a dependency resolved through this
                  module's go.mod — use with -o, e.g.
                  fact project -o facts/<import-path>/pkg.fact <import-path>)
@@ -39,76 +40,70 @@ commands:
 `
 
 func main() {
-	os.Exit(run(os.Args[1:]))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string) int {
+// run executes one command and returns the process exit code: 0 ok,
+// 1 failure (invalid input, stale projection, I/O), 2 usage.
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprint(os.Stderr, usage)
+		fmt.Fprint(stderr, usage)
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
+	fail := func(err error) int {
+		fmt.Fprintln(stderr, "fact:", err)
+		return 1
+	}
 
 	if cmd == "project" {
-		fs := flag.NewFlagSet("project", flag.ExitOnError)
+		fs := flag.NewFlagSet("project", flag.ContinueOnError)
+		fs.SetOutput(stderr)
 		write := fs.Bool("w", false, "write <dir>/pkg.fact instead of stdout")
-		check := fs.Bool("check", false, "verify <dir>/pkg.fact is fresh; exit 1 if stale")
+		check := fs.Bool("check", false, "verify the target is fresh; exit 1 if stale")
 		outPath := fs.String("o", "", "write to this path (for read-only source trees, e.g. facts/ mirrors of dependencies)")
-		fs.Parse(rest)
+		if err := fs.Parse(rest); err != nil {
+			return flagExit(err)
+		}
 		rest = fs.Args()
 		dir := "."
-		switch len(rest) {
-		case 0:
-		case 1:
-			dir = rest[0]
-		default:
-			fmt.Fprint(os.Stderr, usage)
+		switch {
+		case len(rest) > 1, *write && *outPath != "", *write && *check:
+			fmt.Fprint(stderr, usage)
 			return 2
+		case len(rest) == 1:
+			dir = rest[0]
 		}
 		out, err := project.File(dir)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "fact:", err)
-			return 1
+			return fail(err)
 		}
-		target := filepath.Join(dir, "pkg.fact")
+		target, hint := filepath.Join(dir, "pkg.fact"), "fact project -w "+dir
 		if *outPath != "" {
-			target = *outPath
+			target, hint = *outPath, "fact project -o "+*outPath+" "+dir
 		}
 		switch {
-		case *outPath != "" && !*check:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				fmt.Fprintln(os.Stderr, "fact:", err)
-				return 1
-			}
-			os.Remove(target) // stored read-only per SPEC §11.1
-			if err := os.WriteFile(target, out, 0o444); err != nil {
-				fmt.Fprintln(os.Stderr, "fact:", err)
-				return 1
-			}
 		case *check:
 			existing, err := os.ReadFile(target)
 			if err != nil || !bytes.Equal(existing, out) {
-				fmt.Fprintf(os.Stderr, "fact: %s is stale (regenerate with: fact project -w %s)\n", target, dir)
+				fmt.Fprintf(stderr, "fact: %s is stale (regenerate with: %s)\n", target, hint)
 				return 1
 			}
-			fmt.Printf("ok: %s is fresh\n", target)
-		case *write:
-			os.Remove(target) // stored read-only per SPEC §11.1
-			if err := os.WriteFile(target, out, 0o444); err != nil {
-				fmt.Fprintln(os.Stderr, "fact:", err)
-				return 1
+			fmt.Fprintf(stdout, "ok: %s is fresh\n", target)
+		case *write, *outPath != "":
+			if _, err := project.WriteReadOnly(target, out); err != nil {
+				return fail(err)
 			}
 		default:
-			os.Stdout.Write(out)
+			stdout.Write(out)
 		}
 		return 0
 	}
 
 	if cmd == "hook" {
-		payload, err := io.ReadAll(os.Stdin)
+		payload, err := io.ReadAll(stdin)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "fact:", err)
-			return 0
+			return fail(err)
 		}
 		ctx, err := project.Hook(payload)
 		if err != nil {
@@ -116,7 +111,7 @@ func run(args []string) int {
 			// staleness. Compile errors are not errors here — Hook returns
 			// them as context. Any context (e.g. a goimports rewrite) is
 			// still worth surfacing alongside the failure.
-			fmt.Fprintln(os.Stderr, "fact: hook:", err)
+			fmt.Fprintln(stderr, "fact: hook:", err)
 		}
 		if ctx != "" {
 			out, _ := json.Marshal(map[string]any{
@@ -125,16 +120,19 @@ func run(args []string) int {
 					"additionalContext": ctx,
 				},
 			})
-			os.Stdout.Write(out)
+			stdout.Write(out)
 		}
 		return 0
 	}
 
 	write := false
 	if cmd == "fmt" {
-		fs := flag.NewFlagSet("fmt", flag.ExitOnError)
+		fs := flag.NewFlagSet("fmt", flag.ContinueOnError)
+		fs.SetOutput(stderr)
 		fs.BoolVar(&write, "w", false, "rewrite the file in place")
-		fs.Parse(rest)
+		if err := fs.Parse(rest); err != nil {
+			return flagExit(err)
+		}
 		rest = fs.Args()
 	}
 
@@ -143,74 +141,74 @@ func run(args []string) int {
 	var err error
 	switch len(rest) {
 	case 0:
-		data, err = io.ReadAll(os.Stdin)
+		data, err = io.ReadAll(stdin)
 	case 1:
 		path = rest[0]
 		data, err = os.ReadFile(path)
 	default:
-		fmt.Fprint(os.Stderr, usage)
+		fmt.Fprint(stderr, usage)
 		return 2
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "fact:", err)
-		return 1
+		return fail(err)
+	}
+
+	// report prints errs one per line; true means the input is invalid.
+	report := func(errs []fact.Error) bool {
+		for _, e := range errs {
+			fmt.Fprintln(stderr, e.Error())
+		}
+		return len(errs) > 0
 	}
 
 	switch cmd {
 	case "validate":
-		facts, errs := parseAll(data)
+		facts, errs := fact.Load(data)
 		if report(errs) {
 			return 1
 		}
-		fmt.Printf("ok: %d facts\n", len(facts))
+		fmt.Fprintf(stdout, "ok: %d facts\n", len(facts))
 	case "fmt":
-		facts, errs := parseAll(data)
+		facts, errs := fact.Load(data)
 		if report(errs) {
 			return 1
 		}
 		out := fact.Canonical(facts)
 		if write && path != "" {
 			if err := os.WriteFile(path, out, 0o644); err != nil {
-				fmt.Fprintln(os.Stderr, "fact:", err)
-				return 1
+				return fail(err)
 			}
 		} else {
-			os.Stdout.Write(out)
+			stdout.Write(out)
 		}
 	case "encode":
-		facts, errs := parseAll(data)
+		facts, errs := fact.Load(data)
 		if report(errs) {
 			return 1
 		}
 		out, err := fact.EncodeJSON(facts)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "fact:", err)
-			return 1
+			return fail(err)
 		}
-		os.Stdout.Write(out)
+		stdout.Write(out)
 	case "decode":
 		facts, errs := fact.DecodeJSON(data)
-		errs = append(errs, fact.Validate(facts)...)
-		if report(errs) {
+		if report(append(errs, fact.Validate(facts)...)) {
 			return 1
 		}
-		os.Stdout.Write(fact.Canonical(facts))
+		stdout.Write(fact.Canonical(facts))
 	default:
-		fmt.Fprint(os.Stderr, usage)
+		fmt.Fprint(stderr, usage)
 		return 2
 	}
 	return 0
 }
 
-func parseAll(data []byte) ([]fact.Fact, []fact.Error) {
-	facts, errs := fact.Parse(data)
-	return facts, append(errs, fact.Validate(facts)...)
-}
-
-func report(errs []fact.Error) bool {
-	sort.SliceStable(errs, func(i, j int) bool { return errs[i].Line < errs[j].Line })
-	for _, e := range errs {
-		fmt.Fprintln(os.Stderr, e.Error())
+// flagExit maps a flag-parsing error to an exit status: -h/-help is
+// a request that was served (0), anything else a usage error (2).
+func flagExit(err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
 	}
-	return len(errs) > 0
+	return 2
 }

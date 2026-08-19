@@ -135,26 +135,6 @@ func TestMarshalStringEscaping(t *testing.T) {
 	}
 }
 
-func TestMarshalMarker(t *testing.T) {
-	type pick struct {
-		Squad   []crew `fact:"squad,kind=crew"`
-		Captain Marker `fact:"captain,kind=crew"`
-	}
-	in := pick{Squad: []crew{{"Souness", 7, "master"}}, Captain: "crew:c01"}
-	data, err := Marshal(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "captain: ref(crew) = crew:c01\n") {
-		t.Errorf("marker fact missing:\n%s", data)
-	}
-	// A dangling marker must fail Marshal's validation pass (E008).
-	in.Captain = "crew:c99"
-	if _, err := Marshal(in); err == nil {
-		t.Error("dangling ref survived Marshal")
-	}
-}
-
 func TestMarshalErrors(t *testing.T) {
 	type noKind struct {
 		Crew []crew `fact:"crew"`
@@ -181,6 +161,43 @@ func TestMarshalErrors(t *testing.T) {
 	}
 	if _, err := Marshal(42); err == nil {
 		t.Error("non-struct should fail")
+	}
+	// An instance with no fields would exist only by implication
+	// (SPEC §5: empty records cannot exist) — a Marshal error, not E008.
+	type empty struct{}
+	type hollow struct {
+		Rows []empty `fact:"rows,kind=row"`
+	}
+	if _, err := Marshal(hollow{Rows: []empty{{}}}); err == nil || !strings.Contains(err.Error(), "empty records") {
+		t.Errorf("want empty-record error, got %v", err)
+	}
+	type big struct{ N uint64 }
+	if _, err := Marshal(big{N: 1 << 63}); err == nil || !strings.Contains(err.Error(), "overflows") {
+		t.Errorf("want int64 overflow error, got %v", err)
+	}
+}
+
+// A nil *struct omits its subtree (a namespace has no none); Unmarshal
+// leaves the pointer nil, so the round trip holds even though the
+// document cannot distinguish nil from never-set.
+func TestMarshalNilStructPointer(t *testing.T) {
+	type doc struct {
+		Meta *meta
+		Flag *bool
+	}
+	data, err := Marshal(doc{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "flag: bool? = none\n"; string(data) != want {
+		t.Errorf("got %q, want %q", data, want)
+	}
+	var out doc
+	if err := Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Meta != nil || out.Flag != nil {
+		t.Errorf("nil pointers did not round-trip: %+v", out)
 	}
 }
 

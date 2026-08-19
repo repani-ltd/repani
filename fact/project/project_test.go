@@ -71,8 +71,7 @@ func TestProjectGoPackage(t *testing.T) {
 	}
 
 	// The projection must itself be valid FACT.
-	facts, errs := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
-	errs = append(errs, fact.Validate(facts)...)
+	facts, errs := fact.Load([]byte(strings.Join(lines, "\n") + "\n"))
 	for _, e := range errs {
 		t.Errorf("projection is invalid FACT: %s", e.Error())
 	}
@@ -124,8 +123,7 @@ func TestProjectPackageWithLocalImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, errs := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
-	errs = append(errs, fact.Validate(facts)...)
+	facts, errs := fact.Load([]byte(strings.Join(lines, "\n") + "\n"))
 	for _, e := range errs {
 		t.Errorf("projection is invalid FACT: %s", e.Error())
 	}

@@ -2,6 +2,7 @@ package fact
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -65,8 +66,7 @@ step:make.timeout_h: int = 24
 
 func mustParse(t *testing.T, src string) []Fact {
 	t.Helper()
-	facts, errs := Parse([]byte(src))
-	errs = append(errs, Validate(facts)...)
+	facts, errs := Load([]byte(src))
 	for _, e := range errs {
 		t.Errorf("unexpected error: %s", e.Error())
 	}
@@ -122,6 +122,8 @@ func TestValueCanonicalization(t *testing.T) {
 		{`x.l: list(int) = [1,2 , 3]`, `x.l: list(int) = [1, 2, 3]`},
 		{`x.l: list(str) = []`, `x.l: list(str) = []`},
 		{`x.o: int? = none`, `x.o: int? = none`},
+		{`x.i: int = -0`, `x.i: int = 0`},
+		{`x.l: list(int) = [-0, 0]`, `x.l: list(int) = [0, 0]`},
 		{`x.d: datetime = 2026-07-20`, `x.d: datetime = 2026-07-20`},
 		{`x.d: datetime = 2026-09-01T09:30:00Z`, `x.d: datetime = 2026-09-01T09:30:00Z`},
 		{`x.d: datetime = 2028-02-29T23:59:59Z`, `x.d: datetime = 2028-02-29T23:59:59Z`},
@@ -152,6 +154,8 @@ func TestErrors(t *testing.T) {
 		{"E004 optional list", `x.a: list(int)? = none` + "\n", "E004"},
 		{"E004 unknown type", `x.a: uint32 = 1` + "\n", "E004"},
 		{"E004 empty enum", `x.a: enum() = a` + "\n", "E004"},
+		{"E004 none as enum symbol", `x.a: enum(none|some) = some` + "\n", "E004"},
+		{"E004 none as optional enum symbol", `x.a: enum(some|none)? = none` + "\n", "E004"},
 		{"E005 enum symbol not listed", `x.a: enum(get|post) = put` + "\n", "E005"},
 		{"E005 int overflow", `x.a: int = 9223372036854775808` + "\n", "E005"},
 		{"E005 leading zero int", `x.a: int = 007` + "\n", "E005"},
@@ -172,6 +176,7 @@ func TestErrors(t *testing.T) {
 		{"E005 datetime unpadded", `x.a: datetime = 2026-7-20` + "\n", "E005"},
 		{"E005 datetime quoted", `x.a: datetime = "2026-07-20"` + "\n", "E005"},
 		{"E006 none on required", `x.a: int = none` + "\n", "E006"},
+		{"E006 none on list", `x.a: list(int) = none` + "\n", "E006"},
 		{"E007 duplicate key", "x.a: int = 1\nx.a: int = 2\n", "E007"},
 		{"E008 unresolved ref", `x.a: ref(policy) = policy:ghost` + "\n", "E008"},
 		{"E009 ref kind mismatch", "step:make.role: str = \"m\"\nx.a: ref(policy) = step:make\n", "E009"},
@@ -191,6 +196,64 @@ func TestErrors(t *testing.T) {
 				got = append(got, e.Error())
 			}
 			t.Errorf("want %s, got: %s", c.code, strings.Join(got, "; "))
+		})
+	}
+}
+
+// Error messages follow SPEC §14 wording.
+func TestErrorMessages(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{`server.9lives.on: bool = true`, `segment "9lives" must start with a letter`},
+		{`server.tls-mode.on: bool = true`, `segment "tls-mode" contains characters outside [a-zA-Z0-9_]`},
+		{`x.a: list(int) = none`, `lists have no none; use []`},
+		{`x.a: int = none`, `none requires optional type (add "?")`},
+		{`x.a: enum(none|some) = some`, `"enum(none|some)": none is reserved and cannot be an enum symbol`},
+		{"route:a.x: int = 1\napi.route:a.y: int = 2", `instance "route:a": inconsistent marker prefix ("route:a" vs "api.route:a")`},
+	}
+	for _, c := range cases {
+		_, errs := Load([]byte(c.src + "\n"))
+		if len(errs) != 1 || errs[0].Msg != c.want {
+			t.Errorf("%s:\n got %+v\nwant %q", c.src, errs, c.want)
+		}
+	}
+	// E010 is prefix-based: the same segment position under different
+	// namespaces is still two roots for one instance.
+	if _, errs := Load([]byte("a.route:x.p: int = 1\nb.route:x.q: int = 2\n")); len(errs) != 1 || errs[0].Code != "E010" {
+		t.Errorf("want E010 for same position, different prefix; got %+v", errs)
+	}
+}
+
+// Several errors on one line are reported in check order: duplicate
+// (E007) before unresolved ref (E008); lines ascend.
+func TestErrorOrderIsStable(t *testing.T) {
+	src := "x.a: ref(p) = p:one\nx.a: ref(p) = p:two\n"
+	_, errs := Load([]byte(src))
+	var got []string
+	for _, e := range errs {
+		got = append(got, fmt.Sprintf("%d:%s", e.Line, e.Code))
+	}
+	if want := "1:E008 2:E007 2:E008"; strings.Join(got, " ") != want {
+		t.Errorf("error order = %q, want %q", strings.Join(got, " "), want)
+	}
+}
+
+func TestDecodeJSONErrors(t *testing.T) {
+	cases := []struct{ name, src, code string }{
+		{"malformed JSON", `[{"key": "a.b", "type": "int", "value": 1}`, "E001"},
+		{"string for int", `[{"key": "a.b", "type": "int", "value": "1"}]`, "E005"},
+		{"array for scalar", `[{"key": "a.b", "type": "int", "value": [1]}]`, "E005"},
+		{"scalar for list", `[{"key": "a.b", "type": "list(int)", "value": 1}]`, "E005"},
+		{"number for datetime", `[{"key": "a.b", "type": "datetime", "value": 2026}]`, "E005"},
+		{"bad key", `[{"key": "9a", "type": "int", "value": 1}]`, "E002"},
+		{"bad type", `[{"key": "a", "type": "list(int)?", "value": null}]`, "E004"},
+		{"null on required", `[{"key": "a", "type": "int", "value": null}]`, "E006"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, errs := DecodeJSON([]byte(c.src))
+			if len(errs) != 1 || errs[0].Code != c.code {
+				t.Errorf("want one %s, got %+v", c.code, errs)
+			}
 		})
 	}
 }

@@ -25,25 +25,38 @@ import (
 // "daily: list(ref(day))" binds to an ordered []any of row maps,
 // ready for {{range}}.
 //
-// Bind expects a set that has passed Validate. The one error class
-// of its own is a path collision: a key that is both a value and a
-// namespace prefix of another key (e.g. "a.b" alongside "a.b.c").
+// Bind expects a set that has passed Validate. Its own error classes
+// are path collisions in the nested view: a key that is both a value
+// and a namespace prefix of another key (e.g. "a.b" alongside
+// "a.b.c"), and a singleton key inside a kind's instance namespace
+// (e.g. "day.foo" alongside "day:d1.hi" — the flat set keeps them
+// apart, the view cannot).
 func Bind(facts []Fact) (map[string]any, error) {
 	root := map[string]any{}
 	reg := map[string]map[string]any{} // marker -> shared instance map
+	kinds := map[string]bool{}         // key prefix through the kind ("api.day")
 	for _, f := range facts {
-		if marker, _ := keyMarker(f.Key); marker != "" && reg[marker] == nil {
+		marker, prefix := keyMarker(f.Key)
+		if marker == "" {
+			continue
+		}
+		if reg[marker] == nil {
 			reg[marker] = map[string]any{}
 		}
+		kinds[strings.TrimSuffix(prefix, marker[strings.IndexByte(marker, ':'):])] = true
 	}
 	// Instance facts first, so their registry maps are wired into the
-	// tree before any singleton key (e.g. "day.d10.x") walks the same
-	// path and would otherwise create a detached plain map there.
+	// tree before any singleton key walks the same path.
 	for _, pass := range [2]bool{true, false} {
 		for _, f := range facts {
 			marker, _ := keyMarker(f.Key)
 			if (marker != "") != pass {
 				continue
+			}
+			if marker == "" {
+				if k := kindPrefix(f.Key, kinds); k != "" {
+					return nil, fmt.Errorf("bind %q: key collides with instance kind %q; rename the key or the kind", f.Key, k)
+				}
 			}
 			val, err := bindValue(f.Type, f.Value, reg)
 			if err != nil {
@@ -55,6 +68,18 @@ func Bind(facts []Fact) (map[string]any, error) {
 		}
 	}
 	return root, nil
+}
+
+// kindPrefix returns the kind namespace a singleton key lies in (the
+// key itself or one of its dotted prefixes being a kind path), or "".
+func kindPrefix(key string, kinds map[string]bool) string {
+	segs := strings.Split(key, ".")
+	for i := range segs {
+		if p := strings.Join(segs[:i+1], "."); kinds[p] {
+			return p
+		}
+	}
+	return ""
 }
 
 // bindPlace walks key's segments, creating nested maps as needed, and

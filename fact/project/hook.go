@@ -29,18 +29,32 @@ func File(target string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	facts, errs := fact.Parse([]byte(strings.Join(lines, "\n") + "\n"))
-	errs = append(errs, fact.Validate(facts)...)
+	facts, errs := fact.Load([]byte(strings.Join(lines, "\n") + "\n"))
 	if len(errs) > 0 { // a generator bug, not a user error
 		return nil, fmt.Errorf("generator produced invalid FACT: %s", errs[0].Error())
 	}
 	return append([]byte(Header+"\n"), fact.Canonical(facts)...), nil
 }
 
-// Refresh regenerates dir's stored pkg.fact, rewriting it only when the
-// projection changed, and returns the canonical line diff. Empty diff with
-// nil error means the edit was declaration-neutral (the churn invariant,
-// SPEC §11.2).
+// WriteReadOnly stores a projection at target, read-only per SPEC §11.1,
+// creating parent directories as needed. An existing file with identical
+// bytes is left untouched (no mtime churn on an unchanged projection);
+// the result reports whether the file was (re)written.
+func WriteReadOnly(target string, out []byte) (changed bool, err error) {
+	if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, out) {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return false, err
+	}
+	os.Remove(target) // read-only: cannot be overwritten in place
+	return true, os.WriteFile(target, out, 0o444)
+}
+
+// Refresh regenerates dir's stored pkg.fact (which must exist: projection
+// is opt-in per package), rewriting it only when the projection changed,
+// and returns the canonical line diff. Empty diff with nil error means
+// the edit was declaration-neutral (the churn invariant, SPEC §11.2).
 func Refresh(dir string) (removed, added []string, err error) {
 	target := filepath.Join(dir, "pkg.fact")
 	existing, err := os.ReadFile(target)
@@ -51,11 +65,7 @@ func Refresh(dir string) (removed, added []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if bytes.Equal(existing, out) {
-		return nil, nil, nil
-	}
-	os.Remove(target) // stored read-only per SPEC §11.1
-	if err := os.WriteFile(target, out, 0o444); err != nil {
+	if changed, err := WriteReadOnly(target, out); err != nil || !changed {
 		return nil, nil, err
 	}
 	removed, added = diffLines(existing, out)

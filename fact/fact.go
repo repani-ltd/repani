@@ -151,6 +151,18 @@ func IsSegment(s string) bool {
 	return true
 }
 
+// checkSegment reports E002 for an illegal segment, naming the rule it
+// breaks (SPEC §14).
+func checkSegment(seg string, n int) *Error {
+	if IsSegment(seg) {
+		return nil
+	}
+	if seg == "" || !isLetter(seg[0]) {
+		return &Error{n, "E002", fmt.Sprintf("segment %q must start with a letter", seg)}
+	}
+	return &Error{n, "E002", fmt.Sprintf("segment %q contains characters outside [a-zA-Z0-9_]", seg)}
+}
+
 func isLetter(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
@@ -160,8 +172,8 @@ func checkKey(key string, n int) *Error {
 	for _, seg := range strings.Split(key, ".") {
 		kind, id, isMarker := strings.Cut(seg, ":")
 		if !isMarker {
-			if !IsSegment(seg) {
-				return &Error{n, "E002", fmt.Sprintf("segment %q violates [a-zA-Z][a-zA-Z0-9_]*", seg)}
+			if err := checkSegment(seg, n); err != nil {
+				return err
 			}
 			continue
 		}
@@ -221,6 +233,9 @@ func parseType(s string, n int) (Type, *Error) {
 			if !IsSegment(sym) {
 				return Type{}, bad()
 			}
+			if sym == "none" { // reserved: the absence word (SPEC §4.1, §7)
+				return Type{}, &Error{n, "E004", fmt.Sprintf("%q: none is reserved and cannot be an enum symbol", s)}
+			}
 		}
 	case strings.HasPrefix(inner, "ref(") && strings.HasSuffix(inner, ")"):
 		t.Base = Ref
@@ -237,6 +252,9 @@ func parseType(s string, n int) (Type, *Error) {
 // checkValue verifies that raw inhabits t's domain and canonicalizes it.
 func checkValue(t Type, raw string, n int) (Value, *Error) {
 	if raw == "none" {
+		if t.List {
+			return Value{}, &Error{n, "E006", "lists have no none; use []"}
+		}
 		if !t.Optional {
 			return Value{}, &Error{n, "E006", `none requires optional type (add "?")`}
 		}
@@ -326,6 +344,9 @@ func checkScalar(t Type, tok string, n int) (string, *Error) {
 		}
 		if _, err := strconv.ParseInt(tok, 10, 64); err != nil {
 			return "", &Error{n, "E005", fmt.Sprintf("%q overflows 64-bit signed integer", tok)}
+		}
+		if tok == "-0" { // one canonical zero
+			return "0", nil
 		}
 		return tok, nil
 	case Float:
@@ -512,7 +533,8 @@ func Quote(s string) string {
 }
 
 // Validate runs the set-level checks (SPEC §9 steps 5-6): duplicates (E007),
-// marker-position consistency (E010), and reference resolution (E008).
+// marker-prefix consistency (E010), and reference resolution (E008).
+// Errors are ordered by line, and within a line in check order.
 func Validate(facts []Fact) []Error {
 	var errs []Error
 	firstLine := make(map[string]int)   // key -> first line
@@ -530,7 +552,7 @@ func Validate(facts []Fact) []Error {
 		}
 		markers[marker] = true
 		if prev, seen := prefixes[marker]; seen && prev != prefix {
-			errs = append(errs, Error{f.Line, "E010", fmt.Sprintf("instance %q: inconsistent marker position (%q vs %q)", marker, prev, prefix)})
+			errs = append(errs, Error{f.Line, "E010", fmt.Sprintf("instance %q: inconsistent marker prefix (%q vs %q)", marker, prev, prefix)})
 		} else if !seen {
 			prefixes[marker] = prefix
 		}
@@ -545,8 +567,17 @@ func Validate(facts []Fact) []Error {
 			}
 		}
 	}
-	sort.Slice(errs, func(i, j int) bool { return errs[i].Line < errs[j].Line })
+	sort.SliceStable(errs, func(i, j int) bool { return errs[i].Line < errs[j].Line })
 	return errs
+}
+
+// Load parses and validates a FACT document (SPEC §9, all steps): the
+// line-local errors of Parse followed by the set-level errors of
+// Validate over the lines that parsed. It is the one entry point for
+// reading a document; the facts are usable only when errs is empty.
+func Load(src []byte) (facts []Fact, errs []Error) {
+	facts, errs = Parse(src)
+	return facts, append(errs, Validate(facts)...)
 }
 
 // Canonical serializes facts in canonical form (SPEC §8): lines sorted

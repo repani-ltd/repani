@@ -8,12 +8,6 @@ import (
 	"time"
 )
 
-// Marker is a reference value ("kind:id") for struct fields marshalled as
-// ref(kind). The kind parameter comes from the field's `kind=` tag
-// option — the tag names the domain, the value names the inhabitant
-// (SPEC §6.1).
-type Marker string
-
 // Marshal serializes a Go struct as a canonical FACT document
 // (SPEC §8): the struct is flattened to a fact set, validated, and
 // emitted in canonical form — so equal values produce byte-identical
@@ -29,18 +23,21 @@ type Marker string
 //     time.Time → datetime (UTC, date-time form).
 //   - A pointer to a scalar marshals as the optional type T?; nil is
 //     the asserted "none" (SPEC §5, totality rule). A nil struct
-//     pointer omits that subtree entirely.
+//     pointer omits its subtree: a namespace has no none (SPEC §5,
+//     existence rule), so a reader cannot tell a nil record from one
+//     that was never set — a program that needs that distinction
+//     asserts it with an explicit optional scalar.
 //   - A slice of scalars maps to list(T).
 //   - A slice of structs requires the `kind=K` tag option: each
 //     element becomes an instance "K:id" with auto-assigned ids
 //     (first letter of K + two-digit ordinal, counted per kind
 //     across the document), and the field itself becomes one
-//     list(ref(K)) fact carrying the order (SPEC §6.3).
-//   - A Marker (or slice of Marker) requires `kind=K` and marshals as
-//     ref(K); values must carry the "K:" prefix.
+//     list(ref(K)) fact carrying the order (SPEC §6.3). An element
+//     that contributes no fact (no marshalled fields) is an error:
+//     empty records cannot exist (SPEC §5).
 //
-// Maps, interfaces, and enum types are not supported — the vocabulary
-// grows with its first real user, not before.
+// Maps, interfaces, enum and ref types are not supported — the
+// vocabulary grows with its first real user, not before.
 func Marshal(v any) ([]byte, error) {
 	rv := reflect.ValueOf(v)
 	for rv.Kind() == reflect.Pointer {
@@ -56,16 +53,14 @@ func Marshal(v any) ([]byte, error) {
 	if err := m.walkStruct("", rv); err != nil {
 		return nil, err
 	}
-	// A root-level key equal to an instance kind collides in Bind's
-	// nested view (root[kind] is the kind's instance namespace) —
-	// fail here, where the fix is a rename, not at Unmarshal.
-	for _, f := range m.facts {
-		if !strings.ContainsAny(f.Key, ".:") && m.ids[f.Key] > 0 {
-			return nil, fmt.Errorf("fact: field key %q collides with instance kind %q under Bind; rename the field or the kind", f.Key, f.Key)
-		}
-	}
 	if errs := Validate(m.facts); len(errs) > 0 {
 		return nil, fmt.Errorf("fact: marshalled set is invalid: %s", errs[0].Msg)
+	}
+	// A key that collides with an instance kind in Bind's nested view
+	// (e.g. a field named like the kind) fails here, where the fix is
+	// a rename, not at Unmarshal.
+	if _, err := Bind(m.facts); err != nil {
+		return nil, fmt.Errorf("fact: %w", err)
 	}
 	return Canonical(m.facts), nil
 }
@@ -75,7 +70,12 @@ type marshaller struct {
 	ids   map[string]int // kind -> instances assigned so far
 }
 
-func (m *marshaller) emit(key, typeExpr string, v Value) error {
+// emit appends the fact "key: typeExpr = raw", where raw is the value in
+// fact-line syntax. The value goes through checkValue exactly as a parsed
+// line would, so the checker is the single authority on value syntax and
+// canonical spelling: Marshal can never emit a fact Parse would reject
+// (NaN, ±Inf, a datetime outside 0001-9999).
+func (m *marshaller) emit(key, typeExpr, raw string) error {
 	t, terr := parseType(typeExpr, 0)
 	if terr != nil {
 		return fmt.Errorf("fact: key %q: %s", key, terr.Msg)
@@ -83,15 +83,17 @@ func (m *marshaller) emit(key, typeExpr string, v Value) error {
 	if err := checkKey(key, 0); err != nil {
 		return fmt.Errorf("fact: %s", err.Msg)
 	}
-	// The value is re-checked as its line token so that Marshal can
-	// never emit a fact Parse would reject (NaN, ±Inf, a datetime
-	// outside 0001-9999): the checker is the single authority on
-	// value syntax.
-	if _, err := checkValue(t, v.token(), 0); err != nil {
-		return fmt.Errorf("fact: key %q: %s", key, err.Msg)
+	v, verr := checkValue(t, raw, 0)
+	if verr != nil {
+		return fmt.Errorf("fact: key %q: %s", key, verr.Msg)
 	}
 	m.facts = append(m.facts, Fact{Key: key, Type: t, Value: v})
 	return nil
+}
+
+// list renders scalar tokens as a list value token.
+func list(toks []string) string {
+	return "[" + strings.Join(toks, ", ") + "]"
 }
 
 func (m *marshaller) walkStruct(prefix string, v reflect.Value) error {
@@ -118,27 +120,6 @@ func (m *marshaller) walkStruct(prefix string, v reflect.Value) error {
 
 func (m *marshaller) walkField(key, kind string, v reflect.Value) error {
 	ft := v.Type()
-
-	// Ref and []Ref: the tag supplies the domain kind.
-	if ft == reflect.TypeFor[Marker]() {
-		tok, err := refToken(key, kind, v.String())
-		if err != nil {
-			return err
-		}
-		return m.emit(key, "ref("+kind+")", Value{Elems: []string{tok}})
-	}
-	if ft.Kind() == reflect.Slice && ft.Elem() == reflect.TypeFor[Marker]() {
-		toks := make([]string, v.Len())
-		for i := range toks {
-			tok, err := refToken(key, kind, v.Index(i).String())
-			if err != nil {
-				return err
-			}
-			toks[i] = tok
-		}
-		return m.emit(key, "list(ref("+kind+"))", Value{List: true, Elems: toks})
-	}
-
 	switch ft.Kind() {
 	case reflect.Pointer:
 		if ft.Elem().Kind() == reflect.Struct && ft.Elem() != reflect.TypeFor[time.Time]() {
@@ -152,13 +133,9 @@ func (m *marshaller) walkField(key, kind string, v reflect.Value) error {
 			return fmt.Errorf("fact: key %q: unsupported pointer type %s", key, ft)
 		}
 		if v.IsNil() {
-			return m.emit(key, typeExpr+"?", Value{None: true})
+			return m.emit(key, typeExpr+"?", "none")
 		}
-		tok, err := scalarToken(key, v.Elem())
-		if err != nil {
-			return err
-		}
-		return m.emit(key, typeExpr+"?", Value{Elems: []string{tok}})
+		return m.emit(key, typeExpr+"?", scalarToken(v.Elem()))
 
 	case reflect.Struct:
 		if ft == reflect.TypeFor[time.Time]() {
@@ -176,24 +153,16 @@ func (m *marshaller) walkField(key, kind string, v reflect.Value) error {
 		}
 		toks := make([]string, v.Len())
 		for i := range toks {
-			tok, err := scalarToken(key, v.Index(i))
-			if err != nil {
-				return err
-			}
-			toks[i] = tok
+			toks[i] = scalarToken(v.Index(i))
 		}
-		return m.emit(key, "list("+typeExpr+")", Value{List: true, Elems: toks})
+		return m.emit(key, "list("+typeExpr+")", list(toks))
 	}
 
 	typeExpr, ok := scalarType(ft)
 	if !ok {
 		return fmt.Errorf("fact: key %q: unsupported type %s", key, ft)
 	}
-	tok, err := scalarToken(key, v)
-	if err != nil {
-		return err
-	}
-	return m.emit(key, typeExpr, Value{Elems: []string{tok}})
+	return m.emit(key, typeExpr, scalarToken(v))
 }
 
 // walkInstances marshals a slice of structs as instances of kind plus
@@ -212,21 +181,15 @@ func (m *marshaller) walkInstances(key, kind string, v reflect.Value) error {
 		m.ids[kind]++
 		marker := fmt.Sprintf("%s:%c%02d", kind, kind[0], m.ids[kind])
 		toks[i] = marker
+		before := len(m.facts)
 		if err := m.walkStruct(marker, v.Index(i)); err != nil {
 			return err
 		}
+		if len(m.facts) == before {
+			return fmt.Errorf("fact: key %q: element %d marshals to no fact; empty records cannot exist (SPEC §5)", key, i)
+		}
 	}
-	return m.emit(key, "list(ref("+kind+"))", Value{List: true, Elems: toks})
-}
-
-func refToken(key, kind, val string) (string, error) {
-	if kind == "" {
-		return "", fmt.Errorf("fact: key %q: Marker field needs a `kind=` tag option", key)
-	}
-	if !strings.HasPrefix(val, kind+":") {
-		return "", fmt.Errorf("fact: key %q: ref value %q is not of kind %q", key, val, kind)
-	}
-	return val, nil
+	return m.emit(key, "list(ref("+kind+"))", list(toks))
 }
 
 // scalarType maps a Go type to its FACT base type expression.
@@ -248,29 +211,30 @@ func scalarType(t reflect.Type) (string, bool) {
 	return "", false
 }
 
-// scalarToken renders one scalar as its canonical value token.
-func scalarToken(key string, v reflect.Value) (string, error) {
+// scalarToken renders a scalar of a scalarType-supported type in
+// fact-line value syntax. It is a renderer, not a checker: emit
+// re-checks and canonicalizes the token (so a uint beyond int64, or a
+// float32 whose shortest spelling differs from the float64 one, is the
+// checker's business).
+func scalarToken(v reflect.Value) string {
 	if v.Type() == reflect.TypeFor[time.Time]() {
-		return v.Interface().(time.Time).UTC().Format("2006-01-02T15:04:05Z"), nil
+		return v.Interface().(time.Time).UTC().Format("2006-01-02T15:04:05Z")
 	}
 	switch v.Kind() {
 	case reflect.Bool:
-		return strconv.FormatBool(v.Bool()), nil
+		return strconv.FormatBool(v.Bool())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return strconv.FormatInt(v.Int(), 10), nil
+		return strconv.FormatInt(v.Int(), 10)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if v.Uint() > 1<<63-1 {
-			return "", fmt.Errorf("fact: key %q: %d overflows 64-bit signed integer", key, v.Uint())
-		}
-		return strconv.FormatUint(v.Uint(), 10), nil
+		return strconv.FormatUint(v.Uint(), 10)
 	case reflect.Float32:
-		return strconv.FormatFloat(v.Float(), 'g', -1, 32), nil
+		return strconv.FormatFloat(v.Float(), 'g', -1, 32)
 	case reflect.Float64:
-		return strconv.FormatFloat(v.Float(), 'g', -1, 64), nil
+		return strconv.FormatFloat(v.Float(), 'g', -1, 64)
 	case reflect.String:
-		return Quote(v.String()), nil
+		return Quote(v.String())
 	}
-	return "", fmt.Errorf("fact: key %q: unsupported type %s", key, v.Type())
+	panic("fact: scalarToken of unsupported type " + v.Type().String())
 }
 
 // parseTag reads `fact:"name,opts"`: name (default snake_cased field
@@ -315,15 +279,13 @@ func snake(s string) string {
 // field mapping as Marshal. Keys absent from the document leave their
 // fields at zero values; an asserted "none" leaves a pointer field nil.
 // Instance rows referenced through list(ref(kind)) decode into slices
-// of structs, in list order. Marker fields cannot be decoded (Bind
-// resolves refs to their instances — receive them as struct fields).
+// of structs, in list order.
 func Unmarshal(data []byte, v any) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() || rv.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("fact: Unmarshal target must be a non-nil pointer to struct")
 	}
-	facts, errs := Parse(data)
-	errs = append(errs, Validate(facts)...)
+	facts, errs := Load(data)
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
 		for i, e := range errs {
@@ -362,9 +324,6 @@ func decodeStruct(m map[string]any, v reflect.Value) error {
 
 func decodeValue(key string, raw any, v reflect.Value) error {
 	ft := v.Type()
-	if ft == reflect.TypeFor[Marker]() {
-		return fmt.Errorf("fact: key %q: refs bind to their instances; decode into a struct field", key)
-	}
 	if ft == reflect.TypeFor[time.Time]() {
 		s, ok := raw.(string)
 		if !ok {
