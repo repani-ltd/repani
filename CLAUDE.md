@@ -1,8 +1,14 @@
 # repani (module repani.com)
 
-One Go module, several projects: `prim/`, `pica/`, `fact/`. Each has
-its own CLAUDE.md with the project rules; this file holds what is
-common.
+One Go module. Top-level directories are either products with
+their own CLAUDE.md (`pica/`, `fact/`) or primitive packages
+(`ascon/`, `golay/`, `lz4s/`); this file holds what is common.
+
+Primitive packages are stdlib-only, import no sibling package,
+carry no protocol constants or types (a primitive may not know
+what a frame, slot, page or vault is), and are append-only: a
+changed algorithm is a new package, not a revision. Each ships
+known-answer or round-trip tests; the tests are the contract.
 
 - Import paths are `repani.com/<dir>/...`; the module is the repo
   root, so never add a nested go.mod. Experiments and scratch work
