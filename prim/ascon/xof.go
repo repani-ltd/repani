@@ -52,10 +52,3 @@ func Sum16(data []byte) [16]byte {
 	XOF(data, out[:])
 	return out
 }
-
-// Sum32 returns a 32-byte Ascon-XOF128 hash of data.
-func Sum32(data []byte) [32]byte {
-	var out [32]byte
-	XOF(data, out[:])
-	return out
-}

@@ -105,7 +105,12 @@ func Compress(src []byte) []byte {
 		if lo < 0 {
 			lo = 0
 		}
-		for cand := pos - 1; cand >= lo; cand-- {
+		for cand := pos - 1; cand >= lo && bestLen < maxLen; cand-- {
+			// A candidate that differs at bestLen cannot beat the
+			// best so far (a tie never wins, see the gain test).
+			if src[cand+bestLen] != src[pos+bestLen] {
+				continue
+			}
 			l := 0
 			for l < maxLen && src[cand+l] == src[pos+l] {
 				l++
@@ -214,9 +219,11 @@ func Decompress(comp []byte, dsize int) (out []byte, ok bool) {
 		if dist > len(out) || len(out)+matchLen > dsize {
 			return nil, false
 		}
-		start := len(out) - dist
-		for j := 0; j < matchLen; j++ {
-			out = append(out, out[start+j])
+		// Byte-serial forward copy: correct for overlapping matches.
+		n := len(out)
+		out = out[:n+matchLen]
+		for j, k := n, n-dist; j < n+matchLen; j, k = j+1, k+1 {
+			out[j] = out[k]
 		}
 	}
 	if len(out) != dsize {
