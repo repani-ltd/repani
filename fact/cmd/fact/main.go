@@ -126,6 +126,30 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// Input-free commands dispatch before the input read: reading
+	// stdin first left "fact spec" and "fact -h" hanging on a
+	// terminal (found 2026-08-20).
+	switch cmd {
+	case "spec":
+		if len(rest) > 0 {
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		// The reference teaches the format; the same command
+		// teaches the tool: usage is appended from the same
+		// string the CLI prints, so neither can drift.
+		fmt.Fprint(stdout, fact.Spec()+"\n# The fact CLI\n\n"+usage)
+		return 0
+	case "-h", "--help", "help":
+		fmt.Fprint(stdout, usage)
+		return 0
+	case "validate", "fmt", "encode", "decode":
+		// input-reading commands, handled below
+	default:
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+
 	write := false
 	if cmd == "fmt" {
 		fs := flag.NewFlagSet("fmt", flag.ContinueOnError)
@@ -163,16 +187,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	switch cmd {
-	case "spec":
-		if len(rest) > 0 {
-			fmt.Fprint(stderr, usage)
-			return 2
-		}
-		// The reference teaches the format; the same command
-		// teaches the tool: usage is appended from the same
-		// string the CLI prints, so neither can drift.
-		fmt.Fprint(stdout, fact.Spec()+"\n# The fact CLI\n\n"+usage)
-		return 0
 	case "validate":
 		facts, errs := fact.Load(data)
 		if report(errs) {

@@ -167,3 +167,26 @@ func TestProject(t *testing.T) {
 		t.Errorf("broken package: exit %d, stderr %q", code, stderr)
 	}
 }
+
+// Input-free commands must not touch stdin: a reader that blocks
+// (here: one that fails loudly) proves spec/help dispatch before
+// the input read. Regression for the 2026-08-20 hang.
+func TestInputFreeCommandsIgnoreStdin(t *testing.T) {
+	for _, args := range [][]string{{"spec"}, {"-h"}, {"help"}, {"nonsense"}} {
+		var out, errb bytes.Buffer
+		rc := run(args, failingReader{}, &out, &errb)
+		if args[0] == "spec" || args[0] == "-h" || args[0] == "help" {
+			if rc != 0 {
+				t.Errorf("%v: rc=%d, stderr=%s", args, rc, errb.String())
+			}
+		} else if rc != 2 {
+			t.Errorf("%v: rc=%d, want 2 (usage)", args, rc)
+		}
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	panic("input-free command read stdin")
+}
