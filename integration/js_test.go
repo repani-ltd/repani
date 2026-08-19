@@ -16,7 +16,7 @@ import (
 
 	"repani.com/kv/vault"
 	"repani.com/kv/wire"
-	"repani.com/prim/ascon"
+	"repani.com/ascon"
 )
 
 // jsVectors builds the cross-implementation vector set consumed by

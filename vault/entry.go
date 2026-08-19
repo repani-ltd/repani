@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"repani.com/prim/ascon"
+	"repani.com/ascon"
 )
 
 // Entry header: ts_ms(8) + nonce(16) + ct_len(2) = 26 bytes.

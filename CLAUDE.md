@@ -4,7 +4,7 @@ ASCON-KV: append-only key-value vault store with client, server, and wire
 protocol. See PROTOCOL.txt and CLIENT.txt for the protocol and client specs.
 
 The Ascon primitives (XOF128, AEAD128) come from the public module
-`repani.com` (`repani.com/prim/ascon`, checkout `../../repani`);
+`repani.com` (`repani.com/ascon`, checkout `../../repani`);
 the workspace `go.work` at the repo root supplies it, so go.mod
 carries no replace or require for it.
 

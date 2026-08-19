@@ -16,7 +16,7 @@ import (
 	"repani.com/kv/store"
 	"repani.com/kv/vault"
 	"repani.com/kv/wire"
-	"repani.com/prim/ascon"
+	"repani.com/ascon"
 )
 
 // fmtRaw is the value-encoding tag for a verbatim value (CLIENT.txt).

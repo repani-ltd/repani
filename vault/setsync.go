@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"sort"
 
-	"repani.com/prim/ascon"
+	"repani.com/ascon"
 )
 
 // SortCanonical sorts entries in place by (TsMs asc, EntryID asc),

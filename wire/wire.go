@@ -9,7 +9,7 @@ import (
 	"fmt"
 
 	"repani.com/kv/vault"
-	"repani.com/prim/ascon"
+	"repani.com/ascon"
 )
 
 // Version is the frame version byte.
