@@ -1,4 +1,4 @@
-# flat — FACT format toolchain
+# fact (repani.com/fact) — FACT format toolchain
 
 `fact` is a CLI implementing the FACT format (v0.2). **SPEC.md is the
 normative source of truth** — when code and spec disagree, the spec wins;
@@ -20,7 +20,7 @@ greppable, canonical `.fact` file. Config files are the degenerate case.
   e.g. `go run ./cmd/fact project -o facts/<import-path>/pkg.fact <import-path>`
   — the version resolves through go.mod and lands in the file as `pkg.version`
 - **After changing any Go declaration**, regenerate that package's projection
-  (`go run ./cmd/fact project -w ./fact`, likewise for `./project` and
+  (`fact project -w .` in this directory, likewise for `./project` and
   `./cmd/fact`) and read the pkg.fact diff as the impact report (SPEC §11.1).
   A `PostToolUse` hook (`.claude/settings.json` → `fact hook`) does this
   automatically after each `.go` edit and surfaces the diff in-session — it
@@ -29,25 +29,26 @@ greppable, canonical `.fact` file. Config files are the degenerate case.
   command remains the fallback when the hook reports an error.
 - `docs/using-pkg-fact.md` is the paste-ready snippet consuming projects put
   in their own CLAUDE.md; keep it in sync with the §11.2 vocabulary.
-- Git hooks (per-clone, install with `cp docs/<hook> .git/hooks/`):
-  `docs/pre-commit` regenerates and stages pkg.fact for staged `.go` changes
-  (this repo and every consumer repo); `docs/post-commit` (this repo only)
-  rebuilds `~/bin/fact` after commits touching Go source, so the installed
+- Git hooks (per-clone, install at the repani repo root with `cp fact/docs/<hook> .git/hooks/`):
+  `fact/docs/pre-commit` regenerates and stages pkg.fact for staged `.go` changes
+  (this repo and every consumer repo); `fact/docs/post-commit` (this repo only)
+  rebuilds `~/bin/fact` and `~/bin/pica` after commits touching Go source, so the installed
   binary — which all hooks invoke by absolute path — always matches the
   committed toolchain.
 
 ## Layout
 
 - `SPEC.md` — FACT format specification v0.2 (normative)
-- `fact/` — the format core: line parser, type/value checks, set-level
-  validation, canonical serializer, JSON codec
+- `*.go` at this level (package `fact`, import `repani.com/fact`) — the
+  format core: line parser, type/value checks, set-level validation,
+  canonical serializer, JSON codec
 - `project/` — the Go projection generator (SPEC §11): `go/packages` +
-  `go/types`, emits fact lines that are re-validated through `fact/`
+  `go/types`, emits fact lines that are re-validated through the core package
 - `cmd/fact/main.go` — thin CLI wrapper (flag parsing + I/O only; no format logic)
 
 ## Hard rules
 
-- **Minimal dependencies.** The format core (`fact/`) is standard library
+- **Minimal dependencies.** The format core (package `fact`) is standard library
   only. The generator (`project/`) may additionally use `golang.org/x/tools`
   (`go/packages` for module-aware loading). Nothing else.
 - **No trees.** The data model is a flat set of fact lines (SPEC §5). Parsing

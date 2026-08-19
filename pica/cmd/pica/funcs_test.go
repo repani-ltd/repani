@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/pavlos/typeset"
+	"repani.com/pica"
 
 	"strings"
 	"testing"

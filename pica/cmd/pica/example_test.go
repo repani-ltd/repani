@@ -6,7 +6,7 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/pavlos/typeset"
+	"repani.com/pica"
 )
 
 // TestOfficialExamples pins the two committed example documents:

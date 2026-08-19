@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pavlos/typeset"
-	"github.com/pavlos/typeset/pdf"
+	"repani.com/pica"
+	"repani.com/pica/pdf"
 )
 
 // Writer identity constants (points). These are the gazette's

@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pavlos/typeset"
-	"github.com/pavlos/typeset/pdf"
+	"repani.com/pica"
+	"repani.com/pica/pdf"
 )
 
 const reportMargin = 54.0

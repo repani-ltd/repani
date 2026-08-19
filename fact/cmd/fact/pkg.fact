@@ -17,5 +17,5 @@ func:run.calls: list(str) = ["bytes.Equal", "fact.Canonical", "fact.DecodeJSON",
 func:run.exported: bool = false
 func:run.file: str = "main.go"
 func:run.sig: str = "func(args []string) int"
-imports: list(str) = ["bytes", "encoding/json", "flag", "flat/fact", "flat/project", "fmt", "io", "os", "path/filepath", "sort"]
-pkg.path: str = "flat/cmd/fact"
+imports: list(str) = ["bytes", "encoding/json", "flag", "fmt", "io", "os", "path/filepath", "repani.com/fact", "repani.com/fact/project", "sort"]
+pkg.path: str = "repani.com/fact/cmd/fact"

@@ -1,4 +1,4 @@
-# typeset
+# pica (repani.com/pica)
 
 Text typesetting library: wrapping, hyphenation, tables, with a PDF backend
 (`pdf/`, `pdf/ttf/`) and the `pica` renderer CLI (`cmd/pica`).
@@ -56,11 +56,11 @@ Rules:
 - Read the pkg.fact diff as the impact report of your edit.
 - pkg.fact travels in your commit automatically: the git pre-commit hook
   regenerates and stages it for packages with staged `.go` changes
-  (per-clone; reinstall from `../flat/docs/pre-commit` after a fresh
-  clone).
+  (per-clone; reinstall from `fact/docs/pre-commit` at the repo root
+  after a fresh clone).
 - Manual fallback when hooks are missing or report errors:
   `fact project -w <pkg-dir>` regenerates, `fact project -check <pkg-dir>`
-  verifies freshness (`fact` is built from the sibling `../flat` repo:
-  `go install ./cmd/fact`).
+  verifies freshness (`fact` is built from this repo:
+  `go install repani.com/fact/cmd/fact`).
 - If pkg.fact and source seem to disagree, the projection is stale: trust
   the source, then regenerate.

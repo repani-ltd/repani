@@ -10,5 +10,5 @@ changed algorithm is a new package, not a revision.
 - `golay` -- extended Golay(24,12): corrects 3, detects 4
 - `lz4s`  -- LZ4 sequence format re-tuned for small texts
 
-Consumers: kv, quietcast, quietcasting-go, almanac (local
-`replace repani.com/prim => ../prim`).
+Import as `repani.com/prim/<pkg>`; this directory is part of the
+`repani.com` module, so no replace is needed.

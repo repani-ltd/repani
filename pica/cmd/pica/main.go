@@ -61,9 +61,9 @@ import (
 	"strings"
 	"text/template"
 
-	"flat/fact"
+	"repani.com/fact"
 
-	"github.com/pavlos/typeset"
+	"repani.com/pica"
 )
 
 func main() {

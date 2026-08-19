@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pavlos/typeset"
+	"repani.com/pica"
 )
 
 func specCmd(args []string) int {

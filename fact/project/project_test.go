@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"flat/fact"
+	"repani.com/fact"
 )
 
 const bankSrc = `package bank
@@ -120,7 +120,7 @@ func TestProjectGoPackage(t *testing.T) {
 // Regression: packages importing other module-local packages must project
 // (the stdlib source importer could not resolve them; go/packages can).
 func TestProjectPackageWithLocalImports(t *testing.T) {
-	lines, err := Lines("../cmd/fact") // imports flat/fact and flat/project
+	lines, err := Lines("../cmd/fact") // imports repani.com/fact and repani.com/fact/project
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,8 +132,8 @@ func TestProjectPackageWithLocalImports(t *testing.T) {
 	canonical := string(fact.Canonical(facts))
 	for _, w := range []string{
 		"func:main.exported: bool = false\n",
-		`pkg.path: str = "flat/cmd/fact"` + "\n",
-		`"flat/fact", "flat/project"`,
+		`pkg.path: str = "repani.com/fact/cmd/fact"` + "\n",
+		`"repani.com/fact", "repani.com/fact/project"`,
 	} {
 		if !strings.Contains(canonical, w) {
 			t.Errorf("projection missing %q\nfull projection:\n%s", w, canonical)

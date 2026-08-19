@@ -1,4 +1,4 @@
-# typeset
+# pica
 
 A minimal, troff-inspired source language and typesetter.
 Documents are parsed once into a typed block model and exported by

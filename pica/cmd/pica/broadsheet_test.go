@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pavlos/typeset"
-	"github.com/pavlos/typeset/pdf"
+	"repani.com/pica"
+	"repani.com/pica/pdf"
 )
 
 // mkSegs builds n single-line segments labeled prefix1..prefixN.

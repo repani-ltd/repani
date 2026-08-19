@@ -3,7 +3,7 @@
 // will eventually reify.
 package main
 
-import "github.com/pavlos/typeset/pdf"
+import "repani.com/pica/pdf"
 
 // emWidth is the body font's advance per rune in ems -- a metric of
 // the embedded font, not a style choice.

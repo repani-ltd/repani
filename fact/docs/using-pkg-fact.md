@@ -89,8 +89,8 @@ upgrade.
 
 ### Generating pkg.fact for this project's own packages
 
-The generator is the `fact` CLI (from the `flat` repo: `go install
-<flat-repo>/cmd/fact` or `go build -o fact ./cmd/fact`). Then, per package:
+The generator is the `fact` CLI (`go install repani.com/fact/cmd/fact@latest`,
+or `go build -o fact ./fact/cmd/fact` in the repani repo). Then, per package:
 
 ```sh
 fact project -w ./path/to/pkg     # writes ./path/to/pkg/pkg.fact, read-only
@@ -139,8 +139,8 @@ Wire it in three places:
    gate catches any staleness later.
 2. **Pre-commit** (or editor-on-save): regenerate the projections of the
    packages you touched, so pkg.fact travels in the same commit as the
-   source change it reflects. A ready-made script lives in the flat repo
-   at `docs/pre-commit` — copy it to `.git/hooks/pre-commit` (and re-copy
+   source change it reflects. A ready-made script lives in the repani repo
+   at `fact/docs/pre-commit` — copy it to `.git/hooks/pre-commit` (and re-copy
    after any fresh clone; git hooks are per-clone). It regenerates and
    stages pkg.fact for every package with staged `.go` changes, and warns
    without blocking when a package does not compile.

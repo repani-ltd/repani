@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pavlos/typeset/pdf/ttf"
+	"repani.com/pica/pdf/ttf"
 )
 
 func main() {

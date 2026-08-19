@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pavlos/typeset/pdf/ttf"
+	"repani.com/pica/pdf/ttf"
 )
 
 // Page builds one PDF page content stream. Get pages into a document

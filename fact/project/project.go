@@ -27,7 +27,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"flat/fact"
+	"repani.com/fact"
 )
 
 // Header is the fixed generated-file marker that begins every stored

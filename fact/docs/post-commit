@@ -1,16 +1,19 @@
 #!/bin/sh
-# Rebuild the installed fact CLI after any commit that touches Go
-# source, so ~/bin/fact -- the binary every repo's hooks invoke --
-# always matches the committed toolchain. Warns but never blocks.
-# Install per-clone of the flat repo only: cp docs/post-commit .git/hooks/
+# Rebuild the installed fact and pica CLIs after any commit that
+# touches Go source, so ~/bin/fact -- the binary every repo's hooks
+# invoke -- and ~/bin/pica always match the committed toolchain.
+# Warns but never blocks. Install per-clone of the repani repo only:
+# cp fact/docs/post-commit .git/hooks/
 set -u
 
 git diff-tree --no-commit-id --name-only -r HEAD \
     | grep -qE '\.go$|^go\.(mod|sum)$' || exit 0
 
-if go build -o "$HOME/bin/fact" ./cmd/fact; then
-    echo "post-commit: rebuilt ~/bin/fact"
-else
-    echo "post-commit: warning: could not rebuild ~/bin/fact" >&2
-fi
+for t in fact/cmd/fact pica/cmd/pica; do
+    if go build -o "$HOME/bin/$(basename $t)" ./$t; then
+        echo "post-commit: rebuilt ~/bin/$(basename $t)"
+    else
+        echo "post-commit: warning: could not rebuild ~/bin/$(basename $t)" >&2
+    fi
+done
 exit 0

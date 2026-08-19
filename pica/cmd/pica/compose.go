@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pavlos/typeset"
-	"github.com/pavlos/typeset/pdf"
+	"repani.com/pica"
+	"repani.com/pica/pdf"
 )
 
 // bullet is the .item marker, matching the text writer's (U+2022,

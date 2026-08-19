@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pavlos/typeset/pdf/ttf"
+	"repani.com/pica/pdf/ttf"
 )
 
 const pdfHeader = "%PDF-1.3\n%\xA5\xB1\xEB\n"

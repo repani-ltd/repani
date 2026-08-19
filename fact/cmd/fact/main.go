@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"flat/fact"
-	"flat/project"
+	"repani.com/fact"
+	"repani.com/fact/project"
 )
 
 const usage = `usage: fact <command> [flags] [file]

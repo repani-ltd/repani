@@ -18,7 +18,7 @@ import (
 
 	"golang.org/x/tools/imports"
 
-	"flat/fact"
+	"repani.com/fact"
 )
 
 // File projects target (a package directory or import path, as Lines) and

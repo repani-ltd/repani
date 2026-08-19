@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pavlos/typeset"
+	"repani.com/pica"
 )
 
 func TestReport_Smoke(t *testing.T) {
