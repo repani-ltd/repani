@@ -221,12 +221,10 @@ type seg struct {
 func (s seg) height() int {
 	h := 0
 	for _, ln := range s.lines {
-		h += lineUnits(ln)
+		h += roleUnits(ln.role)
 	}
 	return h
 }
-
-func lineUnits(ln sline) int { return roleUnits(ln.role) }
 
 // fblock is a flowable block: segments that may be split between
 // (never inside), with optional repeated lead-in after a split.

@@ -4,6 +4,7 @@ package pdf
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"repani.com/pica/pdf/ttf"
@@ -83,11 +84,16 @@ func (p *Page) hexString(s string) {
 	p.buf.WriteByte('<')
 	for _, r := range s {
 		r = bmp(r)
-		fmt.Fprintf(&p.buf, "%04X", r)
+		p.buf.WriteByte(hexDigits[r>>12&0xF])
+		p.buf.WriteByte(hexDigits[r>>8&0xF])
+		p.buf.WriteByte(hexDigits[r>>4&0xF])
+		p.buf.WriteByte(hexDigits[r&0xF])
 		p.recordRune(r)
 	}
 	p.buf.WriteByte('>')
 }
+
+const hexDigits = "0123456789ABCDEF"
 
 // bmp folds r into the Basic Multilingual Plane: Identity-H CIDs are
 // two bytes, so runes above U+FFFF are replaced with U+FFFD, both
@@ -203,13 +209,9 @@ func (m Measurer) Width(s string) int {
 	return widthUnits(s, m.f)
 }
 
-// Space returns the interword space advance in thousandths of an em.
-func (m Measurer) Space() int {
-	if w, ok := m.f.CIDWidths[' ']; ok {
-		return w
-	}
-	return m.f.DefaultWidth
-}
+// Space returns the interword space advance in thousandths of an em
+// (ttf.Parse sets DefaultWidth from U+0020).
+func (m Measurer) Space() int { return m.f.DefaultWidth }
 
 // AvgAdvance returns the font's average lowercase a-z advance in
 // thousandths of an em: the "characters per line" unit that lets a
@@ -230,7 +232,8 @@ func AvgAdvance(font Font) int {
 
 // ff formats a float for PDF output (up to 4 decimals, trimmed).
 func ff(v float64) string {
-	s := fmt.Sprintf("%.4f", v)
+	var buf [24]byte
+	s := string(strconv.AppendFloat(buf[:0], v, 'f', 4, 64))
 	s = strings.TrimRight(s, "0")
 	return strings.TrimRight(s, ".")
 }

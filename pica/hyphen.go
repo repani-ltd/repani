@@ -19,6 +19,7 @@ var patternsEL string
 // hyphenator holds compiled hyphenation patterns.
 type hyphenator struct {
 	patterns map[string][]int
+	maxLen   int // longest pattern key in runes; bounds the lookup window
 }
 
 // defaultHyphenator merges every embedded pattern set. The embedded
@@ -64,6 +65,7 @@ func (h *hyphenator) addPattern(pattern string) {
 	}
 
 	h.patterns[string(key)] = levels
+	h.maxLen = max(h.maxLen, len(key))
 }
 
 // Hyphenate returns valid hyphenation points for a word as rune
@@ -89,17 +91,25 @@ func (h *hyphenator) Hyphenate(word string) []int {
 		return nil
 	}
 
-	work := make([]rune, len(runes)+2)
-	work[0] = '.'
-	copy(work[1:], runes)
-	work[len(work)-1] = '.'
+	// The dotted work string as UTF-8 with rune-start byte offsets,
+	// so every candidate substring is a slice, not an allocation.
+	work := "." + string(runes) + "."
+	var offBuf, lvBuf [40]int // stack space for ordinary words
+	off := offBuf[:0]
+	for i := range work {
+		off = append(off, i)
+	}
+	off = append(off, len(work))
+	nw := len(off) - 1 // runes in work
 
-	levels := make([]int, len(work)+1)
+	levels := lvBuf[:0]
+	for range nw + 1 {
+		levels = append(levels, 0)
+	}
 
-	for i := 0; i < len(work); i++ {
-		for j := i + 1; j <= len(work); j++ {
-			sub := string(work[i:j])
-			if pat, ok := h.patterns[sub]; ok {
+	for i := 0; i < nw; i++ {
+		for j := i + 1; j <= min(nw, i+h.maxLen); j++ {
+			if pat, ok := h.patterns[work[off[i]:off[j]]]; ok {
 				for k, v := range pat {
 					if i+k < len(levels) && v > levels[i+k] {
 						levels[i+k] = v

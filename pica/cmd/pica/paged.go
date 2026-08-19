@@ -157,7 +157,7 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 			}
 			units := 0
 			for _, ln := range columns[idx] {
-				units += lineUnits(ln)
+				units += roleUnits(ln.role)
 			}
 			deepest = max(deepest, units)
 			x := margin + float64(c)*(colW+sheetGutter)

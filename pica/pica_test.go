@@ -140,7 +140,7 @@ func TestWidthPanics(t *testing.T) {
 
 func TestWrapParagraphFits(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies."
-	for _, ln := range wrapParagraph(input, testWidth, defaultHyphenator) {
+	for _, ln := range wrapParagraph(input, testWidth) {
 		if len([]rune(ln)) > testWidth {
 			t.Errorf("wrapped line exceeds width: %q", ln)
 		}
@@ -253,7 +253,7 @@ func TestJustifyLine(t *testing.T) {
 		{"ab cd ef", 8, "ab cd ef"},
 	}
 	for _, c := range cases {
-		got := justifyLine(c.line, c.width)
+		got := justifyLine(LineOf(strings.Fields(c.line), Mono), c.width)
 		if got != c.want {
 			t.Errorf("justifyLine(%q, %d) = %q, want %q",
 				c.line, c.width, got, c.want)
@@ -393,11 +393,11 @@ func TestTryHyphenAtJustify_HangExtendsTarget(t *testing.T) {
 	// width+shrink = 108, so only the hang (target 112, window 115)
 	// admits the break.
 	m := wideMeasurer{}
-	w := word{text: "abcdef", points: []int{3}}
-	if _, ok := tryHyphenAtJustify(w, 60, 105, 2, 0, m); !ok {
+	w := word{text: "abcdef", width: 60, points: []int{3}, prefix: []int{40}}
+	if _, ok := tryHyphenAtJustify(w, 60, 105, 2, 0, m.Space(), HangHyphen(m)); !ok {
 		t.Errorf("hyphen break rejected at width 105: hang should extend the target")
 	}
-	if _, ok := tryHyphenAtJustify(w, 60, 97, 2, 0, m); ok {
+	if _, ok := tryHyphenAtJustify(w, 60, 97, 2, 0, m.Space(), HangHyphen(m)); ok {
 		t.Errorf("hyphen break accepted at width 97: outside hang+shrink window")
 	}
 }
@@ -433,7 +433,7 @@ func TestJustifyLines_MonoMatchesJustifyParagraph(t *testing.T) {
 
 func TestWrapVsJustify_Differ(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	ragged := strings.Join(wrapParagraph(input, testWidth, defaultHyphenator), "\n")
+	ragged := strings.Join(wrapParagraph(input, testWidth), "\n")
 	justified := strings.Join(JustifyParagraph(input, testWidth), "\n")
 	if ragged == justified {
 		t.Error("ragged and justified output should differ")

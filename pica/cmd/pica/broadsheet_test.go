@@ -28,7 +28,7 @@ func checkCols(t *testing.T, cols [][]sline, capacity func(int) int) []string {
 	for i, col := range cols {
 		units := 0
 		for _, ln := range col {
-			units += lineUnits(ln)
+			units += roleUnits(ln.role)
 		}
 		if units > 2*capacity(i) {
 			t.Fatalf("column %d holds %d half-line units, capacity %d lines", i, units, capacity(i))

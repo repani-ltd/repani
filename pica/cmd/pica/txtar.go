@@ -19,15 +19,30 @@ type txtarFile struct {
 // afterwards.
 func parseArchive(data string) []txtarFile {
 	var files []txtarFile
-	for len(data) > 0 {
-		line, rest, _ := strings.Cut(data, "\n")
-		data = rest
-		if name, ok := markerName(line); ok {
-			files = append(files, txtarFile{name: name})
-		} else if n := len(files); n > 0 {
-			files[n-1].data += line + "\n"
+	start := 0 // byte offset where the current member's data begins
+	close := func(end int) {
+		if n := len(files); n > 0 {
+			body := data[start:end]
+			if body != "" && !strings.HasSuffix(body, "\n") {
+				body += "\n"
+			}
+			files[n-1].data = body
 		}
 	}
+	for pos := 0; pos < len(data); {
+		nl := strings.IndexByte(data[pos:], '\n')
+		next := len(data)
+		if nl >= 0 {
+			next = pos + nl + 1
+		}
+		if name, ok := markerName(strings.TrimSuffix(data[pos:next], "\n")); ok {
+			close(pos)
+			files = append(files, txtarFile{name: name})
+			start = next
+		}
+		pos = next
+	}
+	close(len(data))
 	return files
 }
 

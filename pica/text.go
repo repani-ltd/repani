@@ -22,9 +22,8 @@ func (d *Doc) Text() (string, error) {
 	if bl := d.Byline(); bl != "" {
 		out = append(out, TruncLine(bl, width))
 	}
-	h := defaultHyphenator
 	for _, b := range d.Blocks {
-		lines, err := renderBlock(b, width, h)
+		lines, err := renderBlock(b, width)
 		if err != nil {
 			return "", err
 		}
@@ -45,10 +44,10 @@ func (d *Doc) Text() (string, error) {
 }
 
 // renderBlock lays out one block at the given width.
-func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
+func renderBlock(b Block, width int) ([]string, error) {
 	switch b.Kind {
 	case Para:
-		return wrapParagraph(b.Text, width, h), nil
+		return wrapParagraph(b.Text, width), nil
 
 	case Heading:
 		marker := "# "
@@ -58,7 +57,7 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 		return []string{TruncLine(marker+b.Text, width)}, nil
 
 	case Quote:
-		inner := wrapParagraph(b.Text, width-2*QuoteIndent, h)
+		inner := wrapParagraph(b.Text, width-2*QuoteIndent)
 		out := make([]string, len(inner), len(inner)+1)
 		for i, ln := range inner {
 			out[i] = strings.Repeat(" ", QuoteIndent) + ln
@@ -69,7 +68,7 @@ func renderBlock(b Block, width int, h *hyphenator) ([]string, error) {
 		return out, nil
 
 	case Item:
-		inner := wrapParagraph(b.Text, width-ItemIndent, h)
+		inner := wrapParagraph(b.Text, width-ItemIndent)
 		out := make([]string, len(inner))
 		for i, ln := range inner {
 			if i == 0 {

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf16"
 
 	"repani.com/pica/pdf/ttf"
@@ -95,7 +96,6 @@ func init() {
 		if err != nil {
 			panic("pdf: parse embedded font: " + err.Error())
 		}
-		f.Tag = string(e.font)
 		fontRegistry[e.font] = f
 	}
 }
@@ -117,14 +117,14 @@ type Doc struct {
 // pageData is a finished page: its content stream plus any link
 // annotations.
 type pageData struct {
-	content []byte
+	content string
 	annots  []linkAnnot
 }
 
 // Add appends a finished page to the document, absorbing its
 // rune-usage bookkeeping for font subsetting.
 func (d *Doc) Add(p *Page) {
-	d.pages = append(d.pages, pageData{content: p.Bytes(), annots: p.annots})
+	d.pages = append(d.pages, pageData{content: p.buf.String(), annots: p.annots})
 	if d.used == nil {
 		d.used = make(map[Font]map[rune]bool)
 	}
@@ -138,14 +138,17 @@ func (d *Doc) Add(p *Page) {
 	}
 }
 
-// Bytes builds the complete PDF.
+// Bytes builds the complete PDF: objects are written straight into
+// the output as they are built, their offsets recorded for the xref.
 func (d *Doc) Bytes() []byte {
-	b := &builder{objs: [][]byte{nil}} // obj 0 placeholder (xref free entry)
+	b := &builder{pos: []int{0}} // pos[0]: the xref free entry
+	b.buf.WriteString(pdfHeader)
 
 	w, h := d.PageSize.Dimensions()
 	mbox := fmt.Sprintf("[ 0 0 %s %s ]", ff(w), ff(h))
 
-	// 1. Reserve pages tree and catalog (need forward references).
+	// 1. Reserve the pages tree and catalog IDs (forward
+	// references); their objects are emitted last.
 	pagesID := b.reserve()
 	catalogID := b.reserve()
 
@@ -166,33 +169,33 @@ func (d *Doc) Bytes() []byte {
 			panic("pdf: font subset: " + err.Error())
 		}
 		name := subsetName(font.PostScriptName, used)
-		toUnicodeID := b.add(pdfToUnicode(len(b.objs), used))
-		fontFileID := b.add(pdfFontFile(len(b.objs), subset.Data))
-		cidToGIDMapID := b.add(pdfCIDToGIDMap(len(b.objs), subset.CIDToGID))
-		descriptorID := b.add(pdfFontDescriptor(len(b.objs), font, name, fontFileID))
-		cidFontID := b.add(pdfCIDFont(len(b.objs), name, subset.Widths, font.DefaultWidth, descriptorID, cidToGIDMapID))
-		fontType0IDs[i] = b.add(pdfType0Font(len(b.objs), name, cidFontID, toUnicodeID))
+		toUnicodeID := b.add(pdfToUnicode(b.next(), used))
+		fontFileID := b.add(pdfFontFile(b.next(), subset.Data))
+		cidToGIDMapID := b.add(pdfCIDToGIDMap(b.next(), subset.CIDToGID))
+		descriptorID := b.add(pdfFontDescriptor(b.next(), font, name, fontFileID))
+		cidFontID := b.add(pdfCIDFont(b.next(), name, subset.Widths, font.DefaultWidth, descriptorID, cidToGIDMapID))
+		fontType0IDs[i] = b.add(pdfType0Font(b.next(), name, cidFontID, toUnicodeID))
 	}
 
 	// 3. Resources shared by all pages.
-	resourcesID := b.add(pdfResources(len(b.objs), embedded, fontType0IDs))
+	resourcesID := b.add(pdfResources(b.next(), embedded, fontType0IDs))
 
 	// 4. Info. No CreationDate: identical input must produce
 	// byte-identical PDFs, and the date is optional in the spec.
-	infoID := b.add(pdfInfo(len(b.objs), d.Creator, d.Title))
+	infoID := b.add(pdfInfo(b.next(), d.Creator, d.Title))
 
 	// 5. Page/stream pairs, plus link annotations per page.
 	kids := make([]int, len(d.pages))
 	for i, pg := range d.pages {
-		streamID := b.add(pdfStream(len(b.objs), pg.content, d.Compress))
+		streamID := b.add(pdfStream(b.next(), pg.content, d.Compress))
 		annotIDs := make([]int, len(pg.annots))
 		for j, a := range pg.annots {
-			annotIDs[j] = b.add(pdfLinkAnnot(len(b.objs), a))
+			annotIDs[j] = b.add(pdfLinkAnnot(b.next(), a))
 		}
-		kids[i] = b.add(pdfPage(len(b.objs), streamID, pagesID, resourcesID, annotIDs))
+		kids[i] = b.add(pdfPage(b.next(), streamID, pagesID, resourcesID, annotIDs))
 	}
 
-	// 6. Fill in the reserved pages tree and catalog.
+	// 6. The reserved pages tree and catalog, emitted last.
 	openAction := pagesID
 	if len(kids) > 0 {
 		openAction = kids[0]
@@ -200,42 +203,44 @@ func (d *Doc) Bytes() []byte {
 	b.set(pagesID, pdfPages(pagesID, len(d.pages), kids, mbox))
 	b.set(catalogID, pdfCatalog(catalogID, openAction, pagesID))
 
-	// Write all objects sequentially with tracked byte offsets.
-	var buf bytes.Buffer
-	buf.WriteString(pdfHeader)
-	objPos := make([]int, len(b.objs))
-	for i := 1; i < len(b.objs); i++ {
-		objPos[i] = buf.Len()
-		buf.Write(b.objs[i])
-	}
-	xrefPos := buf.Len()
-	docID := fmt.Sprintf("%x", md5.Sum(buf.Bytes()))
-	buf.Write(pdfXref(len(b.objs), objPos, catalogID, infoID, docID, xrefPos))
-	return buf.Bytes()
+	xrefPos := b.buf.Len()
+	docID := fmt.Sprintf("%x", md5.Sum(b.buf.Bytes()))
+	b.buf.Write(pdfXref(len(b.pos), b.pos, catalogID, infoID, docID, xrefPos))
+	return b.buf.Bytes()
 }
 
-// builder collects PDF objects; objs[0] is the unused xref free entry.
+// builder writes PDF objects into buf as they arrive, recording each
+// object's byte offset in pos (pos[0] is the unused xref free entry).
+// Object IDs are assigned in order of reservation, not of emission:
+// a reserved object is written wherever its data is set, and the
+// xref table maps IDs to offsets regardless.
 type builder struct {
-	objs [][]byte
+	buf bytes.Buffer
+	pos []int
 }
+
+// next is the ID the next add will return.
+func (b *builder) next() int { return len(b.pos) }
 
 // reserve allocates an object ID whose data is set later, for
 // forward references (the pages tree needs its kids' IDs).
 func (b *builder) reserve() int {
-	id := len(b.objs)
-	b.objs = append(b.objs, nil)
-	return id
+	b.pos = append(b.pos, 0)
+	return len(b.pos) - 1
 }
 
-// add appends a fully-built object and returns its ID.
+// add writes a fully-built object and returns its ID.
 func (b *builder) add(data []byte) int {
-	id := len(b.objs)
-	b.objs = append(b.objs, data)
+	id := b.reserve()
+	b.set(id, data)
 	return id
 }
 
-// set fills in a previously reserved object slot.
-func (b *builder) set(id int, data []byte) { b.objs[id] = data }
+// set writes the data of a previously reserved object.
+func (b *builder) set(id int, data []byte) {
+	b.pos[id] = b.buf.Len()
+	b.buf.Write(data)
+}
 
 // ── PDF objects ─────────────────────────────────────────────────────
 
@@ -290,7 +295,7 @@ func pdfInfo(id int, creator, title string) []byte {
 func pdfPages(id, pageCount int, kids []int, mediaBox string) []byte {
 	o := newObj(id)
 	o.field("Count", fmt.Sprintf("%d", pageCount))
-	o.field("Kids", string(pdfKids(kids)))
+	o.field("Kids", pdfKids(kids))
 	o.field("MediaBox", mediaBox)
 	o.field("Type", "/Pages")
 	return o.bytes()
@@ -299,7 +304,7 @@ func pdfPages(id, pageCount int, kids []int, mediaBox string) []byte {
 func pdfPage(id, contentID, parentID, resourcesID int, annotIDs []int) []byte {
 	o := newObj(id)
 	if len(annotIDs) > 0 {
-		o.field("Annots", string(pdfKids(annotIDs)))
+		o.field("Annots", pdfKids(annotIDs))
 	}
 	o.field("Contents", fmt.Sprintf("%d 0 R", contentID))
 	o.field("Parent", fmt.Sprintf("%d 0 R", parentID))
@@ -376,10 +381,10 @@ func literalString(s string) string {
 	return buf.String()
 }
 
-func pdfStream(id int, content []byte, compress bool) []byte {
-	body := content
+func pdfStream(id int, content string, compress bool) []byte {
+	body := []byte(content)
 	if compress {
-		body = zlibCompress(content)
+		body = zlibCompress(body)
 	}
 	o := newObj(id)
 	o.field("Length", strconv.Itoa(len(body)))
@@ -389,14 +394,14 @@ func pdfStream(id int, content []byte, compress bool) []byte {
 	return o.stream(body)
 }
 
-func pdfKids(ids []int) []byte {
-	var buf bytes.Buffer
+func pdfKids(ids []int) string {
+	var buf strings.Builder
 	buf.WriteString("[ ")
 	for _, id := range ids {
 		fmt.Fprintf(&buf, "%d 0 R ", id)
 	}
 	buf.WriteString("]")
-	return buf.Bytes()
+	return buf.String()
 }
 
 func pdfXref(count int, objPos []int, rootID, infoID int, id string, xrefPos int) []byte {
@@ -540,11 +545,26 @@ func pdfCIDToGIDMap(id int, data []byte) []byte {
 	return o.stream(compressed)
 }
 
-// zlibCompress compresses data. Panics on error: writes to an
+// zlibCompress compresses data at BestSpeed (content streams and
+// font subsets are small; the PDF is built once per document). One
+// writer is reused across calls: allocating a deflater per stream
+// costs more than the streams. Panics on error: writes to an
 // in-memory buffer cannot fail except through a programming bug.
+var (
+	zlibMu sync.Mutex
+	zlibW  *zlib.Writer
+)
+
 func zlibCompress(data []byte) []byte {
+	zlibMu.Lock()
+	defer zlibMu.Unlock()
 	var b bytes.Buffer
-	w := zlib.NewWriter(&b)
+	if zlibW == nil {
+		zlibW, _ = zlib.NewWriterLevel(&b, zlib.BestSpeed)
+	} else {
+		zlibW.Reset(&b)
+	}
+	w := zlibW
 	if _, err := w.Write(data); err != nil {
 		panic("pdf: zlib write: " + err.Error())
 	}

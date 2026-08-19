@@ -296,7 +296,7 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 			// reserve the space blank, and the measured lines land
 			// in HeaderProse for the writer to set in the body face.
 			tl.HeaderProse = make([][]Line, len(cols))
-			heights := map[int]int{}
+			heights := make([]int, len(cols))
 			for i, col := range cols {
 				var s string
 				if i < len(t.header) {
@@ -326,10 +326,10 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 			continue
 		}
 		var prose [][]Line
-		var heights map[int]int
+		var heights []int
 		if m != nil && len(tl.ProseCols) > 0 {
 			prose = make([][]Line, len(tl.ProseCols))
-			heights = map[int]int{}
+			heights = make([]int, len(cols))
 			k := 0
 			for i, col := range cols {
 				if col.align != 'P' {
@@ -360,7 +360,7 @@ func wrapCellMeasured(s string, measure int, m Measurer) []Line {
 	if strings.TrimSpace(s) == "" {
 		return nil
 	}
-	return wrapRagged(s, measure, hyphenPenaltyCell, m, defaultHyphenator)
+	return wrapRagged(s, measure, hyphenPenaltyCell, m)
 }
 
 // noteRow formats one note row on a grid scaled by scale: scale 2 is
@@ -458,11 +458,11 @@ func numericParts(s string) (fracLen int, hasParen bool, ok bool) {
 }
 
 // renderRow wraps each cell into its column's line stack and emits
-// the padded physical lines, columns joined by gap. For a column
-// index present in proseHeights the cell's space is reserved blank
-// at that height instead (the measured lines draw positioned,
-// outside the mono grid); a nil map renders every cell.
-func renderRow(cols []colSpec, cells []string, gap string, proseHeights map[int]int) []string {
+// the padded physical lines, columns joined by gap. A column with a
+// positive proseHeights entry has its space reserved blank at that
+// height instead (the measured lines draw positioned, outside the
+// mono grid); a nil slice renders every cell.
+func renderRow(cols []colSpec, cells []string, gap string, proseHeights []int) []string {
 	stacks := make([][]string, len(cols))
 	height := 1
 	for i, col := range cols {
@@ -470,9 +470,9 @@ func renderRow(cols []colSpec, cells []string, gap string, proseHeights map[int]
 		if i < len(cells) {
 			s = cells[i]
 		}
-		if h, ok := proseHeights[i]; ok {
+		if proseHeights != nil && proseHeights[i] > 0 {
 			// Measured prose cell: blank lines hold the space.
-			stacks[i] = make([]string, h)
+			stacks[i] = make([]string, proseHeights[i])
 		} else if col.clip || col.align == 'N' {
 			// N columns never wrap: a broken number is worse
 			// than a truncated one.
@@ -509,8 +509,8 @@ func renderRow(cols []colSpec, cells []string, gap string, proseHeights map[int]
 // mixed).
 func wrapCell(s string, width int) []string {
 	var out []string
-	for _, ln := range flattenLines(wrapRagged(s, width, hyphenPenaltyCell, Mono, defaultHyphenator)) {
-		for runeLen(ln) > width {
+	for _, ln := range flattenLines(wrapRagged(s, width, hyphenPenaltyCell, Mono)) {
+		for len(ln) > width && runeLen(ln) > width {
 			r := []rune(ln)
 			out = append(out, string(r[:width]))
 			ln = string(r[width:])
@@ -539,21 +539,16 @@ func formatCell(s string, col colSpec) string {
 		s = numericCell(s, col)
 	}
 	width := col.width
-	runes := []rune(s)
-	if len(runes) > width {
-		runes = runes[:width]
-	}
-	n := len(runes)
-	pad := width - n
+	s = TruncLine(s, width)
+	pad := width - runeLen(s)
 	switch col.align {
 	case 'R', 'N':
-		return strings.Repeat(" ", pad) + string(runes)
+		return strings.Repeat(" ", pad) + s
 	case 'C':
 		left := pad / 2
-		right := pad - left
-		return strings.Repeat(" ", left) + string(runes) + strings.Repeat(" ", right)
+		return strings.Repeat(" ", left) + s + strings.Repeat(" ", pad-left)
 	default: // 'L'
-		return string(runes) + strings.Repeat(" ", pad)
+		return s + strings.Repeat(" ", pad)
 	}
 }
 

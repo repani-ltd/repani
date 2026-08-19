@@ -12,7 +12,6 @@ import (
 // The full (unsubset) TTF is stored in Data; per-document subsetting
 // is done at PDF build time via the Subset() method.
 type TTFont struct {
-	Tag            string // PDF resource name (e.g. "R", "B")
 	PostScriptName string
 	UnitsPerEm     uint16
 	Ascent         int16
@@ -516,12 +515,16 @@ func buildTTF(raw []byte, tables map[string]ttfTable, newGlyf, newLoca []byte) [
 	return out
 }
 
+// tblChecksum is the TrueType table checksum: the sum of big-endian
+// uint32 words, the tail zero-padded.
 func tblChecksum(d []byte) uint32 {
-	p := make([]byte, (len(d)+3)&^3)
-	copy(p, d)
 	var s uint32
-	for i := 0; i < len(p); i += 4 {
-		s += readU32(p, i)
+	n := len(d) &^ 3
+	for i := 0; i < n; i += 4 {
+		s += readU32(d, i)
+	}
+	for i, b := range d[n:] {
+		s += uint32(b) << (24 - 8*i)
 	}
 	return s
 }
