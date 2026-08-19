@@ -397,7 +397,7 @@ func TestByDate(t *testing.T) {
 }
 
 func TestLangRemoved(t *testing.T) {
-	// .lang was removed (DESIGN.md: admitted for a hypothetical
+	// .lang was removed (DESIGN.t: admitted for a hypothetical
 	// future, failing the vocabulary gate's demand test). The
 	// closed vocabulary makes the removal loud, never silent.
 	if _, err := Parse("T\n\n.lang el\n"); err == nil {

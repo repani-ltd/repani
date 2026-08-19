@@ -10,7 +10,7 @@ import (
 )
 
 // Official reference KAT files, copied verbatim from ascon/ascon-c
-// (NIST SP 800-232). See testdata/SOURCE.md for provenance.
+// (NIST SP 800-232). See testdata/SOURCE.t for provenance.
 const (
 	xofKATFile  = "testdata/LWC_XOF_KAT_128_512.txt"
 	aeadKATFile = "testdata/LWC_AEAD_KAT_128_128.txt"

@@ -62,7 +62,7 @@ type proseSpan struct {
 }
 
 // sizeRole is the closed set of sizes, quantized to the half-line
-// grid (DESIGN.md §6, §7): every role is a slot of whole half-units
+// grid (DESIGN.t §6, §7): every role is a slot of whole half-units
 // and a glyph scale, so flow stays integer arithmetic and the
 // cross-column baseline grid snaps back at block boundaries.
 type sizeRole uint8
@@ -217,7 +217,7 @@ type seg struct {
 }
 
 // height is in half-line units: a body line is 2, a note line 1.
-// The half-line is the flow grid's quantum (DESIGN.md §6); blocks
+// The half-line is the flow grid's quantum (DESIGN.t §6); blocks
 // snap back to whole body lines at placement, so only table rows
 // with notes ever produce odd heights.
 func (s seg) height() int {

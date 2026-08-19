@@ -24,7 +24,7 @@ type hyphenator struct {
 // defaultHyphenator merges every embedded pattern set. The embedded
 // scripts are disjoint, so the merged set hyphenates each language
 // correctly; per-language selection would only matter if sets for
-// languages sharing a script were added (see DESIGN.md: the .lang
+// languages sharing a script were added (see DESIGN.t: the .lang
 // command was removed until that demand exists).
 var defaultHyphenator = newHyphenator(patternsEN, patternsEL)
 

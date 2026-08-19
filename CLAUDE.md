@@ -7,6 +7,8 @@ common.
 - Import paths are `repani.com/<dir>/...`; the module is the repo
   root, so never add a nested go.mod (the only exception is
   `pica/tmp`, a scratch module that is deliberately outside).
+- READMEs and CLAUDE.md stay Markdown (consumed by GitHub / Claude
+  Code); all other documentation is pica `.t`.
 - CLIs live in `<project>/cmd/<tool>`: `pica/cmd/pica`,
   `fact/cmd/fact`.
 - Every Go package carries a generated `pkg.fact` (see

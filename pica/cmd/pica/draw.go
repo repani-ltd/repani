@@ -1,5 +1,5 @@
 // Drawing: composed lines onto a pdf.Page. The one layer that turns
-// slines into draw calls -- the seam the display list (DESIGN.md §5)
+// slines into draw calls -- the seam the display list (DESIGN.t §5)
 // will eventually reify.
 package main
 

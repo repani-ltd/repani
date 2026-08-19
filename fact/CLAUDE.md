@@ -1,6 +1,6 @@
 # fact (repani.com/fact) — FACT format toolchain
 
-`fact` is a CLI implementing the FACT format (v0.2). **SPEC.md is the
+`fact` is a CLI implementing the FACT format (v0.3). **SPEC.t is the
 normative source of truth** — when code and spec disagree, the spec wins;
 read it before changing parser/validator/generator behavior.
 
@@ -27,7 +27,7 @@ greppable, canonical `.fact` file. Config files are the degenerate case.
   also runs goimports on the edited file and, when the package no longer
   builds, reports the compile errors as in-session context; the manual
   command remains the fallback when the hook reports an error.
-- `docs/using-pkg-fact.md` is the paste-ready snippet consuming projects put
+- `docs/using-pkg-fact.t` is the paste-ready snippet consuming projects put
   in their own CLAUDE.md; keep it in sync with the §11.2 vocabulary.
 - Git hooks (per-clone, install at the repani repo root with `cp fact/docs/<hook> .git/hooks/`):
   `fact/docs/pre-commit` regenerates and stages pkg.fact for staged `.go` changes
@@ -38,7 +38,7 @@ greppable, canonical `.fact` file. Config files are the degenerate case.
 
 ## Layout
 
-- `SPEC.md` — FACT format specification v0.2 (normative)
+- `SPEC.t` — FACT format specification v0.3 (normative)
 - `*.go` at this level (package `fact`, import `repani.com/fact`) — the
   format core: line parser, type/value checks, set-level validation,
   canonical serializer, JSON codec

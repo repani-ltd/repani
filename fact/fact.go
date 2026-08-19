@@ -1,4 +1,4 @@
-// Package fact implements the FACT configuration format (see SPEC.md).
+// Package fact implements the FACT configuration format (see SPEC.t).
 //
 // A FACT file is an unordered set of single-line, self-contained, typed
 // facts. Parsing is strictly line-local; Validate adds the set-level

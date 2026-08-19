@@ -44,7 +44,7 @@ func TestTabularFigures(t *testing.T) {
 	// applyTnum runs at Parse time: in both Fira Sans weights every
 	// digit must share one advance, and the figure space (U+2007)
 	// must match it, so figure-space padding aligns numbers exactly
-	// (DESIGN.md §6). Cross-weight equality means bold totals align
+	// (DESIGN.t §6). Cross-weight equality means bold totals align
 	// with regular body rows.
 	widths := map[string]int{}
 	for _, name := range []string{"FiraSans-Regular.ttf", "FiraSans-Bold.ttf"} {

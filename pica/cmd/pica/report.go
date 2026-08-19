@@ -1,4 +1,4 @@
-// Report presentation (DESIGN.md §7): the same source document
+// Report presentation (DESIGN.t §7): the same source document
 // rendered as a single-column client report rather than a
 // newspaper — generous margins, a left-aligned title block, a
 // "Page N of M" footer. Layout comes from the document trailer

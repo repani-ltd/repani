@@ -1,6 +1,6 @@
 // GSUB 'tnum' feature: tabular figures applied statically at parse
 // time. The house style always sets figures on a fixed advance
-// (DESIGN.md §6), so instead of a shaping engine the parser remaps
+// (DESIGN.t §6), so instead of a shaping engine the parser remaps
 // every cmap entry covered by the feature's single-substitution
 // lookups (type 1, plus type 7 extension wrappers) to its tabular
 // variant, once. Widths, kerning, subsetting, and the PDF CID→GID
