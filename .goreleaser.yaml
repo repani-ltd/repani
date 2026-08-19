@@ -1,0 +1,66 @@
+# GoReleaser configuration for the repani.com module: prebuilt CLIs
+# for viewers without a Go toolchain. GoReleaser runs in CI only
+# (.github/workflows/release.yaml); it is not a dependency of any
+# package here and never enters go.mod.
+version: 2
+
+project_name: repani
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: pica
+    main: ./pica/cmd/pica
+    binary: pica
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: fact
+    main: ./fact/cmd/fact
+    binary: fact
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: pica
+    ids: [pica]
+    name_template: "pica_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, NOTICE, pica/README.md, pica/pdf/fonts/OFL.txt]
+  - id: fact
+    ids: [fact]
+    name_template: "fact_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, NOTICE, fact/SPEC.t]
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: git
+  sort: asc
+
+release:
+  github:
+    owner: repani-ltd
+    name: repani
+  draft: false
+  prerelease: auto
+  header: |
+    Go module `repani.com` {{ .Tag }}: prebuilt `pica` and `fact` for linux,
+    macOS and Windows (amd64, arm64). `go install repani.com/pica/cmd/pica@{{ .Tag }}`
+    remains the source route.

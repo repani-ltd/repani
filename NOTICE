@@ -1,0 +1,13 @@
+Repani (the repani.com Go module)
+Copyright 2026 Repani Limited
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This distribution embeds third-party material under its own terms:
+
+- Fira Mono and Fira Sans fonts (pica/pdf/fonts), by the Mozilla
+  Foundation with Carrois Corporate GbR and Edenspiekermann AG, under
+  the SIL Open Font License 1.1 (pica/pdf/fonts/OFL.txt).
+- Knuth-Liang hyphenation patterns (pica/patterns), derived from
+  TeX's hyphen.tex and the hyph-utf8 project, under their respective
+  free licences (pica/patterns/README.md).

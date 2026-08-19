@@ -15,3 +15,7 @@ The last three are primitive packages: stdlib-only, no sibling
 imports, no protocol knowledge, append-only (see CLAUDE.md).
 
 Build and test everything: `go build ./... && go test ./...`.
+
+## Licence
+
+Apache License 2.0 (LICENSE); third-party notices in NOTICE.
