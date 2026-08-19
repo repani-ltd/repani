@@ -1,0 +1,75 @@
+Weather bulletin example data. data.fact carries the structured,
+typed facts (dotted keys nest; day/spot instances are table rows,
+ordered by the daily/sea ref lists); body.txt is prose content,
+injected as .body. Facts are data; prose is content.
+-- data.fact --
+issued: str = "2026-07-10T05:45:00Z"
+issue: int = 187
+metar: str = "LCRA 100550Z 29012KT 9999 FEW020 SCT250 27/19 Q1008 NOSIG RMK BLU BLU"
+
+current.observed: str = "2026-07-10T05:30:00Z"
+current.temp: float = 26.437
+current.feels: float = 28.9
+current.humidity: float = 61.2
+current.pressure: float = 1008.25
+current.winddir: str = "WNW"
+current.windkt: float = 11.6
+current.sunshine: str = "95m"
+
+daily: list(ref(day)) = [day:d0, day:d1, day:d2, day:d3, day:d4]
+day:d0.date: str = "2026-07-10"
+day:d0.summary: str = "Sunny, light sea breeze after noon"
+day:d0.hi: float = 31.2
+day:d0.lo: float = 22.1
+day:d0.rain: float = 0
+day:d1.date: str = "2026-07-11"
+day:d1.summary: str = "High cloud thickening late"
+day:d1.hi: float = 30.4
+day:d1.lo: float = 22.8
+day:d1.rain: float = 10.2
+day:d2.date: str = "2026-07-12"
+day:d2.summary: str = "Isolated thunderstorms inland"
+day:d2.hi: float = 28.9
+day:d2.lo: float = 21.5
+day:d2.rain: float = 45.8
+day:d3.date: str = "2026-07-13"
+day:d3.summary: str = "Clearing, gusty northwesterlies"
+day:d3.hi: float = 27.3
+day:d3.lo: float = 20.2
+day:d3.rain: float = 15
+day:d4.date: str = "2026-07-14"
+day:d4.summary: str = "Settled and dry"
+day:d4.hi: float = 29.6
+day:d4.lo: float = 21.0
+day:d4.rain: float = 0
+
+sea: list(ref(spot)) = [spot:akrotiri, spot:kourion, spot:marina]
+spot:akrotiri.spot: str = "Akrotiri"
+spot:akrotiri.temp: float = 27.84
+spot:akrotiri.wave: str = "0.6m"
+spot:kourion.spot: str = "Kourion"
+spot:kourion.temp: float = 27.31
+spot:kourion.wave: str = "1.1m"
+spot:marina.spot: str = "Marina"
+spot:marina.temp: float = 28.02
+spot:marina.wave: str = "0.3m"
+
+outlook: str = "Internationally sourced ensemble models agree on an unseasonably unstable pattern for midweek, with cumulonimbus development over the Troodos massif drifting coastward each afternoon before the characteristically persistent northwesterly gradient reasserts itself and temperatures return to seasonal values by the weekend."
+
+sources: list(str) = ["https://open-meteo.com", "https://aviationweather.gov/data/metar/?id=LCRA", "https://www.moa.gov.cy/moa/dm/dm.nsf/home_en/home_en"]
+-- body.txt --
+Clear skies across the Limassol district this morning with excellent
+visibility along the entire southern coastline. Temperatures climb
+quickly after sunrise, reaching the low thirties inland by early
+afternoon while the seafront stays two to three degrees cooler under
+a developing sea breeze.
+
+Η θερμοκρασία στην Λεμεσό θα παρουσιάσει χαρακτηριστική
+σταθεροποίηση τις επόμενες ημέρες, με τους βορειοδυτικούς ανέμους
+να διατηρούνται μέτριοι στα παράλια και την υγρασία να περιορίζεται
+αισθητά μετά το μεσημέρι.
+
+Bathers should note that lifeguard coverage at Dasoudi and Lady's
+Mile begins at nine and ends at eighteen hundred; ultraviolet
+readings peak near index ten around midday, so shade and
+sunscreen are strongly recommended between eleven and fifteen.

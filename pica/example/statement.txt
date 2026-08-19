@@ -1,0 +1,67 @@
+QUARTERLY CLIENT STATEMENT
+by Treasury Reporting -- 2026-06-30
+
+# Holdings summary
+
+Positions held at close of business, valued at the official closing price on the
+last trading day of the quarter. Accrued interest is included in market value.
+
+Client                                                                Market value
+                                                                      eur thou-
+                                                                      sands, ac-
+                                                                      crued inter-
+                                                                      est included
+--------------------------------------------------------------------- ------------
+Alpha Fund                                                              41,234.56
+segregated custody, Nicosia branch
+Beta Holdings                                                            1,102.00
+Gamma Trust                                                             (2,340.10)
+restated after the June reconciliation
+Delta Partners                                                             315.75
+Epsilon SA                                                                 n/a
+account opened 30 Jun, first valuation next quarter
+--------------------------------------------------------------------- ------------
+Total                                                                   40,312.21
+
+Figures in parentheses are net short positions. All valuations follow the group
+pricing policy; deviations above two percent are escalated to the risk committee.
+
+## Valuation policy
+
+Level one instruments are marked to the exchange close. Level two instruments are
+marked to dealer consensus, and level three to the model approved at onboarding,
+reviewed annually. No client in this statement holds level three positions.
+
+# Movements
+
+Deposits and withdrawals settle on a T+2 basis and are reflected in the quarter in
+which they settle, not the quarter in which they were instructed.
+
+Date           Movement                                                 Amount
+-------------- -------------------------------------------------------- ----------
+2026-04-14     client deposit                                              500.00
+2026-05-02     withdrawal                                                 (120.00)
+2026-06-30     custody fees                                                 (3.25)
+               fee schedule B, reviewed annually
+-------------- -------------------------------------------------------- ----------
+Net                                                                        376.75
+
+## Settlement instructions
+
+Incoming payments must reference the account designation exactly as printed. The
+receiving details, fixed for the quarter:
+
+BENEFICIARY   PICA CUSTODY LTD
+IBAN          CY17 0020 0128 0000 0012 0052 5900
+BIC           PICACY2N
+REFERENCE     Q2-2026 / client designation
+
+Notes to the statement:
+
+• Valuations are stated net of withholding tax recoverable under treaty.
+• Custody fees accrue daily and post on the last business day of the quarter.
+• A paper copy follows by registered mail within ten business days.
+
+.link https://example.org/statements Statement portal
+
+© 2026 Pica Custody Ltd — private and confidential

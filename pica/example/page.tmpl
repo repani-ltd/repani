@@ -1,0 +1,60 @@
+{{/*
+Weather bulletin example: the template emits a typeset SOURCE
+document (see the typeset package doc for the language). No layout
+calls -- widths, wrapping, and justification belong to the writers.
+Render:
+
+    pica render -txtar page.tmpl content.txtar | pica text
+    pica render -txtar page.tmpl content.txtar | pica pdf -o page.pdf
+
+The txtar archive supplies data.yaml (structured fields), body.txt
+(the synopsis prose, injected as .body) and sources.txt (injected
+as .sources).
+*/ -}}
+LIMASSOL WEATHER BULLETIN
+
+{{shortDate .issued}} {{shortTime .issued}} issue {{.issue}}
+
+# Synopsis
+
+{{.body}}
+
+# Now ({{shortTime .current.observed}})
+
+.pre
+Temp      {{decimal .current.temp 1}} C ({{round .current.feels}} C feels)
+Humidity  {{round .current.humidity}}%
+Pressure  {{decimal .current.pressure 1}} hPa
+Wind      {{pad .current.winddir 3}} {{round .current.windkt}} kt
+Sunshine  {{dur .current.sunshine}} since dawn
+.end
+
+.pre
+{{.metar}}
+.end
+
+# 5-day Forecast
+
+.table 6L *L 4R 4R 5R
+Day | Conditions | Hi | Lo | Rain
+{{range .daily}}{{shortDate .date}} | {{.summary}} | {{round .hi}} | {{round .lo}} | {{round .rain}}%
+{{end}}.end
+
+# Sea
+
+.table 28 9L 6R *R
+Water | Temp | Waves
+{{range .sea}}{{.spot}} | {{decimal .temp 1}} C | {{.wave}}
+{{end}}.end
+
+# Outlook
+
+{{.outlook}}
+
+---
+
+{{range .sources}}.link {{.}}
+{{end}}.link https://limasoul.com limasoul
+
+.width 40
+.cols 3
