@@ -334,3 +334,31 @@ func TestInfoStringsEscaped(t *testing.T) {
 		t.Errorf("Greek title not UTF-16BE hex encoded")
 	}
 }
+
+func TestFormXObject(t *testing.T) {
+	var p Page
+	p.SetFont(Regular, 10)
+	p.Text(72, 700, "with a form")
+	p.Form("Mark", 400, 700, 0.5)
+	d := &Doc{Title: "form"}
+	d.AddForm("Mark", 64, 70, "0 0 m 64 70 l S\n")
+	d.Add(&p)
+	out := string(d.Bytes())
+	for _, want := range []string{
+		"/Subtype /Form", "/BBox [ 0 0 64 70 ]", "/XObject << /Mark ",
+		"q 0.5 0 0 0.5 400 700 cm /Mark Do Q", "0 0 m 64 70 l S",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// Without forms no XObject dictionary is emitted.
+	var q Page
+	q.SetFont(Regular, 10)
+	q.Text(72, 700, "plain")
+	d2 := &Doc{Title: "plain"}
+	d2.Add(&q)
+	if strings.Contains(string(d2.Bytes()), "/XObject") {
+		t.Error("XObject dictionary emitted with no forms")
+	}
+}

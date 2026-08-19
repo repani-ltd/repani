@@ -16,11 +16,12 @@ import (
 func reportCmd(args []string) int {
 	fs := newFlags("report")
 	out := fs.String("o", "", "output file (default stdout)")
+	mark := fs.Bool("mark", false, "paint the Repani mark top-right of page one")
 	doc, rc := loadDoc("report", fs, args)
 	if doc == nil {
 		return rc
 	}
-	bytes, err := report(doc)
+	bytes, err := report(doc, *mark)
 	if err != nil {
 		fmt.Fprintf(stderr, "pica report: %v\n", err)
 		return 1
@@ -29,10 +30,11 @@ func reportCmd(args []string) int {
 }
 
 // report renders a parsed document as the report PDF.
-func report(doc *pica.Doc) ([]byte, error) {
+func report(doc *pica.Doc, mark bool) ([]byte, error) {
 	return paged(doc, presentation{
 		ncols:  1,
 		what:   "a report",
+		mark:   mark,
 		header: titleBlock,
 		footer: func(s *sheet, p *pdf.Page, pg, total int) {
 			// Footer, centered: the page number with the total,
@@ -51,8 +53,8 @@ func report(doc *pica.Doc) ([]byte, error) {
 func titleBlock(s *sheet) (float64, func(p *pdf.Page)) {
 	title, ps := s.doc.Title, s.t.ps
 	titlePt := max(13.0, min(22.0, ps*1.6))
-	if w := pdf.Width(title, s.titleFont, titlePt); w > s.colW {
-		titlePt *= s.colW / w
+	if w, budget := pdf.Width(title, s.titleFont, titlePt), s.headerRight()-s.margin; w > budget {
+		titlePt *= budget / w
 	}
 	titleY := s.topY - titlePt
 	headerBottom := titleY

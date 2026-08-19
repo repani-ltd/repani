@@ -20,7 +20,7 @@ func BenchmarkBroadsheet(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		out, err := broadsheet(doc)
+		out, err := broadsheet(doc, false)
 		if err != nil {
 			b.Fatal(err)
 		}

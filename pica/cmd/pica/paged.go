@@ -61,6 +61,18 @@ type sheet struct {
 	topY                float64 // top of the type area (page height - margin)
 	t                   typo
 	titleFont, bodyFont pdf.Font
+	mark                bool // the Repani mark sits top-right of page one
+}
+
+// headerRight is the right edge available to the page-one title
+// block: the type area's, less the mark and its gap when the mark
+// is on.
+func (s *sheet) headerRight() float64 {
+	r := s.pageW - s.margin
+	if s.mark {
+		r -= markWidth() + markGap
+	}
+	return r
 }
 
 // presentation is what distinguishes the broadsheet from the report
@@ -68,6 +80,7 @@ type sheet struct {
 type presentation struct {
 	ncols int    // columns per page
 	what  string // for the page-too-small error: "3 columns", "a report"
+	mark  bool   // paint the Repani mark top-right of page one
 	// header lays out the page-one title block: it returns the y
 	// where column content starts under it, and the draw call that
 	// paints it on the first page.
@@ -97,6 +110,7 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 		doc: doc, pageW: pageW, margin: margin, colW: colW,
 		topY: pageH - margin, t: t,
 		titleFont: pdf.Bold, bodyFont: pdf.Regular,
+		mark: pres.mark,
 	}
 	if t.sans {
 		s.titleFont, s.bodyFont = pdf.SansBold, pdf.Sans
@@ -140,6 +154,9 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 	}
 
 	pdoc := &pdf.Doc{Title: doc.Title, Creator: "pica", PageSize: size, Compress: true}
+	if pres.mark {
+		pdoc.AddForm(markName, markW, markH, markStream)
+	}
 	total := (len(columns) + ncols - 1) / ncols
 	for pg := 0; pg < total; pg++ {
 		var p pdf.Page
@@ -147,6 +164,9 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 		if pg == 0 {
 			colTop = colTopFirst
 			drawHeader(&p)
+			if pres.mark {
+				drawMark(&p, s.pageW-s.margin, s.topY)
+			}
 		}
 
 		deepest := 0 // column depth in half-line units

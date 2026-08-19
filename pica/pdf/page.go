@@ -145,6 +145,13 @@ func (p *Page) Line(x1, y1, x2, y2, width float64) {
 	fmt.Fprintf(&p.buf, "%s %s m %s %s l S\n", ff(x1), ff(y1), ff(x2), ff(y2))
 }
 
+// Form draws the document form registered under name (Doc.AddForm)
+// with its origin at (x, y), scaled by scale: a form w x h units
+// high covers w*scale x h*scale points.
+func (p *Page) Form(name string, x, y, scale float64) {
+	fmt.Fprintf(&p.buf, "q %s 0 0 %s %s %s cm /%s Do Q\n", ff(scale), ff(scale), ff(x), ff(y), name)
+}
+
 // Gray sets the non-stroking (text) gray level: 0 black, 1 white.
 func (p *Page) Gray(level float64) {
 	fmt.Fprintf(&p.buf, "%s g\n", ff(level))

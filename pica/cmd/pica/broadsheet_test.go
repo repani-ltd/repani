@@ -451,7 +451,7 @@ func TestBroadsheetEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := broadsheet(doc)
+	out, err := broadsheet(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func TestBroadsheetEndToEnd(t *testing.T) {
 	}
 
 	// Deterministic bytes: rendering again is identical.
-	out2, err := broadsheet(doc)
+	out2, err := broadsheet(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +479,7 @@ func TestBroadsheet_DerivedSizeFloor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := broadsheet(doc); err == nil {
+	if _, err := broadsheet(doc, false); err == nil {
 		t.Fatal("expected readability-floor error for a5/4col/width40")
 	}
 }
@@ -585,11 +585,11 @@ func TestBroadsheet_Sans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b1, err := broadsheet(doc)
+	b1, err := broadsheet(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b2, err := broadsheet(doc)
+	b2, err := broadsheet(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,11 +614,11 @@ func TestBroadsheet_NewBlocks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		b1, err := broadsheet(doc)
+		b1, err := broadsheet(doc, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		b2, err := broadsheet(doc)
+		b2, err := broadsheet(doc, false)
 		if err != nil {
 			t.Fatal(err)
 		}

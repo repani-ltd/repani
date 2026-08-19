@@ -109,8 +109,8 @@ func usage() {
 Usage:
   pica render [-txtar|-fact] [-o FILE] <template> <data|->
   pica text [-o FILE] [file|-]
-  pica pdf [-o FILE] [file|-]
-  pica report [-o FILE] [file|-]
+  pica pdf [-mark] [-o FILE] [file|-]
+  pica report [-mark] [-o FILE] [file|-]
   pica spec [-o FILE]
   pica check [file|-]
 
@@ -122,8 +122,10 @@ single-column report PDF (hairline table rules, page footer). spec
 prints the language reference embedded in this binary; check parses
 a document and reports errors without rendering. Layout
 (width, paper, columns, font) comes from the document's trailer
-(.width/.paper/.cols/.font), not from flags. See the pica
-package documentation for the source language.
+(.width/.paper/.cols/.font), not from flags. -mark paints the
+Repani mark top-right of page one: a publishing choice made where
+the PDF is rendered, never in the document. See the pica package
+documentation for the source language.
 
 Flags may appear before, between, or after the positionals; "--"
 ends flag parsing. Exit status is 1 for an input, parse, render,

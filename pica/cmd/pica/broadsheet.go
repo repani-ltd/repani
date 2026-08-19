@@ -17,11 +17,12 @@ const mastRuleGap = 4.0
 func pdfCmd(args []string) int {
 	fs := newFlags("pdf")
 	out := fs.String("o", "", "output file (default stdout)")
+	mark := fs.Bool("mark", false, "paint the Repani mark top-right of page one")
 	doc, rc := loadDoc("pdf", fs, args)
 	if doc == nil {
 		return rc
 	}
-	bytes, err := broadsheet(doc)
+	bytes, err := broadsheet(doc, *mark)
 	if err != nil {
 		fmt.Fprintf(stderr, "pica pdf: %v\n", err)
 		return 1
@@ -30,10 +31,11 @@ func pdfCmd(args []string) int {
 }
 
 // broadsheet renders a parsed document as the newspaper PDF.
-func broadsheet(doc *pica.Doc) ([]byte, error) {
+func broadsheet(doc *pica.Doc, mark bool) ([]byte, error) {
 	ncols := doc.Layout.Cols
 	return paged(doc, presentation{
 		ncols:  ncols,
+		mark:   mark,
 		what:   fmt.Sprintf("%d columns", ncols),
 		header: masthead,
 		footer: func(s *sheet, p *pdf.Page, pg, _ int) {
@@ -53,7 +55,10 @@ func broadsheet(doc *pica.Doc) ([]byte, error) {
 // titles from ballooning), a centered gray dateline when the
 // document has a byline, and a rule under both.
 func masthead(s *sheet) (float64, func(p *pdf.Page)) {
-	usableW := s.pageW - 2*s.margin
+	// The masthead stays centred on the page; with the mark on it
+	// is measured against the width that keeps it clear of the mark
+	// on both sides.
+	usableW := 2 * (s.headerRight() - s.pageW/2)
 	title, ps := s.doc.Title, s.t.ps
 	floor1 := 8 * float64(pdf.AvgAdvance(s.titleFont)) / 1000
 	mastPt := usableW / max(pdf.Width(title, s.titleFont, 1), floor1)

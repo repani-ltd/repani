@@ -112,6 +112,24 @@ type Doc struct {
 
 	pages []pageData
 	used  map[Font]map[rune]bool
+	forms []form
+}
+
+// form is a reusable vector drawing: a Form XObject shared by every
+// page of the document, drawn with Page.Form.
+type form struct {
+	name    string
+	w, h    float64
+	content string
+}
+
+// AddForm registers a reusable vector drawing under name: content is
+// a raw PDF content stream (path and colour operators) in a w x h
+// user space, y up, origin bottom-left. The writer treats it as
+// opaque; it is emitted once, shared by all pages, and placed with
+// Page.Form. Names must be unique within the document.
+func (d *Doc) AddForm(name string, w, h float64, content string) {
+	d.forms = append(d.forms, form{name, w, h, content})
 }
 
 // pageData is a finished page: its content stream plus any link
@@ -177,8 +195,12 @@ func (d *Doc) Bytes() []byte {
 		fontType0IDs[i] = b.add(pdfType0Font(b.next(), name, cidFontID, toUnicodeID))
 	}
 
-	// 3. Resources shared by all pages.
-	resourcesID := b.add(pdfResources(b.next(), embedded, fontType0IDs))
+	// 3. Form XObjects, then the resources shared by all pages.
+	formIDs := make([]int, len(d.forms))
+	for i, f := range d.forms {
+		formIDs[i] = b.add(pdfForm(b.next(), f, d.Compress))
+	}
+	resourcesID := b.add(pdfResources(b.next(), embedded, fontType0IDs, d.forms, formIDs))
 
 	// 4. Info. No CreationDate: identical input must produce
 	// byte-identical PDFs, and the date is optional in the spec.
@@ -416,7 +438,7 @@ func pdfXref(count int, objPos []int, rootID, infoID int, id string, xrefPos int
 	return buf.Bytes()
 }
 
-func pdfResources(id int, fonts []Font, fontIDs []int) []byte {
+func pdfResources(id int, fonts []Font, fontIDs []int, forms []form, formIDs []int) []byte {
 	var fontDict strings.Builder
 	fontDict.WriteString("<< ")
 	for i, f := range fonts {
@@ -425,7 +447,32 @@ func pdfResources(id int, fonts []Font, fontIDs []int) []byte {
 	fontDict.WriteString(">>")
 	o := newObj(id)
 	o.field("Font", fontDict.String())
+	if len(forms) > 0 {
+		var xDict strings.Builder
+		xDict.WriteString("<< ")
+		for i, f := range forms {
+			fmt.Fprintf(&xDict, "/%s %d 0 R ", f.name, formIDs[i])
+		}
+		xDict.WriteString(">>")
+		o.field("XObject", xDict.String())
+	}
 	return o.bytes()
+}
+
+// pdfForm builds a Form XObject: the drawing's content stream in its
+// own w x h bounding box.
+func pdfForm(id int, f form, compress bool) []byte {
+	o := newObj(id)
+	o.field("Type", "/XObject")
+	o.field("Subtype", "/Form")
+	o.field("BBox", fmt.Sprintf("[ 0 0 %s %s ]", ff(f.w), ff(f.h)))
+	body := []byte(f.content)
+	if compress {
+		body = zlibCompress(body)
+		o.field("Filter", "/FlateDecode")
+	}
+	o.field("Length", strconv.Itoa(len(body)))
+	return o.stream(body)
 }
 
 // subsetName returns the BaseFont/FontName of an embedded subset:

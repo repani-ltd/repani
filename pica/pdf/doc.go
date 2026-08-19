@@ -32,8 +32,11 @@ Info strings (Title, Creator) are PDF text strings -- UTF-16BE when
 not ASCII -- and link URIs are percent-encoded to 7-bit ASCII.
 
 The writer originates from an internal reporting tool and was
-trimmed to this surface: subset text, hairlines, grayscale, and
-link annotations (Page.Link) -- no images, no outlines, no colors.
+trimmed to this surface: subset text, hairlines, grayscale, link
+annotations (Page.Link), and opaque vector forms (Doc.AddForm,
+Page.Form: a caller-supplied content stream emitted once as a Form
+XObject, which may carry its own colour) -- no images, no outlines,
+no colour in anything the writer itself draws.
 
 # Press readiness (PDF/X-1a)
 
@@ -52,6 +55,9 @@ a print shop require it, needs a "press profile" adding roughly
   - omit link annotations (PDF/X wants annotations outside the trim
     area; URIs are meaningless on paper)
   - validate with veraPDF
+  - forms (Doc.AddForm) must not use DeviceRGB; a press profile
+    takes a CMYK variant of the same drawing (the operators differ,
+    the paths do not)
 
 Envelope metadata only -- the rendered marks stay byte-identical --
 so a flag or option on Doc would not violate the self-contained-

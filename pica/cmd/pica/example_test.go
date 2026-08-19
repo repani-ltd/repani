@@ -18,8 +18,8 @@ func TestOfficialExamples(t *testing.T) {
 		name, src, golden string
 		render            func(*pica.Doc) ([]byte, error)
 	}{
-		{"triptych", "../../example/triptych.t", "../../example/triptych.txt", broadsheet},
-		{"statement", "../../example/statement.t", "../../example/statement.txt", report},
+		{"triptych", "../../example/triptych.t", "../../example/triptych.txt", func(d *pica.Doc) ([]byte, error) { return broadsheet(d, false) }},
+		{"statement", "../../example/statement.t", "../../example/statement.txt", func(d *pica.Doc) ([]byte, error) { return report(d, false) }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -158,11 +158,11 @@ func TestExamplePDF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := broadsheet(doc)
+	a, err := broadsheet(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := broadsheet(doc)
+	b, err := broadsheet(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
