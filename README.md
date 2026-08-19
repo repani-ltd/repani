@@ -11,4 +11,4 @@ changed algorithm is a new package, not a revision.
 - `lz4s`  -- LZ4 sequence format re-tuned for small texts
 
 Consumers: kv, quietcast, quietcasting-go, almanac (local
-`replace github.com/pavlos/prim => ../prim`).
+`replace repani.com/prim => ../prim`).

@@ -1,3 +1,3 @@
-module github.com/pavlos/prim
+module repani.com/prim
 
 go 1.25.0
