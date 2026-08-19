@@ -24,12 +24,17 @@ const aeadIV = 0x00001000808C0001
 var (
 	ErrAEADKeySize = errors.New("ascon: AEAD key must be 16 bytes")
 	ErrAEADAuth    = errors.New("ascon: AEAD authentication failed")
-	ErrAEADShort   = errors.New("ascon: AEAD ciphertext shorter than tag")
+	// ErrAEADShort is deliberately distinct from ErrAEADAuth (stdlib
+	// AEADs fold the two): a too-short ciphertext is a framing error
+	// the caller can report before any key is involved, whereas
+	// ErrAEADAuth means a well-formed message failed verification.
+	ErrAEADShort = errors.New("ascon: AEAD ciphertext shorter than tag")
 )
 
 // AEAD implements cipher.AEAD for Ascon-AEAD128.
 type AEAD struct {
 	k0, k1 uint64
+	zeroed bool
 }
 
 var _ cipher.AEAD = (*AEAD)(nil)
@@ -52,13 +57,15 @@ func (a *AEAD) NonceSize() int { return AEADNonceSize }
 func (a *AEAD) Overhead() int { return AEADTagSize }
 
 // Zero wipes the key material held by a. After Zero the AEAD cannot
-// produce or verify any ciphertext; callers must drop the reference.
-// Best-effort: the Go runtime offers no guarantee that the underlying
-// memory is not copied elsewhere, but Zero reduces the window in
-// which a live RootKey-derived key sits in a long-running process.
+// produce or verify any ciphertext: Seal and Open panic; callers must
+// drop the reference. The wipe is best-effort: the Go runtime offers
+// no guarantee that the underlying memory is not copied elsewhere,
+// but Zero reduces the window in which a live key sits in a
+// long-running process.
 func (a *AEAD) Zero() {
 	a.k0 = 0
 	a.k1 = 0
+	a.zeroed = true
 }
 
 // Seal encrypts and authenticates plaintext with associated data,
@@ -67,6 +74,7 @@ func (a *AEAD) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	if len(nonce) != AEADNonceSize {
 		panic("ascon: AEAD nonce must be 16 bytes")
 	}
+	a.checkLive()
 	ret, out := sliceForAppend(dst, len(plaintext)+AEADTagSize)
 
 	var s [5]uint64
@@ -81,11 +89,14 @@ func (a *AEAD) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 // Open decrypts and authenticates ciphertext (which must include the
 // 16-byte trailing tag). On success it returns the plaintext appended
 // to dst. On authentication failure it returns ErrAEADAuth and a nil
-// slice; the caller should treat the message as untrusted.
+// slice, and the output region (which in the in-place case overlaps
+// the ciphertext) is zeroed; the caller should treat the message as
+// untrusted.
 func (a *AEAD) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error) {
 	if len(nonce) != AEADNonceSize {
 		panic("ascon: AEAD nonce must be 16 bytes")
 	}
+	a.checkLive()
 	if len(ciphertext) < AEADTagSize {
 		return nil, ErrAEADShort
 	}
@@ -113,6 +124,13 @@ func (a *AEAD) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, erro
 }
 
 // --- internal ---
+
+// checkLive panics if the key has been wiped by Zero.
+func (a *AEAD) checkLive() {
+	if a.zeroed {
+		panic("ascon: AEAD used after Zero")
+	}
+}
 
 func (a *AEAD) init(s *[5]uint64, nonce []byte) {
 	s[0] = aeadIV

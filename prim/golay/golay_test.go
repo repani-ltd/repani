@@ -84,7 +84,7 @@ func TestGolayDecodeHighBits(t *testing.T) {
 // TestGolaySyndromeTable checks the table is a bijection: every
 // entry round-trips through syndrome and has weight <= 3.
 func TestGolaySyndromeTable(t *testing.T) {
-	for s, e := range golaySyn {
+	for s, e := range syn {
 		if s == 0 {
 			if e != 0 {
 				t.Fatalf("syndrome 0 maps to %#x", e)
@@ -93,6 +93,43 @@ func TestGolaySyndromeTable(t *testing.T) {
 		}
 		if e == 0 || bits.OnesCount32(e) > 3 || syndrome(e) != uint32(s) {
 			t.Fatalf("syndrome %#x: bad pattern %#x", s, e)
+		}
+	}
+}
+
+// TestGolayKnownAnswers pins Encode against codewords derived
+// independently: polyMod is a plain GF(2) long division written
+// here, not the package's syndrome, and the literals were checked
+// by hand (0x001 -> 0x18EB is gen itself with odd parity; 0xFFF
+// is the all-ones codeword).
+func TestGolayKnownAnswers(t *testing.T) {
+	// polyMod returns a(x) mod g(x) over GF(2) for deg g = 11.
+	polyMod := func(a, g uint32) uint32 {
+		for a >= 1<<11 {
+			d := bits.Len32(a) - 1
+			a ^= g << (d - 11)
+		}
+		return a
+	}
+	cases := []struct {
+		data uint16
+		cw   uint32
+	}{
+		{0x000, 0x000000},
+		{0x001, 0x0018EB},
+		{0x800, 0x800C75},
+		{0xABC, 0xABC23C},
+		{0xFFF, 0xFFFFFF},
+	}
+	for _, c := range cases {
+		v := uint32(c.data) << 11
+		cw23 := v | polyMod(v, 0xC75)
+		want := cw23<<1 | uint32(bits.OnesCount32(cw23)&1)
+		if want != c.cw {
+			t.Fatalf("data %#x: literal %#06x disagrees with long division %#06x", c.data, c.cw, want)
+		}
+		if got := Encode(c.data); got != c.cw {
+			t.Fatalf("Encode(%#x) = %#06x, want %#06x", c.data, got, c.cw)
 		}
 	}
 }

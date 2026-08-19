@@ -15,5 +15,5 @@ func:syndrome.file: str = "golay.go"
 func:syndrome.sig: str = "func(r uint32) uint32"
 imports: list(str) = ["math/bits"]
 pkg.path: str = "repani.com/prim/golay"
-var:golaySyn.file: str = "golay.go"
-var:golaySyn.type: str = "[2048]uint32"
+var:syn.file: str = "golay.go"
+var:syn.type: str = "[2048]uint32"

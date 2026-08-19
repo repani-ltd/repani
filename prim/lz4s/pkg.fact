@@ -6,6 +6,6 @@ func:Compress.sig: str = "func(src []byte) []byte"
 func:Decompress.calls: list(str) = []
 func:Decompress.exported: bool = true
 func:Decompress.file: str = "lz4s.go"
-func:Decompress.sig: str = "func(comp []byte, dsize int) ([]byte, bool)"
+func:Decompress.sig: str = "func(comp []byte, dsize int) (out []byte, ok bool)"
 imports: list(str) = []
 pkg.path: str = "repani.com/prim/lz4s"
