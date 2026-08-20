@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode"
 )
 
 // Measurer reports advance widths in abstract integer units. Any
@@ -232,7 +233,7 @@ func wrapRagged(para string, width int, penalty float64, m Measurer) []Line {
 // accounts for the shorter token instead of the stale DP entry for
 // the full word.
 func breakLines(para string, m Measurer, dp func(words []word, start, end int, cost []float64, next, hyph []int)) []Line {
-	tokens := strings.Fields(para)
+	tokens := fields(para)
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -619,4 +620,18 @@ func tryHyphenAtJustify(w word, spaceUsed, width, wordCount int, tailCost float6
 		}
 	}
 	return best, found
+}
+
+// fields splits prose into words at breaking whitespace: the ASCII
+// blanks and every Unicode space EXCEPT the no-break ones (U+00A0,
+// U+2007 figure space, U+202F narrow no-break space), which an
+// author writes precisely so that two tokens stay on one line.
+func fields(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		switch r {
+		case '\u00A0', '\u2007', '\u202F':
+			return false
+		}
+		return unicode.IsSpace(r)
+	})
 }

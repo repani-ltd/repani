@@ -245,6 +245,28 @@ func (tl *TableLayout) Lines() []string {
 	return out
 }
 
+// RowLines reports, for each data row, the half-open interval of
+// Lines() indices the row occupies: its wrapped lines and its note
+// lines, excluding the separator that precedes a total row. A
+// consumer that styles by row (a cell-grid renderer filling a whole
+// row) uses it instead of re-deriving the renderer's walk.
+func (tl *TableLayout) RowLines() []Span {
+	n := len(tl.Header) + len(tl.headerNotesText)
+	if len(tl.Header) > 0 {
+		n++ // the header separator
+	}
+	out := make([]Span, len(tl.Rows))
+	for i, r := range tl.Rows {
+		if tl.Totals[i] {
+			n++
+		}
+		start := n
+		n += len(r) + len(tl.rowNotesText[i])
+		out[i] = Span{Start: start, End: n}
+	}
+	return out
+}
+
 // Layout lays the table out to fit in width total runes. Errors when
 // the fixed columns exceed width or an auto-span column has no room.
 // P columns render as L: the mono grid is the layout.

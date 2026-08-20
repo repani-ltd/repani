@@ -504,3 +504,43 @@ func TestTable_LayoutMeasuredHeader(t *testing.T) {
 		}
 	}
 }
+
+func TestTable_RowLines(t *testing.T) {
+	tbl := mustTable(t, "4L 8L").Header("k", "v").
+		Row("a", "one").
+		Row("b", "a long value that wraps twice").
+		Note("note under b").
+		Total("sum", "x")
+	tl, err := tbl.Layout(13)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, spans := tl.Lines(), tl.RowLines()
+	if len(spans) != 3 {
+		t.Fatalf("spans %v", spans)
+	}
+	// every data row's first line starts with its first cell; the
+	// spans tile the body exactly (total's separator excluded)
+	for i, want := range []string{"a ", "b ", "sum"} {
+		if got := lines[spans[i].Start]; !strings.HasPrefix(got, want) {
+			t.Errorf("row %d starts %q, want prefix %q", i, got, want)
+		}
+	}
+	if spans[1].End-spans[1].Start < 3 { // two wrapped lines + one note
+		t.Errorf("wrapped row span %v", spans[1])
+	}
+	if spans[2].Start != spans[1].End+1 || spans[2].End != len(lines) {
+		t.Errorf("total row span %v, lines %d", spans[2], len(lines))
+	}
+	if lines[spans[1].End] != tl.Sep {
+		t.Error("separator precedes the total row")
+	}
+}
+
+func TestTable_NoBreakSpace(t *testing.T) {
+	tbl := mustTable(t, "9L").Row("Open\u00a0sig Page.Row\u00a0body")
+	got := render(t, tbl, 9)
+	if !strings.Contains(got, "Open\u00a0sig") || strings.Contains(got, "Open\n") {
+		t.Errorf("no-break space broke:\n%s", got)
+	}
+}

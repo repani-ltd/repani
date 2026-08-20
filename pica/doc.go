@@ -219,7 +219,9 @@ A word wider than the measure is hyphenated at whatever point
 fits; only a fragment with no valid break overflows the line.
 An explicit hyphen in a compound is a break point after the
 hyphen (after the last of a run), never before it, and never
-leaving fewer than two letters on either side.
+leaving fewer than two letters on either side. Words break at
+spaces; a no-break space (U+00A0, also U+2007 and U+202F) is not a
+break point, so "Open sig" stays on one line.
 WrapLines and JustifyLines are the measured structured
 primitives; JustifyParagraph is the monospace paragraph-level
 convenience for writers holding parsed Para blocks -- exactly
