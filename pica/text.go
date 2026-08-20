@@ -23,7 +23,7 @@ func (d *Doc) Text() (string, error) {
 		out = append(out, TruncLine(bl, width))
 	}
 	for _, b := range d.Blocks {
-		lines, err := renderBlock(b, width)
+		lines, err := RenderBlock(b, width)
 		if err != nil {
 			return "", err
 		}
@@ -43,8 +43,12 @@ func (d *Doc) Text() (string, error) {
 	return strings.Join(out, "\n") + "\n", nil
 }
 
-// renderBlock lays out one block at the given width.
-func renderBlock(b Block, width int) ([]string, error) {
+// RenderBlock lays out one block at the given width as the text
+// writer renders it: the fixed-width lines of that block alone, no
+// separator. Exported so a consumer that styles by block kind (a
+// cell-grid renderer) gets byte-identical lines to Text without
+// duplicating its geometry.
+func RenderBlock(b Block, width int) ([]string, error) {
 	switch b.Kind {
 	case Para:
 		return wrapParagraph(b.Text, width), nil
