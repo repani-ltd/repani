@@ -84,9 +84,13 @@ A document is UTF-8 text, structured by line:
 	                 the first content block, like .by
 	.rem TEXT        a comment: dropped from every output, valid
 	                 anywhere -- it does not end a paragraph and
-	                 may follow the layout trailer. Inside .pre,
-	                 .table, or .quote bodies it is content, not
-	                 a comment
+	                 may follow the layout trailer. ONE LINE ONLY:
+	                 a comment does not wrap. The line after a
+	                 .rem is an ordinary line (unmarked text is
+	                 prose and will be rendered), so a long comment
+	                 is several lines each beginning with .rem.
+	                 Inside .pre, .table, or .quote bodies it is
+	                 content, not a comment
 
 The dot-command vocabulary is CLOSED: a line that lexes as a dot
 command (dot followed by a lowercase letter; ". " and ".." begin
