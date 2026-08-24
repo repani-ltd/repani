@@ -734,3 +734,4 @@ third heading level (two, permanently), no block nesting, no
 page-control commands in content, and no round-tripping: rendered
 output is a final artifact, not re-parseable source.
 
+.font sans

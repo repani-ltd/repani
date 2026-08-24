@@ -246,3 +246,4 @@ Open items for the draft: redaction protocol details for sealed segments
 (supersession record shape); merge tooling for per-writer stream families;
 whether ev should be spec-fixed or manifest-declared; first field test
 (candidate: the session.fact journal of the agent-supervision console).
+.font sans

@@ -156,3 +156,4 @@ imports through the go toolchain), and each invocation projects exactly
 one package.
 
 .width 86
+.font sans

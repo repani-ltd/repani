@@ -487,3 +487,4 @@ FACT: each line is one fact. Induced vocabulary is exact: assert a fact, retract
 Spec v0.3. Open items for v0.4: include/overlay mechanism for config environment variants (likely canonical-set union with explicit override markers, not implicit layering); §6.4 resolution after field experience with stub facts; package-qualified keys remain deferred with an explicit trigger condition (Appendix A) — the per-file validation scope of §6.2 is the resolution until a training-corpus consumer exists; projection vocabularies for further fact sources (SQL schemas, OpenAPI, protobuf — each is a declaration layer awaiting projection); formal test-vector suite.
 
 .width 92
+.font sans

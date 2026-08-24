@@ -87,3 +87,4 @@ The two are complements, not rivals: FACT for the between-edits questions
 agents actually ask (what exists, what shape, who calls, what
 implements — at grep cost, with guaranteed freshness), LSP for
 statement-level precision inside a file the agent has already opened.
+.font sans
