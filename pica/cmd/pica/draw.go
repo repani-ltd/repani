@@ -55,8 +55,12 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 				p.Gray(0.45)
 			}
 			xw := x + float64(ln.indent)*t.ps/1000
-			p.SetFont(font, ps)
-			p.Words(xw, y, ln.words, ln.gaps)
+			if ln.emph == nil {
+				p.SetFont(font, ps)
+				p.Words(xw, y, ln.words, ln.gaps)
+			} else {
+				drawEmphWords(p, xw, y, ps, ln)
+			}
 			if ln.style == styleGray {
 				p.Gray(0)
 			}
@@ -80,6 +84,18 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			if ln.text != "" {
 				p.SetFont(font, ps)
 				p.Text(x, y, ln.text)
+			}
+			// The typescript underline: one continuous rule per
+			// emphasis span, occupying exactly the cells the text
+			// page gives to the blanked marker underscores, so the
+			// mono grid -- and the text-page identity -- never move.
+			if len(ln.uline) > 0 {
+				adv := emWidth * ps
+				p.StrokeGray(0)
+				uy := y - ps*0.15
+				for _, sg := range ln.uline {
+					p.Line(x+float64(sg.Start)*adv, uy, x+float64(sg.End)*adv, uy, ps*0.05)
+				}
 			}
 			if ln.style == styleGray {
 				p.Gray(0)
@@ -115,6 +131,36 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 				}
 			}
 		}
+	}
+}
+
+// drawEmphWords draws a proportional prose line whose words carry
+// emphasis flags: maximal same-face runs, each its own text object,
+// positioned by the accumulated advances -- word widths measured
+// with the face that draws them, plus the line's gaps -- so the
+// drawn line reproduces the breaker's arithmetic exactly and the
+// flush edge stays flush through the italics.
+func drawEmphWords(p *pdf.Page, x, y, ps float64, ln sline) {
+	mR, mI := pdf.Measure(pdf.Sans), pdf.Measure(pdf.SansItalic)
+	off := 0 // em-thousandths from x
+	for i := 0; i < len(ln.words); {
+		j := i
+		for j < len(ln.words) && ln.emph[j] == ln.emph[i] {
+			j++
+		}
+		font, m := pdf.Sans, mR
+		if ln.emph[i] {
+			font, m = pdf.SansItalic, mI
+		}
+		p.SetFont(font, ps)
+		p.Words(x+float64(off)*ps/1000, y, ln.words[i:j], ln.gaps[i:j-1])
+		for k := i; k < j; k++ {
+			off += m.Width(ln.words[k])
+			if k < len(ln.gaps) {
+				off += ln.gaps[k]
+			}
+		}
+		i = j
 	}
 }
 

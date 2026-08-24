@@ -128,7 +128,8 @@ semantic marker specific to the need (a lead-in construct, not
 boundary waiting there: inline anything would be the language's
 first in-content syntax — content is escape-free verbatim text by
 design — so that step needs its own recorded decision, never a side
-effect of wanting emphasis.
+effect of wanting emphasis. (2026-08-24: the demand fired and the
+decision is recorded, §9.)
 
 2026-08-05: =, .., and N are KEPT as permanent language surface
 regardless of how the bank-report demand develops — all three are
@@ -696,6 +697,48 @@ renumbers for free and diffs stay clean. Cost: prose cannot cite "step 3"
 stably. Trigger: the first document where numbering as plain prose
 paragraphs actually reads worse.
 
+# 9. Emphasis, the single inline concept (decided 2026-08-24)
+
+The step §"Semantic markers" reserved for its own recorded
+decision: emphasis entered the language as _..._, the first and
+only in-content syntax. The demand was long-form prose (blog-form
+documents mapped onto pica lacked exactly one thing), and the
+concept passed the semantic gate that "bold" never can: emphasis
+is contrastive stress -- it changes the reading of the sentence --
+where bold, small caps and the rest are stylings a writer already
+owns. One concept, deliberately: the document says _stressed_,
+never italic; each writer renders the meaning in its own voice
+(doc.go, Emphasis).
+
+Why the old non-goal fell: it read "the monospace wire cannot
+express it", and the chosen marker dissolves that objection
+instead of overriding it. Underscore-wrapping is the typescript
+convention -- typewriter manuscripts underlined what the
+typesetter set italic, and plain-text prose has carried _this_
+ever since -- so the text page renders emphasis by KEEPING the
+markers verbatim: the marker is its own monospace rendering, the
+wire carries it unchanged, and admission test 2 (meaningful in
+every writer) is passed by the same fact that had blocked the
+concept. The mono PDF strokes the underline in exactly the marker
+cells it blanks, so the text/mono-PDF identity survives to the
+cell; the sans PDF sets Fira Sans Italic measured with its own
+metrics; HTML says <em>.
+
+Why no escape, again: the word-boundary gates (doc.go) make
+interior underscores literal, so snake_case never matches, and
+the residue -- prose needing a literal underscore at a marker
+position -- goes to .pre, the same answer as literal "|", "=" and
+".." in tables. An unclosed opener is a loud parse error, never a
+silent literal.
+
+Bounds set at birth: emphasis is whole-token in the proportional
+faces (attached punctuation sets with the word, the compositor's
+rule); it lives only in flowing prose (Para, .quote, .item) --
+headings, cells, .pre and arguments keep underscores as
+characters; spans never nest and never cross a block; and there
+is no second inline concept. The italic face exists for this one
+meaning; a document cannot reach it any other way.
+
 # Admission tests and non-goals (moved from doc.go, 2026-08-20)
 
 These two sections lived in the package comment (so pica spec
@@ -729,7 +772,9 @@ enters the registry only if it passes five tests:
 
 # Non-goals
 
-No inline emphasis (the monospace wire cannot express it), no
+No SECOND inline concept (emphasis, admitted 2026-08-24 as the
+single one, retired the older "no inline emphasis" entry -- §9
+records why its rationale dissolved), no
 third heading level (two, permanently), no block nesting, no
 page-control commands in content, and no round-tripping: rendered
 output is a final artifact, not re-parseable source.

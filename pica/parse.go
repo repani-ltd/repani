@@ -103,6 +103,7 @@ var (
 	ErrDuplicateAttr     = errors.New("pica: duplicate command")
 	ErrBadAttr           = errors.New("pica: invalid command or value")
 	ErrMetaAfterContent  = errors.New("pica: metadata commands (.by, .date, .rights) must precede content")
+	ErrUnclosedEmph      = errors.New("pica: unclosed emphasis (opening _ without a closing _ in the same block)")
 )
 
 // isDotCommand applies the wire lexing rule: a dot followed by a
@@ -239,11 +240,18 @@ func Parse(src string) (*Doc, error) {
 	// (and therefore pica check) rejects every document a writer
 	// would reject.
 	for _, b := range p.doc.Blocks {
-		if b.Kind != TableBlk {
-			continue
-		}
-		if _, err := b.Table.Layout(b.TableWidth(p.doc.Layout.Width)); err != nil {
-			return nil, fmt.Errorf("%w (line %d)", err, b.Line)
+		switch b.Kind {
+		case TableBlk:
+			if _, err := b.Table.Layout(b.TableWidth(p.doc.Layout.Width)); err != nil {
+				return nil, fmt.Errorf("%w (line %d)", err, b.Line)
+			}
+		case Para, Quote, Item:
+			// Emphasis lives only in flowing prose, and every span
+			// must close inside its block: an unclosed opener is
+			// rejected here, so writers only ever see balanced text.
+			if emphUnclosed(b.Text) >= 0 {
+				return nil, fmt.Errorf("%w (line %d)", ErrUnclosedEmph, b.Line)
+			}
 		}
 	}
 	return p.doc, nil

@@ -44,9 +44,13 @@ var Mono Measurer = monoMeasurer{}
 // Renderers join words with single spaces (monospace) or spread the
 // line's slack across the gaps (justified proportional text). A
 // hyphenated break leaves the "-" on the line's last word.
+// Emph is set only by JustifyLinesEmph on paragraphs that carry
+// emphasis: parallel to Words, true for words the renderer sets in
+// the emphasis face. It is nil everywhere else.
 type Line struct {
 	Words []string
 	Width int
+	Emph  []bool
 }
 
 // LineOf assembles a Line from words, measuring the natural width
@@ -156,18 +160,22 @@ func justifyLine(ln Line, width int) string {
 // word holds a token, its measured width, and its hyphenation
 // breakpoints (rune indices into text) with the measured width of
 // each hyphenated prefix (trailing "-" included), so the DP probes
-// never re-measure.
+// never re-measure. m is the measurer that owns the token's face
+// (hyphen substitution re-measures the suffix with it); emph marks
+// tokens measured with the emphasis face, carried into Line.Emph.
 type word struct {
 	text   string
 	width  int
 	points []int
 	prefix []int // parallel to points
+	m      Measurer
+	emph   bool
 }
 
 // newWord tokenizes one word under m: hyphenation points and the
 // widths the breakers compare.
 func newWord(text string, m Measurer) word {
-	w := word{text: text, width: m.Width(text), points: defaultHyphenator.Hyphenate(text)}
+	w := word{text: text, width: m.Width(text), points: defaultHyphenator.Hyphenate(text), m: m}
 	if len(w.points) > 0 {
 		// points are ascending rune indices inside text: walk the
 		// bytes once, measuring each prefix where its rune starts.
@@ -222,27 +230,39 @@ func wrapParagraph(para string, width int) []string {
 // wrapRagged is the ragged-right Knuth-Plass breaker with the
 // hyphen penalty as a parameter.
 func wrapRagged(para string, width int, penalty float64, m Measurer) []Line {
-	return breakLines(para, m, func(words []word, start, end int, cost []float64, next, hyph []int) {
-		raggedDP(words, start, end, width, penalty, m, cost, next, hyph)
+	sp := m.Space()
+	return breakLines(monoWords(para, m), sp, func(words []word, start, end int, cost []float64, next, hyph []int) {
+		raggedDP(words, start, end, width, penalty, sp, cost, next, hyph)
 	})
 }
 
-// breakLines tokenizes a paragraph, runs the DP pass over all of it,
-// and reconstructs the chosen lines. When a hyphen substitutes a
-// suffix, the break at that position is recomputed so the next line
-// accounts for the shorter token instead of the stale DP entry for
-// the full word.
-func breakLines(para string, m Measurer, dp func(words []word, start, end int, cost []float64, next, hyph []int)) []Line {
+// monoWords tokenizes a paragraph with every token on one measurer:
+// the unstyled path behind WrapLines and JustifyLines.
+func monoWords(para string, m Measurer) []word {
 	tokens := fields(para)
-	if len(tokens) == 0 {
-		return nil
-	}
-
 	words := make([]word, len(tokens))
 	for i, tok := range tokens {
 		words[i] = newWord(tok, m)
 	}
-	sp := m.Space()
+	return words
+}
+
+// breakLines runs the DP pass over pre-measured words and
+// reconstructs the chosen lines; sp is the interword space width in
+// measurer units. When a hyphen substitutes a suffix, the break at
+// that position is recomputed so the next line accounts for the
+// shorter token instead of the stale DP entry for the full word.
+func breakLines(words []word, sp int, dp func(words []word, start, end int, cost []float64, next, hyph []int)) []Line {
+	if len(words) == 0 {
+		return nil
+	}
+	styled := false
+	for _, w := range words {
+		if w.emph {
+			styled = true
+			break
+		}
+	}
 
 	n := len(words)
 	cost := make([]float64, n+1)
@@ -254,9 +274,16 @@ func breakLines(para string, m Measurer, dp func(words []word, start, end int, c
 	for i := 0; i < n; {
 		j, hp := next[i], hyph[i]
 		parts := make([]string, 0, j-i+1)
+		var emph []bool
+		if styled {
+			emph = make([]bool, 0, j-i+1)
+		}
 		width := 0
 		for k := i; k < j; k++ {
 			parts = append(parts, words[k].text)
+			if styled {
+				emph = append(emph, words[k].emph)
+			}
 			width += words[k].width + sp
 		}
 		if hp > 0 {
@@ -264,15 +291,20 @@ func breakLines(para string, m Measurer, dp func(words []word, start, end int, c
 			// prefix, substitute the suffix, and recompute the break
 			// at j. j may equal i (an overlong word sets a line of
 			// just its prefix); the shrinking suffix guarantees
-			// progress.
+			// progress. The suffix keeps its token's face and flag.
 			prefix, suffix := words[j].hyphenParts(hp - 1)
 			parts = append(parts, prefix)
+			if styled {
+				emph = append(emph, words[j].emph)
+			}
 			width += words[j].prefix[hp-1] + sp
-			words[j] = newWord(suffix, m)
+			was := words[j]
+			words[j] = newWord(suffix, was.m)
+			words[j].emph = was.emph
 			dp(words, j, j+1, cost, next, hyph)
 		}
 		i = j
-		lines = append(lines, Line{Words: parts, Width: width - sp})
+		lines = append(lines, Line{Words: parts, Width: width - sp, Emph: emph})
 	}
 
 	return lines
@@ -283,9 +315,8 @@ func breakLines(para string, m Measurer, dp func(words []word, start, end int, c
 // ragged-right cost model. Positions >= end keep their existing
 // entries, which is what lets the reconstruction recompute a single
 // position after a hyphen substitution.
-func raggedDP(words []word, start, end, width int, penalty float64, m Measurer, cost []float64, next, hyph []int) {
+func raggedDP(words []word, start, end, width int, penalty float64, sp int, cost []float64, next, hyph []int) {
 	n := len(words)
-	sp := m.Space()
 	spsp := float64(sp) * float64(sp)
 	for i := end - 1; i >= start; i-- {
 		bestCost := math.Inf(1)
@@ -468,9 +499,74 @@ func justifyGapCost(slack, words int) float64 {
 //
 // Reconstruction is shared with the ragged breaker: see breakLines.
 func justifyWrap(para string, width int, m Measurer) []Line {
-	return breakLines(para, m, func(words []word, start, end int, cost []float64, next, hyph []int) {
-		justifyDP(words, start, end, width, m, cost, next, hyph)
+	return justifyBreak(monoWords(para, m), width, m.Space(), HangHyphen(m))
+}
+
+// justifyBreak runs the justified breaker over pre-measured words:
+// the shared tail of JustifyLines and JustifyLinesEmph.
+func justifyBreak(words []word, width, sp, hang int) []Line {
+	return breakLines(words, sp, func(words []word, start, end int, cost []float64, next, hyph []int) {
+		justifyDP(words, start, end, width, sp, hang, cost, next, hyph)
 	})
+}
+
+// JustifyLinesEmph is JustifyLines for a paragraph carrying _..._
+// emphasis markers (doc.go, Emphasis): the markers are removed,
+// each emphasized token is measured with em -- the emphasis face's
+// measurer, so justification stays exact when the renderer switches
+// faces -- and every returned Line carries the parallel Emph flags.
+// Emphasis is whole-token: punctuation attached to an emphasized
+// word sets with it, the classic compositor's rule. Interword
+// spaces, and the hyphen hang, stay on the body measurer m. A
+// paragraph without markers behaves exactly as JustifyLines.
+func JustifyLinesEmph(para string, width int, m, em Measurer) []Line {
+	checkWidth(width)
+	return justifyBreak(emphWords(para, m, em), width, m.Space(), HangHyphen(m))
+}
+
+// emphWords tokenizes a marked paragraph: EmphSegments strips the
+// markers, tokens split at breaking whitespace as fields does, and
+// a token any rune of which is emphasized is measured whole with em.
+func emphWords(para string, m, em Measurer) []word {
+	segs := EmphSegments(para)
+	var clean []rune
+	var flags []bool
+	for _, sg := range segs {
+		for _, r := range sg.Text {
+			clean = append(clean, r)
+			flags = append(flags, sg.Emph)
+		}
+	}
+	var words []word
+	start := -1 // rune index where the current token began
+	tokEmph := false
+	flush := func(end int) {
+		if start < 0 {
+			return
+		}
+		mm := m
+		if tokEmph {
+			mm = em
+		}
+		w := newWord(string(clean[start:end]), mm)
+		w.emph = tokEmph
+		words = append(words, w)
+		start, tokEmph = -1, false
+	}
+	for i, r := range clean {
+		if isBreakingSpace(r) {
+			flush(i)
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+		if flags[i] {
+			tokEmph = true
+		}
+	}
+	flush(len(clean))
+	return words
 }
 
 // justifyDP runs the backward dynamic-programming pass for
@@ -478,12 +574,10 @@ func justifyWrap(para string, width int, m Measurer) []Line {
 // gap-aware justify cost model. Positions >= end keep their
 // existing entries, which is what lets the reconstruction recompute
 // a single position after a hyphen substitution.
-func justifyDP(words []word, start, end, width int, m Measurer, cost []float64, next, hyph []int) {
+func justifyDP(words []word, start, end, width, sp, hang int, cost []float64, next, hyph []int) {
 	n := len(words)
-	sp := m.Space()
 	spsp := float64(sp) * float64(sp)
 	shrink := shrinkPerGap(sp)
-	hang := HangHyphen(m)
 	for i := end - 1; i >= start; i-- {
 		bestCost := math.Inf(1)
 		bestJ := i + 1
@@ -627,11 +721,15 @@ func tryHyphenAtJustify(w word, spaceUsed, width, wordCount int, tailCost float6
 // U+2007 figure space, U+202F narrow no-break space), which an
 // author writes precisely so that two tokens stay on one line.
 func fields(s string) []string {
-	return strings.FieldsFunc(s, func(r rune) bool {
-		switch r {
-		case '\u00A0', '\u2007', '\u202F':
-			return false
-		}
-		return unicode.IsSpace(r)
-	})
+	return strings.FieldsFunc(s, isBreakingSpace)
+}
+
+// isBreakingSpace is fields' split rule as a predicate, shared with
+// the styled tokenizer so both paths break tokens identically.
+func isBreakingSpace(r rune) bool {
+	switch r {
+	case '\u00A0', '\u2007', '\u202F':
+		return false
+	}
+	return unicode.IsSpace(r)
 }

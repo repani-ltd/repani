@@ -129,6 +129,45 @@ stays tight).
 Structural commands (.table, .pre, .end) and the layout trailer
 never appear in any output.
 
+# Emphasis
+
+_emphasis_ is the language's single inline concept: prose wrapped
+in underscores at word boundaries is stress-emphasized -- the
+typescript convention (typewriter manuscripts underlined the words
+the typesetter was to set in italic) read as markup. The gates
+make an escape unnecessary:
+
+  - An underscore OPENS emphasis only at a word's start: preceded
+    by nothing, whitespace, an opening bracket or quote, or a
+    dash, and followed by a printing rune. It CLOSES emphasis
+    only at a word's end: preceded by a printing rune and
+    followed by nothing, whitespace, or punctuation -- broader on
+    the close side, so "_word_," works, narrower on the open side,
+    so joined names ("repos/_attic") stay literal. Interior
+    underscores (snake_case) never match, and "__" is always
+    literal.
+  - Emphasis lives only in flowing prose: paragraphs, .quote
+    bodies, and .item text. In the title, headings, table cells,
+    .pre bodies, and command arguments an underscore is a
+    character.
+  - Every span must close inside its own block: an opening
+    underscore with no closing one is a parse error. Prose that
+    needs a literal underscore at a marker position (an
+    identifier like _foo) belongs in .pre, like every other
+    construct with no escape.
+
+Each writer renders the one meaning in its own voice. The text
+page keeps the underscores verbatim -- the convention self-renders
+in plain text, so the wire carries them too. The HTML writer emits
+<em>. The sans PDF sets the span in the italic face, measured with
+the italic metrics so justification stays exact; emphasis there is
+whole-token, so punctuation attached to an emphasized word sets
+with it (the compositor's rule). The mono PDF blanks the two
+marker glyphs and strokes one continuous rule from the opening
+cell to the closing cell -- the typescript underline, occupying
+exactly the cells the text page gives to the underscores, so line
+breaks and counts keep the text/mono-PDF identity.
+
 # Layout trailer
 
 Layout commands are document-global and must appear after all

@@ -35,7 +35,7 @@ func (d *Doc) HTML() string {
 				w.WriteString("<ul>\n")
 				inList = true
 			}
-			w.WriteString("<li>" + esc(b.Text) + "</li>\n")
+			w.WriteString("<li>" + emphHTML(b.Text) + "</li>\n")
 			continue
 		}
 		if inList {
@@ -57,7 +57,7 @@ func (d *Doc) HTML() string {
 func htmlBlock(w *strings.Builder, b Block) {
 	switch b.Kind {
 	case Para:
-		w.WriteString("<p>" + esc(b.Text) + "</p>\n")
+		w.WriteString("<p>" + emphHTML(b.Text) + "</p>\n")
 	case Heading:
 		tag := "h2"
 		if b.Level == 2 {
@@ -82,7 +82,7 @@ func htmlBlock(w *strings.Builder, b Block) {
 		}
 		w.WriteString(`<p class="link"><a href="` + esc(url) + `">` + esc(title) + "</a></p>\n")
 	case Quote:
-		w.WriteString("<blockquote>\n<p>" + esc(b.Text) + "</p>\n")
+		w.WriteString("<blockquote>\n<p>" + emphHTML(b.Text) + "</p>\n")
 		if b.Attrib != "" {
 			w.WriteString(`<p class="attrib">` + esc(b.Attrib) + "</p>\n")
 		}
@@ -156,6 +156,26 @@ func htmlTable(w *strings.Builder, b Block) {
 }
 
 func esc(s string) string { return html.EscapeString(s) }
+
+// emphHTML renders prose that may carry _..._ emphasis: the element
+// that carries the meaning is <em>, and the markers are consumed.
+// Only flowing prose (Para, Quote, Item) goes through here; every
+// other block's underscores are content.
+func emphHTML(s string) string {
+	segs := EmphSegments(s)
+	if len(segs) == 1 && !segs[0].Emph {
+		return esc(s)
+	}
+	var b strings.Builder
+	for _, sg := range segs {
+		if sg.Emph {
+			b.WriteString("<em>" + esc(sg.Text) + "</em>")
+		} else {
+			b.WriteString(esc(sg.Text))
+		}
+	}
+	return b.String()
+}
 
 func itoa(n int) string {
 	if n == 0 {

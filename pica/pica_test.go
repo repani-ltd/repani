@@ -479,7 +479,7 @@ func TestSpecEmbedsLanguageReference(t *testing.T) {
 	// Spec is doc.go's comment body: the language sections must be
 	// present and the Go comment/package furniture stripped.
 	s := Spec()
-	for _, want := range []string{"# The language", "# Layout trailer", "# Tables", "# Wrapping"} {
+	for _, want := range []string{"# The language", "# Emphasis", "# Layout trailer", "# Tables", "# Wrapping"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("Spec() missing section %q", want)
 		}

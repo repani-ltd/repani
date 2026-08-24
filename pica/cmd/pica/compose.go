@@ -42,6 +42,14 @@ type sline struct {
 	ruleSegs []pica.Span
 	nums     []numSpan
 	prose    []proseSpan
+	// Emphasis (doc.go, Emphasis). emph: proportional lines,
+	// parallel to words, true for words drawn in the italic face.
+	// uline: monospace prose lines, the rune intervals of the
+	// typescript underline -- the marker underscores are blanked in
+	// text and the rule occupies their cells, so the grid, and the
+	// text-page identity, never move.
+	emph  []bool
+	uline []pica.Span
 }
 
 // proseSpan is one measured line of a table cell set in the body
@@ -269,15 +277,18 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 		case pica.Para:
 			if t.sans {
 				m := pdf.Measure(pdf.Sans)
-				lines := pica.JustifyLines(blk.Text, t.units, m)
+				lines := pica.JustifyLinesEmph(blk.Text, t.units, m, pdf.Measure(pdf.SansItalic))
 				for i, ln := range lines {
 					last := i == len(lines)-1
-					sl := sline{words: ln.Words, gaps: spread(ln, t.units, m, last)}
+					sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, t.units, m, last)}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
+				open := false
 				for _, ln := range pica.JustifyParagraph(blk.Text, width) {
-					fb.segs = append(fb.segs, seg{lines: []sline{{text: ln}}})
+					var sl sline
+					sl, open = emphSline(ln, open)
+					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			}
 
@@ -289,10 +300,10 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				m := pdf.Measure(pdf.Sans)
 				qi := pica.QuoteIndent * m.Space()
 				measure := t.units - 2*qi
-				lines := pica.JustifyLines(blk.Text, measure, m)
+				lines := pica.JustifyLinesEmph(blk.Text, measure, m, pdf.Measure(pdf.SansItalic))
 				for i, ln := range lines {
 					last := i == len(lines)-1
-					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: qi}
+					sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: qi}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 				if blk.Attrib != "" {
@@ -303,8 +314,11 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				}
 			} else {
 				inset := strings.Repeat(" ", pica.QuoteIndent)
+				open := false
 				for _, ln := range pica.JustifyParagraph(blk.Text, width-2*pica.QuoteIndent) {
-					fb.segs = append(fb.segs, seg{lines: []sline{{text: inset + ln}}})
+					var sl sline
+					sl, open = emphSline(inset+ln, open)
+					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 				if blk.Attrib != "" {
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: pica.AttribLine(blk.Attrib, width)}}})
@@ -511,27 +525,44 @@ func composeItem(blk pica.Block, t typo, width int) fblock {
 		m := pdf.Measure(pdf.Sans)
 		ii := m.Width(pica.Bullet) + m.Space()
 		measure := t.units - ii
-		lines := pica.JustifyLines(blk.Text, measure, m)
+		lines := pica.JustifyLinesEmph(blk.Text, measure, m, pdf.Measure(pdf.SansItalic))
 		for i, ln := range lines {
 			last := i == len(lines)-1
-			sl := sline{words: ln.Words, gaps: spread(ln, measure, m, last), indent: ii}
+			sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: ii}
 			if i == 0 {
 				sl.words = append([]string{pica.Bullet}, ln.Words...)
 				sl.gaps = append([]int{m.Space()}, sl.gaps...)
 				sl.indent = 0
+				if sl.emph != nil {
+					sl.emph = append([]bool{false}, sl.emph...)
+				}
 			}
 			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 		}
 	} else {
+		open := false
 		for i, ln := range pica.JustifyParagraph(blk.Text, width-pica.ItemIndent) {
 			pre := strings.Repeat(" ", pica.ItemIndent)
 			if i == 0 {
 				pre = pica.Bullet + " "
 			}
-			fb.segs = append(fb.segs, seg{lines: []sline{{text: pre + ln}}})
+			var sl sline
+			sl, open = emphSline(pre+ln, open)
+			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 		}
 	}
 	return fb
+}
+
+// emphSline scans one composed monospace prose line for emphasis,
+// carrying the span state across a block's lines: marker cells are
+// blanked, the underline intervals recorded. The scan runs on the
+// FINAL line text (insets and bullets baked in), so the recorded
+// cells are the drawn cells. Only prose lines come through here;
+// verbatim, table and heading text never carries emphasis.
+func emphSline(text string, open bool) (sline, bool) {
+	clean, spans, still := pica.EmphLine(text, open)
+	return sline{text: clean, uline: spans}, still
 }
 
 func toSlines(lines []string) []sline {
