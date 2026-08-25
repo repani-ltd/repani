@@ -117,9 +117,12 @@ func (s *Server) AddEntries(vid vault.VaultID, entries []vault.Entry) error {
 // acks OK so a read-only client's pull-then-push walk converges.
 // PROBE and PULL are unaffected, as is the owner's AddEntries.
 // Intended for vaults whose RootKey is published to grant read access
-// -- the flag is what keeps the published credential read-only. It is not
-// persisted: an embedder re-asserts it right after EnsureVault on
-// every start, and before then the vault does not exist, so no
+// -- but note the flag is SERVER POLICY, not cryptography: a published
+// RootKey hands every reader AEAD_Key and AuthKey, i.e. full write and
+// forge capability at the crypto layer, and this flag on this server
+// is the only thing refusing those writes (PROTOCOL.txt Notes 5). It
+// is not persisted: an embedder re-asserts it right after EnsureVault
+// on every start, and before then the vault does not exist, so no
 // unguarded window opens.
 func (s *Server) SetNoPush(vid vault.VaultID, v bool) error {
 	s.mu.Lock()

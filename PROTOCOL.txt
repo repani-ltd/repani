@@ -369,4 +369,24 @@
     hang the client, and (per §Merge and the double seal) can never
     corrupt or read its data.
 
+    5. Publishing a RootKey to grant read access grants WRITE
+    capability at the crypto layer too: every holder derives AEAD_Key
+    and AuthKey, and symmetric crypto cannot express read-without-
+    write. A "read-only" published vault is read-only by SERVER POLICY
+    alone (a no-push flag refusing wire PUSHes), not by cryptography:
+    any reader can seal frames and forge entries that other readers
+    would accept as authentic if a server ever served them. Publish a
+    RootKey only where every reader is trusted not to write, or where
+    the one policy-enforcing server is the only path entries can
+    travel. (Noted 2026-08-25, adversarial review.)
+
+    6. Known gap at this version, by decision: no proper deletion.
+    A tombstone removes a key from the merged VIEW; no operation
+    removes entries from the SET, and there is no compaction. The
+    entry set only grows — rewrites accrete, and a channel-key holder
+    can fill a vault to quota with junk ciphertexts that clients
+    silently discard but the server counts. Recovery from a full or
+    junk-filled vault is out-of-band rotation to a fresh RootKey.
+    Compaction or garbage collection is future work.
+
   == This is it. ==
