@@ -11,8 +11,18 @@ TRUDGE -- A SIMPLE MEMORY-HARD KDF
 
 Trudge derives keys from low-entropy human input by making each
 guess cost real memory and real time: fill a 256 MiB pool from
-one Ascon-XOF128 squeeze, then trudge through it -- 2^24 slow,
-data-dependent steps, overwriting the path as you walk it.
+one Ascon-XOF128 squeeze, sweep it once end to end, then trudge
+through it -- 2^24 slow, data-dependent steps, overwriting the
+path as you walk it.
+
+Trudge is intended where CACHING the derived key is acceptable:
+derive once per machine, cache the output under file
+permissions, re-derive only on a new or wiped machine (the
+recovery-from-memory story). A derivation is deliberately tens
+of seconds to minutes -- that cost, paid by the attacker per
+guess, is the entire security argument -- so per-login
+re-derivation is the wrong deployment, and a caller that cannot
+cache wants a different tool.
 
 # Goals, in order
 
@@ -36,24 +46,28 @@ use Argon2id and pay its complexity.
 trudge1(salt, passphrase, outlen) -> outlen bytes.
 
 Fixed parameters: pool of n = 2^24 entries of 16 bytes each
-(256 MiB); t = 2^24 walk steps. XOF is Ascon-XOF128 (NIST SP
-800-232). u32le is a 4-byte little-endian length; be24 reads 3
-bytes big-endian.
+(256 MiB); one full sequential sweep; t = 2^24 walk steps. XOF
+is Ascon-XOF128 (NIST SP 800-232). u32le is a 4-byte
+little-endian length; be24 reads 3 bytes big-endian. mix(pos)
+is the one operation both phases share:
 
 .pre
+  mix(pos):
+    current   = XOF(pool[pos] || current, 16)
+    pool[pos] = current                  the write-back
+
   fill:
     pre  = "trudge1" || byte(24) || u32le(t)
            || u32le(len salt) || salt
            || u32le(len passphrase) || passphrase
     pool = XOF(pre, n*16 bytes)          one sequential squeeze
 
-  walk:
+  sweep (data-independent):
     current = COPY of pool[n-1]          never an alias
-    pos     = be24(current[0:3]) mod n
-    repeat t times:
-      current   = XOF(pool[pos] || current, 16)
-      pool[pos] = current                the write-back
-      pos       = be24(current[0:3]) mod n
+    for i = 0 .. n-1:  mix(i)
+
+  walk (data-dependent):
+    repeat t times:  mix(be24(current[0:3]) mod n)
 
   output:
     key = XOF("trudge1out" || current, outlen)
@@ -79,6 +93,16 @@ becomes full replay, and the 256 MiB must actually be held.
 .item Steps equal pool entries. The ancestor walked 2^20 steps
 over 2^24 entries; the short walk is what made the checkpoint
 trade cheap. t = n, scrypt's discipline.
+.item The sweep phase (added 2026-08-25, the Argon2id hybrid in
+its plainest form). Its addresses are public, so a cache-timing
+observer learns nothing during it, and by the time the
+secret-dependent walk begins every pool entry has been mixed
+with walk state -- the positions the side channel can still see
+index a pool the observer cannot reconstruct. It also closes a
+coverage gap: a random walk of n steps leaves about 1/e of the
+pool untouched; the sweep guarantees every entry is written.
+Sequential access makes it cheaper than a walk step, so the
+total cost rises well under 2x.
 .item The salt is mandatory and the encoding length-prefixed.
 An unsalted derivation invites rainbow tables and one grinding
 pass across every user; bare concatenation lets different
@@ -100,12 +124,13 @@ byte is ever exposed directly, at any output length.
 
 # Accepted residues
 
-Stated so they are deliberate. The walk's addressing is
+Stated so they are deliberate. The walk phase's addressing is
 data-dependent, so a co-resident attacker timing the cache
-learns access patterns (Argon2id runs a data-independent first
-half for this reason); trudge accepts this because its setting
-is a client deriving its own key on its own machine. The fill
-is one sequential squeeze and therefore inherently
+still observes its access pattern; the sweep blunts this (the
+observed positions index a pool the observer cannot
+reconstruct), but trudge makes no Argon2i-grade claim -- its
+setting is a client deriving its own key on its own machine.
+The fill is one sequential squeeze and therefore inherently
 checkpointable in isolation; the write-back, not the fill, is
 what carries the memory bound. And the security argument is
 structural (scrypt-shaped, reviewed once), not competition-vetted.
@@ -113,15 +138,22 @@ structural (scrypt-shaped, reviewed once), not competition-vetted.
 # Cost
 
 Honest figures from the Go reference, one derivation: 256 MiB
-resident, about 12.6 s on a 2019-class Intel MacBook Pro
-(measured 2026-08-25); expect a few seconds on newer hardware.
-An attacker who respects the memory bound pays the same per
-guess; renting big-RAM machines, that prices a guess at roughly
-$0.2 per million. Against the qsl input profile (a realistic 31
-bits: one PIN, one date, one four-letter word) a targeted crack
-runs to hundreds or thousands of dollars per victim -- garden
-shed security, the deliberate choice of a registry whose safety
-net is public detection, not prevention.
+resident, 19.5 s measured on a 2019-class Intel MacBook Pro
+(2026-08-25). Scaling by single-thread speed: single-digit
+seconds on current hardware, and one to three minutes on the
+old iron a deployment must assume (2010-era Intel laptops,
+Raspberry Pi class) -- paid ONCE per machine under the caching
+intention above, with re-derivation only on new or wiped
+machines. Implementations SHOULD show progress across the fill,
+sweep, and walk phases, because the failure mode on old
+hardware is a user aborting a derivation that looks hung, and
+SHOULD say up front that slowness is the point. The attacker
+pays the same 256 MiB and time per guess, per instance; against
+the qsl input profile (a realistic 31 bits: one PIN, one date,
+one four-letter word) a targeted crack runs to hundreds or
+thousands of dollars per victim -- garden-shed security, the
+deliberate choice of a registry whose safety net is public
+detection, not prevention.
 
 # Test vectors
 
@@ -131,22 +163,22 @@ from trudge1's); 32-byte outputs, hex:
 
 .pre
   salt "W1AW"    pass "1234 19910713 CQCQ"
-    f896b74a303a7c86f2bcf1cb66d6a9f3ea6135f80686ab38b46d16f3
-    84ec29d4
+    6e425ab059d38dd3a65a616a3786cac60ace49953234132f9bacf10e
+    e7874e41
   salt "EA5XYZ"  pass "1234 19910713 CQCQ"
-    b91e774d0f31a6d9f7c585131480ab6a7d9321481135935c2a5692bb
-    18cf1627
+    7116d62f3fb7249b6d745c0fab77595679c6a149afe1d4391246c1bb
+    2f804b17
   salt ""        pass ""
-    4cf9055bbb1c4beadb3ed2577e708e13963cf9063465b83f3b9f5177
-    5ae1d88f
+    6047214a94c9c53d3d00ad0082ca33bae7bb8e7e32b282a89ebc70cd
+    9862da0c
 .end
 
 trudge1, full parameters:
 
 .pre
   salt "W1AW"    pass "1234 19910713 CQCQ"
-    12b1053b2cdbfd8ded9e52635e727ac2fca7c79e12aacb58d854bcb1
-    63931b71
+    e2696e33e5e5eefc0e1679ed0273564d7266fd1e5eed40509072e9ab
+    85a430f9
 .end
 
 The Go tests carry the same vectors (trudge_test.go); the full

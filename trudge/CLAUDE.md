@@ -1,11 +1,15 @@
 # trudge
 
 trudge1: a deliberately slow, memory-hard KDF on Ascon-XOF128 —
-fill a 256 MiB pool from one squeeze, walk it 2^24 data-dependent
-steps with write-back. Primary design target is simplicity of
+fill a 256 MiB pool from one squeeze, sweep it once
+(data-independent), then walk 2^24 data-dependent steps with
+write-back. Primary design target is simplicity of
 implementation (re-implementable from SPEC.t in a few dozen
 lines) with an honestly stated, decent-not-heroic security
-margin; Argon2id is the answer for high-value secrets.
+margin; Argon2id is the answer for high-value secrets. Intended
+where caching the derived key is acceptable: derive once per
+machine (~20 s modern Intel, minutes on old iron), cache, and
+re-derive only on a new machine.
 
 - SPEC.t is normative; the constraints in it came out of the
   2026-08-25 adversarial review of the ancestor Gimli pool KDF

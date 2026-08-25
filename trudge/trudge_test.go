@@ -14,9 +14,9 @@ import (
 var tinyVectors = []struct {
 	salt, passphrase, hexOut string
 }{
-	{"W1AW", "1234 19910713 CQCQ", "f896b74a303a7c86f2bcf1cb66d6a9f3ea6135f80686ab38b46d16f384ec29d4"},
-	{"EA5XYZ", "1234 19910713 CQCQ", "b91e774d0f31a6d9f7c585131480ab6a7d9321481135935c2a5692bb18cf1627"},
-	{"", "", "4cf9055bbb1c4beadb3ed2577e708e13963cf9063465b83f3b9f51775ae1d88f"},
+	{"W1AW", "1234 19910713 CQCQ", "6e425ab059d38dd3a65a616a3786cac60ace49953234132f9bacf10ee7874e41"},
+	{"EA5XYZ", "1234 19910713 CQCQ", "7116d62f3fb7249b6d745c0fab77595679c6a149afe1d4391246c1bb2f804b17"},
+	{"", "", "6047214a94c9c53d3d00ad0082ca33bae7bb8e7e32b282a89ebc70cd9862da0c"},
 }
 
 func TestTinyVectors(t *testing.T) {
@@ -60,11 +60,11 @@ func TestInputSeparation(t *testing.T) {
 // ten seconds. Skipped under -short.
 func TestTrudge1Vector(t *testing.T) {
 	if testing.Short() {
-		t.Skip("trudge1 takes ~10 s and 256 MiB")
+		t.Skip("trudge1 takes ~20 s and 256 MiB")
 	}
 	out := make([]byte, 32)
 	Key([]byte("W1AW"), []byte("1234 19910713 CQCQ"), out)
-	const want = "12b1053b2cdbfd8ded9e52635e727ac2fca7c79e12aacb58d854bcb163931b71"
+	const want = "e2696e33e5e5eefc0e1679ed0273564d7266fd1e5eed40509072e9ab85a430f9"
 	if hex.EncodeToString(out) != want {
 		t.Errorf("Key = %x, want %s", out, want)
 	}
