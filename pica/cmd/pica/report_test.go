@@ -72,3 +72,53 @@ func TestReport_Mark(t *testing.T) {
 		t.Errorf("mark costs %d bytes; expected under 1200", d)
 	}
 }
+
+// Document metadata flows into the PDF Info dictionary: .by as
+// Author, a parseable .date as CreationDate, pica and Repani
+// Limited as Creator and Producer. .date is free text by spec; a shape
+// infoDate does not recognise omits CreationDate rather than
+// erroring.
+func TestReport_InfoFields(t *testing.T) {
+	src := "STATEMENT\n.by Treasury Reporting\n.date 26 August 2026\n\nBody.\n\n.width 60\n"
+	doc, err := pica.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := report(doc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"/Author (Treasury Reporting)",
+		"/CreationDate (D:20260826)",
+		"/Creator (pica)",
+		"/Producer (Repani Limited)",
+		"/Title (STATEMENT)",
+	} {
+		if !bytes.Contains(b, []byte(want)) {
+			t.Errorf("Info dictionary missing %s", want)
+		}
+	}
+}
+
+func TestInfoDate(t *testing.T) {
+	for in, want := range map[string]string{
+		"2026-08-26":      "2026-08-26",
+		"August 26, 2026": "2026-08-26",
+		"26 August 2026":  "2026-08-26",
+		"Aug 26, 2026":    "2026-08-26",
+		"26 Aug 2026":     "2026-08-26",
+		" 2026-08-26 ":    "2026-08-26", // stray space tolerated
+		"Michaelmas 2026": "",           // free text: no date, no error
+		"vintage of 1996": "",
+		"":                "",
+	} {
+		got := infoDate(in)
+		switch {
+		case want == "" && !got.IsZero():
+			t.Errorf("infoDate(%q) = %v; want zero", in, got)
+		case want != "" && got.Format("2006-01-02") != want:
+			t.Errorf("infoDate(%q) = %v; want %s", in, got, want)
+		}
+	}
+}

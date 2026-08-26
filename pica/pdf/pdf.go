@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf16"
 
 	"repani.com/pica/pdf/ttf"
@@ -111,7 +112,10 @@ func fontByID(f Font) *ttf.TTFont { return fontRegistry[f] }
 // Doc accumulates pages and builds the final PDF.
 type Doc struct {
 	Title    string
-	Creator  string
+	Author   string
+	Creator  string    // authoring application
+	Producer string    // converting application
+	Created  time.Time // CreationDate; the zero value omits it
 	PageSize PageSize
 	Compress bool
 
@@ -207,9 +211,10 @@ func (d *Doc) Bytes() []byte {
 	}
 	resourcesID := b.add(pdfResources(b.next(), embedded, fontType0IDs, d.forms, formIDs))
 
-	// 4. Info. No CreationDate: identical input must produce
+	// 4. Info. CreationDate only when the caller sets Created --
+	// never the wall clock: identical input must produce
 	// byte-identical PDFs, and the date is optional in the spec.
-	infoID := b.add(pdfInfo(b.next(), d.Creator, d.Title))
+	infoID := b.add(pdfInfo(b.next(), d))
 
 	// 5. Page/stream pairs, plus link annotations per page.
 	kids := make([]int, len(d.pages))
@@ -308,13 +313,22 @@ func pdfCatalog(id, openActionRef, pagesRef int) []byte {
 	return o.bytes()
 }
 
-func pdfInfo(id int, creator, title string) []byte {
+func pdfInfo(id int, d *Doc) []byte {
 	o := newObj(id)
-	if creator != "" {
-		o.field("Creator", textString(creator))
+	if d.Author != "" {
+		o.field("Author", textString(d.Author))
 	}
-	if title != "" {
-		o.field("Title", textString(title))
+	if !d.Created.IsZero() {
+		o.field("CreationDate", d.Created.Format("(D:20060102)"))
+	}
+	if d.Creator != "" {
+		o.field("Creator", textString(d.Creator))
+	}
+	if d.Producer != "" {
+		o.field("Producer", textString(d.Producer))
+	}
+	if d.Title != "" {
+		o.field("Title", textString(d.Title))
 	}
 	return o.bytes()
 }

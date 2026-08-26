@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // buildTwoPageDoc exercises the full path: text in both fonts plus
@@ -327,6 +328,33 @@ func TestInfoStringsEscaped(t *testing.T) {
 	if !strings.Contains(s, `/Creator (pica\nv1)`) {
 		t.Errorf("newline not escaped in Info dictionary")
 	}
+	// Author, Producer, and CreationDate appear when set...
+	doc = &Doc{
+		Author:   "P. Christoforou",
+		Producer: "repani.com/pica",
+		Created:  time.Date(2026, 8, 26, 0, 0, 0, 0, time.UTC),
+	}
+	doc.Add(&p)
+	s = string(doc.Bytes())
+	for _, want := range []string{
+		"/Author (P. Christoforou)",
+		"/Producer (repani.com/pica)",
+		"/CreationDate (D:20260826)",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("Info dictionary missing %s", want)
+		}
+	}
+	// ...and are omitted, not emitted empty, when not.
+	doc = &Doc{Title: "bare"}
+	doc.Add(&p)
+	s = string(doc.Bytes())
+	for _, absent := range []string{"/Author", "/Producer", "/CreationDate"} {
+		if strings.Contains(s, absent) {
+			t.Errorf("unset %s emitted in Info dictionary", absent)
+		}
+	}
+
 	// Non-ASCII text strings are UTF-16BE with BOM, in hex.
 	doc = &Doc{Title: "Ελλάς"}
 	doc.Add(&p)

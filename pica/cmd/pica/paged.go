@@ -8,6 +8,8 @@ package main
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"repani.com/pica"
 	"repani.com/pica/pdf"
@@ -35,6 +37,27 @@ func pageMargin(ncols int) float64 {
 		return reportMargin
 	}
 	return sheetMargin
+}
+
+// infoDate attempts to read the free-text .date as a calendar date
+// for the PDF Info CreationDate. The spec deliberately does not
+// constrain .date, so this is best-effort over common shapes; text
+// that matches none of them returns the zero time and the Info
+// entry is simply omitted. The date comes from the document, never
+// the clock, so output stays byte-deterministic.
+func infoDate(s string) time.Time {
+	for _, layout := range []string{
+		"2006-01-02",
+		"January 2, 2006",
+		"2 January 2006",
+		"Jan 2, 2006",
+		"2 Jan 2006",
+	} {
+		if t, err := time.Parse(layout, strings.TrimSpace(s)); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // paperSize maps the document attribute to a pdf.PageSize. Parse
@@ -153,7 +176,15 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 		columns = flow(blocks, func(int) int { return best })
 	}
 
-	pdoc := &pdf.Doc{Title: doc.Title, Creator: "pica", PageSize: size, Compress: true}
+	pdoc := &pdf.Doc{
+		Title:    doc.Title,
+		Author:   doc.By,
+		Creator:  "pica",
+		Producer: "Repani Limited",
+		Created:  infoDate(doc.Date),
+		PageSize: size,
+		Compress: true,
+	}
 	if pres.mark {
 		pdoc.AddForm(markName, markW, markH, markStream)
 	}

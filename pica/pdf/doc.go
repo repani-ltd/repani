@@ -28,8 +28,11 @@ set so output stays deterministic), and a ToUnicode CMap is emitted
 so text remains selectable, copyable, and searchable in viewers.
 Text encoding is Identity-H with the codepoint as CID; codepoints
 above the Basic Multilingual Plane are drawn and measured as U+FFFD.
-Info strings (Title, Creator) are PDF text strings -- UTF-16BE when
-not ASCII -- and link URIs are percent-encoded to 7-bit ASCII.
+Info strings (Title, Author, Creator, Producer) are PDF text
+strings -- UTF-16BE when not ASCII -- and link URIs are
+percent-encoded to 7-bit ASCII. Doc.Created, when set, becomes the
+CreationDate; the writer never reads the clock itself, so identical
+input still produces byte-identical output.
 
 The writer originates from an internal reporting tool and was
 trimmed to this surface: subset text, hairlines, grayscale, link
