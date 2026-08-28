@@ -7,6 +7,8 @@ import (
 	"text/template"
 
 	"repani.com/pica"
+	"repani.com/pica/desk"
+	"repani.com/pica/press"
 )
 
 // TestOfficialExamples pins the two committed example documents:
@@ -18,8 +20,8 @@ func TestOfficialExamples(t *testing.T) {
 		name, src, golden string
 		render            func(*pica.Doc) ([]byte, error)
 	}{
-		{"triptych", "../../example/triptych.t", "../../example/triptych.txt", func(d *pica.Doc) ([]byte, error) { return broadsheet(d, false) }},
-		{"statement", "../../example/statement.t", "../../example/statement.txt", func(d *pica.Doc) ([]byte, error) { return report(d, false) }},
+		{"triptych", "../../example/triptych.t", "../../example/triptych.txt", func(d *pica.Doc) ([]byte, error) { return press.PDF(d, false) }},
+		{"statement", "../../example/statement.t", "../../example/statement.txt", func(d *pica.Doc) ([]byte, error) { return press.Report(d, false) }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -78,7 +80,7 @@ func renderExample(t *testing.T) string {
 	}
 	tmpl, err := template.New("page").
 		Option("missingkey=zero").
-		Funcs(funcMap()).
+		Funcs(desk.Funcs()).
 		Parse(string(tmplBytes))
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +133,7 @@ func TestExampleGolden(t *testing.T) {
 	}
 }
 
-// TestExamplePDF renders the same source as a gazette and checks
+// TestExamplePDF renders the same source under the default presentation and checks
 // determinism.
 func TestExamplePDF(t *testing.T) {
 	tmplBytes, err := os.ReadFile("../../example/page.tmpl")
@@ -146,7 +148,7 @@ func TestExamplePDF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl, err := template.New("page").Option("missingkey=zero").Funcs(funcMap()).Parse(string(tmplBytes))
+	tmpl, err := template.New("page").Option("missingkey=zero").Funcs(desk.Funcs()).Parse(string(tmplBytes))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,11 +160,11 @@ func TestExamplePDF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := broadsheet(doc, false)
+	a, err := press.PDF(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := broadsheet(doc, false)
+	b, err := press.PDF(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}

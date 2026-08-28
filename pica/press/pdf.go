@@ -1,8 +1,10 @@
-// The pdf subcommand: render a pica source document as an
-// N-column newspaper. Geometry comes entirely from the document's
-// layout trailer (self-contained: same source, same PDF bytes); the
-// body point size is derived from column width and .width.
-package main
+// The default presentation: the document rendered as itself, with
+// a masthead page-one header and the column count the trailer
+// declares. Geometry comes entirely from the document's layout
+// trailer (self-contained: same source, same PDF bytes); the body
+// point size is derived from column width and .width.
+
+package press
 
 import (
 	"fmt"
@@ -14,24 +16,10 @@ import (
 // mastRuleGap is the extra white on each side of the masthead rule.
 const mastRuleGap = 4.0
 
-func pdfCmd(args []string) int {
-	fs := newFlags("pdf")
-	out := fs.String("o", "", "output file (default stdout)")
-	mark := fs.Bool("mark", false, "paint the Repani mark top-right of page one")
-	doc, rc := loadDoc("pdf", fs, args)
-	if doc == nil {
-		return rc
-	}
-	bytes, err := broadsheet(doc, *mark)
-	if err != nil {
-		fmt.Fprintf(stderr, "pica pdf: %v\n", err)
-		return 1
-	}
-	return writeOutput("pdf", *out, bytes)
-}
-
-// broadsheet renders a parsed document as the newspaper PDF.
-func broadsheet(doc *pica.Doc, mark bool) ([]byte, error) {
+// PDF renders a parsed document as the default PDF. mark paints
+// the Repani mark top-right of page one: publishing policy,
+// chosen where the PDF is made, never in the document.
+func PDF(doc *pica.Doc, mark bool) ([]byte, error) {
 	ncols := doc.Layout.Cols
 	return paged(doc, presentation{
 		ncols:  ncols,

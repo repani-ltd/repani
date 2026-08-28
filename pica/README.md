@@ -3,7 +3,7 @@
 A minimal, troff-inspired source language and typesetter.
 Documents are parsed once into a typed block model and exported by
 writers: a fixed-width text page (for byte-frugal transports like
-Quietcasting), an N-column newspaper-style PDF, a single-column
+Quietcasting), an N-column PDF, a single-column
 report PDF -- monospace by default, proportional prose with
 `.font sans` -- and a semantic HTML `<article>` fragment (`pica
 html`), which with `-txtar` assembles a whole page from one archive
@@ -41,13 +41,30 @@ The design center is the language (see `doc.go` for the spec):
   typesetting time; a rendered text page carries only content plus
   the wire's own markup.
 
+## Packages
+
+The module splits by audience (the ledger for the split is
+DESIGN.t §10):
+
+- `pica` (root) -- the language: `Parse`, the text page, the HTML
+  fragment. Stdlib only, so wire clients parse without fonts.
+- `press` -- the compositor behind two presentations:
+  `press.PDF`, the default (the document rendered as itself), and
+  `press.Report`, house stationery. The Repani mark is its one
+  option: publishing policy, passed where the PDF is made.
+- `desk` -- copy from data: `Funcs`, the template formatting
+  vocabulary, and `Render`, which parses its output before
+  returning it, so a generator never ships an invalid document.
+- `pdf` -- PDF primitives and the embedded Fira faces.
+- `cmd/pica` -- the CLI, a thin flag surface over all of it.
+
 ## pica
 
 `cmd/pica` is the toolchain: one generation stage, then a writer.
 
     pica render page.tmpl data.json        # Go template -> source doc
     pica render ... | pica text            # source -> text page
-    pica render ... | pica pdf -o p.pdf    # source -> newspaper PDF
+    pica render ... | pica pdf -o p.pdf    # source -> N-column PDF
     pica render ... | pica report -o p.pdf # source -> report PDF
     pica spec                              # the language reference
     pica check page.t                      # parse, report errors
@@ -58,19 +75,21 @@ in the binary (it is `doc.go`'s package comment, so it cannot
 drift from the parser), and validation errors are loud and carry
 line numbers.
 
-`render` executes Go text/templates with value formatters (round,
-decimal, trunc, pad, shortTime, shortDate, dur) and one structure
-helper, `table`, which emits a `.table` block from a rows slice
-plus field names (sparing templates the range boilerplate) -- no
-layout functions exist. The PDF writers derive their body point
+`render` executes Go text/templates (via `desk`) with value
+formatters (round, decimal, trunc, pad, shortTime, shortDate, dur)
+and one structure helper, `table`, which emits a `.table` block
+from a rows slice plus field names (sparing templates the range
+boilerplate) -- no layout functions exist, and the output is
+parsed before it is written, so an invalid render is an error,
+never output. The PDF writers derive their body point
 size from the document geometry (columnWidth / 0.6em / `.width`;
 average lowercase advances under `.font sans`), so a text page and
 a PDF column hold the same character density; they render justified
 columns with orphan/widow control (splits keep >= 2 lines on each
 side), headings scaled by level and kept with their story, split
 tables repeating their headers (notes riding their rows), `.pre`
-blocks atomic, and -- in the newspaper -- a single underfull page
-balanced across its columns. `report` is the same engine in a
+blocks atomic, and -- on multi-column pages -- a single underfull
+page balanced across its columns. `report` is the same engine in a
 single-column identity: left title block, hairline table rules,
 "Page N of M" footer.
 

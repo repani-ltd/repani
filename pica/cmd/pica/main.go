@@ -1,12 +1,12 @@
 // Command pica renders pica source documents (see the pica
-// package for the language) to text pages, newspaper PDFs, and
+// package for the language) to text pages, N-column PDFs, and
 // report PDFs.
 //
 // One generation stage, then a writer:
 //
 //	pica render <template> <data>   Go template + data -> source doc
 //	pica text   [file|-]            source doc -> fixed-width text page
-//	pica pdf    [file|-]            source doc -> N-column newspaper PDF
+//	pica pdf    [file|-]            source doc -> N-column PDF
 //	pica report [file|-]            source doc -> single-column report PDF
 //
 // Two oracles, so learning the language never requires the source:
@@ -31,7 +31,10 @@
 // (round, decimal, trunc, pad, shortTime, shortDate, dur) and the
 // data-driven "table" helper (emits a .table block from a rows
 // slice plus field names); the template's OUTPUT is a pica
-// source document -- templates contain no layout calls.
+// source document -- templates contain no layout calls. The
+// output is parsed before it is written (repani.com/pica/desk,
+// which owns the helpers and the render step), so a template bug
+// is a loud error with a line number, never invalid output.
 //
 // Data is FACT (a *.fact file or -fact), JSON (default otherwise),
 // or, with -txtar, a txtar archive pairing facts with prose:
@@ -59,11 +62,11 @@ import (
 	"io"
 	"os"
 	"strings"
-	"text/template"
 
 	"repani.com/fact"
 
 	"repani.com/pica"
+	"repani.com/pica/desk"
 )
 
 // The process seams, swappable by tests that drive the subcommands
@@ -122,8 +125,9 @@ Usage:
 
 render executes a Go template over JSON, FACT (-fact, implied by a
 .fact filename), or txtar (-txtar) data and emits a pica source
-document; text, pdf, and report render a source document (default
-stdin) to a fixed-width text page, an N-column newspaper PDF, or a
+document, parsed before it is written so an invalid render is an
+error, never output; text, pdf, and report render a source document (default
+stdin) to a fixed-width text page, an N-column PDF, or a
 single-column report PDF (hairline table rules, page footer); html
 renders one document to a semantic <article> fragment, or, with
 -txtar, assembles a whole page from an archive: NAME.t is the
@@ -312,25 +316,12 @@ func renderCmd(args []string) int {
 		return 1
 	}
 
-	tmpl, err := template.New(tmplPath).
-		Option("missingkey=zero").
-		Funcs(funcMap()).
-		Parse(string(tmplBytes))
+	src, err := desk.Render(tmplPath, string(tmplBytes), data)
 	if err != nil {
-		fmt.Fprintf(stderr, "pica render: parse template: %v\n", err)
+		fmt.Fprintf(stderr, "pica render: %v\n", err)
 		return 1
 	}
-
-	var buf strings.Builder
-	if err := tmpl.Execute(&buf, data); err != nil {
-		fmt.Fprintf(stderr, "pica render: execute template: %v\n", err)
-		return 1
-	}
-	doc := buf.String()
-	if !strings.HasSuffix(doc, "\n") {
-		doc += "\n"
-	}
-	return writeOutput("render", *out, []byte(doc))
+	return writeOutput("render", *out, src)
 }
 
 // bindFacts parses, validates, and binds a FACT document into

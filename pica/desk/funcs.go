@@ -1,6 +1,9 @@
 // Template helper functions: value formatting only -- layout belongs
-// to the writers, never to templates. Documented in main.go.
-package main
+// to the writers, never to templates. The vocabulary is the
+// package's asset; its admission rule is in the package comment
+// (desk.go).
+
+package desk
 
 import (
 	"fmt"
@@ -15,8 +18,10 @@ import (
 	"repani.com/pica"
 )
 
-// funcMap returns the pica template function set.
-func funcMap() template.FuncMap {
+// Funcs returns the pica template function set, the helpers every
+// desk template composes with (also available standalone for
+// callers driving text/template themselves).
+func Funcs() template.FuncMap {
 	return template.FuncMap{
 		// Numeric.
 		"round":   round,

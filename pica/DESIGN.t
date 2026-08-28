@@ -89,6 +89,9 @@ source-declared .width — keep it that way).
 .item fblock/sline stay unexported inside cmd/pica until a second real
 backend forces promotion to a shared package; that promotion is a design
 event (it makes them the load-bearing contract ditroff's format was).
+(Refined 2026-08-29: the address is now pica/press (§10) -- a relocation,
+not the promotion; fblock/sline remain unexported there and the event
+above is still pending.)
 .item A debug backend that dumps composed values as text is fine for
 inspection but must never become a contract.
 
@@ -231,8 +234,10 @@ the open borderline — see §8.
 
 Three classic troff stress cases were checked against the cmd/pica
 engine (since split into compose.go, flow.go, draw.go, and the
-presentation files). Two already exist and are clean; the third
-defines the next core work item.
+presentation files; since 2026-08-29 those files live in pica/press
+(§10), and the balance pass named below sits in paged.go). Two
+already exist and are clean; the third defines the next core work
+item.
 
 ## Existing machinery (the vocabulary of the design)
 
@@ -738,6 +743,45 @@ headings, cells, .pre and arguments keep underscores as
 characters; spans never nest and never cross a block; and there
 is no second inline concept. The italic face exists for this one
 meaning; a document cannot reach it any other way.
+
+# 10. The library packages: press and desk (decided 2026-08-29)
+
+Driver: zine (the broadcast hypertext app over quietcast slots)
+will embed pica -- its station generates bulletin pages from data
+and its PDF button prints them -- and the compositor lived only in
+cmd/pica. The command graduated its two library-shaped layers;
+what remains in cmd is flag surface, the html page assembler, and
+the oracles.
+
+.item pica/press: the compositor (compose, flow, the paged
+driver, draw) behind two presentations. press.PDF is the default
+-- the document rendered as itself, named by what it produces
+because the unmarked case carries no genre name (the old
+"broadsheet" over-specified: at .cols 1 the same function sets a
+book page). press.Report is the marked case, named by what makes
+it deviate; it is held loosely (doc.go says so) and may move if
+house stationery grows weight. The presentation seam stays
+unexported so §5 can reify it freely; §5's trigger and content
+stand unchanged, only the address moved. The mark and its stream
+moved with the driver: an imprint is policy passed where the PDF
+is made, and both presentations take it as the one option.
+.item pica/desk: the copy desk -- Funcs, the value-formatting
+vocabulary (admission rule unchanged: layout belongs to writers,
+never to templates), and Render, which executes a template and
+PARSES the output before returning it, so a bulletin generator
+cannot air an invalid page. Data arrives already bound; loading,
+the txtar convention, and scheduling stay with callers (the CLI
+keeps its loaders; a station keeps its carousel). pica render now
+validates through desk -- the one behavioural change, deliberate.
+.item Package pica itself stays stdlib-only (wire clients parse
+without fonts); pdf stays primitives. The naming account: the
+desk writes copy, the press prints it, pica is the language
+between them.
+.item The minimal txtar parser was to be duplicated rather than
+shared (two consumers of three lines of grammar do not seat a
+package) -- and then desk's bound-data contract removed its need
+entirely, so the one copy stays in cmd. A second consumer
+duplicates; a third is the trigger to revisit.
 
 # Admission tests and non-goals (moved from doc.go, 2026-08-20)
 

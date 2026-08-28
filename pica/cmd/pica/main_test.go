@@ -262,6 +262,7 @@ func writeFiles(t *testing.T, files map[string]string) string {
 func TestRenderCmd(t *testing.T) {
 	dir := writeFiles(t, map[string]string{
 		"t.tmpl":    "{{.title}}",
+		"bad.tmpl":  "{{.title}}\n\n.bogus\n",
 		"d.json":    `{"title":"from json"}`,
 		"d.fact":    "title: str = \"from fact\"\n",
 		"-x":        `{"title":"dash file"}`,
@@ -278,6 +279,12 @@ func TestRenderCmd(t *testing.T) {
 	// JSON by default; the document gains a final newline.
 	if rc, out, _ := run(in("t.tmpl"), in("d.json")); rc != 0 || out != "from json\n" {
 		t.Errorf("json: rc=%d out=%q", rc, out)
+	}
+	// A template whose OUTPUT is not a valid document is an error,
+	// never output (the desk.Render promise, held at the CLI).
+	if rc, out, errOut := run(in("bad.tmpl"), in("d.json")); rc != 1 || out != "" ||
+		!strings.Contains(errOut, "rendered document") || !strings.Contains(errOut, "line 3") {
+		t.Errorf("invalid output: rc=%d out=%q stderr=%q, want 1, no output, a labelled line-3 error", rc, out, errOut)
 	}
 	// -h is a served request (exit 0), not a usage error (exit 2).
 	if rc, _, errOut := run("-h"); rc != 0 || !strings.Contains(errOut, "-txtar") {

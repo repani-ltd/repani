@@ -1,4 +1,4 @@
-package main
+package press
 
 import (
 	"os"
@@ -7,8 +7,8 @@ import (
 	"repani.com/pica"
 )
 
-func BenchmarkBroadsheet(b *testing.B) {
-	src, err := os.ReadFile("../../example/triptych.t")
+func BenchmarkPDF(b *testing.B) {
+	src, err := os.ReadFile("../example/triptych.t")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func BenchmarkBroadsheet(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		out, err := broadsheet(doc, false)
+		out, err := PDF(doc, false)
 		if err != nil {
 			b.Fatal(err)
 		}

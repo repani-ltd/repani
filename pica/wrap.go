@@ -111,7 +111,7 @@ func JustifyLines(para string, width int, m Measurer) []Line {
 // It is exactly JustifyLines under Mono, flattened, with each
 // non-final line's slack distributed as whole spaces: the
 // paragraph-level convenience for writers that already hold parsed
-// Para blocks (the pica gazette).
+// Para blocks (the pica press).
 func JustifyParagraph(para string, width int) []string {
 	lines := JustifyLines(para, width, Mono)
 	out := make([]string, len(lines))

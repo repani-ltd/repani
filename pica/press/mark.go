@@ -2,7 +2,8 @@
 // command. The document says nothing about it -- a company imprint
 // is publishing policy, chosen where the PDF is made (-mark), so
 // the same source renders with or without it.
-package main
+
+package press
 
 import (
 	_ "embed"

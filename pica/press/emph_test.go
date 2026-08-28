@@ -1,4 +1,4 @@
-package main
+package press
 
 import (
 	"bytes"
@@ -116,7 +116,7 @@ func TestPDFEmphasisSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := report(sans, false)
+	out, err := Report(sans, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestPDFEmphasisSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err = report(mono, false)
+	out, err = Report(mono, false)
 	if err != nil {
 		t.Fatal(err)
 	}

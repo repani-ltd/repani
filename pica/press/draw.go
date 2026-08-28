@@ -1,7 +1,8 @@
 // Drawing: composed lines onto a pdf.Page. The one layer that turns
 // slines into draw calls -- the seam the display list (DESIGN.t §5)
 // will eventually reify.
-package main
+
+package press
 
 import "repani.com/pica/pdf"
 

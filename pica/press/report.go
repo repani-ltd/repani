@@ -1,10 +1,11 @@
 // Report presentation (DESIGN.t §7): the same source document
-// rendered as a single-column client report rather than a
-// newspaper — generous margins, a left-aligned title block, a
-// "Page N of M" footer. Layout comes from the document trailer
-// exactly as in the broadsheet; .cols is ignored, a report is one
-// wide column, so .width is the report's characters per line.
-package main
+// rendered as a single-column client report rather than under the
+// default masthead — generous margins, a left-aligned title block,
+// a "Page N of M" footer. Layout comes from the document trailer
+// exactly as in PDF; .cols is ignored, a report is one wide
+// column, so .width is the report's characters per line.
+
+package press
 
 import (
 	"fmt"
@@ -13,24 +14,9 @@ import (
 	"repani.com/pica/pdf"
 )
 
-func reportCmd(args []string) int {
-	fs := newFlags("report")
-	out := fs.String("o", "", "output file (default stdout)")
-	mark := fs.Bool("mark", false, "paint the Repani mark top-right of page one")
-	doc, rc := loadDoc("report", fs, args)
-	if doc == nil {
-		return rc
-	}
-	bytes, err := report(doc, *mark)
-	if err != nil {
-		fmt.Fprintf(stderr, "pica report: %v\n", err)
-		return 1
-	}
-	return writeOutput("report", *out, bytes)
-}
-
-// report renders a parsed document as the report PDF.
-func report(doc *pica.Doc, mark bool) ([]byte, error) {
+// Report renders a parsed document as the report PDF. mark paints
+// the Repani mark top-right of page one, as in PDF.
+func Report(doc *pica.Doc, mark bool) ([]byte, error) {
 	return paged(doc, presentation{
 		ncols:  1,
 		what:   "a report",

@@ -1,4 +1,4 @@
-package main
+package press
 
 import (
 	"bytes"
@@ -32,12 +32,12 @@ func TestReport_Smoke(t *testing.T) {
 	}
 	for _, font := range []string{"mono", "sans"} {
 		doc.Layout.Font = font
-		b, err := report(doc, false)
+		b, err := Report(doc, false)
 		if err != nil {
-			t.Fatalf("report(%s): %v", font, err)
+			t.Fatalf("Report(%s): %v", font, err)
 		}
 		if !bytes.HasPrefix(b, []byte("%PDF")) || len(b) < 1000 {
-			t.Fatalf("report(%s): implausible PDF (%d bytes)", font, len(b))
+			t.Fatalf("Report(%s): implausible PDF (%d bytes)", font, len(b))
 		}
 	}
 }
@@ -51,11 +51,11 @@ func TestReport_Mark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	off, err := report(doc, false)
+	off, err := Report(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	on, err := report(doc, true)
+	on, err := Report(doc, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestReport_InfoFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := report(doc, false)
+	b, err := Report(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}

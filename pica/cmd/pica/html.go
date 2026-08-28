@@ -29,6 +29,7 @@ import (
 	texttemplate "text/template"
 
 	"repani.com/pica"
+	"repani.com/pica/desk"
 )
 
 func htmlCmd(args []string) int {
@@ -133,11 +134,12 @@ func htmlPage(archive, page string) ([]byte, error) {
 		}
 	}
 	if docIsTmpl {
-		// pica render, inline: text/template over the facts with
-		// render's functions, emitting pica source. One difference:
-		// a missing key is an error here, not a blank -- a page
-		// that states a fact the data does not hold must not ship.
-		t, err := texttemplate.New(page + ".t.tmpl").Option("missingkey=error").Funcs(funcMap()).Parse(docSrc)
+		// pica render, inline: desk's functions over the facts,
+		// emitting pica source. One difference from desk.Render:
+		// a missing key is an error here, not missingkey=zero's
+		// rendered placeholder -- a page that states a fact the
+		// data does not hold must not ship.
+		t, err := texttemplate.New(page + ".t.tmpl").Option("missingkey=error").Funcs(desk.Funcs()).Parse(docSrc)
 		if err != nil {
 			return nil, fmt.Errorf("%s.t.tmpl: %w", page, err)
 		}
@@ -151,7 +153,7 @@ func htmlPage(archive, page string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	tmpl, err := template.New("page.tmpl").Option("missingkey=zero").Funcs(funcMap()).Parse(tmplSrc)
+	tmpl, err := template.New("page.tmpl").Option("missingkey=zero").Funcs(desk.Funcs()).Parse(tmplSrc)
 	if err != nil {
 		return nil, fmt.Errorf("page.tmpl: %w", err)
 	}

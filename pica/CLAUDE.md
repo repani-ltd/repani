@@ -1,7 +1,11 @@
 # pica (repani.com/pica)
 
-Text typesetting library: wrapping, hyphenation, tables, with a PDF backend
-(`pdf/`, `pdf/ttf/`) and the `pica` renderer CLI (`cmd/pica`).
+Text typesetting library: wrapping, hyphenation, tables (the root package,
+stdlib-only), with PDF primitives (`pdf/`, `pdf/ttf/`), the compositor and
+its two presentations (`press/`: `press.PDF` the default, `press.Report`),
+the copy desk (`desk/`: template `Funcs` + validating `Render`), and the
+`pica` CLI (`cmd/pica`), a thin flag surface over all of it. The design
+ledger for the split is DESIGN.t section 10.
 
 ## Build and test
 

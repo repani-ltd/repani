@@ -1,7 +1,8 @@
 // Composition: parsed blocks become styled lines (slines) grouped
 // into flowable blocks (fblocks). The writer-identity layer shared
-// by the broadsheet and report presentations.
-package main
+// by the default and report presentations.
+
+package press
 
 import (
 	"fmt"

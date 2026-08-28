@@ -1,7 +1,8 @@
 // Column flow: pure distribution of flowable blocks into columns,
 // counted in half-line units (capacity is in body lines). Shared by
 // every paged presentation.
-package main
+
+package press
 
 // minKeep is the orphan/widow threshold: a split never leaves fewer
 // than minKeep segments of a block on either side of a column break.

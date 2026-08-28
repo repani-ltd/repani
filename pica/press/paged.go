@@ -2,9 +2,10 @@
 // geometry from the document trailer, typography through
 // deriveTypo, compose, flow, then one pdf.Page per page with the
 // presentation's title block on page one and its footer on every
-// page. The broadsheet (pdf) and the report differ only in what
+// page. The default presentation (PDF) and the report differ only in what
 // they hand the driver.
-package main
+
+package press
 
 import (
 	"fmt"
@@ -15,7 +16,7 @@ import (
 	"repani.com/pica/pdf"
 )
 
-// Writer identity constants (points). These are the gazette's
+// Writer identity constants (points). These are the press's
 // typography, not document attributes.
 const (
 	sheetMargin     = 40.0
@@ -98,7 +99,7 @@ func (s *sheet) headerRight() float64 {
 	return r
 }
 
-// presentation is what distinguishes the broadsheet from the report
+// presentation is what distinguishes the default presentation from the report
 // under the paged driver.
 type presentation struct {
 	ncols int    // columns per page
