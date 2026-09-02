@@ -1,43 +1,64 @@
 .rem Gallery: pictures drawn with the shade, box and weather glyphs.
+.rem Panel 0 is a banana filling the panel, generated from a bowed
+.rem arc shaded by its normal: lit face ▓, turn ▒, shadow ░.
 .rem Every row starts with an ink code or a space.
 
 .panel 0
-.ink white on blue
-.fill 0 0 34 1
-.at 0 2
-GALLERY · ΕΙΚΟΝΕΣ · 1/4
-.ink yellow
-.at 2 0
-FRUIT OF THE WEEK · ΜΠΑΝΑΝΑ
 .ink default
-.at 5 0
+
 .ink red
- ▓
+    ▒▒
+.ink red
+    ▒▒
+.ink red
+    ▒▒
 .ink yellow
- ▓▓
-   ▓▓▓                    ▓▓
-    ▓▓▓▓                ▓▓▓
-     ▓▓▓▓▓            ▓▓▓▓
-      ▓▓▓▓▓▓▓       ▓▓▓▓▓
-       ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
-        ▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
-         ▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒
-           ▒▒▒▒▒▒▒▒▒▒▒
-             ▒▒▒▒▒▒
+   ▓▓▓▓▓▓▓
+.ink yellow
+    ░▒▒▓▓▓▒▓▓▓▓▓▓
+.ink yellow
+      ░░▒▒▒▓▓▓▒▒▓▓▓▓▓
+.ink yellow
+        ░░▒▒▒▒▓▓▓▒▒▓▓▓▓▓
+.ink yellow
+          ░░░▒▒▒▒▓▓▓▒▒▓▓▓▓▓
+.ink yellow
+            ░░░▒▒▒▒▓▓▓▒▒▓▓▓▓▓
+.ink yellow
+              ░░░▒▒▒▒▓▓▓▒▒▓▓▓▓
+.ink yellow
+               ░░░░▒▒▒▒▓▓▓▒▓▓▓▓
+.ink yellow
+                 ░░░░▒▒▒▒▓▓▒▒▓▓▓
+.ink yellow
+                  ░░░░▒▒▒▒▓▓▒▒▓▓▓
+.ink yellow
+                    ░░░░▒▒▒▓▓▒▒▓▓
+.ink yellow
+                     ░░░░▒▒▒▓▓▒▓▓
+.ink yellow
+                      ░░░▒▒▒▓▓▓▒▓
+.ink yellow
+                       ░░░▒▒▒▓▓▒▓
+.ink yellow
+                        ░░░▒▒▒▓▒▓
+.ink yellow
+                         ░░░▒▒▓▓▒
+.ink yellow
+                          ░░▒▒▓▓▒
+.ink yellow
+                           ░░▒▒▓▒
+.ink yellow
+                            ░▒▒▓▒
+.ink yellow
+                             ░▒▓▓
+.ink yellow
+                              ▒▓▓
+.ink red
+                               ▓
 .ink default
-.at 18 0
- A banana, 30 cells wide, in two
- inks: the stalk in red, the body
- in yellow. Shades ▓ ▒ ░ are the
- picture's three tones; each row
- carries its own ink.
-.ink green
-.at 24 0
-☀ RIPE · ΩΡΙΜΗ
-.ink white on blue
-.fill 27 0 34 1
-.at 27 2
-SHADES ░ ▒ ▓ · BOX ─ │ ┼ · ☀ ☁ ☂
+
+.ink default
 
 .panel 1
 .ink white on blue
