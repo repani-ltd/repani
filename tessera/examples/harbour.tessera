@@ -1,26 +1,30 @@
-.rem A single-panel notice: the other three panels stay blank.
+.rem Kea harbour master: a two-panel notice board. Panels 2 and 3
+.rem stay blank. Every row starts with an ink code or a space.
+
 .panel 0
 .ink default on cyan
 .fill 0 0 34 3
 .ink white on cyan
 .at 1 2
-KEA HARBOUR MASTER · ΚΕΑ
+⚓ KEA HARBOUR MASTER · ΚΕΑ
 .ink default
 .at 4 0
 .ink yellow
-TODAY 02 SEP
+TODAY TUE 02 SEP · 0700 LT
 .ink default
  Harbour open. Berthing on the
- south quay only; north quay
- reserved for the 1830 ferry.
-.at 9 0
+ south quay only; the north quay
+ is reserved for the 1830 ferry.
+ Stern-to, lazy lines in place.
+.at 10 0
 .ink red
-MELTEMI TONIGHT
+⚠ MELTEMI TONIGHT
 .ink default
- N 7-8 from 1800. Double up
- mooring lines. Anchoring in
- Vourkari bay not advised.
-.at 14 0
+ N 7-8 from 1800, gusts 9 in the
+ channel. Double up mooring lines
+ and fenders. Anchoring in
+ Vourkari bay is not advised.
+.at 16 0
 .ink cyan
 FUEL
 .ink default
@@ -28,11 +32,79 @@ FUEL
 .ink cyan
 WATER
 .ink default
-+  on both quays
++  on both quays, 220 V
+.ink cyan
+SHOWERS
+.ink default
++  06:00-22:00, port office
 .ink cyan
 PORT POLICE
 .ink default
 +  VHF 12 · 22880 21344
-.at 18 0
+.ink cyan
+MEDICAL
+.ink default
++  Ioulida 22880 22200
+.at 22 0
+.ink yellow
+FEES / NIGHT
+.ink default
+ up to 10 m  14 €    10-15 m  22 €
+ 15-20 m     36 €    over 20 m ask
+.at 26 0
 .ink green
-ΚΑΛΩΣ ΗΡΘΑΤΕ · WELCOME
+ΚΑΛΩΣ ΗΡΘΑΤΕ · WELCOME TO KEA
+.ink white on cyan
+.fill 27 0 34 1
+.at 27 2
+HOURLY · ΛΙΜΕΝΑΡΧΕΙΟ ΚΕΑΣ
+
+.panel 1
+.ink white on blue
+.fill 0 0 34 1
+.at 0 2
+FERRIES · ΔΡΟΜΟΛΟΓΙΑ · 02 SEP
+.at 2 0
+.ink yellow
+DEP    TO       VESSEL   STATUS
+.ink default
+ ────────────────────────────────
+.ink green
+06:00  LAVRIO   MARMARI  ON TIME
+09:30  LAVRIO   MAKEDON  ON TIME
+13:00  KYTHNOS  MARMARI  ON TIME
+.ink yellow
+17:00  LAVRIO   MAKEDON  DELAYED
+.ink red
+19:30  LAVRIO   MARMARI  CANCEL
+21:00  KYTHNOS  MAKEDON  CANCEL
+.ink default
+.at 10 0
+.ink cyan
+ARRIVALS
+.ink default
+ 08:45 Lavrio · 12:10 Lavrio
+ 18:30 Lavrio (north quay)
+.at 14 0
+.ink yellow
+BERTHS · ΘΕΣΕΙΣ
+.ink default
+ south quay   ▓▓▓▓▓▓▓▓░░░░  8/12
+ north quay   ▓▓░░░░░░░░░░  2/12
+ Vourkari     ▓▓▓▓▓░░░░░░░  5/12
+.at 19 0
+.ink cyan
+WEATHER · KAFIREAS
+.ink default
+ ☀ 28°C  N 5  sea moderate
+ ☾ 18:20  ☀ ↓19:41 ↑06:58
+.at 23 0
+.ink red
+GALE WARNING
+.ink default
++  in force from 1800 LT
+ Listen VHF CH 16 · Olympia radio
+.ink white on blue
+.fill 27 0 34 1
+.at 27 2
+NEXT UPDATE 1200 LT
