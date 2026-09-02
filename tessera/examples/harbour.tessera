@@ -102,7 +102,7 @@ WEATHER · KAFIREAS
 .ink red
 GALE WARNING
 .ink default
-+  in force from 1800 LT
++ from 1800 LT
  Listen VHF CH 16 · Olympia radio
 .ink white on blue
 .fill 27 0 34 1
