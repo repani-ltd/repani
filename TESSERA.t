@@ -5,7 +5,10 @@ TESSERA -- ONE PAGE OF SIXTEEN TILES ON THE QUIETCAST CAROUSEL
 .rem Format specification and decision ledger. Sections up to and
 .rem including "Authoring" are normative; "Decisions" records why.
 
-A tessera is a mosaic tile. A station's whole quietcast carousel
+A tessera is a mosaic tile, and in the Roman camp the small
+tablet that carried the day's watchword from post to post: a
+little living state, rewritten daily, relayed to everyone who
+needs it. A station's whole quietcast carousel
 -- sixteen slots of 238 bytes, 3,808 bytes in all -- is one page
 of colored cells, and each slot is one tile of it. The page is
 teletext-sized information: a masthead, a weather panel, a
@@ -295,6 +298,15 @@ determinism is worth more than the bytes). Links, in every form
 (a page is content; where a reader goes next is the renderer's
 chrome, and a row spent on navigation is a row not spent on
 information).
+.item Why the name. The format is named for its tile, which the
+author never sees, rather than for the board, which is what the
+spec describes; pinax (the Greek notice board and table) was
+weighed for that reason and passed over. The tile is the one
+real invention -- slot k is tile k, and that identity is what
+makes the page well-defined under any reception -- so the name
+points at the key fact, and the watchword sense fits the
+carousel exactly. Acta, deltos, tabella, broadside and slate
+were also considered.
 .item What was kept. The cell repertoire and the Greek page. The
 semantic palette, cut to teletext's seven hues plus the
 renderer's default. The five-command language and its rules (right-trim, "+"
