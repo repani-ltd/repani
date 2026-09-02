@@ -16,7 +16,8 @@ import (
 
 // HTML renders the document as an <article> fragment: <h1> title,
 // byline and <footer> rights from the metadata; <p>, <h2>/<h3>,
-// <hr>, <ul> (consecutive .item blocks form one list), <pre>,
+// <hr>, <ul> (consecutive .item blocks form one list), <dl> with
+// <dt>/<dd> (consecutive .term blocks form one list), <pre>,
 // <blockquote> with attribution, <p class="link"><a>, and <table>
 // with thead unless headerless, per-column alignment, total and
 // note rows. Layout commands have no HTML meaning and are consumed;
@@ -28,25 +29,38 @@ func (d *Doc) HTML() string {
 	if bl := d.Byline(); bl != "" {
 		w.WriteString(`<p class="byline">` + esc(bl) + "</p>\n")
 	}
-	inList := false
+	// Consecutive items form one <ul>, consecutive terms one <dl>;
+	// open names the list element currently open, if any.
+	open := ""
+	closeList := func() {
+		if open != "" {
+			w.WriteString("</" + open + ">\n")
+			open = ""
+		}
+	}
 	for _, b := range d.Blocks {
-		if b.Kind == Item {
-			if !inList {
+		switch b.Kind {
+		case Item:
+			if open != "ul" {
+				closeList()
 				w.WriteString("<ul>\n")
-				inList = true
+				open = "ul"
 			}
 			w.WriteString("<li>" + emphHTML(b.Text) + "</li>\n")
 			continue
+		case Term:
+			if open != "dl" {
+				closeList()
+				w.WriteString("<dl>\n")
+				open = "dl"
+			}
+			w.WriteString("<dt>" + esc(b.Label) + "</dt>\n<dd>" + emphHTML(b.Text) + "</dd>\n")
+			continue
 		}
-		if inList {
-			w.WriteString("</ul>\n")
-			inList = false
-		}
+		closeList()
 		htmlBlock(&w, b)
 	}
-	if inList {
-		w.WriteString("</ul>\n")
-	}
+	closeList()
 	if d.Rights != "" {
 		w.WriteString("<footer>" + esc(d.Rights) + "</footer>\n")
 	}

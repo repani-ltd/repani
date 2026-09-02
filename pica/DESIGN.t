@@ -132,7 +132,8 @@ boundary waiting there: inline anything would be the language's
 first in-content syntax — content is escape-free verbatim text by
 design — so that step needs its own recorded decision, never a side
 effect of wanting emphasis. (2026-08-24: the demand fired and the
-decision is recorded, §9.)
+decision is recorded, §9. 2026-09-02: the lead-in construct
+itself entered as .term, §11.)
 
 2026-08-05: =, .., and N are KEPT as permanent language surface
 regardless of how the bank-report demand develops — all three are
@@ -738,11 +739,71 @@ silent literal.
 
 Bounds set at birth: emphasis is whole-token in the proportional
 faces (attached punctuation sets with the word, the compositor's
-rule); it lives only in flowing prose (Para, .quote, .item) --
-headings, cells, .pre and arguments keep underscores as
-characters; spans never nest and never cross a block; and there
-is no second inline concept. The italic face exists for this one
-meaning; a document cannot reach it any other way.
+rule); it lives only in flowing prose (Para, .quote, .item, and
+since §11 the text of .term) -- headings, cells, .pre and
+arguments keep underscores as characters; spans never nest and
+never cross a block; and there is no second inline concept. The
+italic face exists for this one meaning; a document cannot reach
+it any other way.
+
+# 11. The labelled entry: .term (decided 2026-09-02)
+
+The lead-in construct §"Semantic markers" reserved in 2026-08-05
+("a lead-in construct, not bold") entered as .term LABEL with the
+entry's text on the lines beneath, the .item shape: a glossary
+term, a command and what it does, a facility and its hours. Its
+troff ancestor is .TP, the tagged paragraph; HTML's is dl/dt/dd.
+
+The demand that admitted it was found in the language's own
+documentation: the command reference in pica spec is a
+tagged-paragraph list hand-aligned inside verbatim text, the
+exact structure the construct names, forced into .pre because
+nothing else could hold it. A second family was the first
+tessera pages (repani/tessera/examples, 2026-09-02): run-in
+labels on a notice board (FUEL, WATER, PORT POLICE), which color
+had been carrying. Weighed and refused for those pages first: a
+headerless two-column table (columnar where the original is
+run-in, and emphasis is barred from cells, so a writer cannot
+single the label out), and .item with an emphasized label (the
+bullet and the marker cells cost rows on a 34-column panel, and
+the document would be saying stressed where it means labelled).
+
+Bounds set at birth. The label is a command argument, so it is
+verbatim (an underscore in it is a character) and the entry's
+text is flowing prose (emphasis lives there). An entry with no
+text is an error: a label alone is not an entry. Geometry is the
+item's without the bullet, so the two lists share one shape: the
+label, TermGap (2) spaces, the text run in on the same line, and
+turnovers hanging ItemIndent (2). One rule decides run-in versus
+standing: a label that leaves the text less than half the width
+stands on its own line and the text starts beneath it --
+troff's .TP rule for an over-long tag, made deterministic so every
+writer counts the same lines (pica.TermRunIn). The text page
+renders the run-in structure and nothing else: that structure is
+the monospace rendering, which is how the construct passes
+admission test 2 with no new glyph. The PDFs set the label in the
+bold face, the one rendering that bold was always reserved for
+(§"Semantic markers": bold is what writers give some constructs,
+never what a document asks for); the sans page measures the
+label with the bold metrics so the run-in line justifies exactly.
+The breaker grew a first-line measure for it (WrapLinesRunIn and
+kin): the first line of a paragraph sets on what the lead leaves
+of it, every later line on the full measure -- the DP already
+knew which line was first, since it is the one that starts at
+word 0, so the change is a two-line branch in each cost pass.
+
+Refused alongside, with the tests that would readmit them: a
+severity or alarm mark on rows and headings (the other thing
+color carried on the tessera pages -- caution and alert rows,
+warning headings). It is notice-board vocabulary that no
+ordinary document in the corpus uses, where every other command
+appears in design documents, reports and prose alike; a marked
+row says in its data cell what the mark would say again.
+Readmission test: a pica-to-tessera writer exists and its first
+real page cannot say what it needs with a heading, a .term and
+the data in the cell. Also refused: an "ok" degree (normal is
+the unmarked state), any mark inside .pre, and any inline mark
+(emphasis stays the single inline concept, §9).
 
 # 10. The library packages: press and desk (decided 2026-08-29)
 

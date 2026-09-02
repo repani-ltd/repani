@@ -21,12 +21,14 @@ const (
 	LinkBlk                   // .link reference: URL and optional title
 	Quote                     // .quote: indented prose, optional attribution
 	Item                      // .item: one bulleted list item
+	Term                      // .term: a labelled entry, the label run in; see Label
 )
 
 // Block is one element of a parsed document.
 type Block struct {
 	Kind   BlockKind
-	Text   string   // Para/Quote/Item: unwrapped prose. Heading: text. LinkBlk: "URL [TITLE]".
+	Text   string   // Para/Quote/Item/Term: unwrapped prose. Heading: text. LinkBlk: "URL [TITLE]".
+	Label  string   // Term: the label (never empty)
 	Attrib string   // Quote: attribution line ("" = none)
 	Table  *Table   // TableBlk
 	Width  int      // TableBlk: fixed width from the spec (0 = document width)
@@ -219,12 +221,18 @@ func Parse(src string) (*Doc, error) {
 			// Everything unmarked is prose -- fill mode, as in
 			// troff. Aligned or preformatted content must say .pre;
 			// the parser never infers structure from spacing. An
-			// unmarked line directly under an .item continues that
-			// item's text: items fill exactly as paragraphs do, so
-			// hard-wrapped source means the same thing everywhere.
+			// unmarked line directly under an .item or .term
+			// continues that block's text: both fill exactly as
+			// paragraphs do, so hard-wrapped source means the same
+			// thing everywhere (a .term's text is entirely such
+			// lines; its command line holds only the label).
 			if p.openItem {
 				last := &p.doc.Blocks[len(p.doc.Blocks)-1]
-				last.Text += " " + trimmed
+				if last.Text == "" {
+					last.Text = trimmed
+				} else {
+					last.Text += " " + trimmed
+				}
 				continue
 			}
 			if len(p.para) == 0 {
@@ -245,6 +253,12 @@ func Parse(src string) (*Doc, error) {
 			if _, err := b.Table.Layout(b.TableWidth(p.doc.Layout.Width)); err != nil {
 				return nil, fmt.Errorf("%w (line %d)", err, b.Line)
 			}
+		case Term:
+			// A label with nothing beneath it is not an entry.
+			if b.Text == "" {
+				return nil, fmt.Errorf("%w: .term %q wants text on the lines beneath it (line %d)", ErrBadAttr, b.Label, b.Line)
+			}
+			fallthrough
 		case Para, Quote, Item:
 			// Emphasis lives only in flowing prose, and every span
 			// must close inside its block: an unclosed opener is
@@ -310,6 +324,19 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		}
 		p.flush()
 		p.add(Block{Kind: Item, Text: rest})
+		p.openItem = true
+		return i, nil
+
+	case ".term":
+		// The label is the argument; the text is the unmarked
+		// lines beneath, collected exactly as an item's are. An
+		// entry with no text is rejected once the block closes
+		// (see the Term check after the scan).
+		if rest == "" {
+			return 0, fmt.Errorf("%w: .term wants a label (line %d)", ErrBadAttr, n)
+		}
+		p.flush()
+		p.add(Block{Kind: Term, Label: rest})
 		p.openItem = true
 		return i, nil
 

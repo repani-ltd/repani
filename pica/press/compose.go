@@ -7,6 +7,7 @@ package press
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"repani.com/pica"
 	"repani.com/pica/pdf"
@@ -51,6 +52,12 @@ type sline struct {
 	// text-page identity, never move.
 	emph  []bool
 	uline []pica.Span
+	// lead: a .term label run in at the line's left in the bold
+	// face. Monospace: text begins with the lead's runes (drawn
+	// bold, the rest regular on the same grid). Proportional: the
+	// words start at indent, which the composer sets past the
+	// lead; a lead with no words is a label standing alone.
+	lead string
 }
 
 // proseSpan is one measured line of a table cell set in the body
@@ -264,9 +271,9 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 	var out []fblock
 	for bi := 0; bi < len(doc.Blocks); bi++ {
 		blk := doc.Blocks[bi]
-		if blk.Kind == pica.Item {
+		if blk.Kind == pica.Item || blk.Kind == pica.Term {
 			run := []pica.Block{blk}
-			for bi+1 < len(doc.Blocks) && doc.Blocks[bi+1].Kind == pica.Item && doc.Blocks[bi+1].Tight {
+			for bi+1 < len(doc.Blocks) && doc.Blocks[bi+1].Kind == blk.Kind && doc.Blocks[bi+1].Tight {
 				bi++
 				run = append(run, doc.Blocks[bi])
 			}
@@ -288,7 +295,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				open := false
 				for _, ln := range pica.JustifyParagraph(blk.Text, width) {
 					var sl sline
-					sl, open = emphSline(ln, open)
+					sl, open = emphSline("", ln, open)
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			}
@@ -318,7 +325,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				open := false
 				for _, ln := range pica.JustifyParagraph(blk.Text, width-2*pica.QuoteIndent) {
 					var sl sline
-					sl, open = emphSline(inset+ln, open)
+					sl, open = emphSline(inset, ln, open)
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 				if blk.Attrib != "" {
@@ -491,8 +498,9 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 	return out, nil
 }
 
-// composeItems renders a tight run of items. When any item in the
-// run turns over, a half-line gap separates the items — the same
+// composeItems renders a tight run of items, or of terms (one
+// kind per run). When any entry in the run turns over, a half-line
+// gap separates the entries — the same
 // conditional, quantized policy as the table row pitch: an all
 // single-line run stays classically tight, a wrapped run gets air
 // so turnovers cannot be misread as sibling items. The spacer joins
@@ -504,7 +512,11 @@ func composeItems(run []pica.Block, t typo, width int) []fblock {
 	fbs := make([]fblock, len(run))
 	wrapped := false
 	for i, blk := range run {
-		fbs[i] = composeItem(blk, t, width)
+		if blk.Kind == pica.Term {
+			fbs[i] = composeTerm(blk, t, width)
+		} else {
+			fbs[i] = composeItem(blk, t, width)
+		}
 		if len(fbs[i].segs) > 1 {
 			wrapped = true
 		}
@@ -548,22 +560,94 @@ func composeItem(blk pica.Block, t typo, width int) fblock {
 				pre = pica.Bullet + " "
 			}
 			var sl sline
-			sl, open = emphSline(pre+ln, open)
+			sl, open = emphSline(pre, ln, open)
 			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 		}
 	}
 	return fb
 }
 
+// composeTerm renders one .term: the label run in, set in the bold
+// face, then the text, its turnovers hanging pica.ItemIndent; a
+// label that leaves the text less than half the measure stands on
+// its own line with the text beneath. The mono path follows the
+// text writer's geometry cell for cell (pica.TermRunIn,
+// pica.TermGap); the sans path applies the same rule in measured
+// units, the label measured in the face that draws it.
+func composeTerm(blk pica.Block, t typo, width int) fblock {
+	fb := fblock{tight: blk.Tight}
+	if t.sans {
+		m, mb, mi := pdf.Measure(pdf.Sans), pdf.Measure(pdf.SansBold), pdf.Measure(pdf.SansItalic)
+		hang := pica.ItemIndent * m.Space()
+		measure := t.units - hang
+		lead := mb.Width(blk.Label) + pica.TermGap*m.Space()
+		first := t.units - lead
+		if 2*first < t.units {
+			fb.segs = append(fb.segs, seg{lines: []sline{{lead: blk.Label}}})
+			lines := pica.JustifyLinesEmph(blk.Text, measure, m, mi)
+			for i, ln := range lines {
+				last := i == len(lines)-1
+				sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: hang}
+				fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+			}
+			return fb
+		}
+		lines := pica.JustifyLinesEmphRunIn(blk.Text, first, measure, m, mi)
+		for i, ln := range lines {
+			last := i == len(lines)-1
+			sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: hang}
+			if i == 0 {
+				sl.lead, sl.indent, sl.gaps = blk.Label, lead, spread(ln, first, m, last)
+			}
+			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+		}
+		return fb
+	}
+	hang := strings.Repeat(" ", pica.ItemIndent)
+	first, runIn := pica.TermRunIn(blk.Label, width)
+	open := false
+	if !runIn {
+		label := pica.TruncLine(blk.Label, width)
+		fb.segs = append(fb.segs, seg{lines: []sline{{text: label, lead: label}}})
+		for _, ln := range pica.JustifyParagraph(blk.Text, width-pica.ItemIndent) {
+			var sl sline
+			sl, open = emphSline(hang, ln, open)
+			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+		}
+		return fb
+	}
+	for i, ln := range pica.JustifyParagraphRunIn(blk.Text, first, width-pica.ItemIndent) {
+		pre := hang
+		if i == 0 {
+			pre = blk.Label + strings.Repeat(" ", pica.TermGap)
+		}
+		var sl sline
+		sl, open = emphSline(pre, ln, open)
+		if i == 0 {
+			sl.lead = blk.Label
+		}
+		fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+	}
+	return fb
+}
+
 // emphSline scans one composed monospace prose line for emphasis,
 // carrying the span state across a block's lines: marker cells are
-// blanked, the underline intervals recorded. The scan runs on the
-// FINAL line text (insets and bullets baked in), so the recorded
-// cells are the drawn cells. Only prose lines come through here;
+// blanked, the underline intervals recorded. pre is the line's
+// prefix -- an inset, a bullet, a run-in label -- baked in front of
+// the scanned text, so the recorded cells are the drawn cells while
+// the prefix's own runes are never read as markers (a label may
+// begin with an underscore). Only prose lines come through here;
 // verbatim, table and heading text never carries emphasis.
-func emphSline(text string, open bool) (sline, bool) {
+func emphSline(pre, text string, open bool) (sline, bool) {
 	clean, spans, still := pica.EmphLine(text, open)
-	return sline{text: clean, uline: spans}, still
+	if off := utf8.RuneCountInString(pre); off > 0 {
+		for i := range spans {
+			spans[i].Start += off
+			spans[i].End += off
+		}
+	}
+	return sline{text: pre + clean, uline: spans}, still
 }
 
 func toSlines(lines []string) []sline {

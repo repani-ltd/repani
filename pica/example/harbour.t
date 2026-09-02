@@ -1,0 +1,82 @@
+KEA HARBOUR MASTER · ΚΕΑ
+.by Kea Port Authority
+.date Tuesday 02 September 2026, 07:00 LT
+.rights Λιμεναρχείο Κέας · hourly
+.rem The harbour master's notice board (tessera/examples/harbour):
+.rem the same data as a pica document, structure in place of ink.
+
+# Today
+
+Harbour open. Berthing on the south quay only; the north quay is
+reserved for the 18:30 ferry. Stern-to, lazy lines in place.
+
+## Meltemi tonight
+
+North 7 to 8 from 18:00, gusts 9 in the channel. Double up mooring
+lines and fenders. Anchoring in Vourkari bay is _not_ advised.
+
+## Services
+
+.term Fuel
+06:00-14:00, south quay
+.term Water
+on both quays, 220 V
+.term Showers
+06:00-22:00, port office
+.term Port police
+VHF 12 · 22880 21344
+.term Medical
+Ioulida 22880 22200
+
+## Fees per night
+
+.table 10L 5R 10L 5R
+Length | Fee | Length | Fee
+up to 10 m | 14 € | 10-15 m | 22 €
+15-20 m | 36 € | over 20 m | ask
+.end
+
+# Ferries · Δρομολόγια
+
+.table 6L 8L 8L *L
+Dep | To | Vessel | Status
+06:00 | Lavrio | Marmari | on time
+09:30 | Lavrio | Makedon | on time
+13:00 | Kythnos | Marmari | on time
+17:00 | Lavrio | Makedon | delayed
+19:30 | Lavrio | Marmari | cancelled
+21:00 | Kythnos | Makedon | cancelled
+.end
+
+## Arrivals
+
+.item 08:45 Lavrio
+.item 12:10 Lavrio
+.item 18:30 Lavrio, north quay
+
+## Berths · Θέσεις
+
+.table 12L 14L 6R
+Quay | Occupied | Berths
+south quay | ▓▓▓▓▓▓▓▓░░░░ | 8/12
+north quay | ▓▓░░░░░░░░░░ | 2/12
+Vourkari | ▓▓▓▓▓░░░░░░░ | 5/12
+.end
+
+## Weather · Kafireas
+
+.term Now
+☀ 28 °C, N 5, sea moderate
+.term Sun
+↑ 06:58, ↓ 19:41
+.term Moon
+↑ 18:20
+
+## Gale warning
+
+From 18:00 LT. Listen VHF CH 16, Olympia radio.
+
+Καλώς ήρθατε · Welcome to Kea.
+
+.width 34
+.font sans

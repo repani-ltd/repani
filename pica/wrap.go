@@ -230,10 +230,34 @@ func wrapParagraph(para string, width int) []string {
 // wrapRagged is the ragged-right Knuth-Plass breaker with the
 // hyphen penalty as a parameter.
 func wrapRagged(para string, width int, penalty float64, m Measurer) []Line {
+	return wrapRaggedRunIn(para, width, width, penalty, m)
+}
+
+// wrapRaggedRunIn is wrapRagged with the first line on its own
+// measure (see WrapLinesRunIn).
+func wrapRaggedRunIn(para string, first, width int, penalty float64, m Measurer) []Line {
 	sp := m.Space()
 	return breakLines(monoWords(para, m), sp, func(words []word, start, end int, cost []float64, next, hyph []int) {
-		raggedDP(words, start, end, width, penalty, sp, cost, next, hyph)
+		raggedDP(words, start, end, first, width, penalty, sp, cost, next, hyph)
 	})
+}
+
+// WrapLinesRunIn is WrapLines for a paragraph whose first line
+// opens with a run-in lead (a .term label) that is NOT part of the
+// paragraph: the first line sets on the measure first -- what the
+// lead leaves of the line -- and every later line on width. The
+// lead itself is the caller's to place; the lines returned are the
+// paragraph's own words. Both measures must be positive.
+func WrapLinesRunIn(para string, first, width int, m Measurer) []Line {
+	checkWidth(first)
+	checkWidth(width)
+	return wrapRaggedRunIn(para, first, width, hyphenPenaltyProse, m)
+}
+
+// wrapParagraphRunIn is wrapParagraph with the first line on the
+// measure first: the monospace text of WrapLinesRunIn.
+func wrapParagraphRunIn(para string, first, width int) []string {
+	return flattenLines(WrapLinesRunIn(para, first, width, Mono))
 }
 
 // monoWords tokenizes a paragraph with every token on one measurer:
@@ -315,10 +339,17 @@ func breakLines(words []word, sp int, dp func(words []word, start, end int, cost
 // ragged-right cost model. Positions >= end keep their existing
 // entries, which is what lets the reconstruction recompute a single
 // position after a hyphen substitution.
-func raggedDP(words []word, start, end, width int, penalty float64, sp int, cost []float64, next, hyph []int) {
+func raggedDP(words []word, start, end, first, measure int, penalty float64, sp int, cost []float64, next, hyph []int) {
 	n := len(words)
 	spsp := float64(sp) * float64(sp)
 	for i := end - 1; i >= start; i-- {
+		// The paragraph's first line (the one starting at word 0)
+		// sets on its own measure: a run-in lead may occupy part
+		// of it (WrapLinesRunIn); every other line sets on measure.
+		width := measure
+		if i == 0 {
+			width = first
+		}
 		bestCost := math.Inf(1)
 		bestJ := i + 1
 		bestHyph := -1
@@ -499,15 +530,47 @@ func justifyGapCost(slack, words int) float64 {
 //
 // Reconstruction is shared with the ragged breaker: see breakLines.
 func justifyWrap(para string, width int, m Measurer) []Line {
-	return justifyBreak(monoWords(para, m), width, m.Space(), HangHyphen(m))
+	return justifyBreak(monoWords(para, m), width, width, m.Space(), HangHyphen(m))
 }
 
 // justifyBreak runs the justified breaker over pre-measured words:
-// the shared tail of JustifyLines and JustifyLinesEmph.
-func justifyBreak(words []word, width, sp, hang int) []Line {
+// the shared tail of JustifyLines and JustifyLinesEmph. The first
+// line sets on first, every later line on width (equal except
+// under a run-in lead; see WrapLinesRunIn).
+func justifyBreak(words []word, first, width, sp, hang int) []Line {
 	return breakLines(words, sp, func(words []word, start, end int, cost []float64, next, hyph []int) {
-		justifyDP(words, start, end, width, sp, hang, cost, next, hyph)
+		justifyDP(words, start, end, first, width, sp, hang, cost, next, hyph)
 	})
+}
+
+// JustifyParagraphRunIn is JustifyParagraph with the first line on
+// the measure first (a run-in lead occupies the rest of it, see
+// WrapLinesRunIn): the first line flushes to first, every later
+// non-final line to width.
+func JustifyParagraphRunIn(para string, first, width int) []string {
+	checkWidth(first)
+	checkWidth(width)
+	lines := justifyBreak(monoWords(para, Mono), first, width, 1, 0)
+	out := make([]string, len(lines))
+	for i, ln := range lines {
+		switch {
+		case i == len(lines)-1:
+			out[i] = strings.Join(ln.Words, " ")
+		case i == 0:
+			out[i] = justifyLine(ln, first)
+		default:
+			out[i] = justifyLine(ln, width)
+		}
+	}
+	return out
+}
+
+// JustifyLinesEmphRunIn is JustifyLinesEmph with the first line on
+// the measure first (see WrapLinesRunIn).
+func JustifyLinesEmphRunIn(para string, first, width int, m, em Measurer) []Line {
+	checkWidth(first)
+	checkWidth(width)
+	return justifyBreak(emphWords(para, m, em), first, width, m.Space(), HangHyphen(m))
 }
 
 // JustifyLinesEmph is JustifyLines for a paragraph carrying _..._
@@ -521,7 +584,7 @@ func justifyBreak(words []word, width, sp, hang int) []Line {
 // paragraph without markers behaves exactly as JustifyLines.
 func JustifyLinesEmph(para string, width int, m, em Measurer) []Line {
 	checkWidth(width)
-	return justifyBreak(emphWords(para, m, em), width, m.Space(), HangHyphen(m))
+	return justifyBreak(emphWords(para, m, em), width, width, m.Space(), HangHyphen(m))
 }
 
 // emphWords tokenizes a marked paragraph: EmphSegments strips the
@@ -574,11 +637,16 @@ func emphWords(para string, m, em Measurer) []word {
 // gap-aware justify cost model. Positions >= end keep their
 // existing entries, which is what lets the reconstruction recompute
 // a single position after a hyphen substitution.
-func justifyDP(words []word, start, end, width, sp, hang int, cost []float64, next, hyph []int) {
+func justifyDP(words []word, start, end, first, measure, sp, hang int, cost []float64, next, hyph []int) {
 	n := len(words)
 	spsp := float64(sp) * float64(sp)
 	shrink := shrinkPerGap(sp)
 	for i := end - 1; i >= start; i-- {
+		// First line on its own measure, as in raggedDP.
+		width := measure
+		if i == 0 {
+			width = first
+		}
 		bestCost := math.Inf(1)
 		bestJ := i + 1
 		bestHyph := -1

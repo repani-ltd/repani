@@ -11,10 +11,11 @@ import (
 	"repani.com/pica/press"
 )
 
-// TestOfficialExamples pins the two committed example documents:
-// the triptych (newspaper) and the statement (report). The text
-// output is golden; the PDF must render deterministically through
-// the example's own presentation.
+// TestOfficialExamples pins the committed example documents: the
+// triptych (newspaper), the statement (report) and the harbour
+// notice board (a 34-column sans page of terms, items and tables).
+// The text output is golden; the PDF must render deterministically
+// through the example's own presentation.
 func TestOfficialExamples(t *testing.T) {
 	cases := []struct {
 		name, src, golden string
@@ -22,6 +23,7 @@ func TestOfficialExamples(t *testing.T) {
 	}{
 		{"triptych", "../../example/triptych.t", "../../example/triptych.txt", func(d *pica.Doc) ([]byte, error) { return press.PDF(d, false) }},
 		{"statement", "../../example/statement.t", "../../example/statement.txt", func(d *pica.Doc) ([]byte, error) { return press.Report(d, false) }},
+		{"harbour", "../../example/harbour.t", "../../example/harbour.txt", func(d *pica.Doc) ([]byte, error) { return press.PDF(d, false) }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

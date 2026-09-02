@@ -4,7 +4,11 @@
 
 package press
 
-import "repani.com/pica/pdf"
+import (
+	"unicode/utf8"
+
+	"repani.com/pica/pdf"
+)
 
 // emWidth is the body font's advance per rune in ems -- a metric of
 // the embedded font, not a style choice.
@@ -46,7 +50,7 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 				p.Line(x, ry, x+colW, ry, 0.5)
 			}
 
-		case len(ln.words) > 0:
+		case len(ln.words) > 0 || (ln.lead != "" && ln.text == ""):
 			font := pdf.Sans
 			if ln.style == styleBold {
 				font = pdf.SansBold
@@ -55,8 +59,16 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			if ln.style == styleGray {
 				p.Gray(0.45)
 			}
+			// A run-in label (.term) sets bold at the line's left;
+			// the words start at the indent the composer set past it.
+			if ln.lead != "" {
+				p.SetFont(pdf.SansBold, ps)
+				p.Text(x, y, ln.lead)
+			}
 			xw := x + float64(ln.indent)*t.ps/1000
-			if ln.emph == nil {
+			if len(ln.words) == 0 {
+				// The label alone on its line.
+			} else if ln.emph == nil {
 				p.SetFont(font, ps)
 				p.Words(xw, y, ln.words, ln.gaps)
 			} else {
@@ -82,7 +94,18 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			if ln.style == styleGray {
 				p.Gray(0.45)
 			}
-			if ln.text != "" {
+			if ln.lead != "" {
+				// A run-in label (.term): the line's leading runes
+				// set bold, the rest regular, on the one mono grid
+				// (both faces share the advance).
+				n := utf8.RuneCountInString(ln.lead)
+				p.SetFont(pdf.Bold, ps)
+				p.Text(x, y, ln.lead)
+				if rest := string([]rune(ln.text)[n:]); rest != "" {
+					p.SetFont(font, ps)
+					p.Text(x+float64(n)*emWidth*ps, y, rest)
+				}
+			} else if ln.text != "" {
 				p.SetFont(font, ps)
 				p.Text(x, y, ln.text)
 			}

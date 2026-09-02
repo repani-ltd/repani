@@ -71,6 +71,20 @@ A document is UTF-8 text, structured by line:
 	                 source means the same thing everywhere.
 	                 Consecutive .item lines set tight (no blank
 	                 line between); items do not nest
+	.term LABEL      one labelled entry (a glossary term, a
+	  text...        command and what it does, a facility and
+	                 its hours): LABEL is the argument, and the
+	                 unmarked lines beneath are the entry's text,
+	                 which fills like a paragraph and ends as an
+	                 item's does. An entry with no text is an
+	                 error. Rendered run in: the label, two
+	                 spaces, then the text on the same line,
+	                 turnovers hanging 2 characters; a label that
+	                 leaves the text less than half the width
+	                 stands alone on its line and the text starts
+	                 beneath it. Consecutive .term lines set tight,
+	                 like items; a run of terms is the labelled
+	                 list (troff's .TP, HTML's dl)
 	.by TEXT         byline and dateline metadata: rendered under
 	.date TEXT       the title as "by TEXT -- DATE" (whichever
 	                 parts are present; see Doc.Byline). Each may
@@ -111,9 +125,10 @@ its own output format. The text writer's target format is the
 quietcasting wire markup, so it serializes Heading as "# text" and
 LinkBlk as a ".link" meta line (which wire clients render as a
 proper link); the pdf writer renders headings bold and links as
-gray anchor text carrying a clickable annotation; the HTML writer
-emits the element that carries the meaning (h2/h3, ul/li, table
-with thead, blockquote, a real <a>) and lets the browser wrap, so
+gray anchor text carrying a clickable annotation, and sets a .term
+label in the bold face; the HTML writer
+emits the element that carries the meaning (h2/h3, ul/li, dl/dt/dd,
+table with thead, blockquote, a real <a>) and lets the browser wrap, so
 layout commands and widths are consumed, not rendered. A consumer that
 wants the data rather than a rendering walks Doc.Blocks directly.
 Line counts are deterministic in every writer, and for plain blocks
@@ -147,9 +162,9 @@ make an escape unnecessary:
     underscores (snake_case) never match, and "__" is always
     literal.
   - Emphasis lives only in flowing prose: paragraphs, .quote
-    bodies, and .item text. In the title, headings, table cells,
-    .pre bodies, and command arguments an underscore is a
-    character.
+    bodies, .item text, and .term text. In the title, headings,
+    table cells, .pre bodies, and command arguments (a .term
+    label included) an underscore is a character.
   - Every span must close inside its own block: an opening
     underscore with no closing one is a parse error. Prose that
     needs a literal underscore at a marker position (an

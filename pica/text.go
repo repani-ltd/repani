@@ -83,6 +83,31 @@ func RenderBlock(b Block, width int) ([]string, error) {
 		}
 		return out, nil
 
+	case Term:
+		// The label runs in: label, TermGap spaces, then the text,
+		// its turnovers hanging ItemIndent runes like an item's. A
+		// label that leaves too little of the line stands alone on
+		// it and the text starts beneath, every line hanging.
+		hang := strings.Repeat(" ", ItemIndent)
+		first, runIn := TermRunIn(b.Label, width)
+		if !runIn {
+			out := []string{TruncLine(b.Label, width)}
+			for _, ln := range wrapParagraph(b.Text, width-ItemIndent) {
+				out = append(out, hang+ln)
+			}
+			return out, nil
+		}
+		inner := wrapParagraphRunIn(b.Text, first, width-ItemIndent)
+		out := make([]string, len(inner))
+		for i, ln := range inner {
+			if i == 0 {
+				out[i] = b.Label + strings.Repeat(" ", TermGap) + ln
+			} else {
+				out[i] = hang + ln
+			}
+		}
+		return out, nil
+
 	case RuleBlk:
 		return []string{"---"}, nil
 
@@ -121,7 +146,23 @@ const (
 	QuoteIndent = 2
 	ItemIndent  = 2
 	Bullet      = "•"
+	// TermGap is the run-in gap: the spaces between a .term label
+	// and its text on the label's line. A term's turnovers hang
+	// ItemIndent runes, the item's geometry without the bullet.
+	TermGap = 2
 )
+
+// TermRunIn decides a .term label's placement at the given width:
+// first is the measure the text has on the label's line (the width
+// less the label and TermGap), and runIn whether the text runs in
+// there at all. A label that leaves less than half the width to
+// the text stands on its own line, and the text starts beneath it
+// -- troff's .TP rule for an over-long tag. Every writer shares the
+// decision, so their line counts agree.
+func TermRunIn(label string, width int) (first int, runIn bool) {
+	first = width - runeLen(label) - TermGap
+	return first, 2*first >= width
+}
 
 // AttribLine renders a quote attribution right-aligned to the
 // quote's right margin (width - QuoteIndent): "-- WHO", truncated
