@@ -157,7 +157,8 @@ of the five is an error.
     .ink FG on BG    "on" a background, by palette name
     content          one run at the cursor in the pen's ink; the
                      cursor then drops one row, same column.
-                     Right-trimmed; ". " and ".." begin content
+                     Right-trimmed; ". " and ".." begin content;
+                     an empty line flows one row and writes nothing
     + content        continue on the same row where the last run
                      ended
     .fill R C W H    a W-by-H region of spaces at R C in the pen's
