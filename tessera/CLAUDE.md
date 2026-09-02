@@ -3,9 +3,8 @@
 One page of sixteen tiles on the quietcast carousel: a station's
 whole carousel (16 × 238 = 3,808 bytes) is one page of colored
 cells, four panels of 28 rows × 34 columns, one slot = one tile of
-seven rows. Teletext-sized information only. Module
-`repani.com/tessera`, its own repo, wired locally through
-`~/repos/go.work`.
+seven rows. Teletext-sized information only. Import path
+`repani.com/tessera`, a project of the public module.
 
 - TESSERA.t is the specification — read it before proposing
   changes. Sections through "Authoring" are normative; "Parked
@@ -21,6 +20,8 @@ seven rows. Teletext-sized information only. Module
   or navigation (the renderer's chrome); the renderer owns the
   cell's shape.
 - No code yet: the compiler (source → raster) and renderers come
-  when a station needs them. The predecessor zine
+  when a station needs them; when a CLI ships it follows the
+  module's rules (`tessera/cmd/tessera`, `spec` and `check`,
+  pkg.fact). The predecessor zine
   (`~/repos/_attic/zine`) holds a transcoder and Greek tables
   that carry over byte-for-byte.

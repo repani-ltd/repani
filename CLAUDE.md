@@ -1,8 +1,9 @@
 # repani (module repani.com)
 
 One Go module. Top-level directories are either products with
-their own CLAUDE.md (`pica/`, `fact/`) or primitive packages
-(`ascon/`, `golay/`, `lz4s/`); this file holds what is common.
+their own CLAUDE.md (`pica/`, `fact/`, `tessera/`) or primitive
+packages (`ascon/`, `golay/`, `lz4s/`); this file holds what is
+common.
 
 Primitive packages are stdlib-only, import no sibling package,
 carry no protocol constants or types (a primitive may not know
