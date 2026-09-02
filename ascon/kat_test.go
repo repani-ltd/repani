@@ -13,6 +13,7 @@ import (
 // (NIST SP 800-232). See testdata/SOURCE.t for provenance.
 const (
 	xofKATFile  = "testdata/LWC_XOF_KAT_128_512.txt"
+	cxofKATFile = "testdata/LWC_CXOF_KAT_128_512.txt"
 	aeadKATFile = "testdata/LWC_AEAD_KAT_128_128.txt"
 )
 
@@ -84,6 +85,26 @@ func TestXOF_ReferenceKAT(t *testing.T) {
 		}
 	}
 	t.Logf("verified %d Ascon-XOF128 vectors", len(vecs))
+}
+
+// TestCXOF_ReferenceKAT runs every official Ascon-CXOF128 vector.
+func TestCXOF_ReferenceKAT(t *testing.T) {
+	vecs := parseKAT(t, cxofKATFile)
+	if len(vecs) == 0 {
+		t.Fatalf("no vectors parsed from %s", cxofKATFile)
+	}
+	for _, v := range vecs {
+		z := mustHex(t, v["Z"])
+		msg := mustHex(t, v["Msg"])
+		want := mustHex(t, v["MD"])
+		got := make([]byte, len(want))
+		CXOF(z, msg, got)
+		if !bytes.Equal(got, want) {
+			t.Fatalf("CXOF count=%s (zlen=%d msglen=%d):\n got  %x\n want %x",
+				v["Count"], len(z), len(msg), got, want)
+		}
+	}
+	t.Logf("verified %d Ascon-CXOF128 vectors", len(vecs))
 }
 
 // TestAEAD_ReferenceKAT runs every official Ascon-AEAD128 vector,

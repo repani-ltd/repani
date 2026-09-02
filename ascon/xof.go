@@ -16,23 +16,34 @@ func XOF(data, out []byte) {
 	s[0] = 0x0000080000CC0003
 
 	p12(&s)
+	absorb(&s, data)
+	squeeze(&s, out)
+}
 
-	// Absorb full 8-byte blocks straight from data; only the tail
-	// (0..7 bytes plus 10* padding) goes through a stack buffer, so
-	// no heap copy of the (possibly sensitive) input is made.
+// absorb XORs data into the sponge at rate 8 with 10* padding, one
+// p12 per block, the padded tail included. Full blocks are read
+// straight from data; only the tail (0..7 bytes plus padding) goes
+// through a stack buffer, so no heap copy of the (possibly
+// sensitive) input is made.
+func absorb(s *[5]uint64, data []byte) {
 	const rate = 8
 	for len(data) >= rate {
 		s[0] ^= binary.LittleEndian.Uint64(data[:rate])
-		p12(&s)
+		p12(s)
 		data = data[rate:]
 	}
 	var buf [rate]byte
 	copy(buf[:], data)
 	buf[len(data)] = 0x01
 	s[0] ^= binary.LittleEndian.Uint64(buf[:])
-	p12(&s)
+	p12(s)
+}
 
-	// Squeeze: 8 bytes of s[0] per p12, little-endian.
+// squeeze writes len(out) output bytes: 8 bytes of s[0] per p12,
+// little-endian, permuting only between blocks.
+func squeeze(s *[5]uint64, out []byte) {
+	const rate = 8
+	var buf [rate]byte
 	pos := 0
 	for pos < len(out) {
 		binary.LittleEndian.PutUint64(buf[:], s[0])
@@ -40,7 +51,7 @@ func XOF(data, out []byte) {
 		copy(out[pos:pos+n], buf[:n])
 		pos += n
 		if pos < len(out) {
-			p12(&s)
+			p12(s)
 		}
 	}
 }
