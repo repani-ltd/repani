@@ -34,17 +34,16 @@ func TestGeometry(t *testing.T) {
 	}
 }
 
-// The frozen vector of TESSERA.t: "QUIETCASTING" in yellow at panel 2,
-// row 3, column 5 is slot 8, bytes 107..119, with the ink code at
-// column 5.
+// The frozen vector of TESSERA.t: "TESSERA" in yellow at panel 2, row
+// 3, column 5 is tile 8, bytes 107..114, with the ink code at column 5.
 func TestFrozenVector(t *testing.T) {
-	p := compile(t, ".panel 2\n.at 3 5\n.ink yellow\nQUIETCASTING\n")
-	want := []byte{0x83, 0x51, 0x55, 0x49, 0x45, 0x54, 0x43, 0x41, 0x53, 0x54, 0x49, 0x4E, 0x47}
-	if got := p.Tile(8)[107:120]; !bytes.Equal(got, want) {
-		t.Fatalf("tile 8 [107:120] = % X, want % X", got, want)
+	p := compile(t, ".panel 2\n.at 3 5\n.ink yellow\nTESSERA\n")
+	want := []byte{0x83, 0x54, 0x45, 0x53, 0x53, 0x45, 0x52, 0x41}
+	if got := p.Tile(8)[107:115]; !bytes.Equal(got, want) {
+		t.Fatalf("tile 8 [107:115] = % X, want % X", got, want)
 	}
-	if n := nonzero(p); n != 13 {
-		t.Fatalf("%d nonzero bytes, want 13", n)
+	if n := nonzero(p); n != 8 {
+		t.Fatalf("%d nonzero bytes, want 8", n)
 	}
 }
 

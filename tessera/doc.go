@@ -91,8 +91,7 @@ transcoded to the repertoire above; a rune outside it is an error.
 Compilation is reproducible: the same source yields the same 3,808
 bytes.
 
-Frozen vector: ".panel 2", ".at 3 5", ".ink yellow", "QUIETCASTING"
-puts 83 51 55 49 45 54 43 41 53 54 49 4E 47 at bytes 107..119 of tile
-8 and nothing else.
+Frozen vector: ".panel 2", ".at 3 5", ".ink yellow", "TESSERA" puts
+83 54 45 53 53 45 52 41 at bytes 107..114 of tile 8 and nothing else.
 */
 package tessera

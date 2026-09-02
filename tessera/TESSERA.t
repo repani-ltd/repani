@@ -63,15 +63,15 @@ A page is always exactly 3,808 bytes and unwritten cells are
 0x00, so identical content is identical bytes, tile by tile: an
 unchanged page changes no tile.
 
-Frozen vector: "QUIETCASTING" in yellow at panel 2, row 3,
-column 5 is page offset 2×952 + 3×34 + 5 = 2011, which is tile 8
-(2011 div 238), bytes 107 through 119 of it:
+Frozen vector: "TESSERA" in yellow at panel 2, row 3, column
+5 is page offset 2×952 + 3×34 + 5 = 2011, which is tile 8 (2011
+div 238), bytes 107 through 114 of it:
 
 .pre
-    83 51 55 49 45 54 43 41 53 54 49 4E 47
+    83 54 45 53 53 45 52 41
 .end
 
-with the ink code at column 5 and the Q at column 6.
+with the ink code at column 5 and the T at column 6.
 
 # Cells
 
