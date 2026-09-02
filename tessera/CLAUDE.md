@@ -1,9 +1,9 @@
 # tessera
 
-One page of sixteen tiles on the quietcasting carousel: a station's
-whole carousel (16 × 238 = 3,808 bytes) is one page of colored
-cells, four panels of 28 rows × 34 columns, one slot = one tile of
-seven rows. Teletext-sized information only. Import path
+A page of sixteen tiles: 3,808 cells of colored text, four panels
+of 28 rows × 34 columns, in tiles of seven rows (238 bytes), the
+tile being the unit of update. Sized to quietcasting's slots, one
+slot per tile in order. Teletext-sized information only. Import path
 `repani.com/tessera`, a project of the public module.
 
 - TESSERA.t is the specification — read it before proposing
@@ -11,7 +11,7 @@ seven rows. Teletext-sized information only. Import path
   designs" carry admission tests. Rationale is not recorded here;
   if a decision ever needs its history, it gets a separate
   document.
-- Core commitments: slot order is page order (no placement field,
+- Core commitments: a tile is its position (no placement field,
   no page number, no mark, no version byte); the page is a
   contiguous 3,808-byte raster; ink is in band, row-scoped
   (0x80+fg, 0x88+bg, palette of default plus seven hues), so

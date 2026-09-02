@@ -1,17 +1,19 @@
 /*
-Package tessera is the page format of a quietcasting station: the
-station's whole carousel, sixteen slots of 238 bytes, is one page of
-colored cells, and each slot is one tile of it. This comment is the
-operating reference; TESSERA.t is the specification.
+Package tessera is a page format: 3,808 cells of colored text, one
+byte per cell, in sixteen tiles of 238 bytes. The tile is the unit of
+update and each tile is complete on its own; the tile is sized to a
+quietcasting slot, and a station's sixteen slots carry the sixteen
+tiles in order. This comment is the operating reference; TESSERA.t is
+the specification.
 
 # The page
 
-A page is 3,808 cells, one byte each: four panels of 28 rows by 34
-columns, read in order 0..3, as one contiguous raster. Byte i is
-panel i/952, row (i%952)/34, column i%34. Tile k is bytes 238k
-through 238k+237, always seven whole rows of one panel, and slot k
-of the carousel carries tile k; nothing in the bytes says where they
-go. Content flows freely down a panel and never from one panel into
+A page is four panels of 28 rows by 34 columns, read in order 0..3,
+as one contiguous raster: byte i is panel i/952, row (i%952)/34,
+column i%34. Tile k is bytes 238k through 238k+237, always seven
+whole rows of one panel; a tile is identified by its position and by
+nothing in its bytes, so tiles arrive in any order and any subset.
+Content flows freely down a panel and never from one panel into
 another, because a renderer may arrange the four panels as it likes.
 The renderer also owns the cell's shape: the format states no glyph
 aspect, font or pixel.
