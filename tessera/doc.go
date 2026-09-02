@@ -1,5 +1,5 @@
 /*
-Package tessera is the page format of a quietcast station: the
+Package tessera is the page format of a quietcasting station: the
 station's whole carousel, sixteen slots of 238 bytes, is one page of
 colored cells, and each slot is one tile of it. This comment is the
 operating reference; TESSERA.t is the specification.
@@ -52,10 +52,10 @@ teletext's seven hues:
 
 # Authoring
 
-Source is line-oriented dot-command text in pica's lexical family:
-content lines are content, the command set is closed, and a line
-that lexes as a command (dot, then a lowercase letter) but is not
-one of the five is an error. ". " and ".." begin ordinary content.
+Source is line-oriented dot-command text: content lines are content,
+the command set is closed, and a line that lexes as a command (a dot,
+then a lowercase letter) but is not one of the five is an error. ". "
+and ".." begin ordinary content.
 
 	.panel N         target panel 0..3 (required first); cursor to
 	                 row 0 column 0, pen to default ink
@@ -89,7 +89,8 @@ transcoded to the repertoire above; a rune outside it is an error.
 Compilation is reproducible: the same source yields the same 3,808
 bytes.
 
-Frozen vector: ".panel 2", ".at 3 5", ".ink yellow", "HELLO" puts
-83 48 45 4C 4C 4F at bytes 107..112 of tile 8 and nothing else.
+Frozen vector: ".panel 2", ".at 3 5", ".ink yellow", "QUIETCASTING"
+puts 83 51 55 49 45 54 43 41 53 54 49 4E 47 at bytes 107..119 of tile
+8 and nothing else.
 */
 package tessera

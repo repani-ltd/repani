@@ -47,7 +47,7 @@ func (c *compiler) line(raw string) error {
 	case len(raw) > 1 && raw[0] == '.' && raw[1] >= 'a' && raw[1] <= 'z':
 		return c.command(raw)
 	default:
-		// ". " and ".." begin ordinary content, as in pica.
+		// ". " and ".." begin ordinary content.
 		return c.content(raw)
 	}
 }

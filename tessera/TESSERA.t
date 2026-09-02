@@ -1,10 +1,10 @@
-TESSERA -- ONE PAGE OF SIXTEEN TILES ON THE QUIETCAST CAROUSEL
+TESSERA -- ONE PAGE OF SIXTEEN TILES ON THE QUIETCASTING CAROUSEL
 .date 2026-09-02
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
 .rem Format specification. Sections through "Authoring" are normative.
 
-A tessera is a mosaic tile. A station's whole quietcast carousel
+A tessera is a mosaic tile. A station's whole quietcasting carousel
 -- sixteen slots of 238 bytes, 3,808 bytes in all -- is one page
 of colored cells, and each slot is one tile of it. The page is
 teletext-sized information: a masthead, a weather panel, a
@@ -31,7 +31,7 @@ A TILE is 238 consecutive bytes of the page: bytes 238k through
 238k+237 form tile k, for k in 0..15. Because 238 is exactly
 seven rows of 34, a tile is always seven whole rows of one panel:
 tile k holds rows 7(k mod 4) through 7(k mod 4)+6 of panel k div
-4. Tiles are the transport's unit, never the author's: an author
+4. Tiles are the carousel's unit, never the author's: an author
 sees panels, rows and columns, and a tile boundary is invisible
 in content.
 
@@ -103,50 +103,44 @@ in every theme.
 
 # The carousel binding
 
-Slot k of the station's carousel carries tile k, sealed as any
-data packet. Slot order is page order: no byte of the page says
-where it goes, and a receiver places a decrypted slot value by
-its slot number alone. The page is therefore well-defined under
-every reception: each cell has exactly one tile that owns it,
-tiles arrive in any order and any subset, and a partial carousel
-renders exactly its received tiles in their places. Which tiles
-are current is the manifest's claim, and what a renderer does
-with a stale or missing tile -- blank it, grey it, keep the last
-value -- is presentation.
+Slot k of the station's carousel carries tile k. Slot order is
+page order: no byte of the page says where it goes, and a
+receiver places a slot's value by its slot number alone. The page
+is therefore well-defined under every reception: each cell has
+exactly one tile that owns it, tiles arrive in any order and any
+subset, and a partial carousel renders exactly its received tiles
+in their places. What a renderer does with a missing tile --
+blank it, grey it, keep the last value -- is presentation.
 
 A station never pads: the page is always exactly 3,808 bytes and
 unwritten cells are 0x00, so identical content is identical
 bytes, slot by slot, and re-publishing an unchanged page changes
-no packet. A one-line edit changes one tile, and only that slot
-is re-sealed.
+no slot. A one-line edit changes one tile, and only that slot.
 
-Frozen vector: "HELLO" in yellow at panel 2, row 3, column 5 is
-page offset 2×952 + 3×34 + 5 = 2011, which is slot 8 (2011 div
-238), bytes 107 through 112 of its value:
+Frozen vector: "QUIETCASTING" in yellow at panel 2, row 3,
+column 5 is page offset 2×952 + 3×34 + 5 = 2011, which is slot 8
+(2011 div 238), bytes 107 through 119 of its value:
 
 .pre
-    83 48 45 4C 4C 4F
+    83 51 55 49 45 54 43 41 53 54 49 4E 47
 .end
 
-with the ink code at column 5 and the H at column 6.
+with the ink code at column 5 and the Q at column 6.
 
 Nothing in the 3,808 bytes says what format they are or which
-revision of it: there is no in-band mark and no version byte. A
-receiver cannot read a station's slots without that station's
-key and trust anchor, which it was given out of band, and the
-same out-of-band record that carries the key says "this station
-is a tessera page". A revision that only appends to the cell
+revision of it: there is no in-band mark and no version byte.
+That a station is a tessera page is declared out of band, where
+the station itself is. A revision that only appends to the cell
 table needs no announcement, since an older renderer shows the
 new cells as blanks. A revision that changes the layout is a new
-convention, declared in that record for a new station, never a
-version of this one.
+convention for a new station, never a version of this one.
 
 # Authoring
 
-Pages are authored in a line-oriented dot-command language in
-pica's lexical family: content lines are content, the command
-set is closed, and a line that lexes as a command but is not one
-of the five is an error.
+Pages are authored in a line-oriented dot-command language:
+content lines are content, the command set is closed, and a line
+that lexes as a command (a dot, then a lowercase letter) but is
+not one of the five is an error.
 
 .pre
     .panel N         target panel 0..3 (required first); cursor
@@ -178,16 +172,10 @@ would overwrite a code cell is an error, not a silent recolor.
 Compilation is reproducible: the same source yields the same
 3,808 bytes.
 
-Long documents are not authored here at all. A pica document
-pressed at width 34 into panels of 28 rows is a pica writer's
-output and a tessera source's input; that writer does not exist
-yet, and this format knows nothing of pica.
-
 # Non-goals
 
-.item No transport, no store, no schedule: quietcasting owns the
-air and the manifest owns currency; what to re-send and when is
-the station's policy.
+.item No store, no schedule: what to send and when
+is the station's affair.
 .item No page numbers, no addresses, no placement: a station is a
 page; a slot is a position.
 .item No links, no navigation, no buttons: a page is content only.
@@ -199,12 +187,6 @@ cell table and a successor convention are the only two gears.
 flashing: see the parked designs.
 .item No glyph metrics: the renderer owns the cell's shape.
 
-# Customs (non-normative)
-
-Row 0 of panel 0 is the page's title. Which other rows carry
-which roles -- a clock line, a priority line -- is decided when a
-station needs them. None of this is wire.
-
 # Parked designs, with their admission tests
 
 .item Mosaics. The 2×2 quadrant set (16 patterns) fits the
@@ -214,15 +196,12 @@ neighbour or a second ink strategy. ADMISSION TEST: the first
 station that wants a chart or a logo.
 .item Panel placement. A header that lets a tile name its
 position. ADMISSION TEST: a station that must reorder content
-without re-sealing the page, which a living page has no reason to
-do.
+without rewriting the page, which a living page has no reason
+to do.
 .item General Unicode. The repertoire is 256 runes and the
 ink codes now share the byte with it; a script beyond the
 repertoire needs a successor convention, not an append.
 ADMISSION TEST: the first station that needs one.
-.item The press. A pica text writer at width 34 emitting tessera
-source in panels of 28 rows, headings in yellow. ADMISSION TEST:
-the first station with a document rather than a board.
 
 .width 72
 .cols 1

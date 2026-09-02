@@ -1,6 +1,6 @@
 # tessera
 
-One page of sixteen tiles on the quietcast carousel: a station's
+One page of sixteen tiles on the quietcasting carousel: a station's
 whole carousel (16 × 238 = 3,808 bytes) is one page of colored
 cells, four panels of 28 rows × 34 columns, one slot = one tile of
 seven rows. Teletext-sized information only. Import path
