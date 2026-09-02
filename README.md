@@ -15,8 +15,8 @@ directory is one project; its import path is `repani.com/<dir>/...`.
 - `trudge/` -- trudge1, a simple memory-hard KDF on Ascon-XOF128
              (256 MiB pool, 2^24-step walk; spec in `trudge/SPEC.t`)
 
-ascon, golay, lz4s and tab are primitive packages: stdlib-only, no sibling
-imports, no protocol knowledge, append-only (see CLAUDE.md).
+ascon, golay, lz4s and tab are primitive packages: stdlib and other
+primitives only, no protocol knowledge, append-only (see CLAUDE.md).
 
 Build and test everything: `go build ./... && go test ./...`.
 

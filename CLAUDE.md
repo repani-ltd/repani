@@ -5,11 +5,14 @@ their own CLAUDE.md (`pica/`, `fact/`, `tessera/`) or primitive
 packages (`ascon/`, `golay/`, `lz4s/`, `tab/`); this file holds what is
 common.
 
-Primitive packages are stdlib-only, import no sibling package,
-carry no protocol constants or types (a primitive may not know
-what a frame, slot, page or vault is), and are append-only: a
-changed algorithm is a new package, not a revision. Each ships
-known-answer or round-trip tests; the tests are the contract.
+Primitive packages import only the standard library and other
+primitive packages (never a product package: pica, fact,
+tessera), carry no protocol constants or types (a primitive may
+not know what a frame, slot, page or vault is), and are
+append-only: a changed algorithm is a new package, not a
+revision, which is what makes one primitive safe to build on
+another. Each ships known-answer or round-trip tests; the tests
+are the contract.
 
 - Import paths are `repani.com/<dir>/...`; the module is the repo
   root, so never add a nested go.mod. Experiments and scratch work
