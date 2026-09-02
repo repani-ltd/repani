@@ -63,6 +63,12 @@ func TestInkCosts(t *testing.T) {
 	if got := p.Row(0, 0)[:3]; !bytes.Equal(got, []byte{InkFG + 7, InkBG + 4, 'X'}) {
 		t.Fatalf("fg+bg change = % X", got)
 	}
+	// .ink FG alone means FG on the default background: inside a bar
+	// that is two codes, and the bar is cut.
+	p = compile(t, ".panel 0\n.ink white on blue\nX\n.ink red\n+ Y\n")
+	if got := p.Row(0, 0)[:6]; !bytes.Equal(got, []byte{InkFG + 7, InkBG + 4, 'X', InkFG + 1, InkBG, 'Y'}) {
+		t.Fatalf("fg-only after bar = % X", got)
+	}
 	// Back to default costs the same cell again.
 	p = compile(t, ".panel 0\n.ink red\nA\n.ink default\n+ B\n")
 	if got := p.Row(0, 0)[:4]; !bytes.Equal(got, []byte{InkFG + 1, 'A', InkFG, 'B'}) {
@@ -150,7 +156,7 @@ func TestCellTable(t *testing.T) {
 	glyphs := 0
 	for b := 0; b < 256; b++ {
 		r := CellRune(byte(b))
-		if b == 0 || IsInk(byte(b)) || (b >= 0x90 && b <= 0xBF) {
+		if b == 0 || IsInk(byte(b)) || (b >= 0x98 && b <= 0xBF) {
 			if r != ' ' {
 				t.Errorf("%02X renders %q, want blank", b, r)
 			}
@@ -162,7 +168,7 @@ func TestCellTable(t *testing.T) {
 			t.Errorf("%02X %q: round trip %X %v", b, r, cells, err)
 		}
 	}
-	if glyphs != 191 { // 31 symbols + 95 ASCII + € + 64 Greek
-		t.Fatalf("%d glyph values, want 191", glyphs)
+	if glyphs != 199 { // 31 symbols + 95 ASCII + € + 8 weather + 64 Greek
+		t.Fatalf("%d glyph values, want 199", glyphs)
 	}
 }

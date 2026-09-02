@@ -11,7 +11,8 @@ import "fmt"
 //	0x7F        €
 //	0x80..0x87  ink: foreground palette 0..7
 //	0x88..0x8F  ink: background palette 0..7
-//	0x90..0xBF  unassigned
+//	0x90..0x97  weather and marine: ☀ ☁ ☂ ☾ ❄ ↯ ⚓ ⚠
+//	0x98..0xBF  unassigned
 //	0xC0..0xFF  the Greek page
 
 // symbolRunes maps 0x01..0x1F (index 1..31) and, at index 0, 0x7F.
@@ -23,6 +24,10 @@ var symbolRunes = [32]rune{
 	'░', '▒', '▓', // 0x16..0x18
 	'°', '±', '×', '÷', '•', '·', '§', // 0x19..0x1F
 }
+
+// weatherRunes maps 0x90..0x97: sun, cloud, umbrella, moon, snowflake,
+// lightning, anchor, warning.
+var weatherRunes = [8]rune{'☀', '☁', '☂', '☾', '❄', '↯', '⚓', '⚠'}
 
 // greekRunes maps 0xC0..0xFF.
 var greekRunes = [64]rune{
@@ -44,6 +49,8 @@ func CellRune(b byte) rune {
 		return rune(b)
 	case b == 0x7F:
 		return symbolRunes[0]
+	case b >= 0x90 && b <= 0x97:
+		return weatherRunes[b-0x90]
 	case b >= 0xC0:
 		return greekRunes[b-0xC0]
 	default:
@@ -63,6 +70,9 @@ var runeToCell = func() map[rune]byte {
 		} else {
 			m[r] = byte(i)
 		}
+	}
+	for i, r := range weatherRunes {
+		m[r] = byte(0x90 + i)
 	}
 	for i, r := range greekRunes {
 		m[r] = byte(0xC0 + i)

@@ -89,7 +89,8 @@ as a blank; the table grows by appending, never by reassigning.
     0x7F        €
     0x80..0x87  INK: foreground palette 0..7 (see Ink)
     0x88..0x8F  INK: background palette 0..7
-    0x90..0xBF  unassigned: render blank
+    0x90..0x97  weather and marine  ☀ ☁ ☂ ☾ ❄ ↯ ⚓ ⚠
+    0x98..0xBF  unassigned: render blank
     0xC0..0xD8  Greek lowercase  α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π
                 ρ ς σ τ υ φ χ ψ ω
     0xD9..0xE3  accented        ά έ ή ί ό ύ ώ ϊ ϋ ΐ ΰ
@@ -137,8 +138,8 @@ not one of the five is an error.
                      to row 0 column 0, pen to default ink
     .at R C          cursor to row R (0..27), column C (0..33);
                      invalidates the "+" pen
-    .ink FG          set the pen: foreground, optionally
-    .ink FG on BG    "on" a background, by palette name
+    .ink FG          set the pen, by palette name: FG on the
+    .ink FG on BG    default background, or FG on BG
     content          one run at the cursor in the pen's ink; the
                      cursor then drops one row, same column.
                      Right-trimmed; ". " and ".." begin content;
@@ -180,7 +181,7 @@ flashing: see the parked designs.
 # Parked designs, with their admission tests
 
 .item Mosaics. The 2×2 quadrant set (16 patterns) fits the
-unassigned range 0x90..0x9F and would be the first append; the
+unassigned range and would be the first append; the
 2×3 sextants do not fit. ADMISSION TEST: the first page that
 wants a chart or a logo.
 .item Tile placement. A header that lets a tile name its

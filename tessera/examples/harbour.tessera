@@ -1,0 +1,38 @@
+.rem A single-panel notice: the other three panels stay blank.
+.panel 0
+.ink default on cyan
+.fill 0 0 34 3
+.ink white on cyan
+.at 1 2
+KEA HARBOUR MASTER · ΚΕΑ
+.ink default
+.at 4 0
+.ink yellow
+TODAY 02 SEP
+.ink default
+ Harbour open. Berthing on the
+ south quay only; north quay
+ reserved for the 1830 ferry.
+.at 9 0
+.ink red
+MELTEMI TONIGHT
+.ink default
+ N 7-8 from 1800. Double up
+ mooring lines. Anchoring in
+ Vourkari bay not advised.
+.at 14 0
+.ink cyan
+FUEL
+.ink default
++  06:00-14:00, south quay
+.ink cyan
+WATER
+.ink default
++  on both quays
+.ink cyan
+PORT POLICE
+.ink default
++  VHF 12 · 22880 21344
+.at 18 0
+.ink green
+ΚΑΛΩΣ ΗΡΘΑΤΕ · WELCOME

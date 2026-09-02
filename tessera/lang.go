@@ -123,7 +123,7 @@ func (c *compiler) setInk(args []string) error {
 	if err != nil {
 		return err
 	}
-	c.pen.fg = fg
+	c.pen = ink{fg: fg} // .ink FG alone is FG on the default background
 	if bgName != "" {
 		if c.pen.bg, err = colorIndex(bgName); err != nil {
 			return err

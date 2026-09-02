@@ -1,0 +1,5 @@
+.rem The frozen vector: TESSERA in yellow at panel 2, row 3, column 5.
+.panel 2
+.at 3 5
+.ink yellow
+TESSERA
