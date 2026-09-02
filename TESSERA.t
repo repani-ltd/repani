@@ -2,23 +2,14 @@ TESSERA -- ONE PAGE OF SIXTEEN TILES ON THE QUIETCAST CAROUSEL
 .date 2026-09-02
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
-.rem Format specification and decision ledger. Sections up to and
-.rem including "Authoring" are normative; "Decisions" records why.
+.rem Format specification. Sections through "Authoring" are normative.
 
-A tessera is a mosaic tile, and in the Roman camp the small
-tablet that carried the day's watchword from post to post: a
-little living state, rewritten daily, relayed to everyone who
-needs it. A station's whole quietcast carousel
+A tessera is a mosaic tile. A station's whole quietcast carousel
 -- sixteen slots of 238 bytes, 3,808 bytes in all -- is one page
 of colored cells, and each slot is one tile of it. The page is
 teletext-sized information: a masthead, a weather panel, a
 schedule, a notice. Nothing longer lives here; a station that has
-more to say has more stations. Tessera takes from zine what
-survived contact with the transport (the cell repertoire, the ink
-palette, the authoring language) and drops everything the
-transport now does for free (page numbers, run headers,
-placement, marks) and everything that is the renderer's chrome
-(links, navigation).
+more to say has more stations.
 
 # The page
 
@@ -152,9 +143,10 @@ version of this one.
 
 # Authoring
 
-Pages are authored in the zine language, unchanged in its lexical
-family and its five commands, with the coordinate space and the
-ink mechanism of this format:
+Pages are authored in a line-oriented dot-command language in
+pica's lexical family: content lines are content, the command
+set is closed, and a line that lexes as a command but is not one
+of the five is an error.
 
 .pre
     .panel N         target panel 0..3 (required first); cursor
@@ -206,113 +198,6 @@ cell table and a successor convention are the only two gears.
 flashing: see the parked designs.
 .item No glyph metrics: the renderer owns the cell's shape.
 
-# Decisions
-
-.item Why 34 by 7 is the tile. The carousel is sixteen 238-byte
-registers and 238 is 2×7×17; the only row widths that divide it
-are 1, 2, 7, 14, 17, 34, 119 and 238. At 34 a tile is seven
-whole rows with no leftover byte, at 56 it is four rows plus 14
-bytes nothing consumes, at 68 three rows plus 34. A raster cut at
-56 or 68 would put a slot boundary inside twelve rows of the
-page, so a mixed-vintage carousel would show rows half old and
-half new. Zero padding, no torn rows, and the razor all point at
-34.
-.item Why the panel is 28 rows. Four tiles are 952 bytes, which
-is 28 rows of 34 -- the panel is a contiguous raster with no
-arithmetic across tiles -- and 952 cells is a teletext screen to
-within eight cells (40×24 is 960). At the terminal's 1:2 cell a
-panel is 34 by 56, a golden rectangle to three decimals
-(1.647 against 1.618), and the two-by-two page is the same
-rectangle doubled. The 34-wide measure is below teletext's 40
-and well below Bringhurst's 66; for tables, listings and
-notices it holds, and the genre was scoped to those before the
-width was chosen. Prose is the press's problem, and the press
-is pica's.
-.item Why four panels and not two halves or one sheet. Two
-halves of 56 rows are strips a terminal cannot show whole; one
-sheet of 112 rows is a scroll. Four panels give the renderer
-every layout -- a row, a column, a grid, a carousel of four --
-and give the author one rule: nothing crosses a panel. Sixteen
-independent tiles were considered and rejected: a seven-row cap
-on every table is too tight for the very content the page is
-for.
-.item Why slot order is page order. A placement field would let
-a station move a tile without rewriting the others, which
-matters for messages and files, not for a living page that is
-re-aired whole on every rotation anyway. What the field would
-cost is not a lookup but a set of rules: two slots claiming one
-place, a place nobody claims, a stale slot still pointing
-somewhere. Fixed positions make the page well-defined by
-construction and keep zine's invariant -- no cell painted by two
-live slots -- without an allocator. If placement is ever
-demanded it arrives as a successor convention with a header.
-.item Why ink went in band. The run header that carried zine's
-attribute byte is gone with the run; the choices were no color,
-or teletext's spacing attribute. Color is structural to the genre
-(mastheads, highlighted values), so the code cell
-stays, row-scoped so that a tile never depends on its neighbour
-and every row starts clean. The code takes the new state itself
-(set-at) rather than teletext's set-after, which was a hardware
-pipeline artifact: a bar starts at its code and ends at its
-closing code, with no off-by-one for authors to learn. The true
-cost is paid in every cell, not only the colored ones: sixteen
-of the byte's 256 values are codes, so a cell carries one of 240
-meanings, about a tenth of a bit less than a full byte. That,
-and the cell a code occupies, is disliked and accepted: the
-alternatives all pay more elsewhere. A per-cell attribute needs a second byte per
-cell, halving the page; an attribute bit inside the cell byte
-halves the repertoire, which is the Greek page; an attribute row
-per panel spends a row on every panel whether colored or not;
-and no color at all loses the masthead and the highlighted
-value. Sizes were weighed too: thirty-two codes (sixteen
-foregrounds and backgrounds, with bright variants) doubled the
-codespace cost to carry variants that are a terminal artifact no
-theme can map honestly; eight codes (seven hues and teletext's
-"new background") cannot give independent foreground and
-background, so a bar with colored text costs three cells and a
-small state machine. Sixteen is the cheapest price on offer,
-and it stands until a better one is proposed.
-.item What made room for the ink codes. Zine's 64 mosaics
-occupied 0x80..0xBF; their only consumer was the parked .pic
-drawing language, whose admission test (a station wanting a
-chart) has not been met. Sixteen ink codes take the first
-quarter of that range; the rest is unassigned and renders blank.
-The symbol set, ASCII, the euro and the Greek page carry over
-byte-for-byte, so zine's transcoder and Greek tables are reused
-unchanged.
-.item Why there is no mark. Zine marked itself with 0xFE because
-a carousel's default content was plain text and several formats
-could share slots. Here the whole carousel is the page and the
-receiver holds the station's key before it hears a byte; the
-declaration that a station is a tessera page lives where the key
-lives. Self-description on the wire would be a byte with no
-reader.
-.item What was dropped from zine, and why. Page numbers (the
-slot is the address). The 5-byte run and the run stream (the
-page is a raster). The flag bit and format byte (no minor or
-major seam is needed when the page is fixed-size and the cell
-table is append-only). The 2,048-row tall page and the board
-custom (the panel is the board; long text is excluded by scope).
-Blank-never-transmitted (a blank is a byte like any other, and
-determinism is worth more than the bytes). Links, in every form
-(a page is content; where a reader goes next is the renderer's
-chrome, and a row spent on navigation is a row not spent on
-information).
-.item Why the name. The format is named for its tile, which the
-author never sees, rather than for the board, which is what the
-spec describes; pinax (the Greek notice board and table) was
-weighed for that reason and passed over. The tile is the one
-real invention -- slot k is tile k, and that identity is what
-makes the page well-defined under any reception -- so the name
-points at the key fact, and the watchword sense fits the
-carousel exactly. Acta, deltos, tabella, broadside and slate
-were also considered.
-.item What was kept. The cell repertoire and the Greek page. The
-semantic palette, cut to teletext's seven hues plus the
-renderer's default. The five-command language and its rules (right-trim, "+"
-continuation, .fill as the explicit way to clear). Conventions
-over mechanism, with the customs below left to the community.
-
 # Customs (non-normative)
 
 Row 0 of panel 0 is the page's title. Which other rows carry
@@ -325,7 +210,7 @@ station needs them. None of this is wire.
 unassigned range 0x90..0x9F and would be the first append; the
 2×3 sextants do not fit and would need the Greek page's
 neighbour or a second ink strategy. ADMISSION TEST: the first
-station that wants a chart or a logo, as for zine's .pic.
+station that wants a chart or a logo.
 .item Panel placement. A header that lets a tile name its
 position. ADMISSION TEST: a station that must reorder content
 without re-sealing the page, which a living page has no reason to
@@ -335,9 +220,8 @@ ink codes now share the byte with it; a script beyond the
 repertoire needs a successor convention, not an append.
 ADMISSION TEST: the first station that needs one.
 .item The press. A pica text writer at width 34 emitting tessera
-source in panels of 28 rows, headings in yellow as zine
-designed. ADMISSION TEST: the first station with
-a document rather than a board.
+source in panels of 28 rows, headings in yellow. ADMISSION TEST:
+the first station with a document rather than a board.
 
 .width 72
 .cols 1
