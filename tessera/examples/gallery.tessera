@@ -1,0 +1,229 @@
+.rem Gallery: pictures drawn with the shade, box and weather glyphs.
+.rem Every row starts with an ink code or a space.
+
+.panel 0
+.ink white on blue
+.fill 0 0 34 1
+.at 0 2
+GALLERY · ΕΙΚΟΝΕΣ · 1/4
+.ink yellow
+.at 2 0
+FRUIT OF THE WEEK · ΜΠΑΝΑΝΑ
+.ink default
+.at 5 0
+.ink red
+ ▓
+.ink yellow
+ ▓▓
+   ▓▓▓                    ▓▓
+    ▓▓▓▓                ▓▓▓
+     ▓▓▓▓▓            ▓▓▓▓
+      ▓▓▓▓▓▓▓       ▓▓▓▓▓
+       ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+        ▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+         ▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒
+           ▒▒▒▒▒▒▒▒▒▒▒
+             ▒▒▒▒▒▒
+.ink default
+.at 18 0
+ A banana, 30 cells wide, in two
+ inks: the stalk in red, the body
+ in yellow. Shades ▓ ▒ ░ are the
+ picture's three tones; each row
+ carries its own ink.
+.ink green
+.at 24 0
+☀ RIPE · ΩΡΙΜΗ
+.ink white on blue
+.fill 27 0 34 1
+.at 27 2
+SHADES ░ ▒ ▓ · BOX ─ │ ┼ · ☀ ☁ ☂
+
+.panel 1
+.ink white on blue
+.fill 0 0 34 1
+.at 0 2
+GALLERY · ΕΙΚΟΝΕΣ · 2/4
+.at 2 0
+.ink yellow
+                          ☀
+.ink white
+      ☁ ☁                 
+.ink default
+                ☁            ☁
+.ink cyan
+       ☁            ┌─┐
+.ink yellow
+                    │▓│
+.ink red
+                   ┌┴─┴┐
+.ink white
+                   │▒▒▒│
+.ink red
+                   │▓▓▓│
+.ink white
+                   │▒▒▒│
+.ink red
+                  ┌┴───┴┐
+.ink white
+                  │▒▒▒▒▒│
+.ink red
+                  │▓▓▓▓▓│
+.ink white
+        ▓         │▒▒▒▒▒│
+.ink white
+       ▓▓▓       ┌┴─────┴┐
+.ink white
+      ▓▓▓▓▓      │▒▒▒▒▒▒▒│
+.ink red
+    ▓▓▓▓▓▓▓▓▓  ░░░░░░░░░░░░░
+.ink blue
+░░░░░▒▒░░░░░░▒▒░░░░░░░░░▒▒░░░░░░░
+.ink cyan
+▒▒░░░░░▒▒▒░░░░░░░▒▒░░░░░░░░▒▒▒░░░
+.ink blue
+░░▒▒▒░░░░░░▒▒░░░░░░░▒▒▒░░░░░░░▒▒░
+.ink cyan
+▒░░░░░▒▒░░░░░░▒▒▒░░░░░░░▒▒░░░░░░▒
+.ink default
+.at 23 0
+ Lighthouse and caique, Kea.
+ Each row is one ink; the tower
+ alternates red and white rows.
+.ink white on blue
+.fill 27 0 34 1
+.at 27 2
+ΦΑΡΟΣ · LIGHTHOUSE · ΚΑΙΚΙ
+
+.panel 2
+.ink white on blue
+.fill 0 0 34 1
+.at 0 2
+GALLERY · ΕΙΚΟΝΕΣ · 3/4
+.ink yellow
+.at 3 0
+  ░ ░
+.at 4 0
+░ ▓▓▓ ░
+.at 5 0
+  ▓▓▓
+.at 6 0
+░ ▓▓▓ ░
+.at 7 0
+  ░ ░
+.ink white
+.at 3 8
+ ▒▒▒▒
+.at 4 8
+▒▓▓▓▓▓▒
+.at 5 8
+▓▓▓▓▓▓▓
+.at 6 8
+ ▓▓▓▓▓▒
+.at 7 8
+  ▒▒▒
+.ink cyan
+.at 3 16
+ ▒▒▒▒▒
+.at 4 16
+▒▒▒▒▒▒▒
+.at 5 16
+  ☂ ☂
+.at 6 16
+ ☂ ☂ ☂
+.at 7 16
+  ☂ ☂
+.ink yellow
+.at 3 24
+   ▓▓
+.at 4 24
+  ▓▓
+.at 5 24
+ ▓▓▓▓
+.at 6 24
+   ▓▓
+.at 7 24
+  ▓▓
+.ink default
+.at 9 0
+ SUNNY   CLOUDY  RAIN    STORM
+.at 11 0
+.ink cyan
+  ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄
+.ink default
+.at 13 0
+ Four icons on one row, one ink
+ each: three ink codes sit in
+ the gaps between them. Icons
+ are 7 cells wide, 5 rows tall.
+.at 19 0
+.ink yellow
+BEAUFORT TODAY
+.ink default
+ 0-3  ░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ 4-5  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░
+.ink yellow
+6-7  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░
+.ink red
+8-9  ▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░
+.ink white on blue
+.fill 27 0 34 1
+.at 27 2
+☀ ☁ ☂ ☾ ❄ ↯ ⚓ ⚠ · 0x90..0x97
+
+.panel 3
+.ink white on blue
+.fill 0 0 34 1
+.at 0 2
+GALLERY · ΕΙΚΟΝΕΣ · 4/4
+.at 2 0
+.ink yellow
+          N
+.ink default
+          ↑
+.ink cyan
+      ┌───┼───┐
+.ink default
+      │ ░ │ ░ │
+.ink yellow
+W ← ──┼───┼───┼── → E
+.ink default
+      │ ░ │ ░ │
+.ink cyan
+      └───┼───┘
+.ink default
+          ↓
+.ink yellow
+          S
+.ink cyan
+.at 3 22
+   ▓
+  ▓▓▓
+  ░▓░
+   ▓
+▓▓ ▓ ▓▓
+▓▓ ▓ ▓▓
+ ▓▓▓▓▓
+  ▓▓▓
+.ink default
+.at 12 0
+ Wind rose in box drawing, an
+ anchor in shades, both in the
+ repertoire's cells. Nothing here
+ is a font's business but shape.
+.at 17 0
+.ink yellow
+WIND ROSE · KYKLADON · % OF DAYS
+.ink default
+ N   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  46
+ NE  ▓▓▓▓▓▓▓▓▓▓  21
+ E   ▓▓   4
+ SE  ▓▓▓   6
+ S   ▓▓▓▓▓  10
+ SW  ▓▓▓   6
+ W   ▓▓   4
+ NW  ▓▓   3
+.ink white on blue
+.fill 27 0 34 1
+.at 27 2
+ΚΑΛΗ ΘΑΛΑΣΣΑ · FAIR SEAS
