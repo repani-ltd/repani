@@ -79,8 +79,8 @@ and ".." begin ordinary content.
 
 The compiler owns the code cells. Before a run it emits, at the
 cursor, one code for each attribute in which the pen differs from
-the row's state arriving there, then the run: a foreground change
-costs one cell, foreground and background two. A code sets its
+the row's state arriving there (background first), then the run: a
+foreground change costs one cell, foreground and background two. A code sets its
 attribute to the end of the row, so author a row left to right. A
 run's content never lands on a code cell (an error); a code may
 replace a code. A fill emits its codes at its left edge on every row,

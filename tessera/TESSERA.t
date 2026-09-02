@@ -153,8 +153,9 @@ not one of the five is an error.
 
 The compiler owns the code cells. Before a run it emits, at the
 cursor, one ink code for each attribute in which the pen differs
-from the row's state at that cell, then the run; a change of
-foreground alone costs one cell, foreground and background two.
+from the row's state at that cell (background first), then the
+run; a change of foreground alone costs one cell, foreground and
+background two.
 A fill emits its codes at its left edge on every row it covers,
 and closes them at its right edge when that edge is inside the
 row. Text placed over a fill inherits the fill's background from

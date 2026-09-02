@@ -60,13 +60,13 @@ func TestInkCosts(t *testing.T) {
 	}
 	// Foreground and background together spend two.
 	p = compile(t, ".panel 0\n.ink white on blue\nX\n")
-	if got := p.Row(0, 0)[:3]; !bytes.Equal(got, []byte{InkFG + 7, InkBG + 4, 'X'}) {
+	if got := p.Row(0, 0)[:3]; !bytes.Equal(got, []byte{InkBG + 4, InkFG + 7, 'X'}) {
 		t.Fatalf("fg+bg change = % X", got)
 	}
 	// .ink FG alone means FG on the default background: inside a bar
 	// that is two codes, and the bar is cut.
 	p = compile(t, ".panel 0\n.ink white on blue\nX\n.ink red\n+ Y\n")
-	if got := p.Row(0, 0)[:6]; !bytes.Equal(got, []byte{InkFG + 7, InkBG + 4, 'X', InkFG + 1, InkBG, 'Y'}) {
+	if got := p.Row(0, 0)[:6]; !bytes.Equal(got, []byte{InkBG + 4, InkFG + 7, 'X', InkBG, InkFG + 1, 'Y'}) {
 		t.Fatalf("fg-only after bar = % X", got)
 	}
 	// Back to default costs the same cell again.
@@ -170,5 +170,20 @@ func TestCellTable(t *testing.T) {
 	}
 	if glyphs != 199 { // 31 symbols + 95 ASCII + € + 8 weather + 64 Greek
 		t.Fatalf("%d glyph values, want 199", glyphs)
+	}
+}
+
+func TestHTML(t *testing.T) {
+	p := compile(t, ".panel 0\n.ink white on blue\n.fill 0 0 4 1\n.at 0 1\n<>\n.ink default\n.at 1 0\nplain\n")
+	rows := p.HTMLRows(0)
+	if want := `<span class="f0 b4"> </span><span class="f7 b4"> &lt;&gt;</span><span class="f7 b0"> </span>` + strings.Repeat(" ", 29); rows[0] != want {
+		t.Fatalf("row 0 = %q, want %q", rows[0], want)
+	}
+	if want := "plain" + strings.Repeat(" ", 29); rows[1] != want {
+		t.Fatalf("row 1 = %q", rows[1])
+	}
+	doc := HTMLDocument(p, 2, "t<t")
+	if !strings.Contains(doc, "<title>t&lt;t</title>") || strings.Count(doc, "<pre>") != 4 || !strings.Contains(doc, "repeat(2, max-content)") {
+		t.Fatal("document shape")
 	}
 }

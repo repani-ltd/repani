@@ -5,6 +5,7 @@
 //	tessera check FILE                 compile, report errors, exit 0 if valid
 //	tessera text [-across N] FILE      compile and print the page plain
 //	tessera render [-across N] FILE    as text, with ANSI colors
+//	tessera html [-across N] FILE      as one self-contained HTML page
 //	tessera page FILE                  compile and write the 3,808 bytes
 //
 // -across N lays the four panels N to a row (default 2: the
@@ -16,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"repani.com/tessera"
@@ -29,6 +31,7 @@ Usage:
   tessera check FILE                 compile, report errors, exit 0 if valid
   tessera text [-across N] FILE      compile and print the page plain
   tessera render [-across N] FILE    as text, with ANSI colors
+  tessera html [-across N] FILE      as one self-contained HTML page
   tessera page FILE                  compile and write the 3,808 bytes
 
 -across N lays the four panels N to a row (default 2). FILE may be -
@@ -51,7 +54,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "spec":
 		fmt.Fprint(stdout, tessera.Spec()+"\n# The tessera CLI\n\n"+usageText())
 		return 0
-	case "check", "text", "render", "page":
+	case "check", "text", "render", "html", "page":
 	default:
 		fmt.Fprintf(stderr, "tessera: unknown command %q\n%s", cmd, usageText())
 		return 2
@@ -75,6 +78,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	switch cmd {
 	case "check":
+	case "html":
+		fmt.Fprint(stdout, tessera.HTMLDocument(page, *across, strings.TrimSuffix(filepath.Base(fs.Arg(0)), ".tessera")))
 	case "page":
 		if _, err := stdout.Write(page[:]); err != nil {
 			fmt.Fprintf(stderr, "tessera: %v\n", err)

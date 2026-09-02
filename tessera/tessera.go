@@ -75,14 +75,15 @@ func stateAt(row []byte, col int) ink {
 }
 
 // codes returns the ink codes that take the state from have to want:
-// none, one, or two bytes, foreground first.
+// none, one, or two bytes, background first, so that a bar whose text
+// is also recolored starts whole at its first cell.
 func codes(have, want ink) []byte {
 	var out []byte
-	if have.fg != want.fg {
-		out = append(out, InkFG+want.fg)
-	}
 	if have.bg != want.bg {
 		out = append(out, InkBG+want.bg)
+	}
+	if have.fg != want.fg {
+		out = append(out, InkFG+want.fg)
 	}
 	return out
 }
