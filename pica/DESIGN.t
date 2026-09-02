@@ -835,7 +835,8 @@ the txtar convention, and scheduling stay with callers (the CLI
 keeps its loaders; a station keeps its carousel). pica render now
 validates through desk -- the one behavioural change, deliberate.
 .item Package pica itself stays stdlib-only (wire clients parse
-without fonts); pdf stays primitives. The naming account: the
+without fonts; since §12 it imports the tab primitive, which is
+itself stdlib-only, so the property it protects holds); pdf stays primitives. The naming account: the
 desk writes copy, the press prints it, pica is the language
 between them.
 .item The minimal txtar parser was to be duplicated rather than
@@ -843,6 +844,27 @@ shared (two consumers of three lines of grammar do not seat a
 package) -- and then desk's bound-data contract removed its need
 entirely, so the one copy stays in cmd. A second consumer
 duplicates; a third is the trigger to revisit.
+
+# 12. The grid is a primitive: tab (decided 2026-09-03)
+
+Driver: a tessera template needs to pad values into aligned
+columns, numbers on the decimal point, and a tessera page will
+not import a typesetting language and 40K of hyphenation
+patterns to do it; copying the alignment arithmetic is what §1
+forbids (layout in one place). The cut is below the wrapping:
+what a table does before any cell wraps -- the column spec, the
+fit against a measure, alignment, the numeric point and paren
+slot, clipping -- is the typewriter's tab stop, and moved to
+repani.com/tab as a primitive under the module's primitive rule
+(stdlib-only, no sibling imports, no document or font, append-
+only, known-answer tests as the contract). Pica's Table is now a
+client: it normalizes its two decorations (P prose columns, "!"
+clip) and hands tab the grammar tab owns, keeps wrapped cells,
+the header and its rule, note and total rows, and the measured
+sans layout, and re-exports Span and NumCol as aliases so the
+press and every golden are unchanged. Nothing wraps in tab: a
+cell wider than its column is clipped, since a consumer that
+wants wrapping is a typesetter, and has one.
 
 # Admission tests and non-goals (moved from doc.go, 2026-08-20)
 
