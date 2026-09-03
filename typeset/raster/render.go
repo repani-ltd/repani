@@ -1,54 +1,67 @@
 package raster
 
 import (
-	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // Text renders one panel as Rows rows of Cols runes, plain: ink and
 // blanks render as spaces. Rows are trimmed on the right.
 func (c *Canvas) Text(panel int) []string {
 	out := make([]string, c.Rows)
+	var buf []byte
 	for r := range c.Rows {
-		runes := make([]rune, c.Cols)
-		for x, cell := range c.Row(panel, r) {
-			runes[x] = CellRune(cell.Glyph)
-		}
-		end := c.Cols
-		for end > 0 && runes[end-1] == ' ' {
-			end--
-		}
-		out[r] = string(runes[:end])
+		buf = c.AppendText(buf[:0], panel, r)
+		out[r] = string(buf)
 	}
 	return out
 }
 
-// sgr maps a palette index to its ANSI foreground code; the background
-// is the same code plus 10. Entry 0 is the terminal's default.
-var sgr = [8]int{39, 31, 32, 33, 34, 35, 36, 37}
+// AppendText appends one row of Text to dst.
+func (c *Canvas) AppendText(dst []byte, panel, row int) []byte {
+	cells := c.Row(panel, row)
+	end := len(cells)
+	for end > 0 && cells[end-1].blank() {
+		end--
+	}
+	for _, cell := range cells[:end] {
+		dst = utf8.AppendRune(dst, CellRune(cell.Glyph))
+	}
+	return dst
+}
+
+// The ANSI SGR sequences by palette index: foreground 30+n, background
+// 40+n, with 39 and 49 the terminal's defaults for entry 0.
+var sgrFG = [8]string{"\x1b[39m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[37m"}
+var sgrBG = [8]string{"\x1b[49m", "\x1b[41m", "\x1b[42m", "\x1b[43m", "\x1b[44m", "\x1b[45m", "\x1b[46m", "\x1b[47m"}
 
 // ANSI renders one panel as Rows rows of exactly Cols cells with ANSI
 // colors, each row reset at its end.
 func (c *Canvas) ANSI(panel int) []string {
 	out := make([]string, c.Rows)
+	var buf []byte
 	for r := range c.Rows {
-		var b strings.Builder
-		var s Ink
-		b.WriteString("\x1b[0m")
-		for _, cell := range c.Row(panel, r) {
-			if cell.FG != s.FG {
-				fmt.Fprintf(&b, "\x1b[%dm", sgr[cell.FG])
-			}
-			if cell.BG != s.BG {
-				fmt.Fprintf(&b, "\x1b[%dm", sgr[cell.BG]+10)
-			}
-			s = cell.Ink
-			b.WriteRune(CellRune(cell.Glyph))
-		}
-		b.WriteString("\x1b[0m")
-		out[r] = b.String()
+		buf = c.AppendANSI(buf[:0], panel, r)
+		out[r] = string(buf)
 	}
 	return out
+}
+
+// AppendANSI appends one row of ANSI to dst.
+func (c *Canvas) AppendANSI(dst []byte, panel, row int) []byte {
+	var s Ink
+	dst = append(dst, "\x1b[0m"...)
+	for _, cell := range c.Row(panel, row) {
+		if cell.FG != s.FG {
+			dst = append(dst, sgrFG[cell.FG]...)
+		}
+		if cell.BG != s.BG {
+			dst = append(dst, sgrBG[cell.BG]...)
+		}
+		s = cell.Ink
+		dst = utf8.AppendRune(dst, CellRune(cell.Glyph))
+	}
+	return append(dst, "\x1b[0m"...)
 }
 
 // Text is Decode(p).Text.

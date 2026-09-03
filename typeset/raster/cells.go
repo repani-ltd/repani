@@ -92,13 +92,21 @@ var runeToCell = func() map[rune]byte {
 // Transcode maps content text (UTF-8) to cell bytes. A rune outside the
 // repertoire is an error, never a substitution.
 func Transcode(text string) ([]byte, error) {
-	out := make([]byte, 0, len(text))
+	return AppendTranscode(make([]byte, 0, len(text)), text)
+}
+
+// AppendTranscode is Transcode appending to dst.
+func AppendTranscode(dst []byte, text string) ([]byte, error) {
 	for _, r := range text {
+		if r >= 0x20 && r <= 0x7E {
+			dst = append(dst, byte(r))
+			continue
+		}
 		b, ok := runeToCell[r]
 		if !ok {
 			return nil, fmt.Errorf("raster: %q is outside the cell repertoire", r)
 		}
-		out = append(out, b)
+		dst = append(dst, b)
 	}
-	return out, nil
+	return dst, nil
 }

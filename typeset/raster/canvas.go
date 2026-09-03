@@ -20,12 +20,25 @@ func (c Cell) blank() bool { return c.Glyph == 0 || c.Glyph == ' ' }
 type Canvas struct {
 	Geometry
 	Cells []Cell
+
+	rowLine []int // the source line that last painted each row, 0 none
+	scratch []byte
 }
 
 // NewCanvas returns an empty canvas of the geometry.
 func NewCanvas(g Geometry) *Canvas {
 	g.check()
-	return &Canvas{Geometry: g, Cells: make([]Cell, g.Len())}
+	return &Canvas{
+		Geometry: g,
+		Cells:    make([]Cell, g.Len()),
+		rowLine:  make([]int, g.Panels*g.Rows),
+	}
+}
+
+// Reset empties the canvas for reuse.
+func (c *Canvas) Reset() {
+	clear(c.Cells)
+	clear(c.rowLine)
 }
 
 // Row returns the cells of one row. The slice aliases the canvas.
@@ -84,61 +97,72 @@ func decodeRow(row []byte, out []Cell) {
 // naming the panel, row and column.
 func (c *Canvas) Encode() (*Page, error) {
 	p := New(c.Geometry)
-	for panel := range c.Panels {
-		for row := range c.Rows {
-			if err := encodeRow(c.Row(panel, row), p.Row(panel, row)); err != nil {
-				return nil, fmt.Errorf("panel %d row %d: %w", panel, row, err)
-			}
-		}
+	if err := c.EncodeInto(p); err != nil {
+		return nil, err
 	}
 	return p, nil
 }
 
+// EncodeInto is Encode into an existing page of the same geometry,
+// whose cells it overwrites.
+func (c *Canvas) EncodeInto(p *Page) error {
+	if p.Geometry != c.Geometry {
+		return fmt.Errorf("raster: page geometry %+v, canvas %+v", p.Geometry, c.Geometry)
+	}
+	for panel := range c.Panels {
+		for row := range c.Rows {
+			if err := encodeRow(c.Row(panel, row), p.Row(panel, row)); err != nil {
+				return fmt.Errorf("panel %d row %d: %w", panel, row, err)
+			}
+		}
+	}
+	return nil
+}
+
+// encodeRow writes a row's bytes. A cell already holding a code in out
+// is taken: glyphs are never codes, so IsInk on the output is the mark.
 func encodeRow(cells []Cell, out []byte) error {
 	n := len(cells)
-	used := make([]bool, n) // cells holding a code
-	for x := range out {
-		out[x] = 0
-	}
+	clear(out)
 	var s Ink // the state arriving at cell x
 	for x, cell := range cells {
 		if cell.blank() {
-			if cell.BG != s.BG {
-				// A background change at a blank cell takes the cell.
-				if x == n-1 {
-					// The last cell is the tail; a code there would read as
-					// opening ink. The cell keeps the arriving background.
-					continue
-				}
-				out[x], used[x] = InkBG+cell.BG, true
+			// A background change at a blank cell takes the cell, except
+			// the last, which is the tail: a code there would read as
+			// opening ink, so that cell keeps the arriving background.
+			if cell.BG != s.BG && x < n-1 {
+				out[x] = InkBG + cell.BG
 				s.BG = cell.BG
-			}
-			if !used[x] {
+			} else if !IsInk(out[x]) { // not a tail code
 				out[x] = cell.Glyph
 			}
 			continue
 		}
-		need := codes(s, cell.Ink)
-		k := len(need)
-		switch {
-		case k == 0:
-		case x == 0:
-			// Opening ink: the tail, which must be free.
-			for i, b := range need {
-				y := n - k + i
-				if y <= 0 || !cells[y].blank() || used[y] {
+		var need [2]byte
+		k := 0
+		if s.BG != cell.BG {
+			need[k] = InkBG + cell.BG
+			k++
+		}
+		if s.FG != cell.FG {
+			need[k] = InkFG + cell.FG
+			k++
+		}
+		// The codes take the blank cells before the glyph; a glyph in
+		// the first cell puts them in the tail instead.
+		first := x - k
+		if x == 0 {
+			first = n - k
+		}
+		for i := range k {
+			y := first + i
+			if y < 0 || !cells[y].blank() || IsInk(out[y]) {
+				if x == 0 {
 					return fmt.Errorf("column 0 starts in ink and the row is full: shorten it by %d", k)
 				}
-				out[y], used[y] = b, true
+				return fmt.Errorf("column %d needs %d blank cells before it for its ink", x, k)
 			}
-		default:
-			for i, b := range need {
-				y := x - k + i
-				if y < 0 || !cells[y].blank() || used[y] {
-					return fmt.Errorf("column %d needs %d blank cells before it for its ink", x, k)
-				}
-				out[y], used[y] = b, true
-			}
+			out[y] = need[i]
 		}
 		s = cell.Ink
 		out[x] = cell.Glyph

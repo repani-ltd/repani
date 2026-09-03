@@ -8,11 +8,11 @@ import (
 
 // A 34 by 28 by 4 geometry; the tests that fix the cell model run on
 // it, and TestGeometryIsAParameter on others.
-var tess = Geometry{Cols: 34, Rows: 28, Panels: 4}
+var g34 = Geometry{Cols: 34, Rows: 28, Panels: 4}
 
 func compile(t *testing.T, src string) *Page {
 	t.Helper()
-	p, err := Compile(tess, src)
+	p, err := Compile(g34, src)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -39,8 +39,8 @@ func row(t *testing.T, src string) ([]byte, []byte) {
 }
 
 func TestGeometry(t *testing.T) {
-	if tess.PanelLen() != 952 || tess.Len() != 3808 || tess.Offset(2, 3, 5) != 2011 {
-		t.Fatalf("geometry: panel %d page %d offset %d", tess.PanelLen(), tess.Len(), tess.Offset(2, 3, 5))
+	if g34.PanelLen() != 952 || g34.Len() != 3808 || g34.Offset(2, 3, 5) != 2011 {
+		t.Fatalf("geometry: panel %d page %d offset %d", g34.PanelLen(), g34.Len(), g34.Offset(2, 3, 5))
 	}
 	g := Geometry{Cols: 40, Rows: 10, Panels: 3}
 	if g.Len() != 1200 || g.Offset(1, 2, 3) != 483 {
@@ -61,7 +61,7 @@ func TestGeometryIsAParameter(t *testing.T) {
 	if r := p.Row(1, 2); r[30] != InkFG+1 || r[31] != 'A' || r[39] != 'I' {
 		t.Fatalf("row = % X", r[28:])
 	}
-	if _, err := Compile(tess, ".panel 1\n.at 2 31\n.fg red\nABCDEFGHI\n"); err == nil || !strings.Contains(err.Error(), "overflow") {
+	if _, err := Compile(g34, ".panel 1\n.at 2 31\n.fg red\nABCDEFGHI\n"); err == nil || !strings.Contains(err.Error(), "overflow") {
 		t.Fatalf("34 columns accepted a 9-cell run at 31: %v", err)
 	}
 	for _, tc := range []struct{ src, want string }{
@@ -87,7 +87,7 @@ func TestGeometryIsAParameter(t *testing.T) {
 func TestVector(t *testing.T) {
 	p := compile(t, ".panel 2\n.at 3 6\n.fg yellow\nRASTER\n")
 	want := []byte{0x83, 0x52, 0x41, 0x53, 0x54, 0x45, 0x52}
-	o := tess.Offset(2, 3, 5)
+	o := g34.Offset(2, 3, 5)
 	if got := p.Cells[o : o+7]; !bytes.Equal(got, want) {
 		t.Fatalf("cells = % X, want % X", got, want)
 	}
@@ -220,7 +220,7 @@ func TestErrors(t *testing.T) {
 		{"+ \n", "nothing to continue"},
 		{strings.Repeat("x\n", 29), "below row 27"},
 	} {
-		_, err := Compile(tess, tc.src)
+		_, err := Compile(g34, tc.src)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
 		}
@@ -238,7 +238,7 @@ func TestReproducibleAndText(t *testing.T) {
 	if rows[0] != "ΚΑΙΡΟΣ ─── 12°" || rows[1] != "" || rows[2] != "Αθήνα   21°" || rows[3] != ". dotted" {
 		t.Fatalf("text = %q", rows[:4])
 	}
-	if len(rows) != tess.Rows || a.Text(0)[0] != "" {
+	if len(rows) != g34.Rows || a.Text(0)[0] != "" {
 		t.Fatalf("text shape: %d rows, panel 0 row 0 %q", len(rows), a.Text(0)[0])
 	}
 }
@@ -329,7 +329,7 @@ func TestSpec(t *testing.T) {
 	for _, l := range strings.Split(s[a:a+b], "\n") {
 		src.WriteString(strings.TrimPrefix(l, "    ") + "\n")
 	}
-	p, err := Compile(tess, src.String())
+	p, err := Compile(g34, src.String())
 	if err != nil {
 		t.Fatalf("spec example: %v", err)
 	}
@@ -375,5 +375,41 @@ func TestLinks(t *testing.T) {
 	}
 	if !strings.HasPrefix(h[2], `<a href="#ALERT"><span class="f1 b0">[ALERT]</span></a> <span class="f1 b0">now`) {
 		t.Fatalf("html row 2 = %q", h[2])
+	}
+}
+
+func TestCanvasReuse(t *testing.T) {
+	// A canvas compiled twice is exactly the second page, and the
+	// append renderers give the same rows as the allocating ones.
+	c := NewCanvas(g34)
+	if err := c.Compile(".fg red\nALERT\n.bg blue\n.fill 3\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Compile(".at 1 3\nquiet\n"); err != nil {
+		t.Fatal(err)
+	}
+	p := New(g34)
+	if err := c.EncodeInto(p); err != nil {
+		t.Fatal(err)
+	}
+	want := compile(t, ".at 1 3\nquiet\n")
+	if !bytes.Equal(p.Cells, want.Cells) {
+		t.Fatal("a reused canvas kept something")
+	}
+	if got, want := string(c.AppendANSI(nil, 0, 1)), want.ANSI(0)[1]; got != want {
+		t.Fatalf("AppendANSI %q, ANSI %q", got, want)
+	}
+	if got := string(c.AppendText(nil, 0, 1)); got != "   quiet" {
+		t.Fatalf("AppendText %q", got)
+	}
+	if err := c.EncodeInto(New(Geometry{1, 1, 1})); err == nil {
+		t.Fatal("EncodeInto accepted another geometry")
+	}
+	// Errors from encoding name the line that painted the row.
+	if err := c.Compile(".fg red\n" + strings.Repeat("x", 34) + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.encodeInto(p); err == nil || !strings.Contains(err.Error(), "line 2:") {
+		t.Fatalf("attributed error = %v", err)
 	}
 }
