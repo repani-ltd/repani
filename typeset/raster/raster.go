@@ -26,17 +26,14 @@ func (g Geometry) check() {
 	}
 }
 
-// Ink codes: 0x80+n sets the foreground to palette entry n, 0x88+n
-// the background, each for the rest of its row. A code renders as a
-// blank in the state it establishes.
+// Ink codes (RASTER.t, "Ink").
 const (
 	InkFG   = 0x80
 	InkBG   = 0x88
 	inkLast = 0x8F
 )
 
-// ColorNames is the palette: the renderer's default and teletext's
-// seven hues.
+// ColorNames is the palette, by index.
 var ColorNames = [8]string{
 	"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
 }

@@ -195,7 +195,7 @@ func TestReproducibleAndText(t *testing.T) {
 func TestCellTable(t *testing.T) {
 	// Round trip for every glyph value; codes and unassigned render blank.
 	glyphs := 0
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		r := CellRune(byte(b))
 		if b == 0 || IsInk(byte(b)) || (b >= 0x98 && b <= 0xBF) {
 			if r != ' ' {

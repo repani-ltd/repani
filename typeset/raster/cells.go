@@ -2,18 +2,7 @@ package raster
 
 import "fmt"
 
-// The cell table (RASTER.t, "Cells"): all 256 values defined, unassigned
-// values render blank, the table grows by appending.
-//
-//	0x00        blank
-//	0x01..0x1F  symbols: box drawing, arrows, shades, a practical tail
-//	0x20..0x7E  ASCII
-//	0x7F        €
-//	0x80..0x87  ink: foreground palette 0..7
-//	0x88..0x8F  ink: background palette 0..7
-//	0x90..0x97  weather and marine: ☀ ☁ ☂ ☾ ❄ ↯ ⚓ ⚠
-//	0x98..0xBF  unassigned
-//	0xC0..0xFF  the Greek page
+// The cell table (RASTER.t, "Cells"), in three rune tables.
 
 // symbolRunes maps 0x01..0x1F (index 1..31) and, at index 0, 0x7F.
 var symbolRunes = [32]rune{

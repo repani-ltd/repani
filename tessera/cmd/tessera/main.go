@@ -1,15 +1,5 @@
-// Command tessera compiles page source to the 3,808-byte raster and
-// renders it.
-//
-//	tessera spec                       print the format reference
-//	tessera check FILE                 compile, report errors, exit 0 if valid
-//	tessera text [-across N] FILE      compile and print the page plain
-//	tessera render [-across N] FILE    as text, with ANSI colors
-//	tessera html [-across N] FILE      as one self-contained HTML page
-//	tessera page FILE                  compile and write the 3,808 bytes
-//
-// -across N lays the four panels N to a row (default 2: the
-// two-by-two page). FILE may be - for stdin.
+// Command tessera compiles page source to the 3,808 bytes and renders
+// it; usageText is the reference for its commands.
 package main
 
 import (
@@ -77,25 +67,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: %v\n", fs.Arg(0), err)
 		return 1
 	}
+	r := page.Raster()
 	switch cmd {
 	case "check":
 	case "html":
-		fmt.Fprint(stdout, tessera.HTMLDocument(page, *across, strings.TrimSuffix(filepath.Base(fs.Arg(0)), ".tessera")))
+		fmt.Fprint(stdout, raster.HTMLDocument(r, *across, strings.TrimSuffix(filepath.Base(fs.Arg(0)), ".tessera")))
 	case "page":
 		if _, err := stdout.Write(page[:]); err != nil {
 			fmt.Fprintf(stderr, "tessera: %v\n", err)
 			return 1
 		}
 	default:
-		panels := make([][]string, tessera.Panels)
-		for i := range panels {
-			if cmd == "render" {
-				panels[i] = page.ANSI(i)
-			} else {
-				panels[i] = page.Text(i)
-			}
+		render := r.Text
+		if cmd == "render" {
+			render = r.ANSI
 		}
-		fmt.Fprint(stdout, strings.Join(tessera.Layout(panels, *across), "\n")+"\n")
+		fmt.Fprint(stdout, strings.Join(raster.Layout(r.Rendered(render), tessera.Cols, *across), "\n")+"\n")
 	}
 	return 0
 }
