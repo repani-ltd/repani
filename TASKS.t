@@ -52,6 +52,17 @@ width 34, one ink per construct page-wide. Its arrival is the
 second real backend that promotes press's fblock/sline to a
 shared contract (pica/DESIGN.t §1, §10). Trigger: a station
 that generates a tessera page from data.
+.term tessera canvas, Decode and Encode
+Inside tessera, not a move: a per-cell canvas (rune, fg, bg
+out of band) with Decode from a panel's bytes, expanding the
+in-band codes, and Encode back, paying the code's cell where
+the ink changes and refusing where no blank cell can hold it.
+The renderers then read the canvas instead of the bytes. A
+general "raster" package was considered 2026-09-03 and refused:
+every consumer nameable is tessera or on its way to it, and the
+palette size, HTML classes and panel layout are tessera's
+conventions. Trigger: the pica-to-tessera writer, which paints
+cells and pays the in-band cost at Encode.
 .term alarm mark
 Refused for pica and parked with its readmission test in
 pica/DESIGN.t §11; in tessera it is a template condition over
