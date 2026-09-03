@@ -17,7 +17,7 @@ func TestSpecSections(t *testing.T) {
 	if code := run([]string{"spec"}, &out, &out); code != 0 {
 		t.Fatalf("spec exit %d", code)
 	}
-	for _, want := range []string{"# The page", "# Cells", "# Ink", "# Authoring", "Frozen vector", "# The tessera CLI", "tessera check FILE"} {
+	for _, want := range []string{"# The page", "# The tile", "# Cells", "# Ink", "# Authoring", "Frozen vector", "# The tessera CLI", "tessera check FILE"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("spec output missing %q", want)
 		}

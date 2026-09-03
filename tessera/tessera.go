@@ -1,8 +1,14 @@
 package tessera
 
-import "fmt"
+import (
+	"fmt"
 
-// Geometry (TESSERA.t, "The page").
+	"repani.com/typeset/raster"
+)
+
+// Geometry (TESSERA.t, "The page"): tessera is a raster of 34 by 28
+// by 4, and everything about cells, ink and authoring is raster's
+// (repani.com/typeset/raster). What tessera adds is the tile.
 const (
 	Cols     = 34                // columns per row
 	Rows     = 28                // rows per panel
@@ -14,20 +20,28 @@ const (
 	Tiles    = PageLen / TileLen // 16
 )
 
-// Ink codes (TESSERA.t, "Ink"): 0x80+n sets the foreground to palette
-// entry n, 0x88+n the background, each for the rest of its row. A code
-// renders as a blank in the state it establishes.
+// Geometry is the page's shape as raster sees it.
+var Geometry = raster.Geometry{Cols: Cols, Rows: Rows, Panels: Panels}
+
+// Ink codes and the palette are raster's; the names are kept here for
+// callers that read a tessera page byte by byte.
 const (
-	InkFG   = 0x80
-	InkBG   = 0x88
-	inkLast = 0x8F
+	InkFG = raster.InkFG
+	InkBG = raster.InkBG
 )
 
 // ColorNames is the palette: the renderer's default and teletext's
 // seven hues.
-var ColorNames = [8]string{
-	"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-}
+var ColorNames = raster.ColorNames
+
+// IsInk reports whether b is an ink code.
+func IsInk(b byte) bool { return raster.IsInk(b) }
+
+// CellRune returns the display rune of a cell byte.
+func CellRune(b byte) rune { return raster.CellRune(b) }
+
+// Transcode maps content text (UTF-8) to cell bytes.
+func Transcode(text string) ([]byte, error) { return raster.Transcode(text) }
 
 // A Page is the raster: byte i is panel i/952, row (i%952)/34,
 // column i%34. The zero Page is blank.
@@ -35,7 +49,7 @@ type Page [PageLen]byte
 
 // Offset returns the page offset of a cell.
 func Offset(panel, row, col int) int {
-	return panel*PanelLen + row*Cols + col
+	return Geometry.Offset(panel, row, col)
 }
 
 // Tile returns tile k (0..15), the value carousel slot k carries:
@@ -53,55 +67,41 @@ func (p *Page) Row(panel, row int) []byte {
 	return p[o : o+Cols]
 }
 
-// IsInk reports whether b is an ink code.
-func IsInk(b byte) bool { return b >= InkFG && b <= inkLast }
+// Raster views the page as a raster page of tessera's geometry; the
+// view aliases p, so it is the page for every raster operation.
+func (p *Page) Raster() *raster.Page { return raster.Of(Geometry, p[:]) }
 
-// ink is a row's attribute state: palette indices.
-type ink struct{ fg, bg byte }
-
-// stateAt returns the ink arriving at column col of a row: the effect
-// of the codes in columns 0..col-1, from the row's clean start.
-func stateAt(row []byte, col int) ink {
-	var s ink
-	for _, b := range row[:col] {
-		switch {
-		case b >= InkFG && b < InkBG:
-			s.fg = b - InkFG
-		case b >= InkBG && b <= inkLast:
-			s.bg = b - InkBG
-		}
+// Compile turns source into a page: raster's compiler on tessera's
+// geometry. Errors carry the 1-based source line, and compilation is
+// reproducible: the same source yields the same 3,808 bytes.
+func Compile(src string) (*Page, error) {
+	rp, err := raster.Compile(Geometry, src)
+	if err != nil {
+		return nil, err
 	}
-	return s
+	p := new(Page)
+	copy(p[:], rp.Cells)
+	return p, nil
 }
 
-// codes returns the ink codes that take the state from have to want:
-// none, one, or two bytes, background first, so that a bar whose text
-// is also recolored starts whole at its first cell.
-func codes(have, want ink) []byte {
-	var out []byte
-	if have.bg != want.bg {
-		out = append(out, InkBG+want.bg)
-	}
-	if have.fg != want.fg {
-		out = append(out, InkFG+want.fg)
-	}
-	return out
+// Text renders one panel as 28 rows of 34 runes, plain.
+func (p *Page) Text(panel int) []string { return p.Raster().Text(panel) }
+
+// ANSI renders one panel as 28 rows of exactly 34 cells with ANSI
+// colors.
+func (p *Page) ANSI(panel int) []string { return p.Raster().ANSI(panel) }
+
+// HTMLRows renders one panel as 28 lines of HTML for a <pre>.
+func (p *Page) HTMLRows(panel int) []string { return p.Raster().HTMLRows(panel) }
+
+// Layout arranges the four panels' rendered rows in reading order,
+// across panels per row of panels.
+func Layout(panels [][]string, across int) []string {
+	return raster.Layout(panels, Cols, across)
 }
 
-// Text renders one panel as 28 rows of 34 runes, plain: ink codes and
-// blanks render as spaces. Rows are trimmed on the right.
-func (p *Page) Text(panel int) []string {
-	out := make([]string, Rows)
-	for r := range Rows {
-		runes := make([]rune, Cols)
-		for c, b := range p.Row(panel, r) {
-			runes[c] = CellRune(b)
-		}
-		end := Cols
-		for end > 0 && runes[end-1] == ' ' {
-			end--
-		}
-		out[r] = string(runes[:end])
-	}
-	return out
+// HTMLDocument renders the page as one self-contained HTML document,
+// the four panels across to a row.
+func HTMLDocument(p *Page, across int, title string) string {
+	return raster.HTMLDocument(p.Raster(), across, title)
 }

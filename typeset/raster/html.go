@@ -1,4 +1,4 @@
-package tessera
+package raster
 
 import (
 	"fmt"
@@ -6,14 +6,14 @@ import (
 	"strings"
 )
 
-// HTMLRows renders one panel as 28 lines of HTML for a <pre>: runs of
-// cells in one ink become <span class="fN bM"> elements (N and M the
-// palette indices); default-ink runs are bare text. Ink codes render
-// as a space in the state they establish. Lines are not trimmed, so
-// every line is exactly 34 cells.
+// HTMLRows renders one panel as Rows lines of HTML for a <pre>: runs
+// of cells in one ink become <span class="fN bM"> elements (N and M
+// the palette indices); default-ink runs are bare text. Ink codes
+// render as a space in the state they establish. Lines are not
+// trimmed, so every line is exactly Cols cells.
 func (p *Page) HTMLRows(panel int) []string {
-	out := make([]string, Rows)
-	for r := range Rows {
+	out := make([]string, p.Rows)
+	for r := range p.Rows {
 		var b strings.Builder
 		var s, open ink
 		inSpan := false
@@ -71,8 +71,8 @@ func HTMLDocument(p *Page, across int, title string) string {
   --g5: #9a2f9d; --g6: #1c8fa8; --g7: #e6e9f0;
 }
 body { margin: 0; padding: 24px; background: var(--ground); color: var(--c0); }
-.tessera { display: grid; grid-template-columns: repeat(%d, max-content); gap: 14px; width: max-content; }
-.tessera pre {
+.raster { display: grid; grid-template-columns: repeat(%d, max-content); gap: 14px; width: max-content; }
+.raster pre {
   margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--rule);
   font-family: "IBM Plex Mono", Menlo, "DejaVu Sans Mono", Consolas, monospace;
   font-size: 16px; line-height: 1.2; white-space: pre; font-variant-ligatures: none;
@@ -82,9 +82,9 @@ body { margin: 0; padding: 24px; background: var(--ground); color: var(--c0); }
 .b1 { background: var(--g1) } .b2 { background: var(--g2) } .b3 { background: var(--g3) } .b4 { background: var(--g4) }
 .b5 { background: var(--g5) } .b6 { background: var(--g6) } .b7 { background: var(--g7); color: var(--ground) }
 </style>
-<div class="tessera">
+<div class="raster">
 `, html.EscapeString(title), across)
-	for i := range Panels {
+	for i := range p.Panels {
 		fmt.Fprintf(&b, "<pre>%s</pre>\n", strings.Join(p.HTMLRows(i), "\n"))
 	}
 	b.WriteString("</div>\n</html>\n")

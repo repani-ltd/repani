@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"repani.com/tessera"
+	"repani.com/typeset/raster"
 )
 
 func usageText() string {
@@ -52,7 +53,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	cmd, args := args[0], args[1:]
 	switch cmd {
 	case "spec":
-		fmt.Fprint(stdout, tessera.Spec()+"\n# The tessera CLI\n\n"+usageText())
+		fmt.Fprint(stdout, tessera.Spec()+"\n"+raster.Spec()+"\n# The tessera CLI\n\n"+usageText())
 		return 0
 	case "check", "text", "render", "html", "page":
 	default:

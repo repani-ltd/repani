@@ -16,6 +16,9 @@ directory is one project; its import path is `repani.com/<dir>/...`.
              decimal point); `typeset/stylebook`, house style for
              templates that write copy from data (value formatters,
              `cells` over tab, `Render` with the language's check)
+             `typeset/raster`, a page of colored text cells in any
+             geometry: cell table, in-band ink, authoring language,
+             text/ANSI/HTML renderers (tessera is one geometry)
 - `trudge/` -- trudge1, a simple memory-hard KDF on Ascon-XOF128
              (256 MiB pool, 2^24-step walk; spec in `trudge/SPEC.t`)
 

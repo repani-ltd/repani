@@ -1,8 +1,8 @@
-package tessera
+package raster
 
 import "fmt"
 
-// The cell table (TESSERA.t, "Cells"): all 256 values defined, unassigned
+// The cell table (RASTER.t, "Cells"): all 256 values defined, unassigned
 // values render blank, the table grows by appending.
 //
 //	0x00        blank
@@ -87,7 +87,7 @@ func Transcode(text string) ([]byte, error) {
 	for _, r := range text {
 		b, ok := runeToCell[r]
 		if !ok {
-			return nil, fmt.Errorf("tessera: %q is outside the cell repertoire", r)
+			return nil, fmt.Errorf("raster: %q is outside the cell repertoire", r)
 		}
 		out = append(out, b)
 	}

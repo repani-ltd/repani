@@ -1,4 +1,4 @@
-package tessera
+package raster
 
 import (
 	"fmt"
@@ -6,11 +6,11 @@ import (
 	"strings"
 )
 
-// Compile turns source (doc.go, "Authoring") into a page. Errors carry
-// the 1-based source line. Compilation is reproducible: the same source
-// yields the same 3,808 bytes.
-func Compile(src string) (*Page, error) {
-	c := compiler{page: new(Page), panel: -1}
+// Compile turns source (RASTER.t, "Authoring") into a page of the
+// geometry. Errors carry the 1-based source line. Compilation is
+// reproducible: the same source and geometry yield the same bytes.
+func Compile(g Geometry, src string) (*Page, error) {
+	c := compiler{page: New(g), panel: -1}
 	for n, raw := range strings.Split(strings.TrimSuffix(src, "\n"), "\n") {
 		if err := c.line(raw); err != nil {
 			return nil, fmt.Errorf("line %d: %w", n+1, err)
@@ -35,7 +35,7 @@ func colorIndex(name string) (byte, error) {
 			return byte(i), nil
 		}
 	}
-	return 0, fmt.Errorf("tessera: unknown color %q", name)
+	return 0, fmt.Errorf("raster: unknown color %q", name)
 }
 
 func (c *compiler) line(raw string) error {
@@ -43,7 +43,7 @@ func (c *compiler) line(raw string) error {
 	case strings.HasPrefix(raw, "+ "):
 		return c.continuation(raw[2:])
 	case raw == "+":
-		return fmt.Errorf("tessera: empty continuation")
+		return fmt.Errorf("raster: empty continuation")
 	case len(raw) > 1 && raw[0] == '.' && raw[1] >= 'a' && raw[1] <= 'z':
 		return c.command(raw)
 	default:
@@ -53,6 +53,7 @@ func (c *compiler) line(raw string) error {
 }
 
 func (c *compiler) command(raw string) error {
+	g := c.page.Geometry
 	fields := strings.Fields(raw)
 	cmd, args := fields[0], fields[1:]
 	switch cmd {
@@ -63,8 +64,8 @@ func (c *compiler) command(raw string) error {
 		if err != nil {
 			return err
 		}
-		if n[0] < 0 || n[0] >= Panels {
-			return fmt.Errorf("tessera: panel %d out of range 0..%d", n[0], Panels-1)
+		if n[0] < 0 || n[0] >= g.Panels {
+			return fmt.Errorf("raster: panel %d out of range 0..%d", n[0], g.Panels-1)
 		}
 		c.panel = n[0]
 		c.curRow, c.curCol = 0, 0
@@ -76,8 +77,8 @@ func (c *compiler) command(raw string) error {
 		if err != nil {
 			return err
 		}
-		if n[0] < 0 || n[0] >= Rows || n[1] < 0 || n[1] >= Cols {
-			return fmt.Errorf("tessera: .at %d %d outside rows 0..%d, cols 0..%d", n[0], n[1], Rows-1, Cols-1)
+		if n[0] < 0 || n[0] >= g.Rows || n[1] < 0 || n[1] >= g.Cols {
+			return fmt.Errorf("raster: .at %d %d outside rows 0..%d, cols 0..%d", n[0], n[1], g.Rows-1, g.Cols-1)
 		}
 		c.curRow, c.curCol = n[0], n[1]
 		c.havePen = false
@@ -91,18 +92,18 @@ func (c *compiler) command(raw string) error {
 		}
 		return c.fill(n[0], n[1], n[2], n[3])
 	}
-	return fmt.Errorf("tessera: unknown command %s", cmd)
+	return fmt.Errorf("raster: unknown command %s", cmd)
 }
 
 func ints(args []string, want int) ([]int, error) {
 	if len(args) != want {
-		return nil, fmt.Errorf("tessera: want %d arguments, have %d", want, len(args))
+		return nil, fmt.Errorf("raster: want %d arguments, have %d", want, len(args))
 	}
 	out := make([]int, want)
 	for i, a := range args {
 		n, err := strconv.Atoi(a)
 		if err != nil {
-			return nil, fmt.Errorf("tessera: bad number %q", a)
+			return nil, fmt.Errorf("raster: bad number %q", a)
 		}
 		out[i] = n
 	}
@@ -117,7 +118,7 @@ func (c *compiler) setInk(args []string) error {
 	case len(args) == 3 && args[1] == "on":
 		fgName, bgName = args[0], args[2]
 	default:
-		return fmt.Errorf("tessera: .ink wants FG or FG on BG")
+		return fmt.Errorf("raster: .ink wants FG or FG on BG")
 	}
 	fg, err := colorIndex(fgName)
 	if err != nil {
@@ -137,17 +138,17 @@ func (c *compiler) setInk(args []string) error {
 // lands on an ink code; a code may replace a code.
 func (c *compiler) emit(row, col int, cells []byte) error {
 	if c.panel < 0 {
-		return fmt.Errorf("tessera: content before .panel")
+		return fmt.Errorf("raster: content before .panel")
 	}
 	r := c.page.Row(c.panel, row)
 	pre := codes(stateAt(r, col), c.pen)
 	end := col + len(pre) + len(cells)
-	if end > Cols {
-		return fmt.Errorf("tessera: row %d: %d cells at column %d overflow the row", row, end-col, col)
+	if end > c.page.Cols {
+		return fmt.Errorf("raster: row %d: %d cells at column %d overflow the row", row, end-col, col)
 	}
 	for i := range cells {
 		if IsInk(r[col+len(pre)+i]) {
-			return fmt.Errorf("tessera: row %d column %d: content over an ink code", row, col+len(pre)+i)
+			return fmt.Errorf("raster: row %d column %d: content over an ink code", row, col+len(pre)+i)
 		}
 	}
 	copy(r[col:], pre)
@@ -168,8 +169,8 @@ func (c *compiler) content(raw string) error {
 	if err != nil {
 		return err
 	}
-	if c.curRow >= Rows {
-		return fmt.Errorf("tessera: content below row %d", Rows-1)
+	if c.curRow >= c.page.Rows {
+		return fmt.Errorf("raster: content below row %d", c.page.Rows-1)
 	}
 	if err := c.emit(c.curRow, c.curCol, cells); err != nil {
 		return err
@@ -180,11 +181,11 @@ func (c *compiler) content(raw string) error {
 
 func (c *compiler) continuation(rest string) error {
 	if !c.havePen {
-		return fmt.Errorf("tessera: + with nothing to continue (.panel and .at reset the pen)")
+		return fmt.Errorf("raster: + with nothing to continue (.panel and .at reset the pen)")
 	}
 	rest = strings.TrimRight(rest, " \t")
 	if rest == "" {
-		return fmt.Errorf("tessera: empty continuation")
+		return fmt.Errorf("raster: empty continuation")
 	}
 	cells, err := Transcode(rest)
 	if err != nil {
@@ -200,23 +201,24 @@ func (c *compiler) continuation(rest string) error {
 // arrived there before.
 func (c *compiler) fill(row, col, w, h int) error {
 	if c.panel < 0 {
-		return fmt.Errorf("tessera: .fill before .panel")
+		return fmt.Errorf("raster: .fill before .panel")
 	}
-	if w < 1 || h < 1 || row < 0 || col < 0 || row+h > Rows || col+w > Cols {
-		return fmt.Errorf("tessera: .fill %d %d %d %d outside the panel", row, col, w, h)
+	g := c.page.Geometry
+	if w < 1 || h < 1 || row < 0 || col < 0 || row+h > g.Rows || col+w > g.Cols {
+		return fmt.Errorf("raster: .fill %d %d %d %d outside the panel", row, col, w, h)
 	}
 	for y := row; y < row+h; y++ {
 		r := c.page.Row(c.panel, y)
 		pre := codes(stateAt(r, col), c.pen)
 		if len(pre) > w {
-			return fmt.Errorf("tessera: row %d: a fill %d wide cannot hold its %d ink codes", y, w, len(pre))
+			return fmt.Errorf("raster: row %d: a fill %d wide cannot hold its %d ink codes", y, w, len(pre))
 		}
 		var post []byte
-		if col+w < Cols {
+		if col+w < g.Cols {
 			post = codes(c.pen, stateAt(r, col+w))
 			for i := range post {
-				if x := col + w + i; x >= Cols || (r[x] != 0 && !IsInk(r[x])) {
-					return fmt.Errorf("tessera: row %d: the fill's closing ink code at column %d lands on content", y, x)
+				if x := col + w + i; x >= g.Cols || (r[x] != 0 && !IsInk(r[x])) {
+					return fmt.Errorf("raster: row %d: the fill's closing ink code at column %d lands on content", y, x)
 				}
 			}
 		}
