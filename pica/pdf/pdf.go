@@ -73,8 +73,8 @@ var rawFiraSansItalic []byte
 type Font string
 
 const (
-	Regular  Font = "R"  // Fira Mono Regular
-	Bold     Font = "B"  // Fira Mono Bold
+	Regular    Font = "R"  // Fira Mono Regular
+	Bold       Font = "B"  // Fira Mono Bold
 	Sans       Font = "S"  // Fira Sans Regular (proportional)
 	SansBold   Font = "SB" // Fira Sans Bold (proportional)
 	SansItalic Font = "SI" // Fira Sans Italic (proportional; emphasis)

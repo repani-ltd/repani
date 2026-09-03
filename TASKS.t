@@ -57,8 +57,5 @@ Refused for pica and parked with its readmission test in
 pica/DESIGN.t §11; in tessera it is a template condition over
 the data, not a language mark. Listed here only so the two
 records point at each other.
-.term gofmt pica/pdf/pdf.go
-The Font constant block is not gofmt-clean (predates
-2026-09-02). Fold into the pdf move.
 
 .width 72
