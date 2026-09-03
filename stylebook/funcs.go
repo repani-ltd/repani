@@ -1,9 +1,8 @@
-// Template helper functions: value formatting only -- layout belongs
-// to the writers, never to templates. The vocabulary is the
-// package's asset; its admission rule is in the package comment
-// (desk.go).
+// The vocabulary: value formatting only -- layout belongs to the
+// writers, never to templates. Its admission rule is in the package
+// comment (stylebook.go).
 
-package desk
+package stylebook
 
 import (
 	"fmt"
@@ -15,12 +14,12 @@ import (
 	"text/template"
 	"time"
 
-	"repani.com/pica"
+	"repani.com/tab"
 )
 
-// Funcs returns the pica template function set, the helpers every
-// desk template composes with (also available standalone for
-// callers driving text/template themselves).
+// Funcs returns the house function set, the helpers every template
+// composes with (also available standalone for callers driving
+// text/template themselves). Render adds a language's own on top.
 func Funcs() template.FuncMap {
 	return template.FuncMap{
 		// Numeric.
@@ -28,16 +27,17 @@ func Funcs() template.FuncMap {
 		"decimal": decimal,
 
 		// String.
-		"trunc": pica.TruncLine,
+		"trunc": trunc,
 		"pad":   pad,
+		"join":  strings.Join,
 
 		// Time / date / duration.
 		"shortTime": shortTime,
 		"shortDate": shortDate,
 		"dur":       dur,
 
-		// Structure.
-		"table": table,
+		// Columns.
+		"cells": cells,
 	}
 }
 
@@ -83,6 +83,18 @@ func decimal(v any, n int) (string, error) {
 		return "", err
 	}
 	return strconv.FormatFloat(f, 'f', n, 64), nil
+}
+
+// trunc hard-cuts s to n runes.
+func trunc(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 // pad pads s with spaces on the right to width n runes. If s is
@@ -156,49 +168,84 @@ func dur(s string) string {
 	}
 }
 
-// table renders a data-driven .table block, sparing templates the
-// range boilerplate when every cell is a plain field:
-//
-//	{{table "9L 9L 5L" "Spot | When | Level" .Tides "Spot" "When" "Kind"}}
-//
-// spec passes through verbatim (including a fixed width or the
-// headerless "-" marker); header is the header row, or "" to emit
-// none (pair with a "-" spec). rows must be a slice of objects
-// (JSON objects and FACT instances both bind to maps); each cell is
-// the named field formatted with %v. A missing field or a
-// non-object row is an error -- never a silently blank cell.
-func table(spec, header string, rows any, fields ...string) (string, error) {
+// Rows extracts the named fields from a slice of objects as one
+// string per cell, formatted with %v: the row shape every
+// data-driven helper shares (JSON objects and FACT instances both
+// bind to maps). A missing field or a non-object row is an error,
+// never a silently blank cell.
+func Rows(rows any, fields ...string) ([][]string, error) {
 	if len(fields) == 0 {
-		return "", fmt.Errorf("table: no fields given")
+		return nil, fmt.Errorf("no fields given")
 	}
 	rv := reflect.ValueOf(rows)
 	if !rv.IsValid() || (rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array) {
-		return "", fmt.Errorf("table: rows is %T, want a slice", rows)
+		return nil, fmt.Errorf("rows is %T, want a slice", rows)
 	}
-	var b strings.Builder
-	b.WriteString(".table ")
-	b.WriteString(spec)
-	b.WriteString("\n")
-	if header != "" {
-		b.WriteString(header)
-		b.WriteString("\n")
-	}
+	out := make([][]string, rv.Len())
 	for i := range rv.Len() {
 		row, ok := rv.Index(i).Interface().(map[string]any)
 		if !ok {
-			return "", fmt.Errorf("table: row %d is %T, want an object", i, rv.Index(i).Interface())
+			return nil, fmt.Errorf("row %d is %T, want an object", i, rv.Index(i).Interface())
 		}
-		cells := make([]string, len(fields))
+		out[i] = make([]string, len(fields))
 		for j, f := range fields {
 			v, ok := row[f]
 			if !ok {
-				return "", fmt.Errorf("table: row %d has no field %q", i, f)
+				return nil, fmt.Errorf("row %d has no field %q", i, f)
 			}
-			cells[j] = fmt.Sprintf("%v", v)
+			out[i][j] = fmt.Sprintf("%v", v)
 		}
-		b.WriteString(strings.Join(cells, " | "))
-		b.WriteString("\n")
 	}
-	b.WriteString(".end")
-	return b.String(), nil
+	return out, nil
+}
+
+// cells lays rows into tab stops (repani.com/tab) and returns each
+// row as its padded, aligned cells -- runes, not a table: the
+// template joins them with a space for a grid, or places them one by
+// one to put its own marks between the columns.
+//
+//	{{range cells "6L 8L 8L *L" 34 .Ferries "dep" "to" "vessel" "status"}}{{join . " "}}
+//	{{end}}
+//
+// spec is tab's column spec (widths, "*" for the auto column, L R C
+// N); width is the measure the columns fit, or 0 to take exactly
+// the fixed widths (an auto column then needs a width). Every row
+// is measured before any is formatted, so an N column's decimal
+// points align across the whole set; a cell wider than its column
+// is clipped. rows and fields are as for Rows.
+func cells(spec string, width int, rows any, fields ...string) ([][]string, error) {
+	cols, err := tab.Parse(spec)
+	if err != nil {
+		return nil, fmt.Errorf("cells: %w", err)
+	}
+	data, err := Rows(rows, fields...)
+	if err != nil {
+		return nil, fmt.Errorf("cells: %w", err)
+	}
+	if width <= 0 {
+		for _, c := range cols {
+			width += c.Width
+		}
+		width += len(cols) - 1
+	}
+	fitted, err := tab.Fit(cols, width, 1)
+	if err != nil {
+		return nil, fmt.Errorf("cells: %w", err)
+	}
+	g := tab.New(fitted, 1)
+	for _, r := range data {
+		g.Measure(r)
+	}
+	out := make([][]string, len(data))
+	for i, r := range data {
+		out[i] = make([]string, len(fitted))
+		for j := range fitted {
+			var s string
+			if j < len(r) {
+				s = r[j]
+			}
+			out[i][j] = g.Cell(j, s)
+		}
+	}
+	return out, nil
 }

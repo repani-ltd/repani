@@ -866,6 +866,32 @@ press and every golden are unchanged. Nothing wraps in tab: a
 cell wider than its column is clipped, since a consumer that
 wants wrapping is a typesetter, and has one.
 
+# 13. The stylebook (decided 2026-09-03)
+
+Driver: tessera pages will be generated the way pica bulletins
+are -- authors set structure in the language, templates fill
+data from stations -- and need the same dates, numbers and
+padding. The desk's vocabulary was pica's only by address, so it
+moved to repani.com/stylebook, a top-level package under the
+primitive rule (stdlib and tab only; it knows no language). The
+cut that decides what moved is one question: does a helper's
+output contain the language's syntax, or only runes? Runes are
+shared; syntax stays with its language. So the stylebook holds
+the value formatters (round, decimal, trunc, pad, join, the time
+helpers), Rows (the object-slice-to-cells shape every data
+helper reads), cells (rows laid into tab stops, returned as
+padded cells rather than lines, so a tessera template can put
+its own ink between the columns), and Render, which takes the
+language's helpers and its check. Pica keeps desk as its own
+desk: Funcs is the stylebook's plus table, the one helper that
+emits a block, and Render is the stylebook's with pica.Parse as
+the check. Loading (fact, txtar) stayed with the CLI per §10:
+the loaders depend on fact, a product, which a primitive-rule
+package may not import, and a station keeps its own loaders
+anyway. "desk" was kept for pica's package and refused for the
+shared one, since a copy desk is a newsroom's, while its
+stylebook is what every desk writes by.
+
 # Admission tests and non-goals (moved from doc.go, 2026-08-20)
 
 These two sections lived in the package comment (so pica spec

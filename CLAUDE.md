@@ -2,7 +2,8 @@
 
 One Go module. Top-level directories are either products with
 their own CLAUDE.md (`pica/`, `fact/`, `tessera/`) or primitive
-packages (`ascon/`, `golay/`, `lz4s/`, `tab/`); this file holds what is
+packages (`ascon/`, `golay/`, `lz4s/`, `tab/`, `stylebook/`); this file
+holds what is
 common.
 
 Primitive packages import only the standard library and other

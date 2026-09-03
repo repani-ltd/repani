@@ -3,7 +3,8 @@
 Text typesetting library: wrapping, hyphenation, tables (the root package,
 stdlib-only), with PDF primitives (`pdf/`, `pdf/ttf/`), the compositor and
 its two presentations (`press/`: `press.PDF` the default, `press.Report`),
-the copy desk (`desk/`: template `Funcs` + validating `Render`), and the
+the copy desk (`desk/`: the stylebook's `Funcs` plus `table`, and the
+validating `Render`; house style lives in `repani.com/stylebook`), and the
 `pica` CLI (`cmd/pica`), a thin flag surface over all of it. The design
 ledger for the split is DESIGN.t section 10.
 
