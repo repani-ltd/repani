@@ -22,6 +22,10 @@ are the contract.
   in it; retired work goes to `~/repos/_attic` with history.
 - READMEs and CLAUDE.md stay Markdown (consumed by GitHub / Claude
   Code); all other documentation is pica `.t`.
+- `TASKS.t` at the repo root is the task ledger: parked work and
+  candidates with their triggers, one `.term` per task, removed
+  when done (the resulting decision goes to the project's
+  DESIGN.t). Add tasks there, not to memory or chat.
 - CLIs live in `<project>/cmd/<tool>`: `pica/cmd/pica`,
   `fact/cmd/fact`.
 - Every Go package carries a generated `pkg.fact` (see
