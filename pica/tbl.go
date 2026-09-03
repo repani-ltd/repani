@@ -1,7 +1,7 @@
 // Table renderer: wrapped cells by default, "!" clips a column.
 // Spec syntax and rendering rules live in doc.go. The grid itself
 // -- column fitting, alignment, the numeric point -- is the tab
-// primitive (repani.com/tab); this file adds what a typeset table
+// primitive (repani.com/typeset/tab); this file adds what a typeset table
 // has over tab stops: wrapped cells, a header and its rule, note
 // and total rows, prose cells measured in a proportional face.
 package pica
@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"repani.com/tab"
+	"repani.com/typeset/tab"
 )
 
 // The spec errors are tab's, under pica's names; the align error is

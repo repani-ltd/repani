@@ -14,7 +14,7 @@ import (
 	"text/template"
 	"time"
 
-	"repani.com/tab"
+	"repani.com/typeset/tab"
 )
 
 // Funcs returns the house function set, the helpers every template
@@ -199,7 +199,7 @@ func Rows(rows any, fields ...string) ([][]string, error) {
 	return out, nil
 }
 
-// cells lays rows into tab stops (repani.com/tab) and returns each
+// cells lays rows into tab stops (repani.com/typeset/tab) and returns each
 // row as its padded, aligned cells -- runes, not a table: the
 // template joins them with a space for a grid, or places them one by
 // one to put its own marks between the columns.

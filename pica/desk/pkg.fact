@@ -11,5 +11,5 @@ func:table.calls: list(str) = ["fmt.Errorf", "strings.Builder.String", "strings.
 func:table.exported: bool = false
 func:table.file: str = "desk.go"
 func:table.sig: str = "func(spec string, header string, rows any, fields ...string) (string, error)"
-imports: list(str) = ["fmt", "repani.com/pica", "repani.com/stylebook", "strings", "text/template"]
+imports: list(str) = ["fmt", "repani.com/pica", "repani.com/typeset/stylebook", "strings", "text/template"]
 pkg.path: str = "repani.com/pica/desk"

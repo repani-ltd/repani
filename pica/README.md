@@ -53,7 +53,7 @@ DESIGN.t §10):
   `press.Report`, house stationery. The Repani mark is its one
   option: publishing policy, passed where the PDF is made.
 - `desk` -- pica copy from data: the stylebook's vocabulary
-  (`repani.com/stylebook`) plus `table`, and `Render`, which parses
+  (`repani.com/typeset/stylebook`) plus `table`, and `Render`, which parses
   its output before returning it, so a generator never ships an
   invalid document.
 - `pdf` -- PDF primitives and the embedded Fira faces.

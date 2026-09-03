@@ -2,9 +2,10 @@
 
 One Go module. Top-level directories are either products with
 their own CLAUDE.md (`pica/`, `fact/`, `tessera/`) or primitive
-packages (`ascon/`, `golay/`, `lz4s/`, `tab/`, `stylebook/`); this file
-holds what is
-common.
+packages (`ascon/`, `golay/`, `lz4s/`) or the typesetting family
+(`typeset/`: one directory, one package per member -- `typeset/tab`,
+`typeset/stylebook` -- every member under the primitive rule, so a
+product never lives there); this file holds what is common.
 
 Primitive packages import only the standard library and other
 primitive packages (never a product package: pica, fact,

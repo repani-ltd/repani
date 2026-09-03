@@ -2,7 +2,7 @@
 // becomes a validated pica source document. The desk turns wire
 // data into copy; the press (repani.com/pica/press) prints it; pica
 // is the language between them. The house style it writes in is
-// the stylebook (repani.com/stylebook), shared with every Repani
+// the stylebook (repani.com/typeset/stylebook), shared with every Repani
 // language that generates pages; what this package adds is pica's
 // own: the helper that emits a .table block, and the check that a
 // rendered document parses.
@@ -17,7 +17,7 @@ import (
 	"text/template"
 
 	"repani.com/pica"
-	"repani.com/stylebook"
+	"repani.com/typeset/stylebook"
 )
 
 // Funcs returns the pica template function set: the stylebook's

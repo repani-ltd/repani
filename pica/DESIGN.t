@@ -855,7 +855,7 @@ forbids (layout in one place). The cut is below the wrapping:
 what a table does before any cell wraps -- the column spec, the
 fit against a measure, alignment, the numeric point and paren
 slot, clipping -- is the typewriter's tab stop, and moved to
-repani.com/tab as a primitive under the module's primitive rule
+repani.com/typeset/tab as a primitive under the module's primitive rule
 (stdlib-only, no sibling imports, no document or font, append-
 only, known-answer tests as the contract). Pica's Table is now a
 client: it normalizes its two decorations (P prose columns, "!"
@@ -872,7 +872,7 @@ Driver: tessera pages will be generated the way pica bulletins
 are -- authors set structure in the language, templates fill
 data from stations -- and need the same dates, numbers and
 padding. The desk's vocabulary was pica's only by address, so it
-moved to repani.com/stylebook, a top-level package under the
+moved to repani.com/typeset/stylebook, a package under the
 primitive rule (stdlib and tab only; it knows no language). The
 cut that decides what moved is one question: does a helper's
 output contain the language's syntax, or only runes? Runes are
@@ -891,6 +891,18 @@ package may not import, and a station keeps its own loaders
 anyway. "desk" was kept for pica's package and refused for the
 shared one, since a copy desk is a newsroom's, while its
 stylebook is what every desk writes by.
+
+The typeset family (decided 2026-09-03, after §12 and §13 landed
+at the top level): the typesetting libraries share one
+directory, repani.com/typeset, one package per member
+(typeset/tab, typeset/stylebook), never one package -- a single
+namespace would fold the grid into the template vocabulary and
+land text/template on every importer of a column. Every member
+is under the primitive rule. The breaker and the hyphenation
+patterns are the next candidates, the day a tessera panel fills
+a paragraph; pica would then import them back as it imports tab.
+"foundry" was considered and refused for the name; typeset names
+the act.
 
 # Admission tests and non-goals (moved from doc.go, 2026-08-20)
 
