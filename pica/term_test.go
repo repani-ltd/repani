@@ -27,9 +27,9 @@ func TestTermBlock(t *testing.T) {
 
 func TestTermErrors(t *testing.T) {
 	for _, src := range []string{
-		"T\n\n.term\ntext\n",                 // no label
-		"T\n\n.term LABEL\n\nprose.\n",       // no text: the blank line ended it
-		"T\n\n.term LABEL\n# heading\n",      // no text: a marked line ended it
+		"T\n\n.term\ntext\n",                // no label
+		"T\n\n.term LABEL\n\nprose.\n",      // no text: the blank line ended it
+		"T\n\n.term LABEL\n# heading\n",     // no text: a marked line ended it
 		"T\n\n.term LABEL\nan _open span\n", // emphasis lives in the text
 	} {
 		_, err := Parse(src)
