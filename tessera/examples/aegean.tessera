@@ -1,192 +1,199 @@
 .rem Aegean marine bulletin: four panels, one page.
-.rem Every row starts with an ink code or a space: a one-cell left
-.rem margin, so colored and plain rows align.
+.rem Colored and plain rows alike start at column 0.
 
 .panel 0
-.ink white on blue
-.fill 0 0 34 1
+.fg white
+.bg blue
+.fill 0
 .at 0 2
 ΑΙΓΑΙΟ · AEGEAN MARINE BULLETIN
-.ink cyan
-.at 1 0
+.fg cyan
+.bg default
+.at 1
 02 SEP 2026 · 0600 UTC · HNMS
-.ink default
-.at 3 0
-.ink yellow
+.fg default
+.at 3
+.fg yellow
 SYNOPSIS
-.ink default
- High 1024 over central Europe,
- low 1004 over Cyprus moving E.
- The meltemi (N winds) over the
- Aegean strengthens through the
- afternoon and peaks tonight.
-.at 9 0
-.ink yellow
+.fg default
+High 1024 over central Europe,
+low 1004 over Cyprus moving E.
+The meltemi (N winds) over the
+Aegean strengthens through the
+afternoon and peaks tonight.
+.at 9
+.fg yellow
 OUTLOOK TO WED 03 SEP
-.ink default
- Gale 8 Kykladon, Ikario and
- Karpathio from 1800, locally 9
- over Ikario. Easing to 5-6 by
- Wednesday noon. Ionian: fair.
-.at 15 0
-.ink yellow
+.fg default
+Gale 8 Kykladon, Ikario and
+Karpathio from 1800, locally 9
+over Ikario. Easing to 5-6 by
+Wednesday noon. Ionian: fair.
+.at 15
+.fg yellow
 NOTICES TO MARINERS
-.ink default
- · Piraeus: Gate E1 closed for
-  works until 10 Sep.
- · Rafina: 1600 and 1730 ferries
-  to Mykonos cancelled.
- · Lavrio: Ε/Γ traffic to Kea
-  suspended from 1800.
-.at 23 0
-.ink green
+.fg default
+· Piraeus: Gate E1 closed for
+ works until 10 Sep.
+· Rafina: 1600 and 1730 ferries
+ to Mykonos cancelled.
+· Lavrio: Ε/Γ traffic to Kea
+ suspended from 1800.
+.at 23
+.fg green
 SEA 25°C · UV 8 · ☀↑06:58 ☾↑18:20
-.ink white on blue
-.fill 27 0 34 1
+.fg white
+.bg blue
+.fill 27
 .at 27 2
 NEXT UPDATE 1200 UTC · VHF CH 16
 
 .panel 1
-.ink white on blue
-.fill 0 0 34 1
+.fill 0
 .at 0 2
 FORECAST TO 1800 UTC · BEAUFORT
-.at 2 0
-.ink yellow
+.at 2
+.fg yellow
+.bg default
 AREA        WIND    SEA     VIS
-.ink default
- ───────────────────────────────
- THRAKIKO   NE 4-5  MOD     GOOD
- THERMAIKOS N 3-4   SLIGHT  GOOD
- N.EVOIKOS  NE 4    SLIGHT  GOOD
-.ink yellow
+.fg default
+───────────────────────────────
+THRAKIKO   NE 4-5  MOD     GOOD
+THERMAIKOS N 3-4   SLIGHT  GOOD
+N.EVOIKOS  NE 4    SLIGHT  GOOD
+.fg yellow
 KAFIREAS   N 6-7   ROUGH   MOD
-.ink red
+.fg red
 KYKLADON   N 7-8   V.ROUGH MOD
 IKARIO     N 7-9   V.ROUGH POOR
 KARPATHIO  NW 7    ROUGH   MOD
-.ink default
- KRITIKO    NW 5-6  MOD     GOOD
- SARONIKOS  N 4-5   SLIGHT  GOOD
-.ink yellow
+.fg default
+KRITIKO    NW 5-6  MOD     GOOD
+SARONIKOS  N 4-5   SLIGHT  GOOD
+.fg yellow
 SAMOS SEA  N 6     ROUGH   MOD
-.ink default
- KITHIRA    NW 5    MOD     GOOD
- IONIO N    NW 3    SMOOTH  GOOD
- IONIO S    W 3-4   SLIGHT  GOOD
- PATRAIKOS  W 3     SMOOTH  GOOD
-.at 20 0
-.ink red
+.fg default
+KITHIRA    NW 5    MOD     GOOD
+IONIO N    NW 3    SMOOTH  GOOD
+IONIO S    W 3-4   SLIGHT  GOOD
+PATRAIKOS  W 3     SMOOTH  GOOD
+.at 20
+.fg red
 RED
-.ink default
+.fg default
 +  gale 7-9
-.ink yellow
+.fg yellow
 +  ·
-.ink default
+.fg default
 +  strong 6
-.at 22 0
-.ink cyan
+.at 22
+.fg cyan
 WIND KYKLADON TODAY (BFT)
-.ink default
- 06  ▓▓▓▓▓▓ 6
- 12  ▓▓▓▓▓▓▓ 7
-.ink red
+.fg default
+06  ▓▓▓▓▓▓ 6
+12  ▓▓▓▓▓▓▓ 7
+.fg red
 18  ▓▓▓▓▓▓▓▓ 8
 00  ▓▓▓▓▓▓▓ 7
-.ink white on blue
-.fill 27 0 34 1
+.fg white
+.bg blue
+.fill 27
 .at 27 2
 VALID 0600-1800 UTC · HNMS
 
 .panel 2
-.ink white on red
-.fill 0 0 34 1
+.bg red
+.fill 0
 .at 0 2
 ⚠ GALE WARNING 14 · ΘΥΕΛΛΑ
-.ink red
-.at 2 0
+.fg red
+.bg default
+.at 2
 KYKLADON · IKARIO · KARPATHIO
-.ink default
- North 7 to 8, locally 9 over
- Ikario in the afternoon and
- evening. Very rough sea. Valid
- from 02 Sep 1800 UTC until
- 03 Sep 0600 UTC.
-.at 8 0
-.ink yellow
+.fg default
+North 7 to 8, locally 9 over
+Ikario in the afternoon and
+evening. Very rough sea. Valid
+from 02 Sep 1800 UTC until
+03 Sep 0600 UTC.
+.at 8
+.fg yellow
 STRONG WIND WARNING
 KAFIREAS · SAMOS SEA
-.ink default
- North 6 to 7 until 03 Sep 0600.
-.at 13 0
-.ink cyan
+.fg default
+North 6 to 7 until 03 Sep 0600.
+.at 13
+.fg cyan
 NAVIGATIONAL WARNINGS
 NAVTEX 0345 · PIRAEUS RADIO
-.ink default
- · Ikaria-Samos strait: cable
-  laying, keep 2 nm clear of
-  vessel POSEIDON until 05 Sep.
- · Lavrio: light 37°42'N 24°04'E
-  unlit until further notice.
- · Kea channel: drifting con-
-  tainer reported 0430 UTC.
-.at 24 0
-.ink green
+.fg default
+· Ikaria-Samos strait: cable
+ laying, keep 2 nm clear of
+ vessel POSEIDON until 05 Sep.
+· Lavrio: light 37°42'N 24°04'E
+ unlit until further notice.
+· Kea channel: drifting con-
+ tainer reported 0430 UTC.
+.at 24
+.fg green
 ALL CLEAR · IONIO · SARONIKOS
-.ink default
- No warnings in force.
-.ink white on red
-.fill 27 0 34 1
+.fg default
+No warnings in force.
+.fg white
+.bg red
+.fill 27
 .at 27 2
 LISTEN VHF CH 16 · MAYDAY RELAY
 
 .panel 3
-.ink white on blue
-.fill 0 0 34 1
+.bg blue
+.fill 0
 .at 0 2
-⚓ PORTS · ΛΙΜΕΝΕΣ · 0600 UTC
-.at 2 0
-.ink yellow
+PORTS · ΛΙΜΕΝΕΣ · 0600 UTC
+.at 2
+.fg yellow
+.bg default
 PORT        STATUS   SWELL
-.ink default
- ─────────────────────────────
-.ink green
+.fg default
+─────────────────────────────
+.fg green
 PIRAEUS    OPEN     0.5 m
 RAFINA     OPEN     0.8 m
-.ink yellow
+.fg yellow
 SANTORINI  CAUTION  1.5 m
-.ink red
+.fg red
 MYKONOS    CLOSED   2.5 m
 NAXOS      CLOSED   2.2 m
 IKARIA     CLOSED   3.0 m
-.ink green
+.fg green
 HERAKLION  OPEN     0.6 m
 CHANIA     OPEN     0.4 m
-.at 13 0
-.ink cyan
+.at 13
+.fg cyan
 VHF WEATHER · OLYMPIA RADIO
-.ink default
- Announced on CH 16, then work
- channel. Times local (EEST):
-.ink yellow
+.fg default
+Announced on CH 16, then work
+channel. Times local (EEST):
+.fg yellow
 0633 · 1033 · 1633 · 2133
-.ink default
-.at 19 0
-.ink cyan
+.fg default
+.at 19
+.fg cyan
 TIDES PIRAEUS (m above LAT)
-.ink default
- HW 03:12  0.3   LW 09:48  0.1
- HW 15:36  0.4   LW 22:01  0.0
-.at 23 0
-.ink cyan
+.fg default
+HW 03:12  0.3   LW 09:48  0.1
+HW 15:36  0.4   LW 22:01  0.0
+.at 23
+.fg cyan
 ☀
-.ink default
+.fg default
 +  ↑06:58 ↓19:41
-.ink cyan
+.fg cyan
 +  ☾
-.ink default
+.fg default
 +  ↑18:20
-.ink white on blue
-.fill 27 0 34 1
+.fg white
+.bg blue
+.fill 27
 .at 27 2
 ΚΑΛΟ ΤΑΞΙΔΙ · SAFE PASSAGE

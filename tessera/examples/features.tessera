@@ -1,0 +1,199 @@
+.rem Every feature of the language on one page. Panel 0: ink and
+.rem placement. Panel 1: fills. Panel 2: the repertoire. Panel 3:
+.rem links and the odd cases. The page starts in panel 0 without
+.rem saying so.
+.bg blue
+.fill 0
+.fg white
+.at 0 2
+FEATURES · ΟΛΑ · 1/4
+.fg default
+.bg default
+.at 2
+.fg red
+RED at column 0: the code is in
+.fg green
+GREEN the tail of the row, and
+.fg yellow
+YELLOW text keeps its column.
+.fg blue
+BLUE
+.fg magenta
+MAGENTA
+.fg cyan
+CYAN
+.fg white
+WHITE
+.fg default
+.at 10
+plain then
+.fg cyan
++ cyan then
+.fg default
++ plain again.
+.at 12
+ leading spaces position the run
+   and paint nothing, so this
+     staircase keeps its ground.
+.at 16
+.margin 4
+.fg yellow
+A margin of four: every
+.fg default
+line starts here, colored or
+not, until .margin changes it.
+.margin 0
+.at 20 10
+.at 20 6
+.at 20 2
+One-shot .at: this run is at
+column 2 and the next is back at
+the margin.
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+INK · ΜΕΛΑΝΙ
+.panel 1
+.fill 0
+.at 0 2
+FEATURES · ΟΛΑ · 2/4
+.fg default
+.bg default
+.at 2
+fill R           one full row:
+.bg red
+.fill 3
+.fg default
+.bg default
+.at 4
+fill R C         from a column:
+.bg green
+.fill 5 10
+.bg default
+.at 6
+fill R C ROWS    a banner:
+.bg yellow
+.fill 7 4 3
+.fg default
+.bg default
+.at 10
+fill R C ROWS COLS    a box:
+.bg magenta
+.fill 11 8 3 12
+.bg default
+.at 14
+Text over a fill keeps its
+ground: only the foreground is
+paid for, in the gap before it.
+.bg cyan
+.fill 18 0 1 30
+.fg blue
+.at 18 2
+BLUE ON CYAN
+.fg white
++  WHITE
+.fg default
+.bg default
+.at 20
+A default fill clears anything.
+.bg red
+.fill 21
+.bg default
+.fill 21 6 1 20
+.at 23
+Two attributes, two gaps:
+.fg white
+.bg blue
++  BAR
+.fg default
+.bg default
+.fill 27
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+FILLS · ΓΕΜΙΣΜΑΤΑ
+.panel 2
+.fill 0
+.at 0 2
+FEATURES · ΟΛΑ · 3/4
+.fg default
+.bg default
+.at 2
+rules    ─────── │ │ │
+arrows   ← ↑ → ↓
+blocks   ░ ▒ ▓ █
+symbols  ° ± × ÷ • ·
+ascii    A-Z a-z 0-9 !"#$%&'()*
+         ,-./:;<=>?@\^_`{|}~
+euro     € 12 · pound £ 9
+weather  ☀ ☁ ☂ ☾ ❄ ↯ ⚠
+typo     ‘quote’ “quote” 1–2 — x
+marks    ☺ ☹ ♥ ★ ✓ ✗
+status   ● on  ○ off
+.at 14
+.fg cyan
+Greek   αβγδεζηθικλμνξοπρςστυφχψω
+.fg default
+accents  άέήίόύώϊϋΐΰ
+capitals ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ
+punct    «Καλώς ήρθατε» … ―
+.at 20
+Bars from blocks, one ink each:
+.fg green
+ ok    ████████████░░░░  75%
+.fg yellow
+ warn  ██████░░░░░░░░░░  38%
+.fg red
+ fail  ██░░░░░░░░░░░░░░  13%
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+CELLS · ΨΗΦΙΑ
+.panel 3
+.fill 0
+.at 0 2
+FEATURES · ΟΛΑ · 4/4
+.fg default
+.bg default
+.at 2
+A link is a bracketed span:
+tap [close] or [tide tables].
+.fg red
+[ALERT] is a link in ink at
+.fg default
+column 0, its code in the tail.
+.at 7
+.fg cyan
+Tap
+.fg default
++ [ferries] · [fees] · [tides]
+.at 10
+Content that looks like syntax:
++
++5 °C is content, and so is a
+. line that begins with a dot,
+.. or two, or a lone plus above.
+.at 16
+An empty line flows one row:
+
+this is row 18, after the gap.
+.rem A comment paints nothing, and
+.rem neither does this one.
+.at 21
+.margin 2
+.fg yellow
+.bg red
+Two attributes at column 2:
+.fg default
+.bg default
+both codes sit in the two
+cells before the text.
+.margin 0
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+LINKS · ΣΥΝΔΕΣΜΟΙ

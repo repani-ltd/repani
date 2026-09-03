@@ -1,5 +1,6 @@
-.rem The frozen vector: TESSERA in yellow at panel 2, row 3, column 5.
+.rem The frozen vector: TESSERA in yellow at panel 2, row 3, column 6,
+.rem its ink code in the gap at column 5.
 .panel 2
-.at 3 5
-.ink yellow
+.at 3 6
+.fg yellow
 TESSERA

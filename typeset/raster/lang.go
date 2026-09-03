@@ -7,25 +7,40 @@ import (
 )
 
 // Compile turns source (RASTER.t, "Authoring") into a page of the
-// geometry. Errors carry the 1-based source line. Compilation is
-// reproducible: the same source and geometry yield the same bytes.
+// geometry: the source paints a canvas, and the canvas is encoded.
+// Errors carry the 1-based source line. Compilation is reproducible:
+// the same source and geometry yield the same bytes.
 func Compile(g Geometry, src string) (*Page, error) {
-	c := compiler{page: New(g), panel: -1}
+	c := compiler{canvas: NewCanvas(g), lines: map[int]int{}}
 	for n, raw := range strings.Split(strings.TrimSuffix(src, "\n"), "\n") {
+		c.n = n + 1
 		if err := c.line(raw); err != nil {
-			return nil, fmt.Errorf("line %d: %w", n+1, err)
+			return nil, fmt.Errorf("line %d: %w", c.n, err)
 		}
 	}
-	return c.page, nil
+	p := New(g)
+	for panel := range g.Panels {
+		for row := range g.Rows {
+			if err := encodeRow(c.canvas.Row(panel, row), p.Row(panel, row)); err != nil {
+				return nil, fmt.Errorf("line %d: raster: panel %d row %d: %w", c.lines[panel*g.Rows+row], panel, row, err)
+			}
+		}
+	}
+	return p, nil
 }
 
 type compiler struct {
-	page  *Page
-	panel int
-	pen   ink
+	canvas *Canvas
+	n      int         // the current source line
+	lines  map[int]int // panel*Rows+row -> the last line that painted it
 
-	curRow, curCol int  // the cursor; content advances curRow
-	penRow, penCol int  // just past the last emitted cells ("+" target)
+	panel  int
+	margin int
+	pen    Ink
+	curRow int // the cursor: the next run lands here, at the margin
+
+	penRow, penCol int  // just past the last run ("+" continues there)
+	atCol          int  // the column of a pending .at, else the margin
 	havePen        bool // false after .panel and .at
 }
 
@@ -35,32 +50,29 @@ func colorIndex(name string) (byte, error) {
 			return byte(i), nil
 		}
 	}
-	return 0, fmt.Errorf("raster: unknown color %q", name)
+	return 0, fmt.Errorf("raster: unknown color %q (default red green yellow blue magenta cyan white)", name)
 }
 
 func (c *compiler) line(raw string) error {
 	switch {
 	case strings.HasPrefix(raw, "+ "):
-		return c.continuation(raw[2:])
-	case raw == "+":
-		return fmt.Errorf("raster: empty continuation")
+		return c.continuation(raw[1:])
 	case len(raw) > 1 && raw[0] == '.' && raw[1] >= 'a' && raw[1] <= 'z':
 		return c.command(raw)
 	default:
-		// ". " and ".." begin ordinary content.
 		return c.content(raw)
 	}
 }
 
 func (c *compiler) command(raw string) error {
-	g := c.page.Geometry
+	g := c.canvas.Geometry
 	fields := strings.Fields(raw)
 	cmd, args := fields[0], fields[1:]
 	switch cmd {
 	case ".rem":
 		return nil
 	case ".panel":
-		n, err := ints(args, 1)
+		n, err := ints(args, 1, 1)
 		if err != nil {
 			return err
 		}
@@ -68,38 +80,79 @@ func (c *compiler) command(raw string) error {
 			return fmt.Errorf("raster: panel %d out of range 0..%d", n[0], g.Panels-1)
 		}
 		c.panel = n[0]
-		c.curRow, c.curCol = 0, 0
+		c.curRow, c.atCol = 0, c.margin
 		c.havePen = false
-		c.pen = ink{}
+		return nil
+	case ".margin":
+		n, err := ints(args, 1, 1)
+		if err != nil {
+			return err
+		}
+		if n[0] < 0 || n[0] >= g.Cols {
+			return fmt.Errorf("raster: margin %d outside columns 0..%d", n[0], g.Cols-1)
+		}
+		c.margin, c.atCol = n[0], n[0]
 		return nil
 	case ".at":
-		n, err := ints(args, 2)
+		n, err := ints(args, 1, 2)
 		if err != nil {
 			return err
 		}
-		if n[0] < 0 || n[0] >= g.Rows || n[1] < 0 || n[1] >= g.Cols {
-			return fmt.Errorf("raster: .at %d %d outside rows 0..%d, cols 0..%d", n[0], n[1], g.Rows-1, g.Cols-1)
+		col := c.margin
+		if len(n) == 2 {
+			col = n[1]
 		}
-		c.curRow, c.curCol = n[0], n[1]
+		if n[0] < 0 || n[0] >= g.Rows || col < 0 || col >= g.Cols {
+			return fmt.Errorf("raster: .at %d %d outside rows 0..%d, cols 0..%d", n[0], col, g.Rows-1, g.Cols-1)
+		}
+		c.curRow, c.atCol = n[0], col
 		c.havePen = false
 		return nil
-	case ".ink":
-		return c.setInk(args)
-	case ".fill":
-		n, err := ints(args, 4)
+	case ".fg", ".bg":
+		if len(args) != 1 {
+			return fmt.Errorf("raster: %s wants one color name", cmd)
+		}
+		i, err := colorIndex(args[0])
 		if err != nil {
 			return err
 		}
-		return c.fill(n[0], n[1], n[2], n[3])
+		if cmd == ".fg" {
+			c.pen.FG = i
+		} else {
+			c.pen.BG = i
+		}
+		return nil
+	case ".fill":
+		n, err := ints(args, 1, 4)
+		if err != nil {
+			return err
+		}
+		row, col, rows, cols := n[0], 0, 1, 0
+		if len(n) > 1 {
+			col = n[1]
+		}
+		if len(n) > 2 {
+			rows = n[2]
+		}
+		if len(n) > 3 {
+			cols = n[3]
+		} else {
+			cols = g.Cols - col
+		}
+		return c.fill(row, col, rows, cols)
 	}
-	return fmt.Errorf("raster: unknown command %s", cmd)
+	return fmt.Errorf("raster: unknown command %s (.panel .margin .at .fg .bg .fill .rem)", cmd)
 }
 
-func ints(args []string, want int) ([]int, error) {
-	if len(args) != want {
-		return nil, fmt.Errorf("raster: want %d arguments, have %d", want, len(args))
+// ints parses min..max integer arguments.
+func ints(args []string, min, max int) ([]int, error) {
+	if len(args) < min || len(args) > max {
+		if min == max {
+			return nil, fmt.Errorf("raster: want %d arguments, have %d", min, len(args))
+		}
+		return nil, fmt.Errorf("raster: want %d to %d arguments, have %d", min, max, len(args))
 	}
-	out := make([]int, want)
+	out := make([]int, len(args))
 	for i, a := range args {
 		n, err := strconv.Atoi(a)
 		if err != nil {
@@ -110,50 +163,23 @@ func ints(args []string, want int) ([]int, error) {
 	return out, nil
 }
 
-func (c *compiler) setInk(args []string) error {
-	var fgName, bgName string
-	switch {
-	case len(args) == 1:
-		fgName = args[0]
-	case len(args) == 3 && args[1] == "on":
-		fgName, bgName = args[0], args[2]
-	default:
-		return fmt.Errorf("raster: .ink wants FG or FG on BG")
+// paint places a run's cells at (row, col) in the pen's ink: leading
+// spaces position and paint nothing, the rest is painted.
+func (c *compiler) paint(row, col int, cells []byte) error {
+	g := c.canvas.Geometry
+	lead := 0
+	for lead < len(cells) && cells[lead] == ' ' {
+		lead++
 	}
-	fg, err := colorIndex(fgName)
-	if err != nil {
-		return err
+	if end := col + len(cells); end > g.Cols {
+		return fmt.Errorf("raster: row %d: %d cells at column %d overflow the row", row, len(cells), col)
 	}
-	c.pen = ink{fg: fg} // .ink FG alone is FG on the default background
-	if bgName != "" {
-		if c.pen.bg, err = colorIndex(bgName); err != nil {
-			return err
-		}
+	r := c.canvas.Row(c.panel, row)
+	for i, b := range cells[lead:] {
+		r[col+lead+i] = Cell{Glyph: b, Ink: c.pen}
 	}
-	return nil
-}
-
-// emit places the codes the pen needs at (row, col), then cells after
-// them, and moves the pen past the last cell. A cell of content never
-// lands on an ink code; a code may replace a code.
-func (c *compiler) emit(row, col int, cells []byte) error {
-	if c.panel < 0 {
-		return fmt.Errorf("raster: content before .panel")
-	}
-	r := c.page.Row(c.panel, row)
-	pre := codes(stateAt(r, col), c.pen)
-	end := col + len(pre) + len(cells)
-	if end > c.page.Cols {
-		return fmt.Errorf("raster: row %d: %d cells at column %d overflow the row", row, end-col, col)
-	}
-	for i := range cells {
-		if IsInk(r[col+len(pre)+i]) {
-			return fmt.Errorf("raster: row %d column %d: content over an ink code", row, col+len(pre)+i)
-		}
-	}
-	copy(r[col:], pre)
-	copy(r[col+len(pre):], cells)
-	c.penRow, c.penCol, c.havePen = row, end, true
+	c.lines[c.panel*g.Rows+row] = c.n
+	c.penRow, c.penCol, c.havePen = row, col+len(cells), true
 	return nil
 }
 
@@ -161,6 +187,8 @@ func (c *compiler) content(raw string) error {
 	// Right-trim: invisible trailing spaces must not clobber
 	// neighbours; clearing is .fill's explicit job.
 	raw = strings.TrimRight(raw, " \t")
+	col := c.atCol
+	c.atCol = c.margin
 	if raw == "" {
 		c.curRow++ // an empty line, or one of only spaces, flows one row
 		return nil
@@ -169,10 +197,10 @@ func (c *compiler) content(raw string) error {
 	if err != nil {
 		return err
 	}
-	if c.curRow >= c.page.Rows {
-		return fmt.Errorf("raster: content below row %d", c.page.Rows-1)
+	if c.curRow >= c.canvas.Rows {
+		return fmt.Errorf("raster: content below row %d", c.canvas.Rows-1)
 	}
-	if err := c.emit(c.curRow, c.curCol, cells); err != nil {
+	if err := c.paint(c.curRow, col, cells); err != nil {
 		return err
 	}
 	c.curRow++
@@ -181,7 +209,7 @@ func (c *compiler) content(raw string) error {
 
 func (c *compiler) continuation(rest string) error {
 	if !c.havePen {
-		return fmt.Errorf("raster: + with nothing to continue (.panel and .at reset the pen)")
+		return fmt.Errorf("raster: + with nothing to continue (.panel and .at begin anew)")
 	}
 	rest = strings.TrimRight(rest, " \t")
 	if rest == "" {
@@ -191,42 +219,22 @@ func (c *compiler) continuation(rest string) error {
 	if err != nil {
 		return err
 	}
-	return c.emit(c.penRow, c.penCol, cells)
+	return c.paint(c.penRow, c.penCol, cells)
 }
 
-// fill paints a W-by-H region of spaces in the pen's ink: on every row
-// the codes the pen needs at the left edge, spaces to the right edge
-// (over anything, codes included: clearing is fill's job), and at the
-// right edge, when it is inside the row, the codes that restore what
-// arrived there before.
-func (c *compiler) fill(row, col, w, h int) error {
-	if c.panel < 0 {
-		return fmt.Errorf("raster: .fill before .panel")
+// fill paints a region of spaces in the pen's ink, over anything:
+// clearing is fill's job.
+func (c *compiler) fill(row, col, rows, cols int) error {
+	g := c.canvas.Geometry
+	if rows < 1 || cols < 1 || row < 0 || col < 0 || row+rows > g.Rows || col+cols > g.Cols {
+		return fmt.Errorf("raster: .fill %d %d %d %d outside the panel", row, col, rows, cols)
 	}
-	g := c.page.Geometry
-	if w < 1 || h < 1 || row < 0 || col < 0 || row+h > g.Rows || col+w > g.Cols {
-		return fmt.Errorf("raster: .fill %d %d %d %d outside the panel", row, col, w, h)
-	}
-	for y := row; y < row+h; y++ {
-		r := c.page.Row(c.panel, y)
-		pre := codes(stateAt(r, col), c.pen)
-		if len(pre) > w {
-			return fmt.Errorf("raster: row %d: a fill %d wide cannot hold its %d ink codes", y, w, len(pre))
+	for y := row; y < row+rows; y++ {
+		r := c.canvas.Row(c.panel, y)
+		for x := col; x < col+cols; x++ {
+			r[x] = Cell{Glyph: ' ', Ink: c.pen}
 		}
-		var post []byte
-		if col+w < g.Cols {
-			post = codes(c.pen, stateAt(r, col+w))
-			for i := range post {
-				if x := col + w + i; x >= g.Cols || (r[x] != 0 && !IsInk(r[x])) {
-					return fmt.Errorf("raster: row %d: the fill's closing ink code at column %d lands on content", y, x)
-				}
-			}
-		}
-		copy(r[col:], pre)
-		for x := col + len(pre); x < col+w; x++ {
-			r[x] = ' '
-		}
-		copy(r[col+w:], post)
+		c.lines[c.panel*g.Rows+y] = c.n
 	}
 	return nil
 }

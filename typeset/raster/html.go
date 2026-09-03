@@ -8,44 +8,64 @@ import (
 
 // HTMLRows renders one panel as Rows lines of HTML for a <pre>: runs
 // of cells in one ink become <span class="fN bM"> elements (N and M
-// the palette indices); default-ink runs are bare text. Ink codes
-// render as a space in the state they establish. Lines are not
-// trimmed, so every line is exactly Cols cells.
-func (p *Page) HTMLRows(panel int) []string {
-	out := make([]string, p.Rows)
-	for r := range p.Rows {
+// the palette indices); default-ink runs are bare text; a link is an
+// <a> whose href is "#" and its target, wrapping the whole span,
+// brackets included. Lines are not trimmed, so every line is exactly
+// Cols cells.
+func (c *Canvas) HTMLRows(panel int) []string {
+	out := make([]string, c.Rows)
+	for r := range c.Rows {
 		var b strings.Builder
-		var s, open ink
+		var open Ink
 		inSpan := false
-		flush := func() {
+		closeSpan := func() {
 			if inSpan {
 				b.WriteString("</span>")
 				inSpan = false
 			}
 		}
-		for _, c := range p.Row(panel, r) {
-			ch := CellRune(c)
-			switch {
-			case c >= InkFG && c < InkBG:
-				s.fg = c - InkFG
-			case c >= InkBG && c <= inkLast:
-				s.bg = c - InkBG
+		links := c.Links(panel, r)
+		linkEnd := -1
+		for x, cell := range c.Row(panel, r) {
+			if len(links) > 0 && links[0].Col == x {
+				closeSpan()
+				fmt.Fprintf(&b, `<a href="#%s">`, html.EscapeString(links[0].Target))
+				linkEnd = x + links[0].Len
+				links = links[1:]
 			}
-			if s != open || (!inSpan && s != ink{}) {
-				flush()
-				if s != (ink{}) {
-					fmt.Fprintf(&b, `<span class="f%d b%d">`, s.fg, s.bg)
+			s := cell.Ink
+			if cell.blank() {
+				// A blank shows only its background: it stays in the open
+				// span on the same ground, and needs none on the default.
+				s = Ink{BG: cell.BG}
+				if cell.BG == open.BG {
+					s = open
+				}
+			}
+			if s != open || (!inSpan && s != Ink{}) {
+				closeSpan()
+				if s != (Ink{}) {
+					fmt.Fprintf(&b, `<span class="f%d b%d">`, s.FG, s.BG)
 					inSpan = true
 				}
 				open = s
 			}
-			b.WriteString(html.EscapeString(string(ch)))
+			b.WriteString(html.EscapeString(string(CellRune(cell.Glyph))))
+			if x+1 == linkEnd {
+				closeSpan()
+				b.WriteString("</a>")
+				open = Ink{}
+				linkEnd = -1
+			}
 		}
-		flush()
+		closeSpan()
 		out[r] = b.String()
 	}
 	return out
 }
+
+// HTMLRows is Decode(p).HTMLRows.
+func (p *Page) HTMLRows(panel int) []string { return Decode(p).HTMLRows(panel) }
 
 // HTMLDocument renders the page as one self-contained HTML document:
 // a <pre> per panel laid out across panels to a row, an embedded
@@ -81,6 +101,8 @@ body { margin: 0; padding: 24px; background: var(--ground); color: var(--c0); }
 .f5 { color: var(--c5) } .f6 { color: var(--c6) } .f7 { color: var(--c7) }
 .b1 { background: var(--g1) } .b2 { background: var(--g2) } .b3 { background: var(--g3) } .b4 { background: var(--g4) }
 .b5 { background: var(--g5) } .b6 { background: var(--g6) } .b7 { background: var(--g7); color: var(--ground) }
+a { color: inherit; text-decoration: none; cursor: pointer; }
+a:hover, a:active { text-decoration: underline; }
 </style>
 <div class="raster">
 `, html.EscapeString(title), across)

@@ -45,25 +45,33 @@ as a blank; the table grows by appending, never by reassigning.
 
 .pre
     0x00        blank (a space; the value of every unwritten cell)
-    0x01..0x0B  box drawing  ─ │ ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼
-    0x0C..0x11  double box   ═ ║ ╔ ╗ ╚ ╝
-    0x12..0x15  arrows       ← ↑ → ↓
-    0x16..0x18  shades       ░ ▒ ▓
-    0x19..0x1F  symbols      ° ± × ÷ • · §
+    0x01..0x02  rules        ─ │
+    0x03..0x06  arrows       ← ↑ → ↓
+    0x07..0x0A  blocks       ░ ▒ ▓ █
+    0x0B..0x10  symbols      ° ± × ÷ • ·
+    0x11..0x1F  unassigned: render blank
     0x20..0x7E  ASCII
     0x7F        €
     0x80..0x87  INK: foreground palette 0..7 (see Ink)
     0x88..0x8F  INK: background palette 0..7
-    0x90..0x97  weather and marine  ☀ ☁ ☂ ☾ ❄ ↯ ⚓ ⚠
-    0x98..0xBF  unassigned: render blank
+    0x90..0x96  weather      ☀ ☁ ☂ ☾ ❄ ↯ ⚠
+    0x97..0x9C  typographic  ‘ ’ “ ” – —
+    0x9D..0xA2  marks        ☺ ☹ ♥ ★ ✓ ✗
+    0xA3..0xA5  status, currency  ● ○ £
+    0xA6..0xBF  unassigned: render blank
     0xC0..0xD8  Greek lowercase  α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π
                 ρ ς σ τ υ φ χ ψ ω
-    0xD9..0xE3  accented        ά έ ή ί ό ύ ώ ϊ ϋ ΐ ΰ
+    0xD9..0xE3  accented        ά έ ή ί ό ύ ώ ϊ ϋ ΐ ΰ  (monotonic)
     0xE4..0xFB  Greek uppercase Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π
                 Ρ Σ Τ Υ Φ Χ Ψ Ω   (no tonos on capitals, the
                 standard Greek typographic convention)
     0xFC..0xFF  « » … ―
 .end
+
+Every glyph is one column wide in a monospace renderer: its
+Unicode East Asian Width is not Wide, and it has text
+presentation by default. A glyph that fails this test is not
+admitted, whatever its demand, because a cell is a column.
 
 Content is authored in UTF-8 and transcoded; the repertoire is
 the contract, and a rune outside it is an authoring error, never
@@ -71,17 +79,10 @@ a substitution.
 
 # Ink
 
-Color travels in band, teletext-style. An INK CODE occupies a
-cell, renders as a blank in the state it establishes, and sets
-one attribute for the rest of its row: 0x80+n sets the
-foreground to palette entry n, 0x88+n the background. Every row
-begins in foreground 0 on background 0; nothing carries from row
-to row, so every row renders alone. A code costs the cell it
-sits in, which in practice is the word gap before the colored
-span.
-
-The palette is teletext's: the renderer's default and seven
-hues, which a renderer themes:
+Every cell has an ink: a FOREGROUND and a BACKGROUND, each an
+index into an eight-entry palette. A blank cell shows only its
+background. The palette is teletext's: the renderer's default
+and seven hues, which a renderer themes:
 
 .pre
     0 default    2 green     4 blue      6 cyan
@@ -92,55 +93,141 @@ Entry 0 is the renderer's own foreground or background -- the
 terminal's, the theme's -- so an uncolored page reads correctly
 in every theme.
 
+Ink travels in band, teletext-style. An INK CODE occupies a
+cell, renders as a blank in the state it establishes, and sets
+one attribute for the rest of its row: 0x80+n sets the
+foreground to palette entry n, 0x88+n the background. Nothing
+carries from row to row, so every row renders alone.
+
+A row's TAIL is the codes at its very end: the longest suffix of
+the row that is all ink codes. Codes in the tail set the row's
+OPENING INK, the state in which the row begins; elsewhere in the
+row they render as empty cells and are not applied again. A row
+with no code in its last cell has no tail and begins in default
+ink. So a red word in the first column costs the row's last cell,
+not its first, and a row that is a bar in one background is one
+code in its first cell or its last.
+
+The page is therefore two things at once: the CANVAS, every cell
+with its glyph and its ink, which is what an author paints and a
+renderer shows; and the BYTES, which encode the canvas with the
+codes hidden in cells that show nothing. Decoding is a scan of
+each row: the tail first, then left to right. Encoding is
+canonical, so the same canvas yields the same bytes:
+
+.item A change of background at a blank cell takes that cell.
+.item The changes a glyph needs -- background first, then
+foreground -- take the blank cells immediately before it, one
+per attribute. A glyph in the first cell has none before it, and
+its codes go to the tail instead.
+.item A cell that a code takes shows a blank in the new ink: the
+space before colored text takes its color. The last cell of a
+row cannot change background, since a code there would be tail.
+.item A canvas that needs a code where no blank cell is -- text
+in a new ink glued to text, or a full row that begins in ink --
+cannot be encoded, and the compiler says so with the column.
+
 # Authoring
 
-Pages are authored in a line-oriented dot-command language:
-content lines are content, the command set is closed, and a line
-that lexes as a command (a dot, then a lowercase letter) but is
-not one of the five is an error.
+Pages are authored in a line-oriented dot-command language: a
+line is one command or one run of content, and the command set
+is closed. A page that says everything the language has:
 
 .pre
-    .panel N         target panel 0..P-1 (required first); cursor
-                     to row 0 column 0, pen to default ink
-    .at R C          cursor to row R (0..R-1), column C (0..C-1);
-                     invalidates the "+" pen
-    .ink FG          set the pen, by palette name: FG on the
-    .ink FG on BG    default background, or FG on BG
-    content          one run at the cursor in the pen's ink; the
-                     cursor then drops one row, same column.
-                     Right-trimmed; ". " and ".." begin content;
-                     an empty line flows one row and writes nothing
-    + content        continue on the same row where the last run
-                     ended
-    .fill R C W H    a W-by-H region of spaces at R C in the pen's
-                     ink: bars, panels, grounds
-    .rem TEXT        comment, dropped
+    .rem A notice: a title bar, a heading, a paragraph, a table.
+    .bg blue
+    .fill 0
+    .fg white
+    .at 0 2
+    HARBOUR NOTICE · 02 SEP
+    .fg yellow
+    .bg default
+    .at 2
+    MELTEMI TONIGHT
+    .fg default
+    North 7 to 8 from 1800, gusts 9
+    in the channel. Double up lines.
+    .at 6
+    .fg cyan
+    FUEL
+    .fg default
+    + 06:00-14:00, south quay
+    .fg red
+    ALERT
+    .fg default
+    + north quay closed
+    .at 10
+    Tap [tides] for the tide table.
 .end
 
-The compiler owns the code cells. Before a run it emits, at the
-cursor, one ink code for each attribute in which the pen differs
-from the row's state at that cell (background first), then the
-run; a change of foreground alone costs one cell, foreground and
-background two. A fill emits its codes at its left edge on every
-row it covers, and closes them at its right edge when that edge
-is inside the row. Text placed over a fill inherits the fill's
-background from the codes to its left, so restating it is
-unnecessary; a run that would overwrite a code cell is an error,
-not a silent recolor. Compilation is reproducible: the same
-source on the same geometry yields the same bytes.
+The commands:
+
+.pre
+    .panel N        switch to panel N (0..P-1); the page starts in
+                    panel 0, at row 0
+    .margin C       the column where lines start (default 0); persists
+    .at R [C]       the next run lands at row R, column C (default:
+                    the margin); one-shot
+    .fg NAME        the pen's foreground; persists until changed
+    .bg NAME        the pen's background; persists until changed
+    content         one run at the cursor in the pen's ink; the
+                    cursor then moves to the next row, at the margin
+    + content       continue on the row of the last run, where it
+                    ended; the run is everything after the "+"
+    .fill R [C [ROWS [COLS]]]   a region of spaces in the pen's ink;
+                    defaults: column 0, one row, to the right edge
+    .rem TEXT       comment, dropped
+.end
+
+The rules:
+
+.item Names are default red green yellow blue magenta cyan white.
+Rows, columns and panels count from 0.
+.item A line that begins with a dot and a lowercase letter is a
+command, and one that is not in the table is an error. A line
+that begins with "+ " is a continuation; a lone "+" and "+5" are
+content.
+.item Content is right-trimmed. Leading spaces position the run
+and paint nothing, so a run's text lands at the cursor plus its
+leading spaces; interior spaces are painted. An empty line, or
+one of only spaces, moves the cursor one row and paints nothing.
+.item A run that overflows its row, a cursor below the last row,
+and a rune outside the repertoire are errors.
+.item The pen and the margin are the author's: nothing resets
+them, .panel included, which moves only the cursor.
+.item Painting is by cell, in source order, later over earlier;
+a fill clears what it covers. The bytes are encoded from the
+finished canvas, so the order of the source never changes a
+color, and compilation is reproducible: the same source on the
+same geometry yields the same bytes.
+.item Colored text spends cells that show nothing: the blank
+before it, one per attribute changed, and, in the first column,
+the row's tail. The one full row the format cannot hold is a
+full row that begins in ink; the error names the line.
+.item A LINK is a bracketed span: an opening bracket and the next
+closing bracket on the same row, with at least one cell between
+them. The whole span, brackets included, is the tappable region,
+and the text between the brackets is its TARGET. What a tap does
+with the target is the app's; the page only names it. A link is
+derived from the cells, never stored, so it costs nothing in the
+bytes and survives every renderer: plain text shows the
+brackets, HTML makes the span an anchor, a phone makes it a tap
+target. Brackets mean link and nothing else on a raster page.
 
 # Non-goals
 
 .item No geometry of its own: a raster format states its P, R
 and C; this specification states none.
-.item No links, no navigation, no buttons: a page is content only.
+.item No navigation, no actions: a link names a target and the
+app does the rest; the page is content only.
 .item No mark, no version byte, no reserved fields. Nothing in
 the bytes says what format they are: that is declared wherever
 the page itself is. A revision that appends to the cell table
 needs no announcement, since an older renderer shows the new
 cells as blanks.
-.item No mosaics yet, no general Unicode, no double height, no
-flashing: see the parked designs.
+.item No text styles: no underline, no bold, no double height, no
+flashing. Emphasis is ink; structure is a rule.
+.item No mosaics yet, no general Unicode: see the parked designs.
 .item No glyph metrics: the renderer owns the cell's shape.
 
 # Parked designs, with their admission tests
@@ -153,12 +240,9 @@ chart or a logo.
 format, which is what lets every raster tool read every page; a
 script beyond it needs a new format, not a parameter. ADMISSION
 TEST: the first page that needs one.
-.item A canvas with out-of-band ink. A per-cell model (rune,
-foreground, background) with Decode from the bytes, expanding
-the codes, and Encode back, paying each code's cell where the
-ink changes and refusing where no blank cell can hold it.
-ADMISSION TEST: a writer that paints cells before it knows the
-gaps -- the pica-to-tessera writer.
+.item A canvas file. The canvas is a type in the package with no
+bytes of its own; the page's bytes are its only serialization.
+ADMISSION TEST: a page richer than the in-band bytes can hold.
 
 .width 72
 .cols 1

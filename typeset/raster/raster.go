@@ -71,20 +71,16 @@ func (p *Page) Row(panel, row int) []byte {
 // IsInk reports whether b is an ink code.
 func IsInk(b byte) bool { return b >= InkFG && b <= inkLast }
 
-// ink is a row's attribute state: palette indices.
-type ink struct{ fg, bg byte }
+// Ink is a cell's attributes: palette indices, 0 the renderer's default.
+type Ink struct{ FG, BG byte }
 
-// stateAt returns the ink arriving at column col of a row: the effect
-// of the codes in columns 0..col-1, from the row's clean start.
-func stateAt(row []byte, col int) ink {
-	var s ink
-	for _, b := range row[:col] {
-		switch {
-		case b >= InkFG && b < InkBG:
-			s.fg = b - InkFG
-		case b >= InkBG && b <= inkLast:
-			s.bg = b - InkBG
-		}
+// apply returns the ink after code b.
+func (s Ink) apply(b byte) Ink {
+	switch {
+	case b >= InkFG && b < InkBG:
+		s.FG = b - InkFG
+	case b >= InkBG && b <= inkLast:
+		s.BG = b - InkBG
 	}
 	return s
 }
@@ -92,31 +88,13 @@ func stateAt(row []byte, col int) ink {
 // codes returns the ink codes that take the state from have to want:
 // none, one, or two bytes, background first, so that a bar whose text
 // is also recolored starts whole at its first cell.
-func codes(have, want ink) []byte {
+func codes(have, want Ink) []byte {
 	var out []byte
-	if have.bg != want.bg {
-		out = append(out, InkBG+want.bg)
+	if have.BG != want.BG {
+		out = append(out, InkBG+want.BG)
 	}
-	if have.fg != want.fg {
-		out = append(out, InkFG+want.fg)
-	}
-	return out
-}
-
-// Text renders one panel as Rows rows of Cols runes, plain: ink codes
-// and blanks render as spaces. Rows are trimmed on the right.
-func (p *Page) Text(panel int) []string {
-	out := make([]string, p.Rows)
-	for r := range p.Rows {
-		runes := make([]rune, p.Cols)
-		for c, b := range p.Row(panel, r) {
-			runes[c] = CellRune(b)
-		}
-		end := p.Cols
-		for end > 0 && runes[end-1] == ' ' {
-			end--
-		}
-		out[r] = string(runes[:end])
+	if have.FG != want.FG {
+		out = append(out, InkFG+want.FG)
 	}
 	return out
 }

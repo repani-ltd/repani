@@ -22,9 +22,9 @@ func TestGeometry(t *testing.T) {
 }
 
 // The frozen vector of TESSERA.t: "TESSERA" in yellow at panel 2, row
-// 3, column 5 is tile 8, bytes 107..114, with the ink code at column 5.
+// 3, column 6 is tile 8, bytes 107..114, with the ink code at column 5.
 func TestFrozenVector(t *testing.T) {
-	p, err := Compile(".panel 2\n.at 3 5\n.ink yellow\nTESSERA\n")
+	p, err := Compile(".panel 2\n.at 3 6\n.fg yellow\nTESSERA\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestFrozenVector(t *testing.T) {
 // The raster view aliases the page and renders it; the spec states
 // the tile and leaves the rest to RASTER.t.
 func TestRasterView(t *testing.T) {
-	p, err := Compile(".panel 1\n.ink yellow\nΚΑΙΡΟΣ\n")
+	p, err := Compile(".panel 1\n.fg yellow\nΚΑΙΡΟΣ\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestRasterView(t *testing.T) {
 	if &r.Cells[0] != &p[0] || r.Geometry != Geometry {
 		t.Fatal("Raster does not alias the page on tessera's geometry")
 	}
-	if rows := r.Text(1); rows[0] != " ΚΑΙΡΟΣ" || len(rows) != Rows {
+	if rows := r.Text(1); rows[0] != "ΚΑΙΡΟΣ" || len(rows) != Rows {
 		t.Fatalf("text = %q", rows[:2])
 	}
 	if s := Spec(); !strings.Contains(s, "# The tile") || strings.Contains(s, "0x80+n") {

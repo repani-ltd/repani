@@ -53,20 +53,21 @@ Tiles may therefore arrive in any order and any subset, and a
 page assembled from whatever tiles have arrived is exactly right
 where they are and blank where they are not; what a renderer
 shows for a missing tile -- blank, grey, the last value -- is
-presentation. Every row starts in default ink (RASTER.t, "Ink"),
+presentation. Every row carries its own ink (RASTER.t, "Ink"),
 so a tile renders correctly with no knowledge of its neighbours,
 and unwritten cells are 0x00, so an unchanged page changes no
 tile.
 
 Frozen vector: "TESSERA" in yellow at panel 2, row 3, column
-5 is page offset 2×952 + 3×34 + 5 = 2011, which is tile 8 (2011
-div 238), bytes 107 through 114 of it:
+6, its ink code in the gap at column 5, which is page offset
+2×952 + 3×34 + 5 = 2011, tile 8 (2011 div 238), bytes 107
+through 114 of it:
 
 .pre
     83 54 45 53 53 45 52 41
 .end
 
-with the ink code at column 5 and the T at column 6.
+the source being ".panel 2", ".at 3 6", ".fg yellow", "TESSERA".
 
 # Non-goals
 
