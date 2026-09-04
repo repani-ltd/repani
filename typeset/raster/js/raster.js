@@ -121,12 +121,20 @@ export function html(cells) {
   return out;
 }
 
-// paint writes one panel into a <pre> element, and calls onTap with a
-// link's target when one is clicked or tapped. Synchronous: call it
-// from the handler that received the bytes so it lands in the current
-// frame.
+// paint writes one panel into a <pre> element, one child element per
+// row, and calls onTap with a link's target when one is clicked or
+// tapped. Painting again replaces only the rows whose rendering
+// changed, so a page pushed to replace the one shown repaints in
+// place and keeps focus on the rows it did not touch. Synchronous:
+// call it from the handler that received the bytes so it lands in
+// the current frame.
 export function paint(pre, panel, onTap) {
-  pre.innerHTML = panel.map(html).join('\n');
+  const rows = panel.map(html);
+  if (pre.childElementCount !== rows.length) {
+    pre.replaceChildren(...rows.map(h => { const d = document.createElement('div'); d.innerHTML = h; return d; }));
+  } else {
+    rows.forEach((h, i) => { const d = pre.children[i]; if (d.innerHTML !== h) d.innerHTML = h; });
+  }
   if (onTap && !pre.rasterTap) {
     pre.rasterTap = true;
     pre.addEventListener('click', e => {
