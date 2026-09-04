@@ -113,6 +113,8 @@ func TestInkPlacement(t *testing.T) {
 		{"column 0 goes to the tail", ".fg red\nALERT\n", []byte("ALERT"), []byte{InkFG + 1}},
 		{"leading space, gap at 0", ".fg red\n ALERT\n", []byte{InkFG + 1, 'A', 'L', 'E', 'R', 'T'}, nil},
 		{"back to default costs the gap", ".fg red\n ABC\n.fg default\n+ D\n", []byte{InkFG + 1, 'A', 'B', 'C', InkFG, 'D'}, nil},
+		{"bare .fg is default", ".fg red\n ABC\n.fg\n+ D\n", []byte{InkFG + 1, 'A', 'B', 'C', InkFG, 'D'}, nil},
+		{"title at column 0 in a bar: both codes in the tail", ".bg blue\n.fill 0\n.fg white\nTITLE\n", append([]byte("TITLE"), bytes.Repeat([]byte{' '}, 27)...), []byte{InkBG + 4, InkFG + 7}},
 		{"fg only leaves bg alone", ".bg blue\n.fill 0\n.fg yellow\n.at 0 3\nQ\n", append([]byte{InkBG + 4, ' ', InkFG + 3, 'Q'}, bytes.Repeat([]byte{' '}, 30)...), nil},
 	} {
 		got, tail := row(t, tc.src)
@@ -209,6 +211,7 @@ func TestErrors(t *testing.T) {
 		{".at 0 0\n+ X\n", "nothing to continue"},
 		{".bogus\n", "unknown command"},
 		{".fg puce\n", "unknown color"},
+		{".fg red blue\n", "one color name, or none"},
 		{".ink red\n", "unknown command"},
 		{"日本\n", "outside the cell repertoire"},
 		{".at 0 30\nHELLO\n", "overflow the row"},

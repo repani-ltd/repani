@@ -171,8 +171,9 @@ The commands:
     .margin C       the column where lines start (default 0); persists
     .at R [C]       the next run lands at row R, column C (default:
                     the margin); one-shot
-    .fg NAME        the pen's foreground; persists until changed
-    .bg NAME        the pen's background; persists until changed
+    .fg [NAME]      the pen's foreground; persists until changed;
+                    bare, the default
+    .bg [NAME]      the pen's background, likewise
     content         one run at the cursor in the pen's ink; the
                     cursor then moves to the next row, at the margin
     + content       continue on the row of the last run, where it

@@ -175,12 +175,15 @@ func (c *compiler) command(raw string) error {
 		c.havePen = false
 		return nil
 	case ".fg", ".bg":
-		if a.n != 1 {
-			return fmt.Errorf("raster: %s wants one color name", cmd)
+		if a.n > 1 {
+			return fmt.Errorf("raster: %s wants one color name, or none for default", cmd)
 		}
-		i, err := colorIndex(a.s[0])
-		if err != nil {
-			return err
+		var i byte // bare: default
+		if a.n == 1 {
+			var err error
+			if i, err = colorIndex(a.s[0]); err != nil {
+				return err
+			}
 		}
 		if cmd == ".fg" {
 			c.pen.FG = i
