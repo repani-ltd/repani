@@ -413,3 +413,9 @@ func TestCanvasReuse(t *testing.T) {
 		t.Fatalf("attributed error = %v", err)
 	}
 }
+
+func TestJSEmbedded(t *testing.T) {
+	if s := JS(); !strings.Contains(s, "export function decode(") || !strings.Contains(s, "export function paint(") {
+		t.Fatal("JS() is not the decoder")
+	}
+}
