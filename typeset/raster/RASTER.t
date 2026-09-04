@@ -75,7 +75,10 @@ admitted, whatever its demand, because a cell is a column.
 
 Content is authored in UTF-8 and transcoded; the repertoire is
 the contract, and a rune outside it is an authoring error, never
-a substitution.
+a substitution. The one stated exception is the Greek capital
+with tonos or dialytika (Ά Έ Ή Ί Ό Ύ Ώ Ϊ Ϋ), which transcodes to
+its plain capital: Greek typography drops the tonos on capitals,
+and a place name such as Άραξος is set Αραξος.
 
 # Ink
 

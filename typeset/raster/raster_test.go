@@ -414,6 +414,14 @@ func TestCanvasReuse(t *testing.T) {
 	}
 }
 
+func TestGreekCapitals(t *testing.T) {
+	got, err := Transcode("Άραξος Έβρος Ίος Ϊ")
+	want, _ := Transcode("Αραξος Εβρος Ιος Ι")
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("accented capitals: % X %v, want % X", got, err, want)
+	}
+}
+
 func TestJSEmbedded(t *testing.T) {
 	if s := JS(); !strings.Contains(s, "export function decode(") || !strings.Contains(s, "export function paint(") {
 		t.Fatal("JS() is not the decoder")

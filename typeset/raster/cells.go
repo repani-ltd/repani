@@ -86,11 +86,17 @@ var runeToCell = func() map[rune]byte {
 	for i, r := range greekRunes {
 		m[r] = byte(0xC0 + i)
 	}
+	// Capitals with tonos or dialytika: the plain capital's cell.
+	for accented, plain := range map[rune]rune{'Ά': 'Α', 'Έ': 'Ε', 'Ή': 'Η', 'Ί': 'Ι', 'Ό': 'Ο', 'Ύ': 'Υ', 'Ώ': 'Ω', 'Ϊ': 'Ι', 'Ϋ': 'Υ'} {
+		m[accented] = m[plain]
+	}
 	return m
 }()
 
 // Transcode maps content text (UTF-8) to cell bytes. A rune outside the
-// repertoire is an error, never a substitution.
+// repertoire is an error, never a substitution, with one stated
+// exception: a Greek capital with tonos or dialytika is transcoded to
+// its plain capital, the convention of Greek typography for capitals.
 func Transcode(text string) ([]byte, error) {
 	return AppendTranscode(make([]byte, 0, len(text)), text)
 }
