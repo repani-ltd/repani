@@ -444,3 +444,32 @@ func TestJSEmbedded(t *testing.T) {
 		t.Fatal("JS() is not the decoder")
 	}
 }
+
+func TestAliases(t *testing.T) {
+	vocab := ".def bar TITLE\n.fg white\n.bg blue\n.fill 0\n.at 0 2\n$TITLE\n.fg\n.bg\n.enddef\n" +
+		".def field LABEL VALUE\n.fg cyan\n$LABEL\n.fg\n.col 6\n$VALUE\n.enddef\n" +
+		".def wind SPEED\n.field WIND NW $SPEED kt\n.enddef\n"
+	p := compile(t, vocab+".bar HARBOUR · 02 SEP\n.at 2\n.field TEMP 31°C  dew 11°C\n.wind 18\nplain $x\n")
+	rows := p.Text(0)
+	if rows[0] != "  HARBOUR · 02 SEP" || rows[2] != "TEMP  31°C  dew 11°C" || rows[3] != "WIND  NW 18 kt" || rows[4] != "plain $x" {
+		t.Fatalf("rows = %q", rows[:5])
+	}
+	c := Decode(p)
+	if c.Row(0, 0)[2].FG != 7 || c.Row(0, 0)[2].BG != 4 || c.Row(0, 2)[0].FG != 6 || c.Row(0, 2)[6].FG != 0 {
+		t.Fatal("alias ink")
+	}
+	for _, tc := range []struct{ src, want string }{
+		{".def at X\n.enddef\n", "a command's name"},
+		{".def a-b X\n.enddef\n", "letters, digits"},
+		{".def a X\n.def b Y\n.enddef\n.end\n", ".def inside .def"},
+		{".def a X\n$X\n", ".def a without .enddef"},
+		{".enddef\n", ".enddef without .def"},
+		{".def f A B\n$A $B\n.enddef\n.f one\n", "wants 2 arguments (A B), has 1"},
+		{".use marine\n", "unknown command"},
+		{".def f X\n.fg $X\n.enddef\n.f puce\n", `unknown color "puce" (default red green yellow blue magenta cyan white) (.f line 1)`},
+	} {
+		if _, err := Compile(g34, tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
+		}
+	}
+}

@@ -184,6 +184,8 @@ The commands:
     .fill R [C [ROWS [COLS]]]   a region of spaces in the pen's ink;
                     defaults: column 0, one row, to the right edge
     .rem TEXT       comment, dropped
+    .def NAME PARAM...          an alias: the lines to .enddef, with
+    .enddef         $PARAM standing for a use's words (see Aliases)
 .end
 
 The rules:
@@ -221,6 +223,56 @@ derived from the cells, never stored, so it costs nothing in the
 bytes and survives every renderer: plain text shows the
 brackets, HTML makes the span an anchor, a phone makes it a tap
 target. Brackets mean link and nothing else on a raster page.
+
+# Aliases
+
+An ALIAS names a block of lines, so a page's idioms -- a title
+bar, a label and its value -- are one line each to write. The
+mechanism is raster's; the words are the page's or the app's,
+never this specification's.
+
+.pre
+    .def bar TITLE
+    .fg white
+    .bg blue
+    .fill 0
+    .at 0 2
+    $TITLE
+    .fg
+    .bg
+    .enddef
+    .def field LABEL VALUE
+    .fg cyan
+    $LABEL
+    .fg
+    .col 6
+    $VALUE
+    .enddef
+
+    .bar HARBOUR NOTICE · 02 SEP
+    .field WIND NW 040° 18 kt
+.end
+
+The rules, and they are the whole of it:
+
+.item A definition is ".def NAME PARAM..." through ".enddef"; the
+lines between are its body. (Not ".end": a pica document quotes
+raster pages in .pre blocks, which ".end" would close.) Names are letters, digits and the underscore,
+and an alias may not take a command's name.
+.item A use is ".NAME" followed by its arguments: one word per
+parameter, the last parameter taking the rest of the line as
+written, so a title needs no quotes. Too few words is an error.
+.item In the body, "$PARAM" is replaced by the argument's text,
+as text. Nothing is computed; any other "$" is literal.
+.item A body may use aliases defined before it; they are inlined
+when the definition closes, so a use expands one level and
+recursion cannot arise. A definition inside a definition is an
+error, as is a use that a definition has not preceded.
+.item An error in an expanded line names the alias and the line
+of its body, after the line of the use.
+.item There is no conditional, no loop, no default value, no
+arithmetic, and none will be admitted: a page that needs them is
+written by a program, which has all of those.
 
 # Non-goals
 

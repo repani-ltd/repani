@@ -37,6 +37,9 @@ func (c *Canvas) Compile(src string) error {
 			return fmt.Errorf("line %d: %w", n, err)
 		}
 		if !more {
+			if k.defining != nil {
+				return fmt.Errorf("line %d: raster: .def %s without .enddef", n, k.defining.name)
+			}
 			return nil
 		}
 		src = rest
@@ -69,6 +72,19 @@ type compiler struct {
 	atCol          int  // the column of a pending .at, else the margin
 	colRow         int  // the row of a pending .col (the last run's), else -1
 	havePen        bool // false after .panel and .at
+
+	aliases  map[string]*alias // by name
+	defining *alias            // the .def being collected, else nil
+}
+
+// An alias is a named block of lines with parameters (RASTER.t,
+// "Aliases"): a use substitutes its arguments and compiles the lines.
+// Bodies are stored expanded, so a body may use aliases defined
+// before it and recursion cannot arise.
+type alias struct {
+	name   string
+	params []string
+	body   []string
 }
 
 func colorIndex(name string) (byte, error) {
@@ -81,14 +97,124 @@ func colorIndex(name string) (byte, error) {
 }
 
 func (c *compiler) line(raw string) error {
+	if c.defining != nil {
+		if raw == ".enddef" {
+			a := c.defining
+			c.defining = nil
+			// Inline the uses of earlier aliases, so a body composes them
+			// and a use expands one level, never recursively.
+			var body []string
+			for k, line := range a.body {
+				if inner, ok := c.aliasOf(line); ok {
+					lines, err := inner.substitute(line)
+					if err != nil {
+						return fmt.Errorf("%w (.%s line %d)", err, a.name, k+1)
+					}
+					body = append(body, lines...)
+				} else {
+					body = append(body, line)
+				}
+			}
+			a.body = body
+			c.aliases[a.name] = a
+			return nil
+		}
+		if strings.HasPrefix(raw, ".def ") || raw == ".def" {
+			return fmt.Errorf("raster: .def inside .def %s", c.defining.name)
+		}
+		c.defining.body = append(c.defining.body, raw)
+		return nil
+	}
 	switch {
 	case strings.HasPrefix(raw, "+ "):
 		return c.continuation(raw[1:])
 	case len(raw) > 1 && raw[0] == '.' && raw[1] >= 'a' && raw[1] <= 'z':
+		if a, ok := c.aliasOf(raw); ok {
+			return c.expand(a, raw)
+		}
 		return c.command(raw)
 	default:
 		return c.content(raw)
 	}
+}
+
+// commands is the closed set; an alias may not take one of its names.
+var commands = map[string]bool{"panel": true, "margin": true, "at": true, "col": true, "fg": true, "bg": true, "fill": true, "rem": true, "def": true, "enddef": true}
+
+// define begins collecting an alias: ".def NAME PARAM...".
+func (c *compiler) define(raw string) error {
+	fields := strings.Fields(raw)[1:]
+	if len(fields) == 0 {
+		return fmt.Errorf("raster: .def wants a name")
+	}
+	name := fields[0]
+	if commands[name] {
+		return fmt.Errorf("raster: .def %s: a command's name", name)
+	}
+	for _, f := range fields {
+		for _, r := range f {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+				return fmt.Errorf("raster: .def %s: names are letters, digits and _", name)
+			}
+		}
+	}
+	if c.aliases == nil {
+		c.aliases = map[string]*alias{}
+	}
+	c.defining = &alias{name: name, params: fields[1:]}
+	return nil
+}
+
+// aliasOf returns the alias a line uses, if any.
+func (c *compiler) aliasOf(raw string) (*alias, bool) {
+	if len(raw) < 2 || raw[0] != '.' {
+		return nil, false
+	}
+	name, _, _ := strings.Cut(raw[1:], " ")
+	a, ok := c.aliases[name]
+	return a, ok
+}
+
+// substitute returns the alias's body for a use: the arguments are
+// the words after the name, one per parameter, the last parameter
+// taking the rest of the line as written; $PARAM in the body is
+// replaced by its text.
+func (a *alias) substitute(raw string) ([]string, error) {
+	rest := strings.TrimLeft(raw[1+len(a.name):], " ")
+	args := make([]string, len(a.params))
+	for i := range a.params {
+		if rest == "" {
+			return nil, fmt.Errorf("raster: .%s wants %d arguments (%s), has %d", a.name, len(a.params), strings.Join(a.params, " "), i)
+		}
+		if i == len(a.params)-1 {
+			args[i] = strings.TrimRight(rest, " ")
+			break
+		}
+		args[i], rest, _ = strings.Cut(rest, " ")
+		rest = strings.TrimLeft(rest, " ")
+	}
+	out := make([]string, len(a.body))
+	for k, line := range a.body {
+		for i, p := range a.params {
+			line = strings.ReplaceAll(line, "$"+p, args[i])
+		}
+		out[k] = line
+	}
+	return out, nil
+}
+
+// expand compiles an alias use.
+func (c *compiler) expand(a *alias, raw string) error {
+	lines, err := a.substitute(raw)
+	if err != nil {
+		return err
+	}
+	for k, line := range lines {
+		if err := c.line(line); err != nil {
+			return fmt.Errorf("%w (.%s line %d)", err, a.name, k+1)
+		}
+	}
+	return nil
 }
 
 // args holds a command's arguments: at most four, space-separated.
@@ -133,6 +259,12 @@ func (c *compiler) command(raw string) error {
 	g := c.canvas.Geometry
 	if raw == ".rem" || strings.HasPrefix(raw, ".rem ") {
 		return nil
+	}
+	if raw == ".def" || strings.HasPrefix(raw, ".def ") {
+		return c.define(raw)
+	}
+	if raw == ".enddef" {
+		return fmt.Errorf("raster: .enddef without .def")
 	}
 	cmd, a, err := parse(raw)
 	if err != nil {
@@ -223,7 +355,7 @@ func (c *compiler) command(raw string) error {
 		}
 		return c.fill(row, col, rows, cols)
 	}
-	return fmt.Errorf("raster: unknown command %s (.panel .margin .at .col .fg .bg .fill .rem)", cmd)
+	return fmt.Errorf("raster: unknown command %s (.panel .margin .at .col .fg .bg .fill .rem .def .enddef)", cmd)
 }
 
 // paint places a run's cells at (row, col) in the pen's ink: leading
