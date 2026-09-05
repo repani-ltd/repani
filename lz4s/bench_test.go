@@ -3,6 +3,7 @@ package lz4s
 import (
 	"bytes"
 	"math/rand"
+	"os"
 	"testing"
 )
 
@@ -38,5 +39,34 @@ func BenchmarkDecompress(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+func BenchmarkPages(b *testing.B) {
+	var pages [][]byte
+	for _, n := range []string{"qam-home", "qam-report", "qam-trend", "qam-near", "tess-aegean", "tess-harbour", "tess-gallery", "tess-features"} {
+		p, _ := os.ReadFile("testdata/" + n + ".bin")
+		pages = append(pages, p)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		for _, p := range pages {
+			Compress(p)
+		}
+	}
+}
+
+func BenchmarkDecodePages(b *testing.B) {
+	var comps [][]byte
+	var sizes []int
+	for _, n := range []string{"qam-home", "qam-report", "qam-trend", "qam-near", "tess-aegean", "tess-harbour", "tess-gallery", "tess-features"} {
+		p, _ := os.ReadFile("testdata/" + n + ".bin")
+		comps = append(comps, Compress(p))
+		sizes = append(sizes, len(p))
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		for i, c := range comps {
+			Decompress(c, sizes[i])
+		}
 	}
 }

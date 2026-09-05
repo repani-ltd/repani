@@ -49,8 +49,7 @@ package lz4s
 
 // Compress compresses src self-referentially (no dictionary).
 func Compress(src []byte) []byte {
-	var out []byte
-	var lits []byte
+	var out, lits []byte
 
 	emit := func(matchLen, dist int) {
 		var token byte
@@ -100,14 +99,18 @@ func Compress(src []byte) []byte {
 		}
 	}
 
-	// The hash chain: head[h] is the latest position whose three
-	// bytes hash to h, prev[i] the one before position i.
-	const hashBits = 14
+	// The hash chain: head[h] is one past the latest position whose
+	// three bytes hash to h (zero: none), prev[i] the same for the
+	// position before i. The table has one entry per input byte,
+	// rounded up: on a page the chains are real candidates, the
+	// interiors of earlier blank runs, and a larger table buys
+	// nothing.
+	hashBits := 10
+	for 1<<hashBits < len(src) && hashBits < 16 {
+		hashBits++
+	}
 	head := make([]int32, 1<<hashBits)
 	prev := make([]int32, len(src))
-	for i := range head {
-		head[i] = -1
-	}
 	hash := func(i int) uint32 {
 		v := uint32(src[i])<<16 | uint32(src[i+1])<<8 | uint32(src[i+2])
 		return (v * 2654435761) >> (32 - hashBits)
@@ -116,9 +119,13 @@ func Compress(src []byte) []byte {
 		if i+3 <= len(src) {
 			h := hash(i)
 			prev[i] = head[h]
-			head[h] = int32(i)
+			head[h] = int32(i + 1)
 		}
 	}
+	// The stream is at most the input plus one token per 7 literals
+	// and the run extensions; one allocation covers it.
+	out = make([]byte, 0, len(src)+len(src)/7+16)
+	lits = make([]byte, 0, min(len(src), 256))
 
 	pos := 0
 	for pos < len(src) {
@@ -128,11 +135,11 @@ func Compress(src []byte) []byte {
 		if lo < 0 {
 			lo = 0
 		}
-		first := -1
+		first := 0
 		if maxLen >= 3 {
 			first = int(head[hash(pos)])
 		}
-		for cand := first; cand >= lo && bestLen < maxLen; cand = int(prev[cand]) {
+		for cand := first - 1; cand >= lo && bestLen < maxLen; cand = int(prev[cand]) - 1 {
 			// A candidate that differs at bestLen cannot beat the
 			// best so far (a tie never wins, see the gain test).
 			if src[cand+bestLen] != src[pos+bestLen] {
