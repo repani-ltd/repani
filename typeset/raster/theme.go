@@ -37,23 +37,24 @@ var (
 		Ground: "#0a0e17", Panel: "#05080f", Rule: "#1f2a3f",
 	}
 	// Teletext, dark on light: the ground is the dark theme's white,
-	// the text its ground; the hues that were bar grounds become the
-	// text hues, since they carry contrast on white; bars are pale
-	// tints so dark text reads on them; and index 7, which pages use
-	// as light text on a bar, is a dark slate band, the inverse of
-	// the dark theme's white band, with the ground's colour as text.
+	// the text a dark navy; the text hues are the dark theme's bar
+	// grounds, which carry contrast on white; the bars stay those
+	// same saturated hues, with white text on them as on the dark
+	// page; and index 7, light text on a bar, is white as text and a
+	// dark slate as a band, the inverse of the dark theme's white band.
 	TeletextLight = Theme{
 		Name:   "teletext-light",
-		FG:     [8]string{"#0a0e17", "#b3271b", "#1f8a44", "#8a6a0b", "#1f4fc4", "#9a2f9d", "#1c7f98", "#000000"},
-		BG:     [8]string{"#ffffff", "#f6cfc9", "#c8ecd3", "#f7e7b0", "#cdd9fb", "#efd0f0", "#c8ecf3", "#2b3140"},
+		FG:     [8]string{"#1c2333", "#b3271b", "#1f8a44", "#8a6a0b", "#1f4fc4", "#9a2f9d", "#1c7f98", "#ffffff"},
+		BG:     [8]string{"#ffffff", "#b3271b", "#1f8a44", "#b98e12", "#1f4fc4", "#9a2f9d", "#1c8fa8", "#2b3140"},
 		Ground: "#f4f6fa", Panel: "#ffffff", Rule: "#c9d1de",
 	}
-	// Solarized (Ethan Schoonover, 2011): base0 on base03, the eight
-	// accents by their names, white as base2; grounds are the accents
-	// themselves, on which the theme's light text reads.
+	// Solarized (Ethan Schoonover, 2011): base1 on base03 (base0, the
+	// palette's body text, reads too grey beside teletext on a page of
+	// cells), the eight accents by their names, white as base3; grounds
+	// are the accents themselves, on which the light text reads.
 	Solarized = Theme{
 		Name:   "solarized",
-		FG:     [8]string{"#839496", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"},
+		FG:     [8]string{"#93a1a1", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#fdf6e3"},
 		BG:     [8]string{"#002b36", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"},
 		Ground: "#002b36", Panel: "#002b36", Rule: "#586e75",
 	}
