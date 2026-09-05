@@ -66,8 +66,11 @@ Measured 2026-09-05 on real raster pages
 (~/repos/research/lz4s-lab/FINDINGS.t): every field of the token
 pays for itself (the W bit ten percent, the 3/4 split within a
 percent of any other, repeat offsets a loss, transposition a
-disaster); optimal parsing, encoder only, gives two percent and
-is now what Compress does. A dictionary the decoder starts with
+disaster); optimal parsing, encoder only, gives two percent for a
+hundred lines, a megabyte per call and a tuning constant, and was
+tried and not admitted -- the greedy parser gained a hash-chain
+matcher instead, byte-identical output, five to thirty times
+faster on pages. A dictionary the decoder starts with
 would take 10 to 30 percent off first pages and 90 to 97 off a
 page's next version, but it is a shared secret between sender
 and receiver -- an identity, a version, a silent failure when
