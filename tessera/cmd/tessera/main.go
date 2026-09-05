@@ -71,7 +71,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch cmd {
 	case "check":
 	case "html":
-		fmt.Fprint(stdout, raster.HTMLDocument(r, *across, strings.TrimSuffix(filepath.Base(fs.Arg(0)), ".tessera")))
+		fmt.Fprint(stdout, raster.HTMLDocument(r, *across, strings.TrimSuffix(filepath.Base(fs.Arg(0)), ".rt")))
 	case "page":
 		if _, err := stdout.Write(page[:]); err != nil {
 			fmt.Fprintf(stderr, "tessera: %v\n", err)

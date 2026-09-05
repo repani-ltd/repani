@@ -26,7 +26,7 @@ func TestSpecSections(t *testing.T) {
 
 // Every example compiles, and page emits exactly the raster.
 func TestExamples(t *testing.T) {
-	files, _ := filepath.Glob("../../examples/*.tessera")
+	files, _ := filepath.Glob("../../examples/*.rt")
 	if len(files) == 0 {
 		t.Fatal("no examples found")
 	}
@@ -44,7 +44,7 @@ func TestExamples(t *testing.T) {
 }
 
 func TestCheckReportsLine(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "bad.tessera")
+	f := filepath.Join(t.TempDir(), "bad.rt")
 	os.WriteFile(f, []byte(".panel 0\nok\n.bogus\n"), 0o644)
 	var out, errb bytes.Buffer
 	if code := run([]string{"check", f}, &out, &errb); code != 1 || !strings.Contains(errb.String(), "line 3") {
