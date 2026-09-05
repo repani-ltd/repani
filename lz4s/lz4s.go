@@ -26,6 +26,15 @@
 //     output so far; overlapping copies (distance < length) are
 //     byte-serial, as in LZ4.
 //
+// A stream may be made against a BASE: bytes both sides already
+// hold, which the decoder places before its output so that a
+// distance may reach into them. Delta and Undelta are Compress and
+// Decompress with a base; with an empty base they are the same
+// functions, and the stream is the same frame either way. The base
+// is the caller's contract: a stream decoded against the wrong base
+// is plausible garbage, which the decoder cannot tell, so a protocol
+// that sends deltas names the base (a checksum of it) beside them.
+//
 // There is no header and no end marker: the decoder is given the
 // exact decompressed size and accepts the stream iff it produces
 // exactly that many bytes without running past either buffer. That
@@ -47,9 +56,21 @@
 // canonical encoding: one parse rule, no tuning.
 package lz4s
 
-// Compress compresses src self-referentially (no dictionary).
-func Compress(src []byte) []byte {
+// Compress compresses src self-referentially (no base).
+func Compress(src []byte) []byte { return Delta(nil, src) }
+
+// Delta compresses src against base: the stream's distances may
+// reach into base, which the decoder must hold. Delta(nil, src) is
+// Compress(src), byte for byte.
+func Delta(base, src []byte) []byte {
 	var out, lits []byte
+	all := src
+	if len(base) > 0 {
+		all = make([]byte, 0, len(base)+len(src))
+		all = append(append(all, base...), src...)
+	}
+	start := len(base)
+	src = all
 
 	emit := func(matchLen, dist int) {
 		var token byte
@@ -124,10 +145,14 @@ func Compress(src []byte) []byte {
 	}
 	// The stream is at most the input plus one token per 7 literals
 	// and the run extensions; one allocation covers it.
-	out = make([]byte, 0, len(src)+len(src)/7+16)
-	lits = make([]byte, 0, min(len(src), 256))
+	out = make([]byte, 0, len(src)-start+(len(src)-start)/7+16)
+	lits = make([]byte, 0, min(len(src)-start, 256))
 
-	pos := 0
+	// The base is in the chain before the first position of src.
+	for i := 0; i < start; i++ {
+		insert(i)
+	}
+	pos := start
 	for pos < len(src) {
 		bestGain, bestLen, bestDist := 0, 0, 0
 		maxLen := len(src) - pos
@@ -190,11 +215,17 @@ func Compress(src []byte) []byte {
 // Decompress decompresses comp into exactly dsize bytes; ok is
 // false if comp is malformed, truncated, or does not produce exactly
 // dsize bytes (see the package doc for what is accepted).
-func Decompress(comp []byte, dsize int) (out []byte, ok bool) {
+func Decompress(comp []byte, dsize int) (out []byte, ok bool) { return Undelta(nil, comp, dsize) }
+
+// Undelta decompresses a stream made by Delta against the same
+// base, into exactly dsize bytes. The base is placed before the
+// output, so a distance may reach into it; the result excludes it.
+func Undelta(base, comp []byte, dsize int) (out []byte, ok bool) {
 	if dsize < 0 {
 		return nil, false
 	}
-	out = make([]byte, 0, dsize)
+	out = append(make([]byte, 0, len(base)+dsize), base...)
+	dsize += len(base)
 	i := 0
 	for i < len(comp) {
 		token := comp[i]
@@ -267,5 +298,5 @@ func Decompress(comp []byte, dsize int) (out []byte, ok bool) {
 	if len(out) != dsize {
 		return nil, false
 	}
-	return out, true
+	return out[len(base):], true
 }
