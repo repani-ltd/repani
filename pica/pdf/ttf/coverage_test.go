@@ -28,7 +28,7 @@ func TestGlyphCoverage(t *testing.T) {
 		{"braille (U+2800..28FF)", span(0x2800, 0x28FF, 1)},
 		{"box drawing (U+2500..257F)", span(0x2500, 0x257F, 1)},
 	}
-	for _, name := range []string{"FiraMono-Regular.ttf", "FiraMono-Bold.ttf", "FiraSans-Regular.ttf", "FiraSans-Bold.ttf"} {
+	for _, name := range []string{"JuliaMono-Regular.ttf", "JuliaMono-Bold.ttf", "FiraSans-Regular.ttf", "FiraSans-Bold.ttf"} {
 		raw, err := os.ReadFile("../fonts/" + name)
 		if err != nil {
 			t.Fatal(err)

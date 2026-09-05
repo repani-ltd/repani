@@ -16,12 +16,12 @@ for the family is pica/DESIGN.t after §13.
 .term pdf writer, in three packages
 Move pica/pdf as typeset/pdf, the writer core, with a face
 interface and its one TrueType implementation; pica/pdf/ttf as
-typeset/pdf/ttf, unchanged; and the five embedded Fira files
-(1.6M, parsed at package init) as typeset/fira, which registers
-the faces. A writer that names only a standard font then
+typeset/pdf/ttf, unchanged; and the five embedded font files
+(JuliaMono and Fira Sans, 1.8M, parsed at package init) as
+typeset/fira and typeset/juliamono, which register the faces. A writer that names only a standard font then
 imports the core and carries no font data, and the closed font
 enum opens: a face is registered, not enumerated. API change
-for press and the CLI: pdf.Sans and kin become fira's names,
+for press and the CLI: pdf.Sans and kin become the face packages' names,
 Measure takes a face. Trigger: the first second importer of the
 writer, or the fira split being wanted for binary size.
 .term standard fourteen faces
@@ -51,6 +51,16 @@ pica/DESIGN.t §11; in tessera it is a template condition over
 the data, not a language mark. Listed here only so the two
 records point at each other.
 
+
+.term a sans face for the PDF
+JuliaMono replaced Fira Mono on 2026-09-05 (pica/DESIGN.t §15),
+which broke the Fira pair: the sans face is now free to choose,
+and Fira Sans stays only because it was there. Choose on the
+page, beside JuliaMono tables and code: candidates are any OFL
+humanist or grotesque sans with Greek and tabular figures. The
+choice moves the five-file embed noted under "pdf writer, in
+three packages". Trigger: the next sans document anyone minds
+the look of, or that split.
 
 # Primitives
 

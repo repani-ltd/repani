@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func loadFiraMono(t *testing.T) *TTFont {
+func loadMono(t *testing.T) *TTFont {
 	t.Helper()
-	raw, err := os.ReadFile("../fonts/FiraMono-Regular.ttf")
+	raw, err := os.ReadFile("../fonts/JuliaMono-Regular.ttf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,9 +19,9 @@ func loadFiraMono(t *testing.T) *TTFont {
 	return f
 }
 
-func TestParseFiraMono(t *testing.T) {
-	f := loadFiraMono(t)
-	if f.PostScriptName != "FiraMono-Regular" {
+func TestParseMono(t *testing.T) {
+	f := loadMono(t)
+	if f.PostScriptName != "JuliaMono-Regular" {
 		t.Errorf("PostScriptName = %q", f.PostScriptName)
 	}
 	if f.UnitsPerEm == 0 || f.Ascent <= 0 || f.Descent >= 0 {
@@ -77,7 +77,7 @@ func TestTabularFigures(t *testing.T) {
 }
 
 func TestSubsetKeepsUsedGlyphs(t *testing.T) {
-	f := loadFiraMono(t)
+	f := loadMono(t)
 	used := map[rune]bool{'H': true, 'i': true, 'λ': true}
 	s, err := f.Subset(used)
 	if err != nil {
@@ -167,7 +167,7 @@ func TestSubsetKeepsCompoundComponents(t *testing.T) {
 // Parse recovers the panics of its offset-chained reads into an
 // error: truncated and garbage input must not crash.
 func TestParseMalformed(t *testing.T) {
-	f := loadFiraMono(t)
+	f := loadMono(t)
 	// Clone: a reslice of f.Data keeps the full capacity, and slicing
 	// within capacity does not panic.
 	inputs := map[string][]byte{

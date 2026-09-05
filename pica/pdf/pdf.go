@@ -54,11 +54,11 @@ func (ps PageSize) Dimensions() (w, h float64) {
 	}
 }
 
-//go:embed fonts/FiraMono-Regular.ttf
-var rawFiraMonoRegular []byte
+//go:embed fonts/JuliaMono-Regular.ttf
+var rawMonoRegular []byte
 
-//go:embed fonts/FiraMono-Bold.ttf
-var rawFiraMonoBold []byte
+//go:embed fonts/JuliaMono-Bold.ttf
+var rawMonoBold []byte
 
 //go:embed fonts/FiraSans-Regular.ttf
 var rawFiraSansRegular []byte
@@ -73,8 +73,8 @@ var rawFiraSansItalic []byte
 type Font string
 
 const (
-	Regular    Font = "R"  // Fira Mono Regular
-	Bold       Font = "B"  // Fira Mono Bold
+	Regular    Font = "R"  // JuliaMono Regular
+	Bold       Font = "B"  // JuliaMono Bold
 	Sans       Font = "S"  // Fira Sans Regular (proportional)
 	SansBold   Font = "SB" // Fira Sans Bold (proportional)
 	SansItalic Font = "SI" // Fira Sans Italic (proportional; emphasis)
@@ -92,8 +92,8 @@ func init() {
 		raw  []byte
 		font Font
 	}{
-		{rawFiraMonoRegular, Regular},
-		{rawFiraMonoBold, Bold},
+		{rawMonoRegular, Regular},
+		{rawMonoBold, Bold},
 		{rawFiraSansRegular, Sans},
 		{rawFiraSansBold, SansBold},
 		{rawFiraSansItalic, SansItalic},

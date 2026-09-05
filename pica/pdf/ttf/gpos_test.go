@@ -51,8 +51,8 @@ func TestKernFiraSans(t *testing.T) {
 	}
 }
 
-func TestKernFiraMonoIsZero(t *testing.T) {
-	f := loadFiraMono(t)
+func TestKernMonoIsZero(t *testing.T) {
+	f := loadMono(t)
 	for _, pair := range [][2]rune{{'A', 'V'}, {'T', 'o'}, {'L', 'Y'}} {
 		if got := f.Kern(pair[0], pair[1]); got != 0 {
 			t.Errorf("Kern(%q, %q) = %d, want 0 for monospace", pair[0], pair[1], got)

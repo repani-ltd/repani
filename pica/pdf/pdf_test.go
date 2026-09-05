@@ -52,7 +52,7 @@ func TestDocStructure(t *testing.T) {
 		t.Error("pages tree count missing")
 	}
 	// Both fonts used -> both embedded, subset (tagged), with ToUnicode.
-	for _, ps := range []string{"FiraMono-Regular", "FiraMono-Bold"} {
+	for _, ps := range []string{"JuliaMono-Regular", "JuliaMono-Bold"} {
 		if !regexp.MustCompile(`/BaseFont /[A-Z]{6}\+` + ps).MatchString(s) {
 			t.Errorf("missing embedded font %s", ps)
 		}
@@ -82,10 +82,10 @@ func TestUnusedFontSkipped(t *testing.T) {
 	doc := &Doc{}
 	doc.Add(&p)
 	s := string(doc.Bytes())
-	if !strings.Contains(s, "+FiraMono-Regular") {
+	if !strings.Contains(s, "+JuliaMono-Regular") {
 		t.Error("regular font missing")
 	}
-	if strings.Contains(s, "+FiraMono-Bold") {
+	if strings.Contains(s, "+JuliaMono-Bold") {
 		t.Error("unused bold font embedded")
 	}
 }
@@ -102,7 +102,7 @@ func TestSubsetTag(t *testing.T) {
 		doc.Add(&p)
 		return string(doc.Bytes())
 	}
-	re := regexp.MustCompile(`/(BaseFont|FontName) /([A-Z]{6})\+FiraMono-Regular\n`)
+	re := regexp.MustCompile(`/(BaseFont|FontName) /([A-Z]{6})\+JuliaMono-Regular\n`)
 	a := re.FindAllStringSubmatch(build("abc"), -1)
 	if len(a) != 3 { // Type0 BaseFont, CIDFont BaseFont, descriptor FontName
 		t.Fatalf("tagged names = %d, want 3", len(a))

@@ -78,8 +78,8 @@ func TestPDF_Sans(t *testing.T) {
 	if !strings.Contains(string(b1), "FiraSans-Regular") {
 		t.Error("sans document does not embed Fira Sans")
 	}
-	if !strings.Contains(string(b1), "FiraMono-Regular") {
-		t.Error("sans document with a table should still embed Fira Mono")
+	if !strings.Contains(string(b1), "JuliaMono-Regular") {
+		t.Error("sans document with a table should still embed JuliaMono")
 	}
 	if string(b1) != string(b2) {
 		t.Error("sans PDF is not deterministic")
