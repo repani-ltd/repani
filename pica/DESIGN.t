@@ -944,4 +944,22 @@ third heading level (two, permanently), no block nesting, no
 page-control commands in content, and no round-tripping: rendered
 output is a final artifact, not re-parseable source.
 
+# 14. The stylebook split (decided 2026-09-05)
+
+Driver: qam (repani-lab), the first app to generate raster pages,
+did it without templates -- a vocabulary of raster aliases and a
+Go writer that formats values itself -- and so imported none of
+the stylebook. What it wanted were the value functions as plain
+Go, and the stylebook's other half, the template glue, had one
+consumer, this desk. So the cut of §13 was made all the way: the
+value functions are repani.com/typeset/format, a primitive with
+Go signatures (Round, Decimal, Trunc, Pad, ShortTime, ShortDate,
+Duration) and one known-answer test; Render, Funcs, Rows and
+cells came back into desk, which is where a text/template
+vocabulary belongs; and typeset/stylebook went to the attic with
+its history. The rule of §13 stands and is now visible in the
+import graph: format knows no language, desk knows pica, and a
+writer that wants no templates imports format and tab and nothing
+of pica.
+
 .font sans

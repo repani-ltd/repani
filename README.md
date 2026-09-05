@@ -13,9 +13,10 @@ directory is one project; its import path is `repani.com/<dir>/...`.
 - `typeset/` -- the typesetting family, one package per member:
              `typeset/tab`, tab stops (fixed columns on a monospace
              grid, cells aligned left, right, centred or on the
-             decimal point); `typeset/stylebook`, house style for
-             templates that write copy from data (value formatters,
-             `cells` over tab, `Render` with the language's check)
+             decimal point); `typeset/format`, values as the house writes them
+             (a number rounded or to places, a string cut or padded
+             in runes, a time as HH:MM, a date as "Mon 02", a
+             duration in its largest unit)
              `typeset/raster`, a page of colored text cells in any
              geometry: cell table, in-band ink, authoring language,
              text/ANSI/HTML renderers (tessera is one geometry)

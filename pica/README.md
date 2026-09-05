@@ -52,10 +52,10 @@ DESIGN.t §10):
   `press.PDF`, the default (the document rendered as itself), and
   `press.Report`, house stationery. The Repani mark is its one
   option: publishing policy, passed where the PDF is made.
-- `desk` -- pica copy from data: the stylebook's vocabulary
-  (`repani.com/typeset/stylebook`) plus `table`, and `Render`, which parses
-  its output before returning it, so a generator never ships an
-  invalid document.
+- `desk` -- pica copy from data: the template vocabulary (the house
+  formatting of `repani.com/typeset/format`, `cells` over tab, and
+  `table`), and `Render`, which parses its output before returning
+  it, so a generator never ships an invalid document.
 - `pdf` -- PDF primitives and the embedded Fira faces.
 - `cmd/pica` -- the CLI, a thin flag surface over all of it.
 
@@ -76,7 +76,7 @@ in the binary (it is `doc.go`'s package comment, so it cannot
 drift from the parser), and validation errors are loud and carry
 line numbers.
 
-`render` executes Go text/templates (via `desk`) with the stylebook's
+`render` executes Go text/templates (via `desk`) with the house
 value formatters (round, decimal, trunc, pad, join, shortTime,
 shortDate, dur, cells) and one structure helper, `table`, which emits a `.table` block
 from a rows slice plus field names (sparing templates the range
