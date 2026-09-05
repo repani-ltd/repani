@@ -18,8 +18,10 @@ directory is one project; its import path is `repani.com/<dir>/...`.
              in runes, a time as HH:MM, a date as "Mon 02", a
              duration in its largest unit)
              `typeset/raster`, a page of colored text cells in any
-             geometry: cell table, in-band ink, authoring language,
-             text/ANSI/HTML renderers (tessera is one geometry)
+             geometry: cell table, in-band ink, an authoring
+             language with aliases, links as bracketed spans,
+             text/ANSI/HTML renderers and a JavaScript decoder
+             (tessera is one geometry)
 - `trudge/` -- trudge1, a simple memory-hard KDF on Ascon-XOF128
              (256 MiB pool, 2^24-step walk; spec in `trudge/SPEC.t`)
 

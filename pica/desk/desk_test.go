@@ -16,7 +16,7 @@ func TestFuncs(t *testing.T) {
 	}
 }
 
-// TestRender_Valid: the stylebook's helpers resolve and the result
+// TestRender_Valid: the desk's helpers resolve and the result
 // is the generated source, newline terminated.
 func TestRender_Valid(t *testing.T) {
 	src, err := Render("bulletin", "Weather\n\nTemp {{round .t}} degrees.", map[string]any{"t": 21.6})

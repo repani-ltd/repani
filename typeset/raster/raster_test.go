@@ -353,7 +353,7 @@ func TestSpec(t *testing.T) {
 	if r := p.Row(0, 7); r[0] != 'A' || r[33] != InkFG+1 || r[5] != InkFG {
 		t.Fatalf("ALERT row = % X", r)
 	}
-	if rows := p.Text(0); rows[0] != "  HARBOUR NOTICE · 02 SEP" || rows[6] != "FUEL    06:00-14:00, south quay" {
+	if rows := p.Text(0); rows[0] != "HARBOUR NOTICE · 02 SEP" || rows[6] != "FUEL    06:00-14:00, south quay" {
 		t.Fatalf("spec example text = %q", rows[:8])
 	}
 	if l := Decode(p).Links(0, 10); len(l) != 1 || l[0] != (Link{Col: 4, Len: 7, Target: "tides"}) {
@@ -446,12 +446,12 @@ func TestJSEmbedded(t *testing.T) {
 }
 
 func TestAliases(t *testing.T) {
-	vocab := ".def bar TITLE\n.fg white\n.bg blue\n.fill 0\n.at 0 2\n$TITLE\n.fg\n.bg\n.enddef\n" +
+	vocab := ".def bar TITLE\n.fg white\n.bg blue\n.fill 0\n.at 0\n$TITLE\n.fg\n.bg\n.enddef\n" +
 		".def field LABEL VALUE\n.fg cyan\n$LABEL\n.fg\n.col 6\n$VALUE\n.enddef\n" +
 		".def wind SPEED\n.field WIND NW $SPEED kt\n.enddef\n"
 	p := compile(t, vocab+".bar HARBOUR · 02 SEP\n.at 2\n.field TEMP 31°C  dew 11°C\n.wind 18\nplain $x\n")
 	rows := p.Text(0)
-	if rows[0] != "  HARBOUR · 02 SEP" || rows[2] != "TEMP  31°C  dew 11°C" || rows[3] != "WIND  NW 18 kt" || rows[4] != "plain $x" {
+	if rows[0] != "HARBOUR · 02 SEP" || rows[2] != "TEMP  31°C  dew 11°C" || rows[3] != "WIND  NW 18 kt" || rows[4] != "plain $x" {
 		t.Fatalf("rows = %q", rows[:5])
 	}
 	c := Decode(p)

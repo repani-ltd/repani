@@ -141,13 +141,13 @@ is closed. A page that says everything the language has:
     .bg blue
     .fill 0
     .fg white
-    .at 0 2
+    .at 0
     HARBOUR NOTICE · 02 SEP
     .fg yellow
-    .bg default
+    .bg
     .at 2
     MELTEMI TONIGHT
-    .fg default
+    .fg
     North 7 to 8 from 1800, gusts 9
     in the channel. Double up lines.
     .at 6
@@ -193,7 +193,8 @@ The rules:
 .item Names are default red green yellow blue magenta cyan white.
 Rows, columns and panels count from 0.
 .item A line that begins with a dot and a lowercase letter is a
-command, and one that is not in the table is an error. A line
+command or the use of an alias, and one that is neither is an
+error. A line
 that begins with "+ " is a continuation; a lone "+" and "+5" are
 content. "+" and .col attach to the last run, and there is none
 after .panel or .at.
@@ -236,7 +237,7 @@ never this specification's.
     .fg white
     .bg blue
     .fill 0
-    .at 0 2
+    .at 0
     $TITLE
     .fg
     .bg
@@ -257,8 +258,9 @@ The rules, and they are the whole of it:
 
 .item A definition is ".def NAME PARAM..." through ".enddef"; the
 lines between are its body. (Not ".end": a pica document quotes
-raster pages in .pre blocks, which ".end" would close.) Names are letters, digits and the underscore,
-and an alias may not take a command's name.
+raster pages in .pre blocks, which ".end" would close.) Names
+are letters, digits and the underscore, and an alias may not
+take a command's name.
 .item A use is ".NAME" followed by its arguments: one word per
 parameter, the last parameter taking the rest of the line as
 written, so a title needs no quotes. Too few words is an error.
