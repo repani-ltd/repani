@@ -500,4 +500,8 @@ func TestThemes(t *testing.T) {
 	if _, ok := Themes["teletext-light"]; !ok || len(Themes) != 2 {
 		t.Fatalf("themes = %v", Themes)
 	}
+	// Every document carries the embedded face.
+	if doc := HTMLDocument(p, 1, "t", Teletext); !strings.Contains(doc, `@font-face { font-family: "JuliaMono"; font-weight: 400;`) {
+		t.Error("document lacks the embedded face")
+	}
 }

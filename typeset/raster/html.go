@@ -69,8 +69,9 @@ func (p *Page) HTMLRows(panel int) []string { return Decode(p).HTMLRows(panel) }
 
 // HTMLDocument renders the page as one self-contained HTML document
 // in a theme: a <pre> per panel laid out across panels to a row, an
-// embedded stylesheet, no external resources. It is the showcase
-// form: open it in any browser, or paste the body into another page.
+// embedded stylesheet with the embedded face (FontCSS), no external
+// resources. It is the showcase form: open it in any browser, or
+// paste the body into another page.
 func HTMLDocument(p *Page, across int, title string, theme Theme) string {
 	if across < 1 {
 		across = 1
@@ -82,19 +83,19 @@ func HTMLDocument(p *Page, across int, title string, theme Theme) string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>%s</title>
 <style>
-%s
-body { margin: 0; padding: 24px; background: var(--ground); color: var(--c0); }
+%sbody { margin: 0; padding: 24px; background: var(--ground); color: var(--c0); }
 .raster { display: grid; grid-template-columns: repeat(%d, max-content); gap: 14px; width: max-content; }
 .raster pre {
   margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--rule);
-  font-family: "IBM Plex Mono", Menlo, "DejaVu Sans Mono", Consolas, monospace;
-  font-size: 16px; line-height: 1.2; white-space: pre; font-variant-ligatures: none;
+  font-family: JuliaMono, monospace;
+  font-size: 15px; line-height: 20px; white-space: pre;
+  font-variant-ligatures: none; font-kerning: none; font-feature-settings: "calt" 0, "liga" 0; text-rendering: optimizeSpeed;
 }
 a { color: inherit; text-decoration: none; cursor: pointer; }
 a:hover, a:active { text-decoration: underline; }
-</style>
+%s</style>
 <div class="raster">
-`, html.EscapeString(title), theme.CSS(), across)
+`, html.EscapeString(title), FontCSS(), across, theme.CSS())
 	for i := range p.Panels {
 		fmt.Fprintf(&b, "<pre>%s</pre>\n", strings.Join(p.HTMLRows(i), "\n"))
 	}
