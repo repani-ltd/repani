@@ -61,17 +61,19 @@ records point at each other.
 
 # Primitives
 
-.term lz4d, lz4s with a dictionary
-A successor to lz4s: the same frame, Compress and Decompress
-taking a dictionary the decoder starts with in its buffer, and
-an optimal parser. Measured 2026-09-05 on real raster pages
-(~/repos/research/lz4s-lab/FINDINGS.t): the frame itself has no
-headroom worth a change (optimal parsing 2 percent, every other
-token variant within a percent or worse), a class dictionary of
-one page per kind takes 10 to 30 percent off, the previous
-version of a page 90 to 97 percent. The previous-page form makes
-the receiver stateful and stays an app's optimisation; the
-static form is the one to build. Trigger: a transport that pays
-per byte for first pages, a quietcasting slot budget or a
-metered link; until then lz4s serves.
+.term lz4s: the frame is at its optimum; a dictionary is not a feature
+Measured 2026-09-05 on real raster pages
+(~/repos/research/lz4s-lab/FINDINGS.t): every field of the token
+pays for itself (the W bit ten percent, the 3/4 split within a
+percent of any other, repeat offsets a loss, transposition a
+disaster); optimal parsing, encoder only, gives two percent and
+is now what Compress does. A dictionary the decoder starts with
+would take 10 to 30 percent off first pages and 90 to 97 off a
+page's next version, but it is a shared secret between sender
+and receiver -- an identity, a version, a silent failure when
+they differ -- which the raster line "nothing in the bytes says
+what format they are" refuses, and on the web the saving is
+under a packet. Not a candidate. Reconsider only for a transport
+that pays per byte for first pages, and then as an app's
+optimisation over its own held page, never as the format's.
 .width 72

@@ -37,11 +37,18 @@
 //
 // # Compressor
 //
-// Compress is greedy with a brute-force matcher: at every position
-// it scans the whole 64 KiB window back to front, so its cost is
-// O(n * min(n, 65536)) byte comparisons. It is meant for texts of
-// a few bytes to a few KiB, where that is instant and the 2-byte
-// near match pays; it is not a bulk compressor.
+// Compress parses optimally: a hash chain over three-byte prefixes
+// visits, at every position, the places in the 64 KiB window where a
+// match can begin, near to far, keeping each match that is longer
+// than every nearer one; a dynamic programme over (position, pending
+// literal run) then chooses the sequences that minimise the stream's
+// bytes under the frame's exact costs. A match of 256 or more is
+// taken whole, so a long run costs one scan, not one per cell. It is
+// meant for texts of a few bytes to a few KiB, where a page
+// compresses in well under a millisecond; it is not a bulk
+// compressor. The bytes it emits are canonical for this parser; the
+// decoder is the contract, and a better parser would be a new
+// canonical encoding of the same frame.
 package lz4s
 
 // Compress compresses src self-referentially (no dictionary).
@@ -97,50 +104,10 @@ func Compress(src []byte) []byte {
 		}
 	}
 
-	pos := 0
-	for pos < len(src) {
-		bestGain, bestLen, bestDist := 0, 0, 0
-		maxLen := len(src) - pos
-		lo := pos - 65536
-		if lo < 0 {
-			lo = 0
-		}
-		for cand := pos - 1; cand >= lo && bestLen < maxLen; cand-- {
-			// A candidate that differs at bestLen cannot beat the
-			// best so far (a tie never wins, see the gain test).
-			if src[cand+bestLen] != src[pos+bestLen] {
-				continue
-			}
-			l := 0
-			for l < maxLen && src[cand+l] == src[pos+l] {
-				l++
-			}
-			if l < 3 {
-				continue
-			}
-			// Cost of taking the match versus emitting its bytes as
-			// literals: one token (the match closes the pending
-			// literal run, so the bytes after it need a fresh token
-			// that a longer literal run would not have), the offset,
-			// and the exact run of match-ext bytes.
-			dist := pos - cand
-			cost := 2
-			if dist > 256 {
-				cost = 3
-			}
-			if l >= 17 {
-				cost += 1 + (l-17)/255
-			}
-			if gain := l - cost; gain > bestGain {
-				bestGain, bestLen, bestDist = gain, l, dist
-			}
-		}
-		if bestGain > 0 {
-			emit(bestLen, bestDist)
-			pos += bestLen
-		} else {
-			lits = append(lits, src[pos])
-			pos++
+	for _, sq := range parse(src) {
+		lits = append(lits, src[sq.pos:sq.pos+sq.lits]...)
+		if sq.l > 0 {
+			emit(sq.l, sq.dist)
 		}
 	}
 	if len(lits) > 0 {
@@ -230,4 +197,182 @@ func Decompress(comp []byte, dsize int) (out []byte, ok bool) {
 		return nil, false
 	}
 	return out, true
+}
+
+// A sequence is the parser's unit: lits literals from pos, then a
+// match of length l at distance dist (l == 0: literals only).
+type sequence struct{ pos, lits, l, dist int }
+
+// litExt is the literal count at which the token overflows into an
+// extension byte; matchExt the match length at which M does.
+const (
+	litExt   = 7
+	matchExt = 17
+	runCap   = 8 // pending literal runs beyond this cost alike (the 255-run extension is ignored)
+	minMatch = 3
+	window   = 65536
+	niceLen  = 256 // a match this long is taken whole: the positions it covers are not searched
+)
+
+// cost is the bytes a match of length l at distance dist adds to
+// the stream: its token, its offset and its extension.
+func cost(l, dist int) int {
+	c := 2
+	if dist > 256 {
+		c = 3
+	}
+	if l >= matchExt {
+		c += 1 + (l-matchExt)/255
+	}
+	return c
+}
+
+// parse chooses the sequences of src that minimise the stream.
+func parse(src []byte) []sequence {
+	n := len(src)
+	if n == 0 {
+		return nil
+	}
+	// candidates[i]: the matches from i worth considering, scanning
+	// the window from near to far and keeping a match only when it is
+	// longer than every nearer one (a farther match no longer than a
+	// nearer one costs the same or more for nothing). The list is
+	// therefore strictly increasing in length, and short.
+	// Positions are visited through a hash chain over three-byte
+	// prefixes, near to far: exactly the positions where a match of
+	// minMatch or more can begin.
+	type cand struct{ l, dist int }
+	cands := make([][]cand, n)
+	const hashBits = 14
+	head := make([]int32, 1<<hashBits)
+	prev := make([]int32, n)
+	for i := range head {
+		head[i] = -1
+	}
+	hash := func(i int) uint32 {
+		v := uint32(src[i])<<16 | uint32(src[i+1])<<8 | uint32(src[i+2])
+		return (v * 2654435761) >> (32 - hashBits)
+	}
+	skipTo := 0 // positions before this are inside a nice match
+	for i := range n {
+		maxLen := n - i
+		if maxLen < minMatch {
+			break
+		}
+		h := hash(i)
+		if i < skipTo {
+			prev[i] = head[h]
+			head[h] = int32(i)
+			continue
+		}
+		lo := max(i-window, 0)
+		var best []cand
+		longest := minMatch - 1
+		for c := int(head[h]); c >= lo && longest < maxLen; c = int(prev[c]) {
+			// cannot beat the longest so far: differs where it would
+			// have to match
+			if src[c+longest] != src[i+longest] {
+				continue
+			}
+			l := 0
+			for l < maxLen && src[c+l] == src[i+l] {
+				l++
+			}
+			if l > longest {
+				best = append(best, cand{l, i - c})
+				longest = l
+			}
+		}
+		cands[i] = best
+		if longest >= niceLen {
+			skipTo = i + longest
+		}
+		prev[i] = head[h]
+		head[h] = int32(i)
+	}
+	// best[i][r]: the least bytes that reach position i with r pending
+	// literals; from[i][r] the step that did.
+	type step struct{ run, l, dist int }
+	const inf = 1 << 30
+	best := make([][runCap + 1]int, n+1)
+	from := make([][runCap + 1]step, n+1)
+	for i := range best {
+		for r := range best[i] {
+			best[i][r] = inf
+		}
+	}
+	best[0][0] = 0
+	for i := 0; i < n; i++ {
+		for r := 0; r <= runCap; r++ {
+			c := best[i][r]
+			if c == inf {
+				continue
+			}
+			// a literal: one byte, and the extension byte when the run
+			// reaches litExt
+			nr, lc := r+1, 1
+			if nr == litExt {
+				lc++
+			}
+			nr = min(nr, runCap)
+			if c+lc < best[i+1][nr] {
+				best[i+1][nr] = c + lc
+				from[i+1][nr] = step{r, 0, 0}
+			}
+			// a match: the candidate's full length, and every shorter
+			// length below the extension, which may end at a better place
+			for _, cd := range cands[i] {
+				try := func(l int) {
+					mc := cost(l, cd.dist)
+					if c+mc < best[i+l][0] {
+						best[i+l][0] = c + mc
+						from[i+l][0] = step{r, l, cd.dist}
+					}
+				}
+				try(cd.l)
+				for l := minMatch; l < cd.l && l <= matchExt; l++ {
+					try(l)
+				}
+			}
+		}
+	}
+	// the end: pending literals need a closing token
+	endR, endC := 0, inf
+	for r := 0; r <= runCap; r++ {
+		c := best[n][r]
+		if r > 0 {
+			c++
+		}
+		if c < endC {
+			endC, endR = c, r
+		}
+	}
+	// walk back, then forward into sequences
+	var steps []step
+	for i, r := n, endR; i > 0; {
+		st := from[i][r]
+		steps = append(steps, st)
+		if st.l == 0 {
+			i--
+		} else {
+			i -= st.l
+		}
+		r = st.run
+	}
+	var seqs []sequence
+	pos, lits := 0, 0
+	for k := len(steps) - 1; k >= 0; k-- {
+		st := steps[k]
+		if st.l == 0 {
+			lits++
+			continue
+		}
+		seqs = append(seqs, sequence{pos, lits, st.l, st.dist})
+		pos += lits + st.l
+		lits = 0
+	}
+	if lits > 0 {
+		seqs = append(seqs, sequence{pos, lits, 0, 0})
+	}
+	return seqs
 }
