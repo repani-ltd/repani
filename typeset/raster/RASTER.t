@@ -153,11 +153,12 @@ is closed. A page that says everything the language has:
     .at 6
     .fg cyan
     FUEL
-    .fg default
-    + 06:00-14:00, south quay
+    .fg
+    .col 8
+    06:00-14:00, south quay
     .fg red
     ALERT
-    .fg default
+    .fg
     + north quay closed
     .at 10
     Tap [tides] for the tide table.
@@ -178,6 +179,8 @@ The commands:
                     cursor then moves to the next row, at the margin
     + content       continue on the row of the last run, where it
                     ended; the run is everything after the "+"
+    .col C          the next run lands at column C of the row of the
+                    last run; one-shot, the cursor does not move
     .fill R [C [ROWS [COLS]]]   a region of spaces in the pen's ink;
                     defaults: column 0, one row, to the right edge
     .rem TEXT       comment, dropped
@@ -190,7 +193,8 @@ Rows, columns and panels count from 0.
 .item A line that begins with a dot and a lowercase letter is a
 command, and one that is not in the table is an error. A line
 that begins with "+ " is a continuation; a lone "+" and "+5" are
-content.
+content. "+" and .col attach to the last run, and there is none
+after .panel or .at.
 .item Content is right-trimmed. Leading spaces position the run
 and paint nothing, so a run's text lands at the cursor plus its
 leading spaces; interior spaces are painted. An empty line, or

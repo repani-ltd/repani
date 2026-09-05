@@ -197,6 +197,17 @@ func TestMarginAndAt(t *testing.T) {
 	if Decode(p).Row(0, 1)[0].Glyph != 'Y' {
 		t.Fatal("blank line after .at")
 	}
+	// .col places on the row of the last run and leaves the cursor
+	// alone: a label at the margin, its value at column 6, the next
+	// line below both.
+	p = compile(t, ".fg cyan\nWIND\n.fg\n.col 6\nNW 6 kt\nnext\n.col 10\nmore\n")
+	c = Decode(p)
+	if r := c.Row(0, 0); r[0].Glyph != 'W' || r[0].FG != 6 || r[6].Glyph != 'N' || r[6].FG != 0 || r[4].Glyph != 0 {
+		t.Fatalf(".col row 0 = %q", string(c.AppendText(nil, 0, 0)))
+	}
+	if r := c.Row(0, 1); r[0].Glyph != 'n' || r[10].Glyph != 'm' || c.Row(0, 2)[0].Glyph != 0 {
+		t.Fatalf(".col row 1 = %q", string(c.AppendText(nil, 0, 1)))
+	}
 	// A lone + and a +5 are content.
 	p = compile(t, "+\n+5\n")
 	if p.Row(0, 0)[0] != '+' || p.Row(0, 1)[1] != '5' {
@@ -209,6 +220,9 @@ func TestErrors(t *testing.T) {
 		{".panel 4\n", "panel 4 out of range"},
 		{".at 28 0\n", "outside rows"},
 		{".at 0 0\n+ X\n", "nothing to continue"},
+		{".col 6\nX\n", "no run to attach to"},
+		{"A\n.at 1\n.col 6\nX\n", "no run to attach to"},
+		{"A\n.col 34\nX\n", "outside columns 0..33"},
 		{".bogus\n", "unknown command"},
 		{".fg puce\n", "unknown color"},
 		{".fg red blue\n", "one color name, or none"},
@@ -339,7 +353,7 @@ func TestSpec(t *testing.T) {
 	if r := p.Row(0, 7); r[0] != 'A' || r[33] != InkFG+1 || r[5] != InkFG {
 		t.Fatalf("ALERT row = % X", r)
 	}
-	if rows := p.Text(0); rows[0] != "  HARBOUR NOTICE · 02 SEP" || rows[6] != "FUEL 06:00-14:00, south quay" {
+	if rows := p.Text(0); rows[0] != "  HARBOUR NOTICE · 02 SEP" || rows[6] != "FUEL    06:00-14:00, south quay" {
 		t.Fatalf("spec example text = %q", rows[:8])
 	}
 	if l := Decode(p).Links(0, 10); len(l) != 1 || l[0] != (Link{Col: 4, Len: 7, Target: "tides"}) {

@@ -28,7 +28,7 @@ func Compile(g Geometry, src string) (*Page, error) {
 // directly. Errors carry the 1-based source line.
 func (c *Canvas) Compile(src string) error {
 	c.Reset()
-	k := compiler{canvas: c}
+	k := compiler{canvas: c, colRow: -1}
 	src = strings.TrimSuffix(src, "\n")
 	for n := 1; ; n++ {
 		raw, rest, more := strings.Cut(src, "\n")
@@ -67,6 +67,7 @@ type compiler struct {
 
 	penRow, penCol int  // just past the last run ("+" continues there)
 	atCol          int  // the column of a pending .at, else the margin
+	colRow         int  // the row of a pending .col (the last run's), else -1
 	havePen        bool // false after .panel and .at
 }
 
@@ -147,8 +148,20 @@ func (c *compiler) command(raw string) error {
 			return fmt.Errorf("raster: panel %d out of range 0..%d", n[0], g.Panels-1)
 		}
 		c.panel = n[0]
-		c.curRow, c.atCol = 0, c.margin
+		c.curRow, c.atCol, c.colRow = 0, c.margin, -1
 		c.havePen = false
+		return nil
+	case ".col":
+		if _, err := a.ints(n[:], 1, 1); err != nil {
+			return err
+		}
+		if !c.havePen {
+			return fmt.Errorf("raster: .col with no run to attach to (.panel and .at begin anew)")
+		}
+		if n[0] < 0 || n[0] >= g.Cols {
+			return fmt.Errorf("raster: .col %d outside columns 0..%d", n[0], g.Cols-1)
+		}
+		c.colRow, c.atCol = c.penRow, n[0]
 		return nil
 	case ".margin":
 		if _, err := a.ints(n[:], 1, 1); err != nil {
@@ -171,7 +184,7 @@ func (c *compiler) command(raw string) error {
 		if n[0] < 0 || n[0] >= g.Rows || col < 0 || col >= g.Cols {
 			return fmt.Errorf("raster: .at %d %d outside rows 0..%d, cols 0..%d", n[0], col, g.Rows-1, g.Cols-1)
 		}
-		c.curRow, c.atCol = n[0], col
+		c.curRow, c.atCol, c.colRow = n[0], col, -1
 		c.havePen = false
 		return nil
 	case ".fg", ".bg":
@@ -210,7 +223,7 @@ func (c *compiler) command(raw string) error {
 		}
 		return c.fill(row, col, rows, cols)
 	}
-	return fmt.Errorf("raster: unknown command %s (.panel .margin .at .fg .bg .fill .rem)", cmd)
+	return fmt.Errorf("raster: unknown command %s (.panel .margin .at .col .fg .bg .fill .rem)", cmd)
 }
 
 // paint places a run's cells at (row, col) in the pen's ink: leading
@@ -244,23 +257,31 @@ func (c *compiler) content(raw string) error {
 	// Right-trim: invisible trailing spaces must not clobber
 	// neighbours; clearing is .fill's explicit job.
 	raw = strings.TrimRight(raw, " \t")
-	col := c.atCol
-	c.atCol = c.margin
+	row, col := c.curRow, c.atCol
+	onLastRow := c.colRow >= 0 // a pending .col: the last run's row, cursor untouched
+	if onLastRow {
+		row = c.colRow
+	}
+	c.atCol, c.colRow = c.margin, -1
 	if raw == "" {
-		c.curRow++ // an empty line, or one of only spaces, flows one row
+		if !onLastRow {
+			c.curRow++ // an empty line, or one of only spaces, flows one row
+		}
 		return nil
 	}
 	cells, err := c.transcode(raw)
 	if err != nil {
 		return err
 	}
-	if c.curRow >= c.canvas.Rows {
+	if row >= c.canvas.Rows {
 		return fmt.Errorf("raster: content below row %d", c.canvas.Rows-1)
 	}
-	if err := c.paint(c.curRow, col, cells); err != nil {
+	if err := c.paint(row, col, cells); err != nil {
 		return err
 	}
-	c.curRow++
+	if !onLastRow {
+		c.curRow++
+	}
 	return nil
 }
 
