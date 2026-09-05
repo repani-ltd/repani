@@ -497,4 +497,7 @@ func TestThemes(t *testing.T) {
 	if doc := HTMLDocument(p, 1, "t", Solarized); !strings.Contains(doc, "--c1: #dc322f") || !strings.Contains(doc, `<span class="f1 b0">X`) {
 		t.Fatal("solarized document")
 	}
+	if _, ok := Themes["teletext-light"]; !ok || len(Themes) != 4 {
+		t.Fatalf("themes = %v", Themes)
+	}
 }

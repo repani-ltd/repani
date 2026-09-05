@@ -19,13 +19,12 @@ type Theme struct {
 }
 
 // Themes are the built-in themes by name: "teletext", the seven hues
-// of teletext on a night ground; "cellimage", the sixteen-colour
-// image palette of the cellimage converter mapped onto the seven
-// roles by luminance, on black; "solarized" and "solarized-light",
-// Ethan Schoonover's palette on its dark and light grounds.
+// of teletext on a night ground, and "teletext-light", the same dark
+// on light; "solarized" and "solarized-light", Ethan Schoonover's
+// palette on its dark and light grounds.
 var Themes = map[string]Theme{
 	"teletext":        Teletext,
-	"cellimage":       Cellimage,
+	"teletext-light":  TeletextLight,
 	"solarized":       Solarized,
 	"solarized-light": SolarizedLight,
 }
@@ -37,15 +36,17 @@ var (
 		BG:     [8]string{"#05080f", "#b3271b", "#1f8a44", "#b98e12", "#1f4fc4", "#9a2f9d", "#1c8fa8", "#e6e9f0"},
 		Ground: "#0a0e17", Panel: "#05080f", Rule: "#1f2a3f",
 	}
-	// The cellimage palette (research/cellimage-converter-spec.md §1,
-	// frozen there): the light member of each hue pair for text, the
-	// dark member for grounds; grey-light for default text, white for
-	// white, black for the ground, grey-dark for the rule.
-	Cellimage = Theme{
-		Name:   "cellimage",
-		FG:     [8]string{"#A0A0A0", "#E04A2E", "#4CBE52", "#EDD94F", "#55A8E6", "#EE82B0", "#2E8C7E", "#FFFFFF"},
-		BG:     [8]string{"#000000", "#7A1E1E", "#1E5C2A", "#8A5A2B", "#1E4C8C", "#8C4E9E", "#2E8C7E", "#A0A0A0"},
-		Ground: "#000000", Panel: "#000000", Rule: "#4A4A4A",
+	// Teletext, dark on light: the ground is the dark theme's white,
+	// the text its ground; the hues that were bar grounds become the
+	// text hues, since they carry contrast on white; bars are pale
+	// tints so dark text reads on them; and index 7, which pages use
+	// as light text on a bar, is a dark slate band, the inverse of
+	// the dark theme's white band, with the ground's colour as text.
+	TeletextLight = Theme{
+		Name:   "teletext-light",
+		FG:     [8]string{"#0a0e17", "#b3271b", "#1f8a44", "#8a6a0b", "#1f4fc4", "#9a2f9d", "#1c7f98", "#000000"},
+		BG:     [8]string{"#ffffff", "#f6cfc9", "#c8ecd3", "#f7e7b0", "#cdd9fb", "#efd0f0", "#c8ecf3", "#2b3140"},
+		Ground: "#f4f6fa", Panel: "#ffffff", Rule: "#c9d1de",
 	}
 	// Solarized (Ethan Schoonover, 2011): base0 on base03, the eight
 	// accents by their names, white as base2; grounds are the accents
