@@ -20,13 +20,10 @@ type Theme struct {
 
 // Themes are the built-in themes by name: "teletext", the seven hues
 // of teletext on a night ground, and "teletext-light", the same dark
-// on light; "solarized" and "solarized-light", Ethan Schoonover's
-// palette on its dark and light grounds.
+// on light.
 var Themes = map[string]Theme{
-	"teletext":        Teletext,
-	"teletext-light":  TeletextLight,
-	"solarized":       Solarized,
-	"solarized-light": SolarizedLight,
+	"teletext":       Teletext,
+	"teletext-light": TeletextLight,
 }
 
 var (
@@ -47,23 +44,6 @@ var (
 		FG:     [8]string{"#1c2333", "#b3271b", "#1f8a44", "#8a6a0b", "#1f4fc4", "#9a2f9d", "#1c7f98", "#ffffff"},
 		BG:     [8]string{"#ffffff", "#b3271b", "#1f8a44", "#b98e12", "#1f4fc4", "#9a2f9d", "#1c8fa8", "#2b3140"},
 		Ground: "#f4f6fa", Panel: "#ffffff", Rule: "#c9d1de",
-	}
-	// Solarized (Ethan Schoonover, 2011): base1 on base03 (base0, the
-	// palette's body text, reads too grey beside teletext on a page of
-	// cells), the eight accents by their names, white as base3; grounds
-	// are the accents themselves, on which the light text reads.
-	Solarized = Theme{
-		Name:   "solarized",
-		FG:     [8]string{"#93a1a1", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#fdf6e3"},
-		BG:     [8]string{"#002b36", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"},
-		Ground: "#002b36", Panel: "#002b36", Rule: "#586e75",
-	}
-	// Solarized light: base00 on base3, the same accents.
-	SolarizedLight = Theme{
-		Name:   "solarized-light",
-		FG:     [8]string{"#657b83", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#fdf6e3"},
-		BG:     [8]string{"#fdf6e3", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#073642"},
-		Ground: "#fdf6e3", Panel: "#fdf6e3", Rule: "#93a1a1",
 	}
 )
 

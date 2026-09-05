@@ -26,9 +26,9 @@ Usage:
   tessera page FILE                  compile and write the 3,808 bytes
 
 -across N lays the four panels N to a row (default 2). -theme T
-colours the HTML page: teletext (default), teletext-light, solarized,
-solarized-light. FILE may be - for stdin. Exit status is 1 for an input or compile error and 2 for
-a usage error.
+colours the HTML page: teletext (default) or teletext-light. FILE
+may be - for stdin. Exit status is 1 for an input or compile error
+and 2 for a usage error.
 `
 }
 
@@ -75,7 +75,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "html":
 		th, ok := raster.Themes[*theme]
 		if !ok {
-			fmt.Fprintf(stderr, "tessera: unknown theme %q (teletext, teletext-light, solarized, solarized-light)\n", *theme)
+			fmt.Fprintf(stderr, "tessera: unknown theme %q (teletext, teletext-light)\n", *theme)
 			return 2
 		}
 		fmt.Fprint(stdout, raster.HTMLDocument(r, *across, strings.TrimSuffix(filepath.Base(fs.Arg(0)), ".rt"), th))

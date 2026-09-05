@@ -494,10 +494,10 @@ func TestThemes(t *testing.T) {
 		}
 	}
 	p := compile(t, ".fg red\nX\n")
-	if doc := HTMLDocument(p, 1, "t", Solarized); !strings.Contains(doc, "--c1: #dc322f") || !strings.Contains(doc, `<span class="f1 b0">X`) {
-		t.Fatal("solarized document")
+	if doc := HTMLDocument(p, 1, "t", TeletextLight); !strings.Contains(doc, "--c1: #b3271b") || !strings.Contains(doc, `<span class="f1 b0">X`) {
+		t.Fatal("teletext-light document")
 	}
-	if _, ok := Themes["teletext-light"]; !ok || len(Themes) != 4 {
+	if _, ok := Themes["teletext-light"]; !ok || len(Themes) != 2 {
 		t.Fatalf("themes = %v", Themes)
 	}
 }
