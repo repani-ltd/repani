@@ -45,13 +45,6 @@ trudge imports ascon and sits outside the primitive list in
 README and CLAUDE.md. Since 2026-09-03 primitives may import
 primitives, so it qualifies; listing it is a call to make, not
 work.
-.term pica-to-tessera writer
-The way tessera pages get generated content: a pica document
-per panel (or per page with atomic blocks), RenderBlock at
-width 34, one ink per construct page-wide. Its arrival is the
-second real backend that promotes press's fblock/sline to a
-shared contract (pica/DESIGN.t §1, §10). Trigger: a station
-that generates a tessera page from data.
 .term alarm mark
 Refused for pica and parked with its readmission test in
 pica/DESIGN.t §11; in tessera it is a template condition over
@@ -79,4 +72,28 @@ what format they are" refuses, and on the web the saving is
 under a packet. Not a candidate. Reconsider only for a transport
 that pays per byte for first pages, and then as an app's
 optimisation over its own held page, never as the format's.
+.term span diff: a positional page delta, not admitted
+Measured 2026-09-05 against lz4s Delta on the fixture pairs in
+lz4s/testdata. A span diff over the page bytes ([offset u16]
+[len u8] bytes, gaps of three or fewer merged) needs nothing from
+raster -- the page is equal-length bytes with ink in band, so a
+byte diff is a canvas diff -- and would be its own primitive
+beside lz4s (Diff, Apply), never in lz4s (append-only) nor in
+raster (no API of raster's would know deltas exist). On a page's
+next version, six cells changed, it is 19 bytes to Delta's 29:
+lz4s pays a token, offset and extension for every unchanged
+stretch it copies, spans pay nothing. On a different page of the
+same app, or any edit that shifts content (an inserted row moves
+every cell below it), spans are near the raw page, 831 against
+Delta's 294 and a full Compress of 343, since they compare by
+position and cannot say "moved". Speed: spans encode 10 to 70
+times faster (1 us against 11 to 424 us) and apply four times
+faster (0.3 against 1.1 us, 1.4 against 5.9 us on tessera), all
+under a millisecond and dwarfed by the render; the delta encoder
+allocates 20K to 79K per page, spans nothing. Not a candidate:
+it wins ten bytes on the one case where both are already tiny
+and loses everywhere else. Trigger: a consumer with live
+cell-level updates in place, where the receiver wants the dirty
+rows without a compare; then a primitive with round-trip and
+known-answer tests over the same pairs.
 .width 72

@@ -1,0 +1,58 @@
+.rem The cell writer's default vocabulary: one alias per pica
+.rem construct, each painting one row's text in that construct's
+.rem ink. The writer wraps and places every line; an alias only
+.rem inks. An app replaces this file whole by supplying its own
+.rem definitions of the same names to Render.
+.rem
+.rem Whole-line aliases receive a line that starts at the cursor.
+.rem The writer places the title centered on row 0 of panel 0, at
+.rem least two cells in, so the bar's background and the title's
+.rem foreground each have a blank cell before the first glyph; the
+.rem alias paints the bar and the text and never positions.
+.def title TEXT
+.fg white
+.bg blue
+.fill 0
+$TEXT
+.fg
+.bg
+.enddef
+.def byline TEXT
+$TEXT
+.enddef
+.def heading TEXT
+.fg yellow
+$TEXT
+.fg
+.enddef
+.def subheading TEXT
+.fg cyan
+$TEXT
+.fg
+.enddef
+.def tablehead TEXT
+.fg cyan
+$TEXT
+.fg
+.enddef
+.def total TEXT
+.fg yellow
+$TEXT
+.fg
+.enddef
+.def rights TEXT
+$TEXT
+.enddef
+.rem Span aliases overpaint part of a row the writer has already
+.rem painted in default ink; the blank cell before the span is the
+.rem marker underscore, the term gap, or the column's margin.
+.def label TEXT
+.fg cyan
+$TEXT
+.fg
+.enddef
+.def emph TEXT
+.fg white
+$TEXT
+.fg
+.enddef

@@ -962,4 +962,169 @@ import graph: format knows no language, desk knows pica, and a
 writer that wants no templates imports format and tab and nothing
 of pica.
 
+# 15. The cell writer (decided 2026-09-05)
+
+Driver: publishing pica documents as raster pages (the notice
+board, tessera, the static tree of PUBLISH.t in repani-lab), where
+the app decides the geometry and the panels and pica decides what
+the lines are. The writer is pica/cell: Render takes a parsed
+document, a Layout (a raster Geometry, columns per panel, gutter)
+and a vocabulary, and returns the raster source, the compiled page
+and the links. Package pica stays stdlib-plus-primitives; cell
+imports the raster primitive, as press imports pdf.
+
+.item Raster's language gains nothing. It is a cell painter --
+runs at a cursor in an ink, no fill mode -- and .margin, .at and
+the cursor's advance already place a column of pre-wrapped lines.
+A .width in raster would be a second, weaker pica inside a
+primitive; .cols in the document is consumed as the default
+number of columns per panel, and .width is consumed outright, as
+the HTML writer consumes both: the panel is the measure.
+.item Lines are the mono PDF's lines. Prose -- paragraphs,
+quotes, items, terms -- is set as press sets a mono document:
+the justified Knuth-Plass breaker with its hyphenation (penalty
+6), on the text writer's geometry (quote inset, item indent, term
+run-in), the last line ragged. Tables, verbatim and headings go
+through RenderBlock. The first cut used RenderBlock for prose
+too, the text page's ragged lines with the prose hyphen penalty
+of 100, and at newspaper measures they read as unset: the cell
+page is a printed page, and the PDF is what it should match. The
+writer still adds no geometry of its own; the two mono identities
+in pica are the text page (wire, ragged) and the printed page
+(justified), and a raster is the second.
+.item The writer names no color. It emits raster source in a
+vocabulary of aliases, one per construct -- title, byline,
+heading, subheading, tablehead, total and rights for whole rows,
+label and emph for spans -- each painting one row's text in an
+ink, and ships a default (vocabulary.rt, teletext's convention:
+white on blue bar, yellow headings, cyan subheadings, labels and
+table heads, white emphasis; red, green and magenta left to the
+app).
+An app restyles by supplying its own definitions of the same
+names, the mechanism qam already uses. Aliases only ink; the
+writer has wrapped and placed every line before an alias sees it.
+.item The margin cell. In-band ink takes the blank cell before a
+glyph, so column 0 of every row is left blank and every column
+after the first follows a blank gutter: a row may then begin in
+any ink and a column's ink never leaks into its neighbor. The
+price is one cell per row -- the measure is Cols-1 -- and a
+document sized for tessera's 34 is authored at .width 33 (the
+harbour example's fixed table specs need a 35-cell page). The one
+exception is the title, set at column 0 so its two codes ride in
+the row's tail, which the bar's fill leaves blank; at column 1
+the background code would take cell 0 and the foreground would
+have no cell.
+.item Emphasis costs nothing. EmphLine blanks the marker
+underscores, and those blank cells are exactly where the ink
+codes go: the span is overpainted with .col and .emph and the
+grid never moves. A .term label is the same overpaint, its reset
+code in the run-in gap.
+.item Content that lexes as a command is peeled. A verbatim line
+beginning with a dot and a lowercase letter, or with "+ ", would
+be a raster command or continuation; the writer paints its first
+rune alone and places the rest after it with .col, so every line
+of a .pre is painted as written and raster keeps its closed
+lexing rule.
+.item The printed page on the grid (2026-09-05, the same evening).
+Compared against press's own column flow for the triptych set
+mono (a dump of its slines), the first raster cut drifted by a
+few lines a column, and every cause was a place where the grid
+had not copied the page. Each was copied, and the columns then
+match press line for line through five pages: a heading wraps
+at the role's shrunken measure (two thirds for a section, five
+sixths for a subsection) and each heading line takes two rows,
+the second blank, which is the display slot's height in body
+lines; a verbatim block with a repeated lead-in splits freely and
+only a bare one is atomic; the masthead is the title and byline centered
+over the columns, a blank row, a rule across them and a blank
+row, and Layout.Head pads it to the printed masthead's height
+(six rows on A4 at .width 32, from press's numbers); Layout.Margin
+and Layout.Gutter take the page's proportions (press's 20-point
+gutter is four cells at that size, its 40-point margin eight),
+and a gutter of three or more cells carries a hairline down its
+middle to content depth, the blank cells either side of it being
+where the columns' codes go. The one difference left is the
+half-line table note: press sets notes at half size on half the
+leading with twice the rune budget, and a grid has one size, so
+a note is a full row and wraps at the measure; a column with
+notes breaks earlier than the page's. Not a defect, a fact of
+the grid, and the writer does not pretend otherwise. Then the
+heading fold was taken out again: line-for-line fidelity was
+the experiment's measure, not the requirement, and a heading
+folded at a larger glyph's measure, on a slot that glyph would
+fill, is on the grid a heading wrapped for no reason over a
+gap. A heading is one row at the full measure, wrapping only
+when longer than it; the rest of what the experiment found --
+the masthead, the head padding, the splitting verbatim block,
+the gutter hairlines, the page's proportions for margin and
+gutter -- costs the grid nothing and stays.
+.item Why the PDF still reads better (2026-09-05). With the lines
+identical, what the page has and the grid lacks is hierarchy by
+weight and size, a face drawn as itself, and hairline rules;
+colour for hierarchy reads as a screen, weight as print. The size
+the grid cannot have. The face it can: raster's HTML page now
+embeds a face subset to the cell repertoire, so the letterforms
+are the same in every browser as the PDF's are in every viewer.
+A print theme that read the palette as weights (bold headings,
+italic emphasis) was tried and taken out: one output, the
+glyphs, is the honest test of the medium, and hierarchy on the
+grid is the vocabulary's, in ink.
+.item One face, every glyph (2026-09-05). The first embedded face
+was JetBrains Mono, which lacks eleven of the repertoire (the
+weather set among them), and a glyph the subset lacks is drawn
+by the browser from the next face in the stack, whose advance
+differs by a hair, and every such cell moves the rest of its
+row. That is what made the gutter rules wander: first the
+missing eleven, then, once the subset was checked, the space
+itself, cut from the printing code points, so every blank cell
+came from Menlo at 0.602em against 0.6 and a row moved by the
+spaces before its rule. Measuring every rule's pixel position in
+the page found it. Eight open monospace families were then
+tested against all 197 printing glyphs: JuliaMono and DejaVu
+Sans Mono hold every one; JetBrains Mono, Fira Mono, Source Code
+Pro, Cascadia, Hack and Iosevka do not. JuliaMono is the face:
+OFL, an advance of exactly 0.6em so a cell is a whole pixel at
+15px and 20px (DejaVu's 0.602em is the fractional drift again),
+eleven weights. The subsets hold the space and every repertoire
+glyph, carry no layout features, about 12K a face, and the page
+tells the browser to shape nothing: a cell is a glyph, one to
+one, and the rules sit on one pixel column through 270 rows.
+The repertoire did not need to change. The PDF's mono face
+followed the same day: pica/pdf embeds JuliaMono Regular and Bold
+in place of Fira Mono, subset to Fira Mono's coverage plus the
+repertoire (about 300K a face against the full 3M), so a mono PDF
+and a raster page set the same letterforms and a table cell with
+a weather mark sets in both. JuliaMono has no proportional
+companion, so a sans document is now a mix, Fira Sans prose with
+JuliaMono tables and code, judged acceptable on the page.
+.item Flow is press's, in whole lines. The column flow (splits
+between segments, minKeep two on either side, repeated lead-ins,
+keep-with-next headings, atomic verbatim) is ported without the
+half-line quantum, since a raster row is the quantum. Two
+deviations: an atomic block taller than a fresh column splits
+rather than overflows, because a raster page cannot overflow; and
+keep-with-next counts the next block's lead-in plus minKeep
+content segments, where press counts minKeep segments of any
+kind and so can leave a heading over a table's header alone at a
+column foot. The second is a latent difference to reconcile when
+the flow is shared.
+.item Not the promotion of fblock/sline. TASKS.t expected this
+writer to make press's block and line the shared contract; it
+did not, because the cell line (text, alias, spans) is simpler
+than sline and press's is bound to proportional metrics. Under
+§10's rule a second consumer duplicates (the flow is a hundred
+lines); a third is the trigger to share. The composer registry
+of §4 waits likewise.
+.item Links are reported, not carried. A .link block is set as
+its title in brackets -- a raster link is bracketed text and
+nothing else -- and Result.Links pairs each with its URL for the
+app to resolve, since the page cannot hold it. Brackets in prose
+become links as on every raster page; there is no escape, and
+none is admitted.
+.item Errors, not substitutions. A rune outside the repertoire, a
+table wider than the measure, and a document longer than the
+panels are errors naming what did not fit; the app shrinks,
+splits or adds a panel. The writer never truncates a table or
+drops a block.
+
 .font sans
