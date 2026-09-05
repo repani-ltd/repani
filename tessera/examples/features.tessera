@@ -31,6 +31,11 @@ plain then
 + cyan then
 .fg default
 + plain again.
+.fg cyan
+LABEL
+.fg default
+.col 8
+value on the label's row
 .at 12
  leading spaces position the run
    and paint nothing, so this

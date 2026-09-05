@@ -29,23 +29,28 @@ Vourkari bay is not advised.
 .fg cyan
 FUEL
 .fg default
-+  06:00-14:00, south quay
+.col 12
+0600-1400 south quay
 .fg cyan
 WATER
 .fg default
-+  on both quays, 220 V
+.col 12
+on both quays, 220 V
 .fg cyan
 SHOWERS
 .fg default
-+  06:00-22:00, port office
+.col 12
+06:00-22:00 office
 .fg cyan
 PORT POLICE
 .fg default
-+  VHF 12 · 22880 21344
+.col 12
+VHF 12 · 22880 21344
 .fg cyan
 MEDICAL
 .fg default
-+  Ioulida 22880 22200
+.col 12
+Ioulida 22880 22200
 .at 22
 .fg yellow
 FEES / NIGHT
