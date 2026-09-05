@@ -325,7 +325,7 @@ func TestHTML(t *testing.T) {
 	if want := "plain" + strings.Repeat(" ", 29); rows[1] != want {
 		t.Fatalf("row 1 = %q", rows[1])
 	}
-	doc := HTMLDocument(p, 2, "t<t")
+	doc := HTMLDocument(p, 2, "t<t", Teletext)
 	if !strings.Contains(doc, "<title>t&lt;t</title>") || strings.Count(doc, "<pre>") != 4 || !strings.Contains(doc, "repeat(2, max-content)") {
 		t.Fatal("document shape")
 	}
@@ -471,5 +471,30 @@ func TestAliases(t *testing.T) {
 		if _, err := Compile(g34, tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
 		}
+	}
+}
+
+func TestThemes(t *testing.T) {
+	for name, th := range Themes {
+		if th.Name != name {
+			t.Errorf("theme %q is named %q", name, th.Name)
+		}
+		for i := range 8 {
+			for _, c := range []string{th.FG[i], th.BG[i]} {
+				if len(c) != 7 || c[0] != '#' {
+					t.Errorf("%s: colour %q", name, c)
+				}
+			}
+		}
+		css := th.CSS()
+		for _, want := range []string{"--c0: " + th.FG[0], "--g7: " + th.BG[7], ".f7 { color: var(--c7) }", ".b7 { background: var(--g7); color: var(--ground) }"} {
+			if !strings.Contains(css, want) {
+				t.Errorf("%s: css lacks %q", name, want)
+			}
+		}
+	}
+	p := compile(t, ".fg red\nX\n")
+	if doc := HTMLDocument(p, 1, "t", Solarized); !strings.Contains(doc, "--c1: #dc322f") || !strings.Contains(doc, `<span class="f1 b0">X`) {
+		t.Fatal("solarized document")
 	}
 }

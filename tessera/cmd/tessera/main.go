@@ -22,11 +22,12 @@ Usage:
   tessera check FILE                 compile, report errors, exit 0 if valid
   tessera text [-across N] FILE      compile and print the page plain
   tessera render [-across N] FILE    as text, with ANSI colors
-  tessera html [-across N] FILE      as one self-contained HTML page
+  tessera html [-across N] [-theme T] FILE   as one self-contained HTML page
   tessera page FILE                  compile and write the 3,808 bytes
 
--across N lays the four panels N to a row (default 2). FILE may be -
-for stdin. Exit status is 1 for an input or compile error and 2 for
+-across N lays the four panels N to a row (default 2). -theme T
+colours the HTML page: teletext (default), cellimage, solarized,
+solarized-light. FILE may be - for stdin. Exit status is 1 for an input or compile error and 2 for
 a usage error.
 `
 }
@@ -53,6 +54,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	across := fs.Int("across", 2, "panels per row")
+	theme := fs.String("theme", "teletext", "html theme")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 1 {
 		fmt.Fprint(stderr, usageText())
 		return 2
@@ -71,7 +73,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch cmd {
 	case "check":
 	case "html":
-		fmt.Fprint(stdout, raster.HTMLDocument(r, *across, strings.TrimSuffix(filepath.Base(fs.Arg(0)), ".rt")))
+		th, ok := raster.Themes[*theme]
+		if !ok {
+			fmt.Fprintf(stderr, "tessera: unknown theme %q (teletext, cellimage, solarized, solarized-light)\n", *theme)
+			return 2
+		}
+		fmt.Fprint(stdout, raster.HTMLDocument(r, *across, strings.TrimSuffix(filepath.Base(fs.Arg(0)), ".rt"), th))
 	case "page":
 		if _, err := stdout.Write(page[:]); err != nil {
 			fmt.Fprintf(stderr, "tessera: %v\n", err)
