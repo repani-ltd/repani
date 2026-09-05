@@ -9,9 +9,7 @@ import (
 // Real raster pages (typeset/raster bytes: six of a 48 by 20 app,
 // five of tessera's 34 by 28 by 4) round-trip, and their compressed
 // sizes are the parser's known answers: a change here is a change of
-// the canonical encoding. An optimal parser measured 2026-09-05 would
-// take two percent off these (~/repos/research/lz4s-lab/FINDINGS.t);
-// it was not admitted.
+// the canonical encoding.
 func TestPages(t *testing.T) {
 	want := map[string]int{
 		"qam-home": 574, "qam-report": 266, "qam-report2": 267, "qam-search": 401, "qam-trend": 246, "qam-near": 343,
