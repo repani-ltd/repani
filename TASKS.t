@@ -58,4 +58,20 @@ pica/DESIGN.t §11; in tessera it is a template condition over
 the data, not a language mark. Listed here only so the two
 records point at each other.
 
+
+# Primitives
+
+.term lz4d, lz4s with a dictionary
+A successor to lz4s: the same frame, Compress and Decompress
+taking a dictionary the decoder starts with in its buffer, and
+an optimal parser. Measured 2026-09-05 on real raster pages
+(~/repos/research/lz4s-lab/FINDINGS.t): the frame itself has no
+headroom worth a change (optimal parsing 2 percent, every other
+token variant within a percent or worse), a class dictionary of
+one page per kind takes 10 to 30 percent off, the previous
+version of a page 90 to 97 percent. The previous-page form makes
+the receiver stateful and stays an app's optimisation; the
+static form is the one to build. Trigger: a transport that pays
+per byte for first pages, a quietcasting slot budget or a
+metered link; until then lz4s serves.
 .width 72
