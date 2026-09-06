@@ -35,6 +35,7 @@ import (
 
 const usage = `usage: kvserve [serve] [flags]     serve the sync endpoint
        kvserve gen-register-key    print a fresh register-gate secret
+       kvserve version             print this binary's build
        kvserve help                this text
 
 The serving verb is optional: "kvserve --addr ..." and
@@ -50,6 +51,8 @@ func main() {
 		runServe(rest)
 	case "gen-register-key":
 		runGenRegisterKey()
+	case "version":
+		fmt.Println(kiosk.ReadBuild())
 	case "help":
 		printUsage(os.Stdout)
 	default:
@@ -130,6 +133,10 @@ func runServe(args []string) {
 	mux := http.NewServeMux()
 	mux.Handle("/", srv)
 	mux.Handle("GET "+kiosk.HealthPath, kiosk.Health())
+	// /version names the commit this binary was built from, so an
+	// operator can ask the server what it is rather than trust a
+	// deploy log. `kv version` reads it.
+	mux.Handle("GET "+kiosk.VersionPath, kiosk.Version())
 
 	// kiosk owns the lifecycle: bind before serving, signals installed
 	// before the listener exists, READY=1 to the service manager, then
