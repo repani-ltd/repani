@@ -1,8 +1,12 @@
 # kiosk
 
-The public stand a publication is collected from: an HTTP server
-that answers GET and HEAD and nothing else. Module
-`repani.com/kiosk`, standard library only. KIOSK.t is the contract
+The public stand a publication is collected from: the production
+HTTP lifecycle for a server behind a TLS proxy, and static serving
+with correct validators and caching. Package `repani.com/kiosk` in
+the public module — graduated from `repani-lab` on 2026-09-06, when
+kv became its second consumer and a lab module would have dragged a
+third checkout into repani-private's workspace. Standard library
+only, no CLI. KIOSK.t is the contract
 and the decision ledger — read it before changing any default it
 states, and record a new decision there rather than in a code
 comment.
@@ -46,7 +50,8 @@ tests beside the code with a regression test for every fixed bug.
 
 ## Build and test
 
-    go build ./... && go test ./...
+From the repo root, the whole module: `go build ./... && go test ./...`.
 
-Lab modules are exempt from the published-CLI rule until something
-outside the module consumes them; kiosk ships no CLI at all.
+kiosk ships no CLI, so the "tools explain themselves" rule has
+nothing to bind here; if one is ever added it takes `spec` and
+`check` like every other published CLI.
