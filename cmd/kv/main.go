@@ -15,6 +15,7 @@
 //	kv import <file|->            import rows from a CSV file
 //	kv backup [file|-]            emit RootKey (+ register key if local)
 //	kv restore <blob|->           restore a vault from a backup blob
+//	kv version [--url URL]        print this build, and the server's
 //	kv search|s [flags] <pattern> case-insensitive substring match
 //	                              across keys AND values; renders a
 //	                              KEY/VALUE table by default.
@@ -38,6 +39,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,6 +49,7 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/term"
+	"repani.com/kiosk"
 	"repani.com/kv/client"
 	"repani.com/kv/store"
 	"repani.com/kv/vault"
@@ -123,6 +126,8 @@ func main() {
 		runRestore(args)
 	case "search", "s":
 		runSearch(args)
+	case "version":
+		runVersion(args)
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 	default:
@@ -155,6 +160,9 @@ Commands:
   backup [file|-]   emit RootKey (+ register key if available locally)
                     as a single Crockford base32 blob for offline storage
   restore <blob|->  recover a vault on a fresh device from a backup blob
+  version [--url U] print this binary's build, and the server's when
+                    KV_SERVER (or --url) is set; the useful question is
+                    usually whether the two match
   search <query>    (alias: s) find keys/values containing the substring
                     (case-insensitive). Default output is a column-aligned
                     KEY/VALUE table. Flags:
@@ -213,6 +221,57 @@ func loadRootKey() vault.RootKey {
 }
 
 func serverURL() string { return os.Getenv("KV_SERVER") }
+
+// runVersion prints this binary's build, and the server's when one is
+// configured. Two lines rather than one because the interesting
+// question is usually whether they match.
+//
+// The server's line is fetched, so it can fail while the local one
+// cannot: an unreachable or older server prints an error against the
+// "server:" label and exits 1, leaving the local line already on
+// stdout where it is still useful.
+func runVersion(args []string) {
+	fs := flag.NewFlagSet("version", flag.ExitOnError)
+	url := fs.String("url", serverURL(), "server base URL (default $KV_SERVER)")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	fmt.Printf("client: %s\n", kiosk.ReadBuild())
+	if *url == "" {
+		return
+	}
+	line, err := fetchVersion(*url)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "server: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("server: %s\n", line)
+}
+
+func fetchVersion(base string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout())
+	defer cancel()
+	u := strings.TrimRight(base, "/") + kiosk.VersionPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// A server too old to carry the route answers 404 here, which
+		// is worth saying plainly rather than printing an empty line.
+		return "", fmt.Errorf("%s: %s (a server built before %s existed answers 404)", u, resp.Status, kiosk.VersionPath)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<12))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(body)), nil
+}
 
 func httpTimeout() time.Duration {
 	if v := os.Getenv("KV_HTTP_TIMEOUT"); v != "" {
