@@ -36,14 +36,33 @@ type Quotas struct {
 // the former without hanging on the latter.
 const logLockWait = 5 * time.Second
 
-// DefaultQuotas are the protocol-recommended limits. Paging decouples
-// vault size from the frame size, so MaxVaultBytes is a storage cap, not
-// a transport one.
+// DefaultQuotas are limits a small host can actually honour. Paging
+// decouples vault size from the frame size, so MaxVaultBytes is a
+// storage cap, not a transport one -- but note what "storage" means
+// here: LogStore wraps a MemStore, so every accepted byte is RESIDENT
+// for as long as the server runs, and these numbers are a memory
+// budget before they are a disk one.
+//
+// The previous values (1,000,000 entries, 1 GiB per vault, 10,000
+// vaults) promised a 10 TiB ceiling on a 916 MiB host: not a limit at
+// all, just a number no operator could reach before the machine died.
+// These bound one vault to 8 MiB, which is 128 entries at
+// vault.MaxEntryBytes or a few thousand ordinary ones, and that same
+// figure is the blast radius of a leaked pairing key -- PROTOCOL.txt
+// notes such a holder can fill a vault with junk the clients discard
+// and the server counts, recoverable only by rotating to a fresh
+// RootKey.
+//
+// A deployment with more memory raises them; kvserve takes all three
+// as flags. What these still cannot express is a bound on the
+// POPULATION: 1,000 full vaults is 8 GiB whatever one vault is capped
+// at, because no quota here is global. That gap wants a total-bytes
+// limit checked across vaults, and is recorded as such.
 func DefaultQuotas() Quotas {
 	return Quotas{
-		MaxEntries:    1_000_000,
-		MaxVaultBytes: 1 << 30, // 1 GiB
-		MaxVaults:     10_000,
+		MaxEntries:    10_000,
+		MaxVaultBytes: 8 << 20, // 8 MiB
+		MaxVaults:     1_000,
 		TSSkewMs:      24 * 60 * 60 * 1000,
 	}
 }

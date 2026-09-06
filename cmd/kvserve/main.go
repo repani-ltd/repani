@@ -45,15 +45,20 @@ func main() {
 	writeTimeout := flag.Duration("write-timeout", 60*time.Second, "per-request write timeout")
 	idleTimeout := flag.Duration("idle-timeout", 120*time.Second, "keep-alive idle timeout")
 	shutdownGrace := flag.Duration("shutdown-grace", 30*time.Second, "graceful shutdown deadline")
-	maxVaults := flag.Uint64("max-vaults", 10_000, "hard cap on number of registered vaults (0 = unlimited)")
+	defaults := server.DefaultQuotas()
+	maxVaults := flag.Uint64("max-vaults", defaults.MaxVaults, "hard cap on number of registered vaults (0 = unlimited)")
+	maxVaultBytes := flag.Uint64("max-vault-bytes", defaults.MaxVaultBytes, "hard cap on the bytes one vault may hold")
+	maxEntries := flag.Uint64("max-entries", defaults.MaxEntries, "hard cap on the entries one vault may hold")
 	registerKeyFile := flag.String("register-key-file", "", "path to the register-gate secret (Crockford base32); REQUIRED")
 	flag.Parse()
 
 	if *registerKeyFile == "" {
 		log.Fatal("kvserve: --register-key-file is required (generate one with `kvserve gen-register-key`)")
 	}
-	quotas := server.DefaultQuotas()
+	quotas := defaults
 	quotas.MaxVaults = *maxVaults
+	quotas.MaxVaultBytes = *maxVaultBytes
+	quotas.MaxEntries = *maxEntries
 	srv, err := server.NewWithOptions(server.Options{
 		DataDir:         *data,
 		Quotas:          quotas,

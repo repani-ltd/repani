@@ -12,11 +12,18 @@ WorkingDirectory=/opt/kvserve
 # kvserve runs behind Caddy (see quietcasting-go/deploy/Caddyfile).
 # Caddy terminates TLS for kv.limasoul.com and proxies to the
 # loopback address below; kvserve itself speaks plain HTTP.
+# Quotas: every accepted byte stays resident (LogStore wraps a
+# MemStore), and this host has 916 MiB of RAM shared with Caddy and
+# the web station, so the caps are a memory budget. 200 vaults at
+# 4 MiB each is a 800 MiB ceiling that only a deliberate attack
+# approaches; today the store holds one vault of 40 KiB.
 ExecStart=/opt/kvserve/kvserve \
     --addr 127.0.0.1:8082 \
     --data /opt/kvserve/data \
     --register-key-file /opt/kvserve/register.key \
-    --max-vaults 10000
+    --max-vaults 200 \
+    --max-vault-bytes 4194304 \
+    --max-entries 5000
 Restart=on-failure
 RestartSec=5s
 
