@@ -359,7 +359,7 @@ func TestPlainStringMatchesJSON(t *testing.T) {
 func TestSpecEmbedsReference(t *testing.T) {
 	s := Spec()
 	for _, want := range []string{"# The line", "# Keys", "# Types", "# References",
-		"# Canonical form", "# Validation errors", "# JSON encoding", "# Projections: pkg.fact"} {
+		"# Canonical form", "# Validation errors", "# JSON encoding", "# Data files"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("Spec() missing section %q", want)
 		}

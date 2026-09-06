@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 const doc = "b.y: str = \"two\"\na.x: int = 1\n"
@@ -27,7 +26,7 @@ func TestUsage(t *testing.T) {
 		}
 	}
 	// -h is a served request, not a usage error.
-	for _, args := range [][]string{{"fmt", "-h"}, {"project", "-h"}} {
+	for _, args := range [][]string{{"fmt", "-h"}} {
 		if code, _, stderr := exec(t, "", args...); code != 0 || stderr == "" {
 			t.Errorf("%v: exit %d, stderr %q; want 0 and the flag usage", args, code, stderr)
 		}
@@ -69,102 +68,6 @@ func TestFmtWrite(t *testing.T) {
 	}
 	if _, _, stderr := exec(t, "", "fmt", "-w", filepath.Join(t.TempDir(), "missing.fact")); !strings.HasPrefix(stderr, "fact: ") {
 		t.Errorf("missing file: stderr %q", stderr)
-	}
-}
-
-// writeModule lays out a one-file Go module and returns its directory.
-func writeModule(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	for name, src := range map[string]string{
-		"go.mod":  "module tiny\n\ngo 1.25\n",
-		"tiny.go": "package tiny\n\n// Answer is it.\nfunc Answer() int { return 42 }\n",
-	} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return dir
-}
-
-func TestProject(t *testing.T) {
-	dir := writeModule(t)
-	target := filepath.Join(dir, "pkg.fact")
-
-	for _, args := range [][]string{
-		{"project", "-w", "-o", target, dir},
-		{"project", "-w", "-check", dir},
-		{"project", dir, "extra"},
-	} {
-		if code, _, _ := exec(t, "", args...); code != 2 {
-			t.Errorf("%v: exit %d, want 2 (usage)", args, code)
-		}
-	}
-
-	code, stdout, _ := exec(t, "", "project", dir)
-	if code != 0 || !strings.Contains(stdout, "func:Answer.sig: str = \"func() int\"\n") {
-		t.Fatalf("project stdout: exit %d\n%s", code, stdout)
-	}
-
-	// -check before any file: stale, with the -w hint.
-	code, _, stderr := exec(t, "", "project", "-check", dir)
-	if code != 1 || !strings.Contains(stderr, "regenerate with: fact project -w "+dir) {
-		t.Errorf("check stale: exit %d, stderr %q", code, stderr)
-	}
-
-	// -w writes read-only; a second -w leaves the file untouched.
-	if code, _, stderr := exec(t, "", "project", "-w", dir); code != 0 {
-		t.Fatalf("project -w: exit %d, %s", code, stderr)
-	}
-	info, err := os.Stat(target)
-	if err != nil || info.Mode().Perm() != 0o444 {
-		t.Fatalf("pkg.fact mode = %v, err %v", info, err)
-	}
-	got, _ := os.ReadFile(target)
-	if string(got) != stdout {
-		t.Errorf("-w wrote something else than stdout:\n%s", got)
-	}
-	old := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	os.Chtimes(target, old, old)
-	if code, _, _ := exec(t, "", "project", "-w", dir); code != 0 {
-		t.Fatal("second -w failed")
-	}
-	if again, _ := os.Stat(target); !again.ModTime().Equal(old) {
-		t.Error("unchanged projection was rewritten (mtime churn)")
-	}
-	if code, stdout, _ := exec(t, "", "project", "-check", dir); code != 0 || stdout != "ok: "+target+" is fresh\n" {
-		t.Errorf("check fresh: exit %d, %q", code, stdout)
-	}
-
-	// -o: a separate target (parent created), its own stale hint.
-	alt := filepath.Join(dir, "facts", "tiny", "pkg.fact")
-	code, _, stderr = exec(t, "", "project", "-o", alt, "-check", dir)
-	if code != 1 || !strings.Contains(stderr, "regenerate with: fact project -o "+alt+" "+dir) {
-		t.Errorf("check -o stale: exit %d, stderr %q", code, stderr)
-	}
-	if code, _, stderr := exec(t, "", "project", "-o", alt, dir); code != 0 {
-		t.Fatalf("project -o: exit %d, %s", code, stderr)
-	}
-	if code, _, _ := exec(t, "", "project", "-o", alt, "-check", dir); code != 0 {
-		t.Error("check -o fresh: want exit 0")
-	}
-
-	// A declaration edit makes the stored file stale.
-	os.WriteFile(filepath.Join(dir, "tiny.go"), []byte("package tiny\n\nfunc Answer() int64 { return 42 }\n"), 0o644)
-	if code, _, _ := exec(t, "", "project", "-check", dir); code != 1 {
-		t.Error("check after declaration edit: want stale")
-	}
-	if code, _, _ := exec(t, "", "project", "-w", dir); code != 0 {
-		t.Fatal("rewrite after edit failed")
-	}
-	if code, _, _ := exec(t, "", "project", "-check", dir); code != 0 {
-		t.Error("check after rewrite: want fresh")
-	}
-
-	// A package that does not compile is exit 1, not a projection.
-	os.WriteFile(filepath.Join(dir, "tiny.go"), []byte("package tiny\n\nfunc Answer() int { return }\n"), 0o644)
-	if code, _, stderr := exec(t, "", "project", dir); code != 1 || !strings.Contains(stderr, "fact: load") {
-		t.Errorf("broken package: exit %d, stderr %q", code, stderr)
 	}
 }
 

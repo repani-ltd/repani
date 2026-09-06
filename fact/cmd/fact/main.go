@@ -2,17 +2,13 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"repani.com/fact"
-	"repani.com/fact/project"
 )
 
 const usage = `usage: fact <command> [flags] [file]
@@ -25,23 +21,6 @@ commands:
   fmt [-w]       print canonical form (-w: rewrite the file in place)
   encode         convert .fact to the canonical JSON encoding
   decode         convert the JSON encoding to canonical .fact
-  project [-w|-o path] [-check] [dir|import-path]
-                 project a Go package's declaration layer to canonical .fact
-                 (stdout by default; -w writes <dir>/pkg.fact read-only;
-                 -o writes to path instead; -check verifies the target is
-                 fresh instead of writing — the CI gate;
-                 an import path projects a dependency resolved through this
-                 module's go.mod — use with -o, e.g.
-                 fact project -o facts/<import-path>/pkg.fact <import-path>)
-  hook           Claude Code hook: reads the hook payload on stdin. After
-                 an edit (PostToolUse) to a .go file in a package carrying
-                 a pkg.fact, runs goimports on the edited file, regenerates
-                 the projection, and reports what the agent should act on
-                 now: formatting rewrites, syntax errors in the file, new
-                 compile errors, declarations removed or changed; a diff
-                 that only adds is one line. At the end of the turn (Stop)
-                 rebuilds every package the turn touched and refuses the
-                 stop, with the errors, if one does not compile
 `
 
 func main() {
@@ -59,86 +38,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fail := func(err error) int {
 		fmt.Fprintln(stderr, "fact:", err)
 		return 1
-	}
-
-	if cmd == "project" {
-		fs := flag.NewFlagSet("project", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		write := fs.Bool("w", false, "write <dir>/pkg.fact instead of stdout")
-		check := fs.Bool("check", false, "verify the target is fresh; exit 1 if stale")
-		outPath := fs.String("o", "", "write to this path (for read-only source trees, e.g. facts/ mirrors of dependencies)")
-		if err := fs.Parse(rest); err != nil {
-			return flagExit(err)
-		}
-		rest = fs.Args()
-		dir := "."
-		switch {
-		case len(rest) > 1, *write && *outPath != "", *write && *check:
-			fmt.Fprint(stderr, usage)
-			return 2
-		case len(rest) == 1:
-			dir = rest[0]
-		}
-		out, err := project.File(dir)
-		if err != nil {
-			return fail(err)
-		}
-		target, hint := filepath.Join(dir, "pkg.fact"), "fact project -w "+dir
-		if *outPath != "" {
-			target, hint = *outPath, "fact project -o "+*outPath+" "+dir
-		}
-		switch {
-		case *check:
-			existing, err := os.ReadFile(target)
-			if err != nil || !bytes.Equal(existing, out) {
-				fmt.Fprintf(stderr, "fact: %s is stale (regenerate with: %s)\n", target, hint)
-				return 1
-			}
-			fmt.Fprintf(stdout, "ok: %s is fresh\n", target)
-		case *write, *outPath != "":
-			if _, err := project.WriteReadOnly(target, out); err != nil {
-				return fail(err)
-			}
-		default:
-			stdout.Write(out)
-		}
-		return 0
-	}
-
-	if cmd == "hook" {
-		payload, err := io.ReadAll(stdin)
-		if err != nil {
-			return fail(err)
-		}
-		if project.Event(payload) == "Stop" {
-			reason, err := project.Stop(payload)
-			if err != nil {
-				fmt.Fprintln(stderr, "fact: hook:", err)
-			}
-			if reason != "" {
-				out, _ := json.Marshal(map[string]any{"decision": "block", "reason": reason})
-				stdout.Write(out)
-			}
-			return 0
-		}
-		ctx, err := project.Hook(payload)
-		if err != nil {
-			// Never block the edit; the -check gate catches any resulting
-			// staleness. Compile errors are not errors here — Hook returns
-			// them as context. Any context (e.g. a goimports rewrite) is
-			// still worth surfacing alongside the failure.
-			fmt.Fprintln(stderr, "fact: hook:", err)
-		}
-		if ctx != "" {
-			out, _ := json.Marshal(map[string]any{
-				"hookSpecificOutput": map[string]any{
-					"hookEventName":     "PostToolUse",
-					"additionalContext": ctx,
-				},
-			})
-			stdout.Write(out)
-		}
-		return 0
 	}
 
 	// Input-free commands dispatch before the input read: reading

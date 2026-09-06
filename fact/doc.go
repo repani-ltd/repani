@@ -94,21 +94,16 @@ cannot express it); fact decode converts that JSON back to
 canonical FACT. encode(decode(x)) and decode(encode(x)) are
 identities on canonical inputs.
 
-# Projections: pkg.fact
+# Data files
 
-The primary use. fact project reads a Go package and emits its
-declaration layer as FACT: types, fields, method sets, computed
-interface satisfactions, signatures, resolved call edges, defining
-files. Repos carry one pkg.fact per package; agents answer
-navigation questions by grep instead of loading source:
-
-	grep '^type:Doc\.' pkg.fact                       everything about a type
-	grep -r --include=pkg.fact 'implements.*type:Doc' .   what implements it
-	grep -r --include=pkg.fact 'calls.*DefaultLayout' .   who calls it
-	grep '^func:DefaultLayout\.sig' pkg.fact              one signature
-
-pkg.fact is generated and read-only: edit the Go source, never the
-projection. fact project -check verifies freshness (the CI gate);
-fact hook regenerates after edits under Claude Code.
+The use: configuration and data that a program reads and a person
+writes -- a station's settings, a squad, an event log, a ledger.
+One fact per line makes a file greppable and diffable line by
+line, references fail loudly at load when they name nothing, and
+canonical form makes two files comparable byte for byte. Validate
+before shipping: fact validate FILE reports every error with its
+line; a program loads through Load (Parse + Validate) and binds
+with Unmarshal, so a misspelled reference is an error at load,
+never an empty value.
 */
 package fact

@@ -18,25 +18,13 @@ Changes from v0.2: datetime added as a seventh base type (§4.1) — a strict RF
 
 # 1. Why FACT Exists
 
-## 1.1 The primary purpose: code projection for agents
+## 1.1 The purpose: configuration and data
 
-Agents working on a codebase spend most of their context budget on navigation and comprehension — finding the right declaration, tracing callers, discovering interface implementations — before any edit happens. Source code is the wrong medium for this phase:
+FACT is a format for the files a program reads and a person writes: a station's configuration, a squad, an event log, a ledger, a registry. What it asks of a file is what makes such files trustworthy: one fact per line, so a file is greppable and diffable line by line; a declared type on every value, so a reader never guesses; references that must resolve, so a misspelled name is an error at load rather than an empty value; and a canonical form, so two files with the same facts are the same bytes. The value against JSON is not expressiveness -- FACT has less -- but that every line stands alone and every mistake is reported with a line number.
 
-.item Semantic relationships are implicit. In Go, interface satisfaction is structural: a type that implements Approver never mentions Approver. No grep over source can answer "what implements this interface?" — the question requires type checking.
-.item The unit of text is not the unit of meaning. A struct's full story (fields, methods, satisfactions, callers of its methods) is scattered across files. Assembling it requires either loading whole packages into context or invoking heavyweight tooling per question.
-.item Bodies dominate token cost. Real packages are body-dominated (typically 5–10:1 over declarations), but most navigation questions are answered entirely by the declaration layer.
+FACT began (2026-08) as a projection format for Go declarations, so that agents could answer navigation questions by grep instead of reading source, with a generator, a per-package pkg.fact, hooks and a freshness gate. That machinery was retired on 2026-09-06 after measurement: the projections were half the size of the source they described, touched half of all commits, and the one use agents made of them, an index of signatures, is served by go doc -u -short from source, synchronously and without a file. The evidence and the argument are in §12; the profile that section 11 defined is recorded there as retired. What survives is this format, whose properties were never about Go.
 
-FACT solves this by spending semantic analysis once, at generation time. A generator (e.g., go/ast + go/types) type-checks the module and emits every declaration-layer fact — signatures, fields, method sets, computed interface satisfactions, resolved call edges, defining files — as self-contained FACT lines. Thereafter:
-
-.item Every navigation question is a prefix grep. "Everything about Service" = grep '^type:Service\.' transfer/pkg.fact. "What implements Poster?" = grep 'implements.*Poster' pkg.fact. "Who calls validate?" = grep 'calls.*validate' pkg.fact. Module-wide, the same queries run as grep -r --include=pkg.fact, where the printed file path supplies the package namespace (§11.1: the projection lives in the package directory, so the path is the qualifier). Field use ranks these queries (§12.2): the reverse call-edge lookup is the everyday workhorse — callees in calls are resolved through types, so it answers "who calls this method?" precisely where source grep misses interface dispatch or drowns in same-named hits; interface satisfaction fires rarely in interface-light codebases but remains the one question source grep cannot answer at all.
-.item The projection is read-only and regenerated on save — a lens, never a second source of truth.
-.item Because serialization is canonical (§8), the diff of the regenerated projection is the impact analysis of a source edit: rename a function and the projection diff is exactly the renamed facts plus every updated caller list, with zero noise.
-
-The resulting two-layer workflow: navigate and scope on facts → follow file facts into the one relevant source file → edit source (where model priors are strongest) → regenerate → read the fact-diff as the impact report.
-
-FACT deliberately projects only the declaration layer. Function bodies are computation, not facts: flattening them (SSA-style) was evaluated and rejected — it multiplies token cost, reinvents compiler IR, and discards model fluency in the source language. Statement-level questions ("where is this field assigned?") are answered by the file handoff, not by the projection. This division of labor is a design decision, not a limitation to be fixed.
-
-## 1.2 The secondary purpose: configuration
+## 1.2 Configuration
 
 A config file is the special case where there is no source to project — the facts are the system. All the projection properties carry over: single-line edits, unambiguous greps, loud validation, canonical diffs. The config use case is what originally motivated the format; the projection use case is what justifies it. Both profiles share one grammar.
 
@@ -252,92 +240,15 @@ A FACT file maps to a JSON array of fact objects, sorted by key:
 
 ---
 
-# 11. The Projection Profile (Go)
+# 11. The Projection Profile (Go) -- retired 2026-09-06
 
-This section is the normative core of FACT's primary use case. It specifies the RECOMMENDED fact vocabulary for a Go declaration-layer projection; generators MAY extend it but MUST document extensions.
+This section defined a vocabulary for projecting a Go package's declaration layer into a pkg.fact file beside its source (kinds type, func, method, const and var; signatures, fields, method sets, computed interface satisfactions, resolved call edges, defining files; a fixed generated-file header; the projection committed with the source change and gated for freshness; third-party packages projected into a facts/ mirror keyed by import path). It is retired, the generator and hooks removed, and no file conforms to it; the section number is kept so that the ledgers citing it still resolve. The reasons, measured on the repos that used it for eighteen days:
 
-## 11.1 Layout, storage, and version control
+.item Agents used the projection as an index of signatures and for nothing else; the call edges and computed satisfactions, the facts that justified a format of their own, were not queried. go doc -u -short serves the index from source, synchronously, works while a package does not yet compile, and needs no file.
+.item The stored projections were half the size of the source they described, touched half of all commits, and needed a post-edit hook, a pre-commit hook and a check gate to stay coherent with the compiler's own knowledge.
+.item The premise that held was the one about the LSP: gopls under agent-speed editing answers from stale snapshots without saying so, and agents fall back to the compiler. The answer is oracles that read source synchronously when asked, not a cached projection that must be kept fresh.
 
-Location and name. One projection file per package, named literally pkg.fact, stored in the directory of the package it projects, next to the source. The directory carries the package namespace (§11.2: the file identity is the singleton root), so the basename is constant: **/pkg.fact globs a whole module, and a moved package moves its projection with it.
-
-Generated marker. A stored projection begins with exactly one header line, fixed verbatim:
-
-.pre
-# Code generated by fact project. DO NOT EDIT.
-.end
-
-The header is an ordinary comment line (§2.1): every conforming parser already ignores it, and the file validates unchanged. It is not a fact and not part of the canonical fact set — but because the string is byte-fixed, whole-file byte comparison between conforming generators remains valid. The wording mirrors Go's generated-code convention so existing tooling recognizes the file as generated.
-
-Version control. The projection MUST be committed, in the same commit as the source change it reflects (pre-commit hook, editor hook, or equivalent), and CI MUST verify freshness: regenerate on a clean checkout and require byte-identity with the committed file. Committing generated output is normally suspect — drift, a second source of truth — but canonical serialization (§8) closes that failure mode: staleness is a hash mismatch, mechanically detectable, never a judgment call. The reasons to commit are the point of the format:
-
-.item The regeneration diff is the impact analysis (§8, §12.1 finding 4). It can only serve review if it appears in the change itself.
-.item Agents reading a fresh clone — or operating without a toolchain (review bots, sandboxed agents) — get the navigation layer at zero setup cost.
-.item Merge conflicts in pkg.fact are never resolved by hand: regenerate and commit.
-
-Review visibility. Projections SHOULD NOT be marked as collapsed/hidden generated content in review tooling (e.g. linguist-generated). The projection diff is the payload of the review, not noise to suppress.
-
-Read-only lens. The projection MUST NOT be hand-edited, and tooling SHOULD mark it read-only, for the same reason generated views everywhere must not be editable — a writable projection becomes a second source of truth. The CI freshness gate is the enforcement of lens-ness, not a substitute for it.
-
-## 11.2 Fact vocabulary
-
-Within a package file, the package namespace is the singleton root (no pkg: marker needed; the file identity carries it). Kinds: type, func, method, field (nested id inside a type's fact keys via compound naming), var, const, iface method entries.
-
-Fact — Type — Meaning:
-
-.item pkg.path — str — Import path of the projected package — self-identification, since the file identity otherwise carries the namespace
-.item pkg.version — str — Module version ("v1.2.3"); emitted only when the projected package belongs to a versioned module (third-party, §11.5)
-.item imports — list(str) — Import paths, sorted
-.item type:T.kind — enum(struct|iface|basic) — Underlying kind
-.item type:T.file — str — "file.go" — the defining file; with the symbol name, the handoff into source
-.item type:T.fields — list(str) — Field names, declaration order
-.item type:T.field_F_type — str — Field F's type, source-qualified
-.item type:T.methods — list(str) — Method set (pointer-receiver superset), sorted
-.item type:T.implements — list(ref(type)) — Computed satisfactions (via types.Implements) against all in-scope interfaces — the query grep cannot answer from source
-.item type:T.method_M_sig — str — Interface method signature (iface kinds)
-.item func:F.sig / method:R_M.sig — str — Full signature, source-qualified
-.item func:F.file / method:R_M.file — str — Defining file
-.item func:F.exported — bool — Case-derived; projected explicitly so agents need not apply Go rules
-.item func:F.calls / method:R_M.calls — list(str) — Resolved callees (through interfaces: the static callee, e.g. "ledger.Poster.Post"), sorted, deduplicated. Emitted for methods too — without them the reverse call query sees only the free-function half of the call graph. See §6.4 for the str-vs-ref choice
-.item method:R_M.receiver — str — Receiver type name
-.item const:C.type / var:V.type — str — Declared or inferred type, source-qualified; untyped constants render as e.g. "untyped int". Package-level consts and vars are API surface — error sentinels above all — and appear in dependency-upgrade diffs (§11.5)
-.item const:C.file / var:V.file — str — Defining file
-
-(Compound ids like field_F_type and method:R_M exist because keys admit only one marker (§3); nested identity is flattened into the id. This is deliberate: it preserves the one-grep-per-entity property — grep '^type:Service\.' returns fields, methods, satisfactions, everything. Because _ is itself legal in segments, flattening is not injective: receiver A_B with method C and receiver A with method B_C both yield method:A_B_C. A generator MUST detect such a collision and fail with a diagnostic naming both pairs rather than emit duplicate keys; the package is not projectable until one is renamed.)
-
-The churn invariant. Every fact in the vocabulary derives from the declared contract: an edit that does not change the declaration layer — body edits, comment changes, reordering declarations within a file — MUST regenerate byte-identically. This is why the handoff is a file fact and not a "file.go:line" location: line numbers are contract-independent data that churn under unrelated edits, polluting the diff §11.1 makes the impact report. A declaration is located in source by its defining file plus its name — one grep in one file.
-
-## 11.3 Division of labor (normative intent)
-
-.item The projection answers navigation questions: what exists, what shape it has, what relates to what, where it lives.
-.item The projection does not answer statement-level questions (where is a field assigned, what does this branch do). Its answer to those is the file handoff: open the named file, grep the symbol. Agents edit source, not facts.
-.item After any source edit: regenerate, and read the projection diff as the impact report.
-
-## 11.4 Token economics (measured, honest)
-
-Two evidence layers.
-
-Simulation (three-package toy module): for declaration-heavy code, the projection can exceed source size (measured: 2,184 vs 1,142 tokens on a decl-only toy) — for interface-only packages, reading source directly is cheaper. Projection cost scales with declaration count; source cost scales with body size. Adding one realistic 300-line function body grew source by ~1,850 tokens and the projection by 4 facts (~60 tokens).
-
-Field measurement (18 real packages across four projected modules — a typesetting library, an encrypted KV store, a weather station, and this toolchain itself): with the complete §11.2 vocabulary (method call edges and const/var facts included), source is 1.3–3.2× the projection by bytes, clustering around 2×. The 5–10× figure this section previously extrapolated from body-dominance was optimistic — call-edge facts restate every resolved callee, so projection size tracks declaration surface, and surface grows alongside the same code that grows bodies — and completing the call graph traded a further ~0.5× of compression for coverage the reverse call query cannot do without. The honest claim is a ~2× read-cost reduction on real packages that additionally answers questions source cannot (resolved call edges, computed satisfactions). Generators SHOULD NOT be evaluated on toy modules — the toy inverts the economics in both directions.
-
-## 11.5 Third-party projections (packages you do not own)
-
-Dependencies can be projected too. Their facts differ from first-party facts in one structural way: they are pinned to an immutable module version — they cannot drift, and never change until the dependency is upgraded. The convention:
-
-.item Never write into the dependency's tree. The module cache is read-only and shared; vendor/ is regenerated by tooling. §11.1's next-to-source rule applies only to packages you own.
-.item Storage: a mirror tree at the consuming module's root, keyed by import path, with no version in the path:
-
-.pre
-facts/github.com/shopspring/decimal/pkg.fact
-facts/google.golang.org/grpc/credentials/pkg.fact
-.end
-
-The version is recorded inside the file as pkg.version (§11.2). Version-free paths are load-bearing: a dependency upgrade then diffs as line-level fact changes — the diff of a version bump is the API impact analysis of the upgrade — instead of a whole-file delete-and-add.
-
-.item Commit facts for direct dependencies (or an explicit allowlist); generate transitive ones on demand. The freshness gate is mechanical: pkg.version must match the module's dependency graph, and regeneration from the (read-only, pinned) source must be byte-identical.
-.item Machine-wide cache for uncommitted projections, keyed by module@version (the module-cache analog). Facts for a given module@version are generated once, ever, and are shareable across projects and machines.
-.item Trust: canonical serialization (§8) makes the bytes of a projection of module@version a universal constant. Pregenerated third-party facts from any source are verifiable by regenerate-and-compare, or pinned by hash (the go.sum analog). No generator host needs to be trusted.
-.item Each dependency's fact set stands alone: its refs resolve within its own files (§6.2), and the consuming module refers to its symbols as str (§6.4). Provenance travels in pkg.path/pkg.version. Note that committed third-party facts redistribute a derived index of the dependency's declared API surface; they carry their provenance and are not a copy of the source.
+The profile's design record and its measurements remain in §12 as evidence.
 
 ---
 

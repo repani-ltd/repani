@@ -2,9 +2,8 @@ Design notes: pica as a troff successor
 
 Status: design direction agreed 2026-07-22, nothing below is implemented
 unless marked "exists". This document is the handoff for whoever (human or
-agent) picks up the work. Read CLAUDE.md first for the pkg.fact navigation
-workflow. References below name functions and files; locate them via
-pkg.fact (grep '\.file' pkg.fact).
+agent) picks up the work. Read CLAUDE.md first. References below name
+functions and files; locate them with go doc -u -short and grep.
 
 # 1. The thesis
 

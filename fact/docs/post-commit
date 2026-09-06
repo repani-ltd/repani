@@ -1,7 +1,7 @@
 #!/bin/sh
 # Rebuild the installed fact and pica CLIs after any commit that
-# touches Go source, so ~/bin/fact -- the binary every repo's hooks
-# invoke -- and ~/bin/pica always match the committed toolchain.
+# touches Go source, so ~/bin/fact and ~/bin/pica always match the
+# committed toolchain.
 # Warns but never blocks. Install per-clone of the repani repo only:
 # cp fact/docs/post-commit .git/hooks/
 set -u
