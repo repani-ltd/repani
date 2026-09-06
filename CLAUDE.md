@@ -16,6 +16,10 @@ lifecycle in a daemon — a daemon builds routes and calls Serve.
 
 ## The lines that must not move
 
+- kiosk routes nothing and claims no path. `Serve` wraps a handler;
+  it does not own a mux, install routes, or intercept. `Health()` is
+  mounted by the caller. Anything that wants to be a route belongs in
+  the caller's table where it can be read.
 - Serve has no method policy, and must not grow one. Routes declare
   their methods and `http.ServeMux` enforces them per route with a
   correct `Allow` header; a server-wide gate was built here and

@@ -38,19 +38,29 @@ window cannot take the default action; and it drains in one order --
 stop accepting, let in-flight requests finish inside the grace, then
 close the content source.
 
-Serve wraps the caller's handler in three things, outermost first:
+Serve wraps the caller's handler in two things, outermost first:
 
-  - /healthz, answered by the package, so a proxy can health-check an
-    upstream and a unit can gate its restart on a real answer. It is
-    the one route the caller's mux never sees, so it answers its own
-    methods, and it is a GET whatever else the server serves: a
-    station that takes only POST still has to say whether it is alive;
   - the access log, when Config.AccessLog is set: method, path,
     status, bytes and duration, and deliberately no client address --
     the TLS proxy in front already logs those, and a publication has
-    no reason to keep them twice;
+    no reason to keep them twice. Filtering it is the logger's job,
+    not a field here: Config.Logger is injectable and slog handlers
+    compose, so a caller who does not want the proxy's liveness poll
+    in the log drops that record in its own handler;
   - the response headers every origin must set for itself: nosniff, a
     referrer policy, and a content security policy.
+
+kiosk routes nothing and claims no path. Liveness is a handler,
+Health, that the caller mounts in its own table:
+
+	mux.Handle("GET "+kiosk.HealthPath, kiosk.Health())
+
+which is one line, gets its method matching from the mux like every
+other route, and leaves the URL space entirely the caller's. An
+installed route would have to be intercepted ahead of the mux and
+would re-derive that matching by hand; forgetting to mount this one
+fails loudly on the first deploy, when the proxy's health check goes
+red, so it needs no protection from forgetting.
 
 # TLS
 

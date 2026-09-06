@@ -12,10 +12,12 @@ import (
 	"time"
 )
 
-// okHandler is a caller's routes: one resource, nothing else.
+// okHandler is a caller's routes: one resource and the liveness
+// handler, mounted the way a daemon mounts them.
 func okHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /", Static(body, "text/html; charset=utf-8", Revalidate))
+	mux.Handle("GET "+HealthPath, Health())
 	return mux
 }
 
@@ -84,12 +86,15 @@ func TestServeCarriesAnyMethod(t *testing.T) {
 	}
 }
 
-// TestHealthAnswersItsOwnMethods: /healthz is the one route the
-// caller's mux never sees, and it is a GET whatever else is served.
-func TestHealthAnswersItsOwnMethods(t *testing.T) {
+// TestHealthAlongsideAPost is kv's shape with liveness mounted: the
+// health route is an ordinary GET in the caller's own table, next to
+// a POST route, and the mux keeps them apart.
+func TestHealthAlongsideAPost(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/sync", func(w http.ResponseWriter, r *http.Request) {})
+	mux.Handle("GET "+HealthPath, Health())
 	h := wrapped(t, Config{Handler: mux})
+
 	if resp := get(t, h, "GET", HealthPath, nil); resp.StatusCode != 200 {
 		t.Fatalf("GET %s -> %d, want 200", HealthPath, resp.StatusCode)
 	}
@@ -97,8 +102,21 @@ func TestHealthAnswersItsOwnMethods(t *testing.T) {
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("POST %s -> %d, want 405", HealthPath, resp.StatusCode)
 	}
+	// The Allow header comes from the mux, not from a check kiosk
+	// wrote by hand.
 	if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
 		t.Errorf("Allow = %q", got)
+	}
+}
+
+// TestHealthIsNotInstalled: kiosk claims no path. A server that does
+// not mount Health has no health route, and says so plainly.
+func TestHealthIsNotInstalled(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/sync", func(w http.ResponseWriter, r *http.Request) {})
+	h := wrapped(t, Config{Handler: mux})
+	if resp := get(t, h, "GET", HealthPath, nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET %s -> %d, want 404", HealthPath, resp.StatusCode)
 	}
 }
 
@@ -143,16 +161,18 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-// TestHealthDoesNotReachTheHandler keeps a proxy's polling out of the
-// caller's routes.
-func TestHealthDoesNotReachTheHandler(t *testing.T) {
-	reached := false
+// TestNothingIsIntercepted: every request reaches the caller's
+// handler, health included. kiosk wraps, it does not route.
+func TestNothingIsIntercepted(t *testing.T) {
+	var seen []string
 	h := wrapped(t, Config{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached = true
+		seen = append(seen, r.URL.Path)
 	})})
-	get(t, h, "GET", HealthPath, nil)
-	if reached {
-		t.Fatal("the health check reached the caller's handler")
+	for _, p := range []string{"/", HealthPath, "/anything"} {
+		get(t, h, "GET", p, nil)
+	}
+	if len(seen) != 3 {
+		t.Fatalf("handler saw %v, want all three paths", seen)
 	}
 }
 

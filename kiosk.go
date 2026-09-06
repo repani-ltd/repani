@@ -33,9 +33,10 @@ const (
 // them; kiosk will not guess one.
 const DefaultCSP = "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
-// HealthPath is answered by Serve itself, ahead of the caller's
-// handler, so a proxy can health-check an upstream and a restart can
-// wait for a real answer instead of a sleep.
+// HealthPath is where Health is conventionally mounted, so that every
+// daemon here spells it the same and one proxy configuration fits all
+// of them. Mounting it is what lets a restart wait for a real answer
+// instead of a sleep.
 const HealthPath = "/healthz"
 
 // Config is one kiosk. Addr and Handler are required; every duration
@@ -45,10 +46,11 @@ type Config struct {
 	// production, because TLS belongs to the proxy in front.
 	Addr string
 
-	// Handler serves everything but HealthPath, and declares its own
+	// Handler serves every request, and its routes declare their own
 	// methods: a route registered "GET /page" is answered 405 with an
 	// Allow header for anything else, by http.ServeMux, before any
-	// handler runs. Serve has no method policy of its own.
+	// handler runs. Serve has no routes and no method policy of its
+	// own -- mount Health here for liveness.
 	Handler http.Handler
 
 	// Logger receives the lifecycle lines, the access log, and the
@@ -185,40 +187,42 @@ func Serve(ctx context.Context, cfg Config) error {
 	return first
 }
 
-// wrap builds the handler chain, outermost first: health, access log,
-// response headers, then the caller's routes. Health sits outside the
-// log so a proxy polling it every second does not bury the requests a
-// reader actually made.
+// wrap builds the handler chain, outermost first: access log,
+// response headers, then the caller's routes.
 //
-// There is no method gate. http.ServeMux has matched on method since
-// Go 1.22 and answers a mismatch with 405 and an Allow header built
-// from the patterns actually registered, which is a better header than
-// a server-wide list could be. A publication that registers only
-// "GET /" therefore refuses POST without this package having an
-// opinion, and a handler that wants POST just says so in its routes.
+// Nothing here routes. kiosk owns no mux and claims no path, so the
+// caller's route table is the whole route table: it is what the
+// package serves, and reading it tells you everything the server
+// answers. Method matching comes with it -- http.ServeMux has matched
+// on method since Go 1.22 and answers a mismatch with 405 and an
+// Allow header built from the patterns actually registered, which is
+// better informed than any server-wide list -- so a publication that
+// registers "GET /" refuses POST without this package having an
+// opinion, and a station that wants POST says so in its routes.
 func wrap(cfg Config) http.Handler {
 	h := secure(cfg.Handler, cfg.CSP)
 	if cfg.AccessLog {
 		h = accessLog(h, cfg.Logger)
 	}
-	return health(h)
+	return h
 }
 
-func health(next http.Handler) http.Handler {
+// Health returns the liveness handler, to be mounted by the caller:
+//
+//	mux.Handle("GET "+kiosk.HealthPath, kiosk.Health())
+//
+// It is a handler rather than a route the package installs for you.
+// An installed route would have to be intercepted ahead of the mux,
+// which claims a path out of the caller's own namespace and re-derives
+// the method matching the mux does for free. Forgetting to mount it
+// fails loudly -- the proxy's health check goes red on the first
+// deploy -- so it needs no protection from forgetting.
+//
+// Register it for GET: it is the proxy asking whether the process is
+// alive, and that question is a GET even on a server that otherwise
+// answers only POST.
+func Health() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != HealthPath {
-			next.ServeHTTP(w, r)
-			return
-		}
-		// Health answers its own methods, since it is the one route
-		// the caller's mux never sees. It is a GET whatever else this
-		// kiosk serves: a server that takes only POST still has to
-		// tell the proxy in front of it whether it is alive.
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "kiosk: "+HealthPath+" is a GET", http.StatusMethodNotAllowed)
-			return
-		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		fmt.Fprintln(w, "ok")
