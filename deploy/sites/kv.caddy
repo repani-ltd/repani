@@ -2,5 +2,18 @@
 # reverse-proxies to kvserve on the loopback. kvserve itself binds
 # plain HTTP via its --addr flag.
 kv.limasoul.com {
-    reverse_proxy 127.0.0.1:8082
+    # HSTS belongs here, with whoever holds the TLS connection, and
+    # not in the origin. No includeSubDomains: the sibling names under
+    # this domain are separate services with their own certificates,
+    # and the directive would speak for all of them.
+    header Strict-Transport-Security "max-age=31536000"
+
+    reverse_proxy 127.0.0.1:8082 {
+        # A deploy stops kvserve, swaps the binary and starts it
+        # again. Without this, every client mid-sync gets a 502 for
+        # the second or so the port is closed; with it Caddy retries
+        # until the new process binds and the restart is invisible.
+        lb_try_duration 5s
+        health_uri /healthz
+    }
 }

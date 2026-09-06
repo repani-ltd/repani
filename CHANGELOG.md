@@ -17,6 +17,37 @@ are unchanged.
   entry values themselves stay untyped by design.
 
 ### Server
+- Quotas are sized for a host that can honour them. `DefaultQuotas`
+  drops to 10,000 entries and 8 MiB per vault across 1,000 vaults
+  (was 1,000,000, 1 GiB and 10,000 — a 10 TiB ceiling on a 916 MiB
+  machine). `LogStore` wraps a `MemStore`, so every accepted byte is
+  resident and these are a memory budget first. Nothing here bounds
+  the population; a global total-bytes limit is still missing.
+- `SyncPath` names the one protocol route, and the server routes it
+  through an `http.ServeMux` (`POST /v1/sync`) instead of checking
+  method and path by hand. A wrong method now gets 405 **with an
+  `Allow` header**, as RFC 9110 requires; previously every non-POST
+  request to any path got a bare 405 and the path check below it was
+  unreachable. `Server` still implements `http.Handler`, so it mounts
+  anywhere it did before.
+
+### kvserve
+- Runs on `repani.com/kiosk` for its HTTP lifecycle: the listener is
+  bound before serving (a bind failure is returned, not an exit from
+  a goroutine), signals are installed before the listener exists,
+  `READY=1` goes to the service manager, and shutdown drains and then
+  calls `Server.Close` — which releases every vault's advisory lock
+  and had never been called on any path.
+- `/healthz`, an access log, `MaxHeaderBytes` and net/http's own error
+  log, none of which existed.
+- `--max-vault-bytes` and `--max-entries` join `--max-vaults`: the
+  timeouts were already per-deployment and the caps that decide
+  whether the host survives should be too.
+- Unit is `Type=notify` with `Restart=always` and a start limit,
+  `MemoryMax`, `LimitNOFILE`, `PrivateDevices` and a restricted
+  address family set; the Caddy site gains `lb_try_duration` so a
+  restart no longer serves 502s, plus HSTS. `deploy.sh` replaces its
+  `sleep 2` with a real health check.
 - Registration is now optional: constructing a Server with neither
   `RegisterKey` nor `RegisterKeyFile` disables in-band registration —
   every REGISTER frame is rejected with `BAD_AUTH`. Vaults are then

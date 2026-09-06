@@ -10,16 +10,14 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
+	"repani.com/kiosk"
 	"repani.com/kv/server"
 	"repani.com/kv/vault"
 )
@@ -67,37 +65,34 @@ func main() {
 	if err != nil {
 		log.Fatalf("kvserve: %v", err)
 	}
-	log.Printf("kvserve: REGISTER gated by %s", *registerKeyFile)
+	log.Printf("kvserve: REGISTER gated by %s, data=%s, quotas: %d vaults x %d bytes / %d entries",
+		*registerKeyFile, *data, quotas.MaxVaults, quotas.MaxVaultBytes, quotas.MaxEntries)
 
-	httpSrv := &http.Server{
-		Addr:              *addr,
-		Handler:           srv,
-		ReadTimeout:       *readTimeout,
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      *writeTimeout,
-		IdleTimeout:       *idleTimeout,
-	}
+	// The protocol routes under "/", liveness beside them. The kv
+	// server declares its own method and path, so a wrong method gets
+	// 405 with an Allow header from its mux; "GET /healthz" is the
+	// more specific pattern and wins over "/".
+	mux := http.NewServeMux()
+	mux.Handle("/", srv)
+	mux.Handle("GET "+kiosk.HealthPath, kiosk.Health())
 
-	serverErr := make(chan error, 1)
-	go func() { serverErr <- httpSrv.ListenAndServe() }()
-	log.Printf("kvserve: listening on %s (plaintext behind your TLS proxy), data=%s, max-vaults=%d",
-		*addr, *data, *maxVaults)
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	select {
-	case err := <-serverErr:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("kvserve: %v", err)
-		}
-	case sig := <-stop:
-		log.Printf("kvserve: %s received, draining…", sig)
-		ctx, cancel := context.WithTimeout(context.Background(), *shutdownGrace)
-		defer cancel()
-		if err := httpSrv.Shutdown(ctx); err != nil {
-			log.Printf("kvserve: shutdown: %v", err)
-		}
+	// kiosk owns the lifecycle: bind before serving, signals installed
+	// before the listener exists, READY=1 to the service manager, then
+	// drain and close the vault stores in that order. Close is the
+	// call this daemon never used to make -- it releases every vault's
+	// advisory lock, which is what lets the next process take them
+	// without waiting.
+	if err := kiosk.Serve(context.Background(), kiosk.Config{
+		Addr:          *addr,
+		Handler:       mux,
+		AccessLog:     true,
+		ReadTimeout:   *readTimeout,
+		WriteTimeout:  *writeTimeout,
+		IdleTimeout:   *idleTimeout,
+		ShutdownGrace: *shutdownGrace,
+		Close:         srv.Close,
+	}); err != nil {
+		log.Fatalf("kvserve: %v", err)
 	}
 }
 

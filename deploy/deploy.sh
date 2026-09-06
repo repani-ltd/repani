@@ -175,8 +175,15 @@ else
     echo "  enabled and started kvserve"
 fi
 
-sleep 2
+# No sleep: the unit is Type=notify, so systemctl restart has already
+# returned the listener bound and every persisted vault loaded. If the
+# health endpoint does not answer now, the deploy failed.
 systemctl status --no-pager kvserve | head -10
+if ! curl -fsS --max-time 5 http://127.0.0.1:8082/healthz >/dev/null; then
+    echo "error: kvserve is not answering /healthz after restart" >&2
+    exit 1
+fi
+echo "  kvserve healthy"
 
 # Emit the register token so deploy.sh can surface it without a
 # second ssh round-trip. This leaks it into the local shell's stdout,

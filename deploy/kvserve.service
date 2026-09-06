@@ -5,27 +5,40 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+# notify, not simple: kvserve sends READY=1 once the listener is
+# bound, and it binds only after every persisted vault has been read
+# back into memory. Under Type=simple systemd called the unit started
+# the moment it forked, so a restart returned before the server could
+# answer and the deploy script slept two seconds and hoped.
+Type=notify
 User=kvserve
 Group=kvserve
 WorkingDirectory=/opt/kvserve
 # kvserve runs behind Caddy (see quietcasting-go/deploy/Caddyfile).
 # Caddy terminates TLS for kv.limasoul.com and proxies to the
 # loopback address below; kvserve itself speaks plain HTTP.
-# Quotas: every accepted byte stays resident (LogStore wraps a
-# MemStore), and this host has 916 MiB of RAM shared with Caddy and
-# the web station, so the caps are a memory budget. 200 vaults at
-# 4 MiB each is a 800 MiB ceiling that only a deliberate attack
-# approaches; today the store holds one vault of 40 KiB.
+#
+# Quotas are a MEMORY budget, not a disk one: LogStore wraps a
+# MemStore, so every accepted byte stays resident while the server
+# runs. This host has 916 MiB of RAM shared with Caddy and the web
+# station. 100 vaults x 1 MiB caps the stored entries at 100 MiB,
+# which sits inside MemoryMax below once Go's per-entry overhead is
+# allowed for. Today the store holds one vault of 40 KiB, so these
+# are ceilings against abuse, not working limits.
 ExecStart=/opt/kvserve/kvserve \
     --addr 127.0.0.1:8082 \
     --data /opt/kvserve/data \
     --register-key-file /opt/kvserve/register.key \
-    --max-vaults 200 \
-    --max-vault-bytes 4194304 \
+    --max-vaults 100 \
+    --max-vault-bytes 1048576 \
     --max-entries 5000
-Restart=on-failure
-RestartSec=5s
+# always, not on-failure: an unattended service that exits for a
+# reason nobody predicted should come back. The start limit is what
+# stops a genuine crash loop instead.
+Restart=always
+RestartSec=1s
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal
@@ -38,7 +51,19 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+# AF_UNIX is required: the readiness notification is a unixgram
+# socket to the service manager.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 ReadWritePaths=/opt/kvserve/data
+# One open file descriptor is held per served vault, for the entry
+# log's advisory lock. Go raises the soft limit to the hard limit on
+# its own, but the ceiling belongs in the unit where an operator can
+# see it.
+LimitNOFILE=8192
+# The backstop behind the quotas above: if the resident set ever
+# exceeds this the kernel kills kvserve rather than the whole box.
+MemoryMax=256M
 
 [Install]
 WantedBy=multi-user.target

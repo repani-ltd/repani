@@ -36,6 +36,33 @@ type Quotas struct {
 // the former without hanging on the latter.
 const logLockWait = 5 * time.Second
 
+// A note on s.mu, which is one mutex for the whole server and guards
+// the vaults map.
+//
+// Creating a vault holds it across filesystem work: handleRegister
+// takes s.mu, and createVaultLocked then does MkdirAll, a synced
+// writeAuthKey (two fsyncs) and OpenLogStore, which can itself wait
+// logLockWait for the advisory lock. Every other request needs the
+// same mutex for a map lookup, so during that window the whole server
+// is parked -- not just that vault, and not just registrations.
+//
+// This is deliberate rather than overlooked. The existence check and
+// the map insert must be atomic: without that, two REGISTERs for the
+// same new vault both find nothing, both build a store, and they race
+// for one advisory lock on one file. Holding the mutex across the
+// whole sequence is the cheapest way to close that race, and it buys
+// correctness with latency.
+//
+// The trade is recorded, not fixed, because the price is currently
+// zero: registrations are rare, and the pathological case needs one
+// to arrive during a restart overlap. Clean shutdown made even that
+// unlikely -- kvserve now calls Close, which releases every advisory
+// lock before the next process starts, so the overlap that
+// logLockWait exists for should not happen at all. If registration
+// ever becomes frequent, the fix is to reserve the map slot with a
+// placeholder whose own mutex is held, release s.mu, and do the disk
+// work under the placeholder: only that vault's clients would wait.
+
 // DefaultQuotas are limits a small host can actually honour. Paging
 // decouples vault size from the frame size, so MaxVaultBytes is a
 // storage cap, not a transport one -- but note what "storage" means
@@ -95,6 +122,7 @@ type Server struct {
 	regOK   bool             // false = registration disabled
 	regKey  vault.ChannelKey // K_reg = XOF("kv/reg0/" || RegisterKey)
 	onPush  func(vault.VaultID)
+	mux     *http.ServeMux // the protocol routes, built once
 
 	mu     sync.Mutex
 	vaults map[vault.VaultID]*vaultState
@@ -152,6 +180,7 @@ func NewWithOptions(opt Options) (*Server, error) {
 		onPush:  opt.OnPush,
 		vaults:  make(map[vault.VaultID]*vaultState),
 	}
+	s.mux = s.routes()
 	if regOK {
 		s.regKey = vault.DeriveRegKey(regKey)
 	}
@@ -508,16 +537,31 @@ func readAuthKey(dir string) (vault.AuthKey, error) {
 
 // --- HTTP ---
 
-// ServeHTTP exposes HandleFrame as POST /v1/sync.
+// SyncPath is the one route the protocol defines, relative to
+// whatever prefix a deployment mounts the server under: a station may
+// serve it at /kv/v1/sync, a bare kvserve at /v1/sync. The client
+// builds the same path in client.HTTPTransport.
+const SyncPath = "/v1/sync"
+
+// routes builds the server's route table. The path and method live in
+// the pattern, so http.ServeMux answers a wrong method with 405 and a
+// correct Allow header -- which the hand-written checks this replaced
+// did not do (every non-POST request to any path got a bare 405, and
+// the path check below it was unreachable for them).
+func (s *Server) routes() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST "+SyncPath, s.serveSync)
+	return mux
+}
+
+// ServeHTTP serves the protocol routes, so a Server can be mounted
+// anywhere an http.Handler goes.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if r.URL.Path != "/v1/sync" {
-		http.NotFound(w, r)
-		return
-	}
+	s.mux.ServeHTTP(w, r)
+}
+
+// serveSync exchanges one sealed frame.
+func (s *Server) serveSync(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, wire.MaxFrameBytes))
 	if err != nil {
 		log.Printf("server: read body: %v", err)
