@@ -20,9 +20,12 @@ makes a restart invisible to readers.
 
 # The contract
 
-.item A kiosk answers GET and HEAD. Every other method gets 405
-with an Allow header, from a gate outside the caller's handler, so
-a handler behind it is written knowing no other method arrives.
+.item Routes declare their own methods. Serve has no method policy:
+http.ServeMux has matched on method since Go 1.22 and answers a
+mismatch with 405 and an Allow header built from the patterns
+actually registered. A publication registers GET and refuses the
+rest without this package holding an opinion; a station that takes
+a sealed envelope registers POST and is carried unchanged.
 .item The bounds are defaults, not options. A server with a zero
 timeout has no bound at all, and every duration left unset takes
 the value in the table below.
@@ -43,7 +46,9 @@ whoever terminates TLS.
 .item Every body carries a validator and a caching rule. There is
 no third state, and no body is served without both.
 .item /healthz is the package's, answered ahead of the caller's
-routes and outside the access log.
+routes and outside the access log. It is the one route the mux
+never sees, so it answers its own methods, and it is a GET whatever
+else the server serves.
 
 # Defaults
 
@@ -168,9 +173,11 @@ speaks for all of them.
 .item TLS. The proxy owns it. The one previous attempt at ACME
 in-process shipped, was never enabled, and had no timeouts of its
 own.
-.item POST, SSE, WebSockets, sessions, cookies, authentication. A
-reader collects a copy; anything that talks back is a different
-program with a different name.
+.item SSE, WebSockets, sessions, cookies, authentication. A
+long-lived connection is the lifecycle's business, not a route's:
+one streaming endpoint is what cost the last server its write
+timeout for every request in the process. Methods are NOT on this
+list -- a route that wants POST says so and Serve carries it.
 .item Serving a directory tree from disk. PUBLISH.t describes one
 and it will want this package, but nothing writes such a tree
 yet, and a tree server built before its publisher would be a
@@ -184,6 +191,16 @@ them; a publication has no use for a second copy.
 
 # Decisions
 
+.item The method gate was built and then removed, on the day it
+was written, by asking what kv would need. kv is one route,
+POST /v1/sync, and it wanted the whole lifecycle and none of the
+policy -- so the seam was never between a publication and other
+apps, it was between mechanism and policy. Widening a gate to
+admit POST leaves machinery that admits every method anyone would
+register and a guarantee that no longer holds; removing it leaves
+the routing to the mux, which already does it per route and with a
+better Allow header. The GET-only contract now lives where it is
+enforced, in the publication's route table.
 .item Conditional requests go through http.ServeContent rather
 than a hand-rolled comparison. The hand-rolled one is what broke,
 in two independent codebases, in the same way.

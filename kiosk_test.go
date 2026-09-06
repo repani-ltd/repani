@@ -34,7 +34,10 @@ func wrapped(t *testing.T, cfg Config) http.Handler {
 	return wrap(cfg)
 }
 
-func TestMethodGate(t *testing.T) {
+// TestRoutesDeclareTheirMethods pins the delegation: a publication
+// registers GET and gets the refusal, and the Allow header, from
+// http.ServeMux. kiosk has no method policy to keep in step with it.
+func TestRoutesDeclareTheirMethods(t *testing.T) {
 	h := wrapped(t, Config{})
 	for _, m := range []string{"POST", "PUT", "DELETE", "PATCH", "OPTIONS"} {
 		resp := get(t, h, m, "/", nil)
@@ -49,6 +52,53 @@ func TestMethodGate(t *testing.T) {
 		if resp := get(t, h, m, "/", nil); resp.StatusCode != 200 {
 			t.Errorf("%s -> %d, want 200", m, resp.StatusCode)
 		}
+	}
+}
+
+// TestServeCarriesAnyMethod is kv's case: one route taking a sealed
+// frame by POST, and no GET surface at all. Serve carries it because
+// it has no opinion to override.
+func TestServeCarriesAnyMethod(t *testing.T) {
+	posted := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/sync", func(w http.ResponseWriter, r *http.Request) {
+		posted = true
+	})
+	h := wrapped(t, Config{Handler: mux})
+
+	if resp := get(t, h, "POST", "/v1/sync", nil); resp.StatusCode != 200 {
+		t.Fatalf("POST -> %d, want 200", resp.StatusCode)
+	}
+	if !posted {
+		t.Fatal("POST never reached the handler")
+	}
+	// And the route's own declaration still refuses the rest.
+	for _, m := range []string{"GET", "DELETE"} {
+		resp := get(t, h, m, "/v1/sync", nil)
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s -> %d, want 405", m, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Allow"); got != "POST" {
+			t.Errorf("%s: Allow = %q, want POST", m, got)
+		}
+	}
+}
+
+// TestHealthAnswersItsOwnMethods: /healthz is the one route the
+// caller's mux never sees, and it is a GET whatever else is served.
+func TestHealthAnswersItsOwnMethods(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/sync", func(w http.ResponseWriter, r *http.Request) {})
+	h := wrapped(t, Config{Handler: mux})
+	if resp := get(t, h, "GET", HealthPath, nil); resp.StatusCode != 200 {
+		t.Fatalf("GET %s -> %d, want 200", HealthPath, resp.StatusCode)
+	}
+	resp := get(t, h, "POST", HealthPath, nil)
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST %s -> %d, want 405", HealthPath, resp.StatusCode)
+	}
+	if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
+		t.Errorf("Allow = %q", got)
 	}
 }
 
@@ -90,9 +140,6 @@ func TestHealth(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	if strings.TrimSpace(string(b)) != "ok" {
 		t.Errorf("body = %q", b)
-	}
-	if resp := get(t, h, "POST", HealthPath, nil); resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("POST %s -> %d, want 405", HealthPath, resp.StatusCode)
 	}
 }
 

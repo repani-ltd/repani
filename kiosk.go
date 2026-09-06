@@ -45,8 +45,10 @@ type Config struct {
 	// production, because TLS belongs to the proxy in front.
 	Addr string
 
-	// Handler serves everything but HealthPath. It never sees a
-	// request that is not GET or HEAD.
+	// Handler serves everything but HealthPath, and declares its own
+	// methods: a route registered "GET /page" is answered 405 with an
+	// Allow header for anything else, by http.ServeMux, before any
+	// handler runs. Serve has no method policy of its own.
 	Handler http.Handler
 
 	// Logger receives the lifecycle lines, the access log, and the
@@ -184,12 +186,18 @@ func Serve(ctx context.Context, cfg Config) error {
 }
 
 // wrap builds the handler chain, outermost first: health, access log,
-// response headers, method gate, then the caller's routes. Health sits
-// outside the log so a proxy polling it every second does not bury the
-// requests a reader actually made.
+// response headers, then the caller's routes. Health sits outside the
+// log so a proxy polling it every second does not bury the requests a
+// reader actually made.
+//
+// There is no method gate. http.ServeMux has matched on method since
+// Go 1.22 and answers a mismatch with 405 and an Allow header built
+// from the patterns actually registered, which is a better header than
+// a server-wide list could be. A publication that registers only
+// "GET /" therefore refuses POST without this package having an
+// opinion, and a handler that wants POST just says so in its routes.
 func wrap(cfg Config) http.Handler {
-	h := methodGate(cfg.Handler)
-	h = secure(h, cfg.CSP)
+	h := secure(cfg.Handler, cfg.CSP)
 	if cfg.AccessLog {
 		h = accessLog(h, cfg.Logger)
 	}
@@ -202,31 +210,19 @@ func health(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Health answers its own methods, since it is the one route
+		// the caller's mux never sees. It is a GET whatever else this
+		// kiosk serves: a server that takes only POST still has to
+		// tell the proxy in front of it whether it is alive.
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			methodNotAllowed(w)
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "kiosk: "+HealthPath+" is a GET", http.StatusMethodNotAllowed)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		fmt.Fprintln(w, "ok")
 	})
-}
-
-// methodGate is the GET-only contract made structural: a handler
-// behind it can be written knowing no other method reaches it.
-func methodGate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			methodNotAllowed(w)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func methodNotAllowed(w http.ResponseWriter) {
-	w.Header().Set("Allow", "GET, HEAD")
-	http.Error(w, "kiosk serves GET and HEAD", http.StatusMethodNotAllowed)
 }
 
 // secure sets the headers only the origin can set. Strict-Transport-

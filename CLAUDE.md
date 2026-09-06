@@ -16,10 +16,13 @@ lifecycle in a daemon — a daemon builds routes and calls Serve.
 
 ## The lines that must not move
 
-- GET and HEAD only. POST, SSE, WebSockets, sessions, cookies and
-  authentication are out of scope, not unimplemented: the method
-  gate is the contract made structural. A streaming endpoint is
-  what cost the last server its write timeout.
+- Serve has no method policy, and must not grow one. Routes declare
+  their methods and `http.ServeMux` enforces them per route with a
+  correct `Allow` header; a server-wide gate was built here and
+  removed the same day (see KIOSK.t's decision ledger). SSE,
+  WebSockets, sessions and authentication stay out — but as a
+  lifecycle rule, not a method one: a streaming endpoint is what
+  cost the last server its write timeout.
 - No TLS, ever. The reverse proxy terminates it, owns the
   certificate, and sets Strict-Transport-Security. kiosk sets only
   the headers an origin can set for itself.

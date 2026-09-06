@@ -2,10 +2,19 @@
 Package kiosk serves a publication over HTTP: the unattended public
 stand where a reader collects a copy and hands nothing back.
 
-The contract is deliberately narrow. A kiosk answers GET and HEAD and
-nothing else; it holds no session, reads no request body, and writes
-nothing anywhere. Anything a reader might send -- a form, an upload,
-a socket to talk back on -- is a different program.
+What a kiosk serves is its routes' business, not this package's. A
+publication registers GET and refuses everything else; a station that
+takes a sealed envelope across the counter registers POST. Since Go
+1.22 http.ServeMux matches on method and answers a mismatch with 405
+and an Allow header built from the patterns actually registered, so
+the refusal is already correct, already per-route, and better informed
+than a server-wide list could be. kiosk adds no method policy of its
+own and has nothing to keep in step.
+
+What stays out is long-lived connections -- server-sent events, a
+socket to talk back on. That is not a method rule but a lifecycle one:
+one streaming endpoint is what cost the last server its write timeout
+for every request in the process.
 
 # What this package is for
 
@@ -29,18 +38,19 @@ window cannot take the default action; and it drains in one order --
 stop accepting, let in-flight requests finish inside the grace, then
 close the content source.
 
-Serve wraps the caller's handler in four things, outermost first:
+Serve wraps the caller's handler in three things, outermost first:
 
   - /healthz, answered by the package, so a proxy can health-check an
-    upstream and a unit can gate its restart on a real answer;
+    upstream and a unit can gate its restart on a real answer. It is
+    the one route the caller's mux never sees, so it answers its own
+    methods, and it is a GET whatever else the server serves: a
+    station that takes only POST still has to say whether it is alive;
   - the access log, when Config.AccessLog is set: method, path,
     status, bytes and duration, and deliberately no client address --
     the TLS proxy in front already logs those, and a publication has
     no reason to keep them twice;
   - the response headers every origin must set for itself: nosniff, a
-    referrer policy, and a content security policy;
-  - the method gate, which answers anything but GET and HEAD with 405
-    and an Allow header.
+    referrer policy, and a content security policy.
 
 # TLS
 
