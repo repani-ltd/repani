@@ -3,6 +3,12 @@ Description=ASCON-KV server
 Documentation=https://kv.limasoul.com
 After=network-online.target
 Wants=network-online.target
+# The start limit lives in [Unit], not [Service]: it moved in systemd
+# 229 and newer versions ignore it (with a warning) in the wrong
+# section. It is what stops a genuine crash loop, given Restart=always
+# below.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 # notify, not simple: kvserve sends READY=1 once the listener is
@@ -33,12 +39,10 @@ ExecStart=/opt/kvserve/kvserve \
     --max-vault-bytes 1048576 \
     --max-entries 5000
 # always, not on-failure: an unattended service that exits for a
-# reason nobody predicted should come back. The start limit is what
-# stops a genuine crash loop instead.
+# reason nobody predicted should come back. The start limit in [Unit]
+# is what stops a genuine crash loop instead.
 Restart=always
 RestartSec=1s
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal

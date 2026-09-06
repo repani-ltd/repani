@@ -9,11 +9,22 @@ kv.limasoul.com {
     header Strict-Transport-Security "max-age=31536000"
 
     reverse_proxy 127.0.0.1:8082 {
-        # A deploy stops kvserve, swaps the binary and starts it
-        # again. Without this, every client mid-sync gets a 502 for
-        # the second or so the port is closed; with it Caddy retries
-        # until the new process binds and the restart is invisible.
+        # Retry while the upstream is unavailable, which covers the
+        # sub-second gap while a deploy swaps the binary.
+        #
+        # Two limits worth knowing rather than assuming. Caddy retries
+        # only requests it deems safe to retry -- no body, or a body it
+        # has fully buffered -- and every kv request is a POST carrying
+        # a sealed frame, so this does NOT cover the sync traffic
+        # itself. Making it cover them means buffering up to
+        # wire.MaxFrameBytes per request in Caddy, which is a memory
+        # decision on a 916 MiB host and has not been taken.
+        #
+        # And there is deliberately no health_uri here: an active
+        # check against a single upstream marks it down for a whole
+        # health_interval when one probe lands during a restart,
+        # turning a one-second swap into thirty seconds of 502s. The
+        # /healthz route exists for the deploy script and for a human.
         lb_try_duration 5s
-        health_uri /healthz
     }
 }
