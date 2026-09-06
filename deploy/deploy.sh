@@ -60,7 +60,21 @@ if [ ! -f go.mod ] || [ ! -d cmd/kvserve ]; then
     exit 1
 fi
 
-echo "[1/3] cross-compile binaries for linux/amd64 ..."
+# The commit being deployed, recorded in the output because it IS the
+# rollback: no previous binary is kept on the server, so backing out
+# means checking out an earlier commit here and running this again.
+# A dirty tree is marked, since then the commit alone does not
+# describe what shipped.
+REV="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# --porcelain rather than "git diff --quiet": it catches an untracked
+# file too, which changes the build without changing the commit. The
+# path limits the check to kv, so a sibling project's work in progress
+# does not mark this deploy dirty.
+if [ -n "$(git status --porcelain . 2>/dev/null)" ]; then
+    REV="$REV+dirty"
+fi
+
+echo "[1/3] cross-compile binaries for linux/amd64 (rev $REV) ..."
 mkdir -p bin
 for b in "${BINARIES[@]}"; do
     GOOS=linux GOARCH=amd64 go build \
@@ -109,12 +123,16 @@ systemctl stop kvserve 2>/dev/null || true
 # Install NEW binaries first. register-key generation below requires
 # the new 'gen-register-key' subcommand which the old binary lacks.
 for b in "\${BINARIES[@]}"; do
-    if [ "\$b" = "kvserve" ] && [ -f /opt/kvserve/kvserve ]; then
-        mv /opt/kvserve/kvserve /opt/kvserve/kvserve.prev
-    fi
     install -m 755 -o root -g root "/tmp/\$b.new" "/opt/kvserve/\$b"
     rm -f "/tmp/\$b.new"
 done
+# No .prev copy is kept. It was a rollback that aged badly: after two
+# deploys it held the build from the deploy before last, which is
+# rarely the one anybody wants, and nothing recorded which commit it
+# was. The commit is the rollback now, printed at the end of this
+# script. The daemon is stopped above, so installing over the running
+# path is safe.
+rm -f /opt/kvserve/kvserve.prev
 
 # Vault data is preserved across deploys. A one-time reset is opt-in via
 # WIPE_DATA=1 — needed for the v1 cutover, since the server cannot load
@@ -193,7 +211,7 @@ cat /opt/kvserve/register.key
 REMOTE
 
 echo
-echo "Deployed to $HOST."
+echo "Deployed $REV to $HOST."
 echo
 echo "Installed binaries:"
 for b in "${BINARIES[@]}"; do echo "  /opt/kvserve/$b"; done
@@ -208,6 +226,10 @@ echo "Next steps:"
 echo "  Logs (kvserve):     ssh $HOST sudo journalctl -u kvserve -f"
 echo "  Show register key:  ssh $HOST sudo cat /opt/kvserve/register.key"
 echo "  Init a client:      kv init --register-key <BASE32>"
-echo "  Rollback:           ssh $HOST sudo systemctl stop kvserve \\"
-echo "                          '&&' sudo mv /opt/kvserve/kvserve.prev /opt/kvserve/kvserve \\"
-echo "                          '&&' sudo systemctl start kvserve"
+echo "  Rollback:           no binary is kept on the server; the commit is"
+echo "                      the rollback. Just deployed: $REV"
+echo "                        git log --oneline -5 -- ."
+echo "                        git checkout <earlier-commit>"
+echo "                        ./deploy/deploy.sh $HOST"
+echo "                      Vault data and register.key are untouched by a"
+echo "                      redeploy, so a rollback keeps them."
