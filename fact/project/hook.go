@@ -4,16 +4,32 @@
 // on the edited file and, when the package no longer compiles, surfaces
 // the compiler diagnostics instead: the edit→build→read-errors loop
 // collapses into the edit itself.
+//
+// A report is worth its context only when the agent will act on it now,
+// so the hook says less during a burst of saves and more at the end of
+// the turn. Per save it reports formatting rewrites, syntax errors in the
+// edited file, compile errors that are new since the last save (the rest
+// as counts), and declarations removed or changed; a diff that only adds
+// declarations is one line, since additions break nobody. Per turn, the
+// Stop hook rebuilds every package the turn touched, regenerates any
+// stale projection silently, and refuses the stop only when a package
+// does not compile, with the diagnostics as the reason. The state that
+// makes the deltas possible lives per session under the user cache
+// directory (FACT_HOOK_STATE overrides the base) and is cleared at the
+// stop.
 
 package project
 
 import (
 	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"golang.org/x/tools/imports"
@@ -103,10 +119,15 @@ func splitLines(b []byte) []string {
 	return strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
 }
 
-// hookInput is the subset of Claude Code's PostToolUse payload the fact
-// hook consumes.
+// hookInput is the subset of Claude Code's hook payload the fact hook
+// consumes: the edited file for PostToolUse, the session for the state
+// the deltas need, and for Stop whether this stop already follows a
+// refusal (a second refusal would loop the agent).
 type hookInput struct {
-	ToolInput struct {
+	SessionID      string `json:"session_id"`
+	HookEventName  string `json:"hook_event_name"`
+	StopHookActive bool   `json:"stop_hook_active"`
+	ToolInput      struct {
 		FilePath string `json:"file_path"`
 	} `json:"tool_input"`
 }
@@ -118,14 +139,28 @@ const maxHookDiffLines = 80
 // maxHookDiagnostics caps the compile errors surfaced to the agent.
 const maxHookDiagnostics = 20
 
+// maxNamedAdditions is the most added declarations the one-line
+// additions report names; more are counted by kind.
+const maxNamedAdditions = 5
+
+// Event reports which hook event a payload carries ("PostToolUse",
+// "Stop", ...), so the command can dispatch without parsing twice.
+func Event(payload []byte) string {
+	var in hookInput
+	if err := json.Unmarshal(payload, &in); err != nil {
+		return ""
+	}
+	return in.HookEventName
+}
+
 // Hook implements a Claude Code PostToolUse hook: when the edited file is
 // a .go file in a package carrying a stored pkg.fact, it runs goimports
-// on the file, regenerates the projection, and returns the projection
-// diff — or, if the package no longer compiles, the compiler
-// diagnostics — as context for the agent. Test files are formatted but
-// sit outside the projection (generator scope). An empty return means
-// nothing to report: not a projected package, or a declaration-neutral
-// edit that goimports left untouched (the churn invariant, SPEC §11.2).
+// on the file, regenerates the projection, and returns what the agent
+// should act on now (see the package comment for what that is) as
+// context. Test files are formatted but sit outside the projection
+// (generator scope). An empty return means nothing to report: not a
+// projected package, or a declaration-neutral edit that goimports left
+// untouched (the churn invariant, SPEC §11.2).
 func Hook(payload []byte) (string, error) {
 	var in hookInput
 	if err := json.Unmarshal(payload, &in); err != nil {
@@ -148,24 +183,139 @@ func Hook(payload []byte) (string, error) {
 	if strings.HasSuffix(fp, "_test.go") {
 		return strings.Join(report, "\n"), nil
 	}
+	st := loadState(in.SessionID, dir)
 	removed, added, err := Refresh(dir)
 	var ce *CompileError
 	if errors.As(err, &ce) {
-		report = append(report, compileReport(dir, ce))
+		report = append(report, compileReport(dir, fp, ce, st.Diagnostics))
+		st.Diagnostics = ce.Diagnostics
+		st.save()
 		return strings.Join(report, "\n"), nil
 	}
 	if err != nil {
 		return strings.Join(report, "\n"), err
 	}
+	if len(st.Diagnostics) > 0 {
+		report = append(report, fmt.Sprintf("%s compiles again.", dir))
+	}
+	st.Diagnostics = nil
+	st.save()
 	if len(removed)+len(added) > 0 {
 		report = append(report, diffReport(dir, removed, added))
 	}
 	return strings.Join(report, "\n"), nil
 }
 
-// diffReport formats the projection diff as the impact report.
+// Stop implements a Claude Code Stop hook: it rebuilds every package the
+// session's saves touched, regenerates any projection left stale, clears
+// the session's state, and returns a reason to refuse the stop when a
+// package does not compile — empty when everything builds, or when the
+// stop already follows a refusal, so a broken package is reported once.
+func Stop(payload []byte) (string, error) {
+	var in hookInput
+	if err := json.Unmarshal(payload, &in); err != nil {
+		return "", err
+	}
+	touched, err := touchedPackages(in.SessionID)
+	if err != nil {
+		return "", err
+	}
+	var broken []string
+	for _, dir := range touched {
+		_, _, err := Refresh(dir)
+		var ce *CompileError
+		if errors.As(err, &ce) {
+			broken = append(broken, compileReport(dir, "", ce, nil))
+		}
+	}
+	os.RemoveAll(stateDir(in.SessionID))
+	if len(broken) == 0 || in.StopHookActive {
+		return "", nil
+	}
+	return "The turn leaves a package that does not compile:\n" + strings.Join(broken, "\n"), nil
+}
+
+// --- session state ---
+
+// pkgState is what the hook remembers about one package between saves
+// of one session: the diagnostics of the last save, so the next can
+// report only what is new.
+type pkgState struct {
+	Dir         string   `json:"dir"`
+	Diagnostics []string `json:"diagnostics,omitempty"`
+	path        string
+}
+
+func stateDir(session string) string {
+	base := os.Getenv("FACT_HOOK_STATE")
+	if base == "" {
+		if c, err := os.UserCacheDir(); err == nil {
+			base = filepath.Join(c, "fact", "hook")
+		} else {
+			base = filepath.Join(os.TempDir(), "fact-hook")
+		}
+	}
+	if session == "" {
+		session = "default"
+	}
+	return filepath.Join(base, session)
+}
+
+func loadState(session, dir string) *pkgState {
+	sum := sha1.Sum([]byte(dir))
+	st := &pkgState{Dir: dir, path: filepath.Join(stateDir(session), hex.EncodeToString(sum[:8])+".json")}
+	if b, err := os.ReadFile(st.path); err == nil {
+		json.Unmarshal(b, st)
+	}
+	return st
+}
+
+func (st *pkgState) save() {
+	os.MkdirAll(filepath.Dir(st.path), 0o755)
+	b, _ := json.Marshal(st)
+	os.WriteFile(st.path, b, 0o644)
+}
+
+// touchedPackages lists the package directories the session's saves
+// recorded, in a fixed order.
+func touchedPackages(session string) ([]string, error) {
+	entries, err := os.ReadDir(stateDir(session))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(stateDir(session), e.Name()))
+		if err != nil {
+			continue
+		}
+		var st pkgState
+		if json.Unmarshal(b, &st) == nil && st.Dir != "" {
+			dirs = append(dirs, st.Dir)
+		}
+	}
+	sort.Strings(dirs)
+	return dirs, nil
+}
+
+// --- reports ---
+
+// diffReport formats the projection diff as the impact report. A diff
+// that only adds is one line naming or counting the declarations, since
+// an addition breaks no caller; removals and changes are listed.
 func diffReport(dir string, removed, added []string) string {
 	var b strings.Builder
+	if !anyDeclaration(removed) {
+		if names := entities(added); names != "" {
+			fmt.Fprintf(&b, "pkg.fact regenerated for %s: added %s\n", dir, names)
+		} else {
+			fmt.Fprintf(&b, "pkg.fact regenerated for %s: imports changed, declarations as before\n", dir)
+		}
+		return b.String()
+	}
 	fmt.Fprintf(&b, "pkg.fact regenerated for %s — projection diff (impact report, SPEC §11.1):\n", dir)
 	n := 0
 	for _, l := range removed {
@@ -186,18 +336,131 @@ func diffReport(dir string, removed, added []string) string {
 	return b.String()
 }
 
+// declaration splits a projection line into the kind and name of the
+// declaration it describes: a key is "kind:Name.attribute". The
+// package's own lines (pkg.path, imports) have no kind and report ok
+// false: they are not declarations and break no caller.
+func declaration(line string) (kind, name string, ok bool) {
+	i := strings.Index(line, ": ")
+	if i < 0 {
+		return "", "", false
+	}
+	key := line[:i]
+	kind, name, ok = strings.Cut(key, ":")
+	if !ok {
+		return "", "", false
+	}
+	if j := strings.Index(name, "."); j >= 0 {
+		name = name[:j]
+	}
+	return kind, name, true
+}
+
+func anyDeclaration(lines []string) bool {
+	for _, l := range lines {
+		if _, _, ok := declaration(l); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// entities summarises projection lines as the declarations they
+// describe: named when few, counted by kind when many; empty when the
+// lines carry no declaration.
+func entities(lines []string) string {
+	seen := map[string]bool{}
+	var names []string
+	kinds := map[string]int{}
+	for _, l := range lines {
+		kind, name, ok := declaration(l)
+		if !ok {
+			continue
+		}
+		id := kind + ":" + name
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		names = append(names, id)
+		kinds[kind]++
+	}
+	if len(names) <= maxNamedAdditions {
+		return strings.Join(names, ", ")
+	}
+	var parts []string
+	for _, k := range sortedKeys(kinds) {
+		n := kinds[k]
+		s := k
+		if n > 1 {
+			s += "s"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", n, s))
+	}
+	return strings.Join(parts, ", ") + " (no removals)"
+}
+
+func sortedKeys(m map[string]int) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // compileReport formats a CompileError as agent context: the edit left
 // the package broken, so the projection is stale by necessity, and the
-// compiler diagnostics are the actionable payload.
-func compileReport(dir string, ce *CompileError) string {
+// compiler diagnostics are the actionable payload. Syntax errors in the
+// edited file are always listed; other errors are listed when new since
+// prev (the last save's diagnostics) and counted when they persist.
+// With no prev and no edited file (the Stop report) every error lists.
+func compileReport(dir, edited string, ce *CompileError, prev []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s does not compile — pkg.fact not regenerated (stale until the package builds):\n", dir)
+	old := map[string]bool{}
+	for _, d := range prev {
+		old[d] = true
+	}
+	n, persisting := 0, 0
 	for i, d := range ce.Diagnostics {
-		if i == maxHookDiagnostics {
-			fmt.Fprintf(&b, "… (%d more errors)\n", len(ce.Diagnostics)-maxHookDiagnostics)
-			break
+		syntax := i < len(ce.Syntax) && ce.Syntax[i]
+		inEdited := edited != "" && (strings.HasPrefix(d, edited+":") || strings.HasPrefix(d, filepath.Base(edited)+":"))
+		if !(syntax && inEdited) && old[d] {
+			persisting++
+			continue
+		}
+		if n++; n > maxHookDiagnostics {
+			continue
 		}
 		fmt.Fprintf(&b, "%s\n", relPos(d))
+	}
+	if n > maxHookDiagnostics {
+		fmt.Fprintf(&b, "… (%d more errors)\n", n-maxHookDiagnostics)
+	}
+	fixed := 0
+	now := map[string]bool{}
+	for _, d := range ce.Diagnostics {
+		now[d] = true
+	}
+	for _, d := range prev {
+		if !now[d] {
+			fixed++
+		}
+	}
+	switch {
+	case persisting > 0 && n == 0:
+		fmt.Fprintf(&b, "%d errors persist from the last save, none new", persisting)
+		if fixed > 0 {
+			fmt.Fprintf(&b, "; %d fixed", fixed)
+		}
+		b.WriteString("\n")
+	case persisting > 0 || fixed > 0:
+		fmt.Fprintf(&b, "(%d persisting from the last save not repeated", persisting)
+		if fixed > 0 {
+			fmt.Fprintf(&b, "; %d fixed", fixed)
+		}
+		b.WriteString(")\n")
 	}
 	return b.String()
 }

@@ -33,11 +33,15 @@ commands:
                  an import path projects a dependency resolved through this
                  module's go.mod — use with -o, e.g.
                  fact project -o facts/<import-path>/pkg.fact <import-path>)
-  hook           Claude Code PostToolUse hook: reads the hook payload on
-                 stdin; after an edit to a .go file in a package carrying a
-                 pkg.fact, runs goimports on the edited file, regenerates
-                 the projection, and reports the projection diff — or the
-                 compile errors — to the agent as the impact report
+  hook           Claude Code hook: reads the hook payload on stdin. After
+                 an edit (PostToolUse) to a .go file in a package carrying
+                 a pkg.fact, runs goimports on the edited file, regenerates
+                 the projection, and reports what the agent should act on
+                 now: formatting rewrites, syntax errors in the file, new
+                 compile errors, declarations removed or changed; a diff
+                 that only adds is one line. At the end of the turn (Stop)
+                 rebuilds every package the turn touched and refuses the
+                 stop, with the errors, if one does not compile
 `
 
 func main() {
@@ -105,6 +109,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		payload, err := io.ReadAll(stdin)
 		if err != nil {
 			return fail(err)
+		}
+		if project.Event(payload) == "Stop" {
+			reason, err := project.Stop(payload)
+			if err != nil {
+				fmt.Fprintln(stderr, "fact: hook:", err)
+			}
+			if reason != "" {
+				out, _ := json.Marshal(map[string]any{"decision": "block", "reason": reason})
+				stdout.Write(out)
+			}
+			return 0
 		}
 		ctx, err := project.Hook(payload)
 		if err != nil {

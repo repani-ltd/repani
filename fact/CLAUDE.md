@@ -23,9 +23,14 @@ greppable, canonical `.fact` file. Config files are the degenerate case.
 - Dependencies (SPEC §11.5): project by import path into the `facts/` mirror,
   e.g. `go run ./cmd/fact project -o facts/<import-path>/pkg.fact <import-path>`
   — the version resolves through go.mod and lands in the file as `pkg.version`
-- Hook: `fact hook` reads a Claude Code PostToolUse payload on stdin (the
-  `.claude/settings.json` entry runs `$HOME/bin/fact hook` after Edit|Write);
-  it is `project.Hook` behind a JSON shell and never fails the edit
+- Hook: `fact hook` reads a Claude Code hook payload on stdin (the
+  `.claude/settings.json` entries run `$HOME/bin/fact hook` after Edit|Write
+  and at Stop); it is `project.Hook` and `project.Stop` behind a JSON shell.
+  After an edit it never fails the edit and reports only what the agent
+  acts on now (syntax errors, new compile errors, removed or changed
+  declarations; additions as one line); at Stop it rebuilds the turn's
+  packages and refuses the stop if one does not compile. Session state
+  for the deltas: the user cache dir, `FACT_HOOK_STATE` overrides.
 - **After changing any Go declaration**, regenerate that package's projection
   (`fact project -w .` in this directory, likewise for `./project` and
   `./cmd/fact`) and read the pkg.fact diff as the impact report (SPEC §11.1).

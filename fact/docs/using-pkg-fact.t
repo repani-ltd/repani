@@ -114,9 +114,9 @@ fact project -o facts/github.com/shopspring/decimal/pkg.fact github.com/shopspri
 
 Wire it in three places:
 
-.item 1. Claude Code hook (agent sessions): a PostToolUse hook keeps every
-projection fresh as the agent edits, and feeds the projection diff back
-to the agent as the impact report of each edit. In .claude/settings.json:
+.item 1. Claude Code hooks (agent sessions): a PostToolUse hook keeps every
+projection fresh as the agent edits and feeds back what the edit changed,
+and a Stop hook checks the turn's work builds. In .claude/settings.json:
 
 .pre
 {
@@ -126,19 +126,35 @@ to the agent as the impact report of each edit. In .claude/settings.json:
         "matcher": "Edit|Write",
         "hooks": [{ "type": "command", "command": "fact hook" }]
       }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "fact hook" }] }
     ]
   }
 }
 .end
 
-fact hook reads the hook payload on stdin; it acts only when the edited
-file is a .go file in a package that carries a pkg.fact. It runs
-goimports on the edited file (formatting plus import fixing — test files
-included), regenerates the projection, and stays silent when the edit was
-declaration-neutral. If the package does not compile, the hook surfaces
-the compiler diagnostics in-session instead — the edit→build→read-errors
-loop collapses into the edit itself. It never blocks an edit; the CI
-gate catches any staleness later.
+fact hook reads the hook payload on stdin and dispatches on the event.
+After an edit it acts only when the edited file is a .go file in a
+package that carries a pkg.fact: it runs goimports on the file
+(formatting plus import fixing -- test files included), regenerates the
+projection, and reports what the agent should act on now, nothing else:
+a formatting rewrite (re-read before the next edit); syntax errors in
+the edited file; compile errors that are new since the last save, with
+the persisting ones as a count; and declarations removed or changed, as
+the projection diff. A diff that only adds declarations is one line,
+naming or counting them, because an addition breaks no caller -- which
+is what keeps a burst of new files quiet. A declaration-neutral edit
+says nothing. It never blocks an edit.
+
+At the end of the turn the same command, as the Stop hook, rebuilds
+every package the turn's saves touched, regenerates any projection left
+stale, and refuses the stop only when a package does not compile, with
+the diagnostics as the reason, so the agent hears "it does not build"
+once, at the moment it claims to be done, and never in the middle of
+writing it. The per-session state behind the deltas lives under the
+user cache directory (FACT_HOOK_STATE overrides the base) and is cleared
+at the stop. The CI gate catches any staleness that slips past both.
 
 .item 2. Pre-commit (or editor-on-save): regenerate the projections of the
 packages you touched, so pkg.fact travels in the same commit as the
