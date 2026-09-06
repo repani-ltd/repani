@@ -1,7 +1,16 @@
 // kvserve: ASCON-KV server.
 //
-//	kvserve --addr 127.0.0.1:8082 --data /opt/kvserve/data \
-//	        --register-key-file /opt/kvserve/register.key
+//	kvserve [serve] --addr 127.0.0.1:8082 --data /opt/kvserve/data \
+//	                --register-key-file /opt/kvserve/register.key
+//	kvserve gen-register-key
+//	kvserve help
+//
+// The serving verb is optional: flags alone serve, and so does an
+// explicit "serve". qcweb, the sibling daemon on the same host,
+// requires the verb in its unit file, and kvserve used to reject it,
+// so a unit copied between the two died at ExecStart with exit 2 --
+// visible only in the journal, and now (with Restart=always and a
+// start limit) ending in a service systemd gives up on.
 //
 // kvserve speaks plain HTTP on a loopback address; TLS belongs to a
 // fronting reverse proxy (see deploy/). Every frame is sealed, so
