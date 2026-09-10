@@ -9,14 +9,12 @@ import (
 )
 
 // The complete example from SPEC §12, non-canonical form.
-const specInput = `# ── server ──────────────────────────────────
-server.host: str = "0.0.0.0"
+const specInput = `server.host: str = "0.0.0.0"
 server.port: int = 8443
 server.tls.enabled: bool = true
 server.tls.cert: str = "/etc/certs/server.pem"
 server.timeout_read_ms: int = 5000
 
-# ── routes ──────────────────────────────────
 route:health.path: str = "/healthz"
 route:health.method: enum(get|post|put|delete) = get
 route:health.auth: ref(policy)? = none
@@ -26,11 +24,9 @@ route:transfer.method: enum(get|post|put|delete) = post
 route:transfer.auth: ref(policy)? = policy:maker
 route:transfer.pipeline: ref(pipeline) = pipeline:two_eyes
 
-# ── policies ────────────────────────────────
 policy:maker.mechanism: enum(jwt|mtls) = jwt
 policy:maker.roles: list(str) = ["maker"]
 
-# ── approval pipeline ───────────────────────
 pipeline:two_eyes.steps: list(ref(step)) = [step:make, step:check]
 pipeline:two_eyes.on_reject: enum(halt|rollback) = rollback
 
@@ -148,6 +144,9 @@ func TestErrors(t *testing.T) {
 		name, src, code string
 	}{
 		{"E001 not a fact line", "just some words\n", "E001"},
+		{"E001 comment line", "# a note\n", "E001"},
+		{"E001 indented comment line", "   # a note\n", "E001"},
+		{"E001 comment holding an equals sign", "# run with: fact validate f=1\n", "E001"},
 		{"E002 digit-first segment", `server.9lives.on: bool = true` + "\n", "E002"},
 		{"E002 illegal character", `server.tls-mode.on: bool = true` + "\n", "E002"},
 		{"E003 two markers", `route:a.step:b.x: int = 1` + "\n", "E003"},

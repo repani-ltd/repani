@@ -48,9 +48,10 @@ journal.
 
 Stream file rules:
 
-.item A stream file contains event facts only (ev:*), plus at most one
-header comment line in the stored form (the §11.1 pattern): # FACT stream.
-APPEND ONLY — past lines never change.
+.item A stream file contains event facts only (ev:*). It carries no header
+line: comments were removed from the grammar in v0.4 (SPEC §2.1), and the
+append-only warning this profile once put in one belongs beside the file, in
+the document that says what the stream is.
 Non-event singletons are forbidden in the stream file: they would sort after
 ev:* and break pure append. Stream metadata lives in the manifest (§5).
 .item The uniform kind is ev, never the event type: a type-as-kind scheme

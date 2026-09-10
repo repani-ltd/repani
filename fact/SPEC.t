@@ -1,4 +1,4 @@
-FACT — Format Specification v0.3
+FACT — Format Specification v0.4
 
 FACT is a line-oriented format for facts about systems, designed for AI agents rather than humans. A FACT file is an unordered set of lines, where each line is one complete, self-contained, typed fact. There is no nesting, no significant whitespace, no inter-line dependence, and no external schema: the file is the schema.
 
@@ -12,6 +12,8 @@ MIME type (provisional): text/x-fact
 
 Changes from v0.1: segments and enum symbols are now case-sensitive [a-zA-Z0-9_] (§3, §4.1) — required because projected identifiers (Go) are case-sensitive and case is semantic; primary-purpose reframing (§1); projection profile added (§11); storage and commit convention for projections (§11.1); validation scope fixed to one file per package for projections (§5, §6.2 — per-package files share singleton keys and must not be concatenated for validation); third-party projection convention (§11.5); external-reference boundary rule (§6.4); findings from a real Go extraction simulation incorporated (§12).
 
+Changes from v0.3: comment lines are removed from the grammar (§2.1, §8, §9, §13, §14, Appendix A). A line is now a fact line or a blank line; a line whose first non-space character is # is E001. The construct was not neutral -- canonical form has always required comments to be dropped (§8), so fact fmt -w silently deleted them, taking nine live lines of run instructions out of a working config in the repos that use this format, and one project's own documentation already told its authors not to use comments because the parser discards them. §8 could not be relaxed to preserve them without giving up byte-equality for equal fact sets, so the construct went instead: what a file says about itself is prose, and §7's content boundary already sends prose to a sibling document. Blank lines are unaffected (sorting loses no information). Version bumped rather than amended in place, since v0.3 files carrying comments are not v0.4 files. Non-normative authoring guidance added on choosing which dimension of data goes in a key prefix, an id, or a ref value (§3); the value claim of §1.1 reordered to put line-local validation ahead of greppability, with the evidence; a bulk boundary and admission test for a whole file added (§7); the row-format alternative and its one-way derived view recorded (Appendix A).
+
 Changes from v0.2: datetime added as a seventh base type (§4.1) — a strict RFC 3339 subset, UTC only, two unquoted literal forms (2026-07-20, 2026-09-01T09:30:00Z), both canonical as written; the type grammar grows to twenty-one shapes (§4.2, §13); JSON encoding maps datetime to string with the existing type-field disambiguation (§10); rejected design variants recorded (Appendix A).
 
 ---
@@ -20,7 +22,9 @@ Changes from v0.2: datetime added as a seventh base type (§4.1) — a strict RF
 
 ## 1.1 The purpose: configuration and data
 
-FACT is a format for the files a program reads and a person writes: a station's configuration, a squad, an event log, a ledger, a registry. What it asks of a file is what makes such files trustworthy: one fact per line, so a file is greppable and diffable line by line; a declared type on every value, so a reader never guesses; references that must resolve, so a misspelled name is an error at load rather than an empty value; and a canonical form, so two files with the same facts are the same bytes. The value against JSON is not expressiveness -- FACT has less -- but that every line stands alone and every mistake is reported with a line number.
+FACT is a format for the files a program reads and a person writes: a station's configuration, a squad, an event log, a ledger, a registry. What it asks of a file is what makes such files trustworthy, in the order the properties have proved to matter: a declared type on every value, so a mistake is caught on the line that made it and a reader never guesses; references that must resolve, so a misspelled name is an error at load rather than an empty value; duplicate keys refused, so nothing is silently overridden; one fact per line, so a file is greppable and diffable line by line; and a canonical form, so two files with the same facts are the same bytes. The value against JSON is not expressiveness -- FACT has less -- but that every line stands alone and every mistake is reported with a line number.
+
+Why validation leads that list, ahead of the grep property the format was sold on. The writer of a data file is now usually a generator that makes several mistakes per run and is repaired line by line, and the checks above are what make its mistakes local: seeded one at a time into a 1600-record agent-generated corpus, a duplicate record, an enum typo and a dangling ref were each caught with no schema, on their own line, while every other error in the file still reported (§9's no-cascading rule). A row format catches none of the three without an external schema, and a syntax error in a host-language table or a JSON document masks the whole file. Greppability is what makes the format pleasant to work in afterwards, and it is real -- a prefix grep returns a whole entity with every field labeled, and canonical order makes that block contiguous -- but it is one-dimensional: a hit is a complete fact, never a complete record, so a query over two fields at once costs a grep per conjunct and a join. That is the format's one standing cost, it falls on analysis rather than on lookup, and Appendix A records what was weighed against it.
 
 FACT began (2026-08) as a projection format for Go declarations, so that agents could answer navigation questions by grep instead of reading source, with a generator, a per-package pkg.fact, hooks and a freshness gate. That machinery was retired on 2026-09-06 after measurement: the projections were half the size of the source they described, touched half of all commits, and the one use agents made of them, an index of signatures, is served by go doc -u -short from source, synchronously and without a file. The evidence and the argument are in §12; the profile that section 11 defined is recorded there as retired. What survives is this format, whose properties were never about Go.
 
@@ -38,8 +42,8 @@ A config file is the special case where there is no source to project — the fa
 .item Line separator: \n (LF). A trailing newline at end of file is required in canonical form.
 .item A file is a sequence of lines. Each line is exactly one of:
 .item -- a fact line
-.item -- a comment line: first non-space character is #; the entire line is ignored
 .item -- a blank line: only whitespace; ignored, carries no semantics (grouping by blank lines is purely cosmetic)
+.item There are no comments (removed in v0.4). A line whose first non-space character is # is E001, with a message naming the removal. Nothing in a FACT file is addressed to a reader rather than a parser: what a file says about itself -- what consumes it, how to run it, why a key holds the value it does -- is prose, and prose lives in a sibling document under the content boundary of §7. The construct was removed rather than kept because canonical form drops comments (§8), so the format's own formatter destroyed them; keeping them would have cost byte-equality for equal fact sets, which is the property §8 exists for.
 
 ## 2.2 Fact Line
 
@@ -70,6 +74,12 @@ segment(.segment)*
 .item Two or more instance markers in one key → error. (This enforces "no nested records" at the key level. Nested identity is expressed by compound ids or refs, e.g. method:Service_Settle, never by nested markers.)
 .item The marker may appear at any segment position; validators MUST require that a given kind:id marker appears under one key prefix — the same segments before it, hence the same position — across all facts of one instance. The subtree rooted at the marker is the instance; an instance has one root, not one root per namespace.
 .item Dots are namespacing, not structure. server.tls.enabled does not imply an object server.tls exists. There is no tree; there is only the set of lines.
+
+Choosing the dimension (non-normative authoring guidance). Data has more dimensions than a key has places to put them, and the one-marker rule forces a choice: a squad's players can be nested under the club by prefix (liverpool.player:dalglish), folded into the id (player:t26_01), or related by a value (player:dalglish.team: ref(team) = team:liverpool). All three are greppable in one pass — a prefix grep, an id-prefix grep, and a value grep respectively — so grep does not decide it. What decides it is which dimension changes:
+
+.item Put the FROZEN dimension in the prefix or the id. The marker-prefix rule above welds an instance to its prefix, so a player nested under a club cannot change clubs without rewriting every line of the instance; an id-folded dimension (player:t26_01) is a string, so it is neither checked, refable, nor renameable. Both are right only for a dimension that will not move -- a historical XI, a package in a projection.
+.item Put the MUTABLE dimension in a ref value. A transfer is then one line, a misspelled club is E008 rather than a silently unaffiliated player, and the club becomes an instance with facts of its own. Prefer ref(kind) over a bare str here: the value is a marker, so the grep for it is exact ('= team:liverpool') where a string would collide with any nickname or city field holding the same word.
+.item State a membership ONCE. Both directions are one grep -- a ref value is the same token as the marker, so grepping player:dalglish finds his own facts and any list naming him -- so the second copy buys nothing and cannot be checked: no validator can see a team's squad list disagreeing with the players' own team facts. Order decides the side: a set that changes lives on the member (.team, one-line edits), an ordered membership lives on the container as list(ref(member)), which §6.3 makes one atomic fact.
 
 Examples:
 
@@ -189,6 +199,8 @@ list(T) | [1, 2, 3], ["Balance", "Post"], [type:Approver], []
 
 The content boundary. Prose and blobs are not facts. A str value holds a short, single-conceptual-unit string (a path, a name, a signature, a one-line message); multi-paragraph prose, documents, and binary content live outside the fact set — as a sibling file, an archive member, or a store entry — and the fact set references or is paired with them by name. This is the same division of labor the projection profile makes for function bodies (§1.1, §11.3: declarations are facts, bodies are computation, file is the handoff): structured data are facts, content is content, and the boundary is a handoff, not an encoding problem. Forcing prose into an escaped one-line str is legal but wrong for anything a human diffs or edits; adding multi-line values to the grammar is prohibited (Appendix A).
 
+The bulk boundary, and the admission test for a FILE. The same division applies in the other direction, and it is a test a generator must pass before it emits: a fact set is admitted when its lines are read, grepped or edited one at a time, and refused when it is bulk observations that only ever move as a block. Every property this format charges for is per-line -- the annotation as edit domain, the line-local error, the single-line edit, the prefix grep -- so a file nobody queries by line pays the whole tax and collects nothing. The cost is measurable: across the repos that use FACT, 98.4% of all fact lines (1,138,462 of 1,156,425) are three generated bulk files, one of them a character-model background distribution of 1,058,994 facts and 36 MB whose bytes are 80% key and type framing and which costs 1.9 s to validate on every load, is never grepped and has never had a line edited. By file count the format is used as intended; by line count it is not, and both are true of the same tree. Such data is an array, and an array belongs in the handoff this section already defines -- a sibling file in a bulk format, referenced by name -- exactly as a function body does (§11.3) and prose does above. The admission test for vocabulary (§4.3) asks whether a type's semantics are closed; the admission test for a file asks whether anything will ever read one of its lines alone.
+
 ---
 
 # 8. Canonical Form
@@ -196,7 +208,7 @@ The content boundary. Prose and blobs are not facts. A str value holds a short, 
 Serializers MUST emit canonical form; validators SHOULD offer a canonical-form check.
 
 .item 1. Fact lines sorted bytewise ascending by full line content. (Case-sensitive keys sort bytewise: uppercase before lowercase. This is fine — canonical order is for determinism, not aesthetics.)
-.item 2. No comment lines, no blank lines in canonical output.
+.item 2. No blank lines in canonical output. (Through v0.3 this item also dropped comment lines, which is why they were removed from the grammar; see §2.1.)
 .item 3. Canonical spacing per §2.2; canonical list separator ", ".
 .item 4. UTF-8, LF, exactly one trailing newline.
 
@@ -206,7 +218,7 @@ Consequences: independently materialized equal fact sets are byte-identical; equ
 
 # 9. Validation Algorithm
 
-.item 1. Lex each line independently (fact/comment/blank; split fact into key, type, value). Failures are per-line with line numbers; no cascading errors — a property of the stateless grammar.
+.item 1. Lex each line independently (fact or blank; split fact into key, type, value; a # line is E001, §2.1). Failures are per-line with line numbers; no cascading errors — a property of the stateless grammar.
 .item 2. Key check: segment rules ([a-zA-Z0-9_], letter-first); at most one marker; consistent marker prefix per instance.
 .item 3. Type check: the expression is one of the twenty-one legal shapes.
 .item 4. Value check: value inhabits the type's domain (enum symbol listed; none only under ?; list elements inhabit the base type; JSON scalar syntax valid; datetime form, calendar validity, and Z per §4.1).
@@ -279,9 +291,9 @@ Measured across every committed projection in four real modules (typesetting lib
 
 .pre
 file          = { line } ;
-line          = fact_line | comment_line | blank_line ;
-comment_line  = ws , "#" , { any_char } , eol ;
+line          = fact_line | blank_line ;
 blank_line    = ws , eol ;
+                (* no comment_line: removed in v0.4, §2.1 *)
 
 fact_line     = key , ws , ":" , ws , type , ws , "=" , ws , value , ws , eol ;
 
@@ -329,7 +341,7 @@ No recursive production exists: type does not reference itself, list elements ar
 
 Code — Condition — Example message:
 
-.item E001 — Line is not a fact/comment/blank — line 12: cannot lex line
+.item E001 — Line is neither a fact nor blank — line 12: cannot lex line / line 1: cannot lex line: comments are not part of the format (removed in v0.4) — what a file says about itself belongs in a sibling document
 .item E002 — Invalid key segment — line 3: segment "9lives" must start with a letter / line 4: segment "tls-mode" contains characters outside [a-zA-Z0-9_]
 .item E003 — Multiple instance markers — line 7: key contains two markers ("pkg:transfer" and "type:Service")
 .item E004 — Illegal type expression — line 9: "list(list(int))" is not one of the twenty-one legal type shapes (wrappers do not compose) / line 10: "enum(none|some)": none is reserved and cannot be an enum symbol
@@ -377,6 +389,7 @@ Drop bool | Rejected (kept as sugar) | Files exist millions of times, the spec o
 Nested wrappers | Adopted ban | Type grammar finite (21 shapes), non-recursive all the way down
 Canonical form | Adopted | Hash equality; clean diffs; projection-diff-as-impact-analysis
 Last-wins duplicates | Rejected | Silent override hides bugs from agents
+Comment lines | Removed (v0.4) | Admitted in v0.1 without a consumer, and never coherent with §8: canonical form drops comments, so fact fmt -w silently deleted them -- nine live lines of run instructions in a working config, and 264 lines across 26 of the 48 fact files in these repos. The format's own formatter destroying a construct is worse than not having it, and one project's documentation already told authors not to use comments because the parser discards them. §8 could not be relaxed to keep them (equal fact sets must produce equal bytes), and the alternative of making fmt -w refuse on a commented file would leave the construct as a permanent exception to canonical form. Prose about a file is prose: §7's boundary sends it to a sibling document, and a fact file now holds nothing addressed to a reader rather than a parser. Blank lines stay -- sorting them away loses no information
 Multi-line string values (heredocs, continuations) | Rejected | Every load-bearing property hangs on one line = one fact: bytewise line sorting for canonical form, stateless line-local lexing, grep hits being complete facts, the single-line edit primitive. Prose crosses the content boundary (§7) as a sibling file/archive member, never as grammar
 Defaults by key absence | Rejected | Absent vs asserted-none = investigate vs trust
 Lowercase-only keys (v0.1) | Reversed in v0.2 | Projected identifiers are case-sensitive and case is semantic (Go exportedness); an actual extractor violated the rule on first run
@@ -386,6 +399,7 @@ Line numbers in the source handoff (loc = "file.go:line") | Reversed | Line numb
 date and datetime as two base types | Rejected (v0.3) | One datetime annotation whose domain spans both precisions is the annotation-as-edit-domain rule at work; two types would force every key author to predict whether precision will ever be needed
 Full-date normalizes to midnight (2026-07-20 → 2026-07-20T00:00:00Z) | Rejected (v0.3) | Meaning-changing, unlike float normalization (5.0→5): a due date is a day, not an instant. Both forms are canonical as written
 Datetime offsets, local date-times, fractional seconds | Rejected (v0.3) | Offsets and local forms import tzdata and political time — the open semantics that keep datetime out of every minimal format; a Z-less token parses as local time across ecosystems, so the Z must travel with the value; fractions would break bytewise-order = chronological-order
+Row formats for record data (TSV with a typed header and a validating CLI; a table of structs in the host language) | Rejected (v0.3, on field evidence) | Cheaper per record and better on record-shaped greps — a hit is a whole row, where a FACT hit is one field of one and a conjunctive query is a join. Rejected on error locality, measured on a 1600-record agent-generated corpus (nyx): the writer of record data is a lossy generator repaired line by line, and per-line self-description is what makes its mistakes detectable where they were made. Seeded one at a time, fact validate caught a duplicate record (E007), an enum typo (E005) and a dangling ref (E008) with no schema; a row format catches none of the three without an external schema, which §4.3 and this ledger already reject, and its header states the contract at a distance from the line being written. Blast radius decides it: one unterminated string in the equivalent Go table masked every other error in the file, and a JSON syntax error does the same, where §9's no-cascading rule reports the bad line and keeps reporting. TSV additionally cannot express asserted absence (the empty cell is both none and forgotten), has no escape standard (a generated tab or newline silently reshapes a row, where str is JSON-quoted), and cannot grow a field without an encoded list inside a column or a variable width. The one check a row format wins is arity — a short row — and that is the class fact validate misses; the schema-free answer is a lint, not a schema (W003, parked in TASKS.t). Rejected as an authoring format, a row form is nonetheless admitted ONE-WAY as a derived view (fact rows, parked with W003): the conjunctive query is the one place a row form is genuinely cheaper, awk and cut are everywhere jq is not, and a rendered view carries no authority — nothing reads it back, so it is a render of the fact set the way pica text is a render of a document, and an importer is prohibited for every reason in this row
 Package-qualified keys (one leading pkg: marker; module-relative mangled ids; module = validation set) | Deferred | Would make per-package files concatenatable, enable module-wide validation, and make cross-package refs expressible (incl. config→code refs, and qualified ref values) — at a per-line token tax on every projection. Unneeded by interactive agents: grep's printed file path already qualifies (§1.1), and the compiler plus freshness gate already guarantee cross-package integrity (§6.2). Adopt if/when fine-tune training-corpus generation begins — a format baked into model weights cannot be changed afterwards, and that is the one consumer for whom self-contained module-wide lines, single-artifact module diffs, and a millisecond module-wide validator (hallucination gate) pay for the tax
 .end
 

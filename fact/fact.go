@@ -90,7 +90,11 @@ func Parse(src []byte) ([]Fact, []Error) {
 			continue
 		}
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			errs = append(errs, Error{n, "E001", `cannot lex line: comments are not part of the format (removed in v0.4) — what a file says about itself belongs in a sibling document`})
 			continue
 		}
 		f, err := parseFact(line, n)

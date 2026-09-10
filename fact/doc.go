@@ -12,7 +12,13 @@ rationale, findings and grammar is SPEC.t in this directory.
 # The line
 
 	key: type = value        one fact
-	# comment                dropped; blank lines dropped
+	                         blank lines dropped
+
+There are no comments: a line starting with # is E001 (removed in
+v0.4, because canonical form dropped them and fmt -w therefore
+deleted them). What a file says about itself -- what consumes it,
+how to run it, why a key holds the value it does -- goes in a
+sibling document, like any other prose.
 
 Example:
 
@@ -33,6 +39,23 @@ kind. Zero markers = the singleton namespace. A given instance
 keeps one key prefix across all its facts. Nested records do not
 exist; compound ids or refs express nested identity
 (method:Service_Settle, never two markers).
+
+Choosing where a dimension goes. One marker per key means a squad's
+players are nested by prefix (liverpool.player:dalglish), folded into
+the id (player:t26_01), or related by a value (player:dalglish.team:
+ref(team) = team:liverpool). All three take one grep, so grep does not
+decide it; what changes does. The frozen dimension goes in the prefix
+or the id -- an instance keeps one prefix, so a nested player cannot
+change clubs without rewriting every line of the instance, and a folded
+id is a string that is neither checked nor renameable. The mutable
+dimension goes in a ref value: a transfer is one line, a misspelled
+club is E008 rather than a silently unaffiliated player, and the grep
+is exact ('= team:liverpool') where a bare str would collide with any
+field holding the same word. State a membership once, on one side
+only -- both directions are one grep, since a ref value is the same
+token as the marker, and no validator can see two copies disagree.
+Order decides the side: a set that changes lives on the member, an
+ordered membership lives on the container as list(ref(member)).
 
 # Types
 
@@ -70,7 +93,7 @@ Canonical files make diffs the delta of meaning.
 
 # Validation errors
 
-	E001 line is not a fact/comment/blank (or CR line ending)
+	E001 line is neither a fact nor blank (a # line, or CR endings)
 	E002 invalid key segment
 	E003 more than one instance marker in a key
 	E004 illegal type expression
@@ -105,5 +128,16 @@ before shipping: fact validate FILE reports every error with its
 line; a program loads through Load (Parse + Validate) and binds
 with Unmarshal, so a misspelled reference is an error at load,
 never an empty value.
+
+What does NOT belong in a fact file. Every property above is
+per-line -- the type as the domain of legal edits, the error on
+the line that caused it, the one-line edit, the prefix grep --
+so a file whose lines are never read, grepped or edited one at
+a time pays for all of it and collects nothing. Bulk
+observations that only move as a block are an array, not a
+fact set: keep them in a bulk format as a sibling file and
+reference it by name, the same handoff prose and blobs take. A
+generator about to emit a million facts should ask first
+whether anything will ever read one of its lines alone.
 */
 package fact
