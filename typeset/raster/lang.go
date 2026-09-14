@@ -64,12 +64,11 @@ type compiler struct {
 	n      int // the current source line
 
 	panel  int
-	margin int
 	pen    Ink
-	curRow int // the cursor: the next run lands here, at the margin
+	curRow int // the cursor: the next run lands here, at column 0
 
 	penRow, penCol int  // just past the last run ("+" continues there)
-	atCol          int  // the column of a pending .at, else the margin
+	atCol          int  // the column of a pending .at or .col, else 0
 	colRow         int  // the row of a pending .col (the last run's), else -1
 	havePen        bool // false after .panel and .at
 
@@ -139,7 +138,7 @@ func (c *compiler) line(raw string) error {
 }
 
 // commands is the closed set; an alias may not take one of its names.
-var commands = map[string]bool{"panel": true, "margin": true, "at": true, "col": true, "fg": true, "bg": true, "fill": true, "rem": true, "def": true, "enddef": true}
+var commands = map[string]bool{"panel": true, "at": true, "col": true, "fg": true, "bg": true, "fill": true, "rem": true, "def": true, "enddef": true}
 
 // define begins collecting an alias: ".def NAME PARAM...".
 func (c *compiler) define(raw string) error {
@@ -280,7 +279,7 @@ func (c *compiler) command(raw string) error {
 			return fmt.Errorf("raster: panel %d out of range 0..%d", n[0], g.Panels-1)
 		}
 		c.panel = n[0]
-		c.curRow, c.atCol, c.colRow = 0, c.margin, -1
+		c.curRow, c.atCol, c.colRow = 0, 0, -1
 		c.havePen = false
 		return nil
 	case ".col":
@@ -295,21 +294,12 @@ func (c *compiler) command(raw string) error {
 		}
 		c.colRow, c.atCol = c.penRow, n[0]
 		return nil
-	case ".margin":
-		if _, err := a.ints(n[:], 1, 1); err != nil {
-			return err
-		}
-		if n[0] < 0 || n[0] >= g.Cols {
-			return fmt.Errorf("raster: margin %d outside columns 0..%d", n[0], g.Cols-1)
-		}
-		c.margin, c.atCol = n[0], n[0]
-		return nil
 	case ".at":
 		have, err := a.ints(n[:], 1, 2)
 		if err != nil {
 			return err
 		}
-		col := c.margin
+		col := 0
 		if have == 2 {
 			col = n[1]
 		}
@@ -355,7 +345,7 @@ func (c *compiler) command(raw string) error {
 		}
 		return c.fill(row, col, rows, cols)
 	}
-	return fmt.Errorf("raster: unknown command %s (.panel .margin .at .col .fg .bg .fill .rem .def .enddef)", cmd)
+	return fmt.Errorf("raster: unknown command %s (.panel .at .col .fg .bg .fill .rem .def .enddef)", cmd)
 }
 
 // paint places a run's cells at (row, col) in the pen's ink: leading
@@ -394,7 +384,7 @@ func (c *compiler) content(raw string) error {
 	if onLastRow {
 		row = c.colRow
 	}
-	c.atCol, c.colRow = c.margin, -1
+	c.atCol, c.colRow = 0, -1
 	if raw == "" {
 		if !onLastRow {
 			c.curRow++ // an empty line, or one of only spaces, flows one row

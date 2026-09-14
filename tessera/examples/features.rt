@@ -44,19 +44,17 @@ value on the label's row
    and paint nothing, so this
      staircase keeps its ground.
 .at 16
-.margin 4
 .fg yellow
-A margin of four: every
+    Four spaces in: the code
 .fg default
-line starts here, colored or
-not, until .margin changes it.
-.margin 0
+    takes the blank before the
+text, and column 0 returns.
 .at 20 10
 .at 20 6
 .at 20 2
 One-shot .at: this run is at
 column 2 and the next is back at
-the margin.
+column 0.
 .fg white
 .bg blue
 .fill 27
@@ -178,8 +176,7 @@ An empty line flows one row:
 this is row 18, after the gap.
 .rem A comment paints nothing, and
 .rem neither does this one.
-.at 21
-.margin 2
+.at 21 2
 .fg yellow
 .bg red
 Two attributes at column 2:
@@ -187,7 +184,6 @@ Two attributes at column 2:
 .bg default
 both codes sit in the two
 cells before the text.
-.margin 0
 .fg white
 .bg blue
 .fill 27

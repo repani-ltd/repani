@@ -973,8 +973,10 @@ and the links. Package pica stays stdlib-plus-primitives; cell
 imports the raster primitive, as press imports pdf.
 
 .item Raster's language gains nothing. It is a cell painter --
-runs at a cursor in an ink, no fill mode -- and .margin, .at and
-the cursor's advance already place a column of pre-wrapped lines.
+runs at a cursor in an ink, no fill mode -- and .at with a column
+already places each pre-wrapped line (2026-09-14: .margin, a
+persistent column, was removed as authoring state; the writer
+places every line by its own .at).
 A .width in raster would be a second, weaker pica inside a
 primitive; .cols in the document is consumed as the default
 number of columns per panel, and .width is consumed outright, as

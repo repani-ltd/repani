@@ -69,7 +69,7 @@ func TestGeometryIsAParameter(t *testing.T) {
 		{".at 3\n", "outside rows 0..2, cols 0..39"},
 		{"\n\n\nx\n", "below row 2"},
 		{".fill 0 0 1 41\n", "outside the panel"},
-		{".margin 40\n", "outside columns 0..39"},
+		{".margin 2\n", "unknown command .margin"},
 	} {
 		if _, err := Compile(g, tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
@@ -178,27 +178,27 @@ func TestFill(t *testing.T) {
 	}
 }
 
-func TestMarginAndAt(t *testing.T) {
-	p := compile(t, ".margin 2\n.fg yellow\nHEAD\n.fg default\nbody\n.at 5 10\nfar\nback\n")
+func TestAt(t *testing.T) {
+	p := compile(t, ".fg yellow\n  HEAD\n.fg default\nbody\n.at 5 10\nfar\nback\n")
 	c := Decode(p)
-	if c.Row(0, 0)[2].Glyph != 'H' || c.Row(0, 0)[2].FG != 3 || c.Row(0, 1)[2].Glyph != 'b' {
-		t.Fatal("margin 2 not honoured")
+	if c.Row(0, 0)[2].Glyph != 'H' || c.Row(0, 0)[2].FG != 3 || c.Row(0, 1)[0].Glyph != 'b' {
+		t.Fatal("leading spaces or the flow to column 0 not honoured")
 	}
-	if c.Row(0, 5)[10].Glyph != 'f' || c.Row(0, 6)[2].Glyph != 'b' {
-		t.Fatal(".at is not one-shot, or does not return to the margin")
+	if c.Row(0, 5)[10].Glyph != 'f' || c.Row(0, 6)[0].Glyph != 'b' {
+		t.Fatal(".at is not one-shot, or does not return to column 0")
 	}
-	// .panel moves only the cursor: pen and margin persist.
-	p = compile(t, ".margin 1\n.fg red\n.panel 1\nX\n")
-	if x := Decode(p).Row(1, 0)[1]; x.Glyph != 'X' || x.FG != 1 {
+	// .panel moves only the cursor: the pen persists.
+	p = compile(t, ".fg red\n.at 3 1\n.panel 1\nX\n")
+	if x := Decode(p).Row(1, 0)[0]; x.Glyph != 'X' || x.FG != 1 {
 		t.Fatalf("after .panel: %+v", x)
 	}
-	// The blank line flows a row and returns to the margin.
+	// The blank line flows a row and returns to column 0.
 	p = compile(t, ".at 0 5\n\nY\n")
 	if Decode(p).Row(0, 1)[0].Glyph != 'Y' {
 		t.Fatal("blank line after .at")
 	}
 	// .col places on the row of the last run and leaves the cursor
-	// alone: a label at the margin, its value at column 6, the next
+	// alone: a label at column 0, its value at column 6, the next
 	// line below both.
 	p = compile(t, ".fg cyan\nWIND\n.fg\n.col 6\nNW 6 kt\nnext\n.col 10\nmore\n")
 	c = Decode(p)

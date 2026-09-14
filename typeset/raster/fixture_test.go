@@ -42,7 +42,7 @@ var fixtureSources = []struct {
 	{"fills", Geometry{40, 6, 1}, ".bg blue\n.fill 0\n.fg white\n.at 0 2\nTITLE\n.fg default\n.bg default\n.bg red\n.fill 2 10 2 8\n.bg green\n.fill 4 0 1 39\n.bg red\n.fg yellow\n.at 2 13\nQ\n"},
 	{"links", Geometry{40, 4, 1}, "Tap [close] or [tide tables].\n[] [x\n.fg red\n[ALERT] now\n.fg default\nno]link[\n"},
 	{"repertoire", Geometry{40, 8, 1}, "─│ ←↑→↓ ░▒▓█ °±×÷•·\n€£ ☀☁☂☾❄↯⚠ ‘’“”–— ☺☹♥★✓✗ ●○\nαβγδεζηθικλμνξοπρςστυφχψω\nάέήίόύώϊϋΐΰ\nΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ\n«…» ― <&>\"'\n"},
-	{"panels and margin", Geometry{20, 3, 2}, ".margin 2\n.fg green\nGO\n.panel 1\nstill green\n.at 2 5\nfar\n"},
+	{"panels", Geometry{20, 3, 2}, "  GO\n.fg green\n.at 2 5\n.panel 1\nstill green\n.at 2 5\nfar\n"},
 }
 
 func buildFixture(t *testing.T) fixture {

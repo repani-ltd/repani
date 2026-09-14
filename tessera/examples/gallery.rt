@@ -192,17 +192,15 @@ W ←  ░░░░▓█▓░░░░ → E
 .fg yellow
           S
 .fg cyan
-.margin 22
 .at 3
-    ▓
-   ▓▓▓
-   ░▓░
-    ▓
- ▓▓ ▓ ▓▓
- ▓▓ ▓ ▓▓
-  ▓▓▓▓▓
-   ▓▓▓
-.margin 0
+                          ▓
+                         ▓▓▓
+                         ░▓░
+                          ▓
+                       ▓▓ ▓ ▓▓
+                       ▓▓ ▓ ▓▓
+                        ▓▓▓▓▓
+                         ▓▓▓
 .fg default
 .at 12
  Wind rose and anchor in shades

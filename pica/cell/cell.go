@@ -116,7 +116,6 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 
 	var src strings.Builder
 	say := func(format string, args ...any) { fmt.Fprintf(&src, format+"\n", args...) }
-	say(".margin %d", margin)
 	if doc.Title != "" {
 		// Centered over the columns; a title needs two blank cells
 		// before it for its codes, a byline none.
@@ -138,7 +137,7 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 			row++
 		}
 		row++
-		say(".at %d", row)
+		say(".at %d %d", row, margin)
 		say("%s", strings.Repeat("─", span))
 	}
 	depth := make([]int, len(cols))
@@ -155,8 +154,6 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 		if k == 0 && panel > 0 {
 			say(".panel %d", panel)
 		}
-		say(".margin %d", start)
-		say(".at %d", row)
 		for _, ln := range col {
 			emit(say, ln, row, start)
 			row++
@@ -190,10 +187,10 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 				if k == 1 {
 					say(".panel %d", panel)
 				}
-				say(".margin %d", margin+k*(colW+gutter)-gutter+gutter/2)
 				say(".at %d", top)
-				for i := 0; i < d; i++ {
-					say("│")
+				rule := strings.Repeat(" ", margin+k*(colW+gutter)-gutter+gutter/2) + "│"
+				for range d {
+					say("%s", rule)
 				}
 			}
 		}
@@ -221,18 +218,18 @@ type span struct {
 }
 
 // emit writes one line at (row, start): a whole-row alias, or the
-// text in default ink and then its spans. Content that would lex as
-// a command or a continuation is peeled one leading rune at a time,
-// each painted alone, and the rest placed after it with .col.
+// text in default ink and then its spans. Raster carries no
+// position from line to line, so every line is placed by its own
+// .at. Content that would lex as a command or a continuation is
+// peeled one leading rune at a time, each painted alone, and the
+// rest placed after it with .col.
 func emit(say func(string, ...any), ln line, row, start int) {
 	if ln.alias != "" {
-		lead := leadSpaces(ln.text)
-		if lead > 0 {
-			say(".at %d %d", row, start+lead)
-		}
+		say(".at %d %d", row, start+leadSpaces(ln.text))
 		say(".%s %s", ln.alias, strings.TrimSpace(ln.text))
 		return
 	}
+	say(".at %d %d", row, start)
 	text := ln.text
 	off := 0
 	for misparsed(text) {

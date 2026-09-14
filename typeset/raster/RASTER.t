@@ -169,14 +169,13 @@ The commands:
 .pre
     .panel N        switch to panel N (0..P-1); the page starts in
                     panel 0, at row 0
-    .margin C       the column where lines start (default 0); persists
-    .at R [C]       the next run lands at row R, column C (default:
-                    the margin); one-shot
+    .at R [C]       the next run lands at row R, column C (default
+                    0); one-shot
     .fg [NAME]      the pen's foreground; persists until changed;
                     bare, the default
     .bg [NAME]      the pen's background, likewise
     content         one run at the cursor in the pen's ink; the
-                    cursor then moves to the next row, at the margin
+                    cursor then moves to the next row, at column 0
     + content       continue on the row of the last run, where it
                     ended; the run is everything after the "+"
     .col C          the next run lands at column C of the row of the
@@ -204,8 +203,10 @@ leading spaces; interior spaces are painted. An empty line, or
 one of only spaces, moves the cursor one row and paints nothing.
 .item A run that overflows its row, a cursor below the last row,
 and a rune outside the repertoire are errors.
-.item The pen and the margin are the author's: nothing resets
-them, .panel included, which moves only the cursor.
+.item The pen is the author's: nothing resets it, .panel
+included, which moves only the cursor. Position is never
+carried: a line lands where its own leading spaces, or the .at
+or .col just before it, say, else at column 0.
 .item Painting is by cell, in source order, later over earlier;
 a fill clears what it covers. The bytes are encoded from the
 finished canvas, so the order of the source never changes a
