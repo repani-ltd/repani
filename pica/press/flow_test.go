@@ -227,12 +227,6 @@ func TestFlow_MultiLineRowsAreAtomic(t *testing.T) {
 	cols := flow(blocks, fixedCap(5))
 	checkCols(t, cols, fixedCap(5))
 	for i, col := range cols {
-		for _, ln := range col {
-			if strings.HasSuffix(ln.text, "a") {
-				// Row start: its second line must be adjacent.
-				continue
-			}
-		}
 		if len(col) == 0 {
 			t.Fatalf("empty column %d", i)
 		}

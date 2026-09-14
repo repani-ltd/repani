@@ -22,8 +22,8 @@ import (
 // glyph, one to one, and the subset holds every glyph a page can
 // show, blanks first. Regular is what HTMLDocument embeds; Bold and
 // Italic are here for a renderer that says hierarchy with weight.
-// The subsets are made with pyftsubset --layout-features=''
-// --no-hinting, about 12K a face.
+// The subsets are made with pyftsubset, layout features emptied and
+// hinting dropped, about 12K a face.
 //
 //go:embed fonts/*.woff2
 var fontFiles embed.FS

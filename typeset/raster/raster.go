@@ -84,17 +84,3 @@ func (s Ink) apply(b byte) Ink {
 	}
 	return s
 }
-
-// codes returns the ink codes that take the state from have to want:
-// none, one, or two bytes, background first, so that a bar whose text
-// is also recolored starts whole at its first cell.
-func codes(have, want Ink) []byte {
-	var out []byte
-	if have.BG != want.BG {
-		out = append(out, InkBG+want.BG)
-	}
-	if have.FG != want.FG {
-		out = append(out, InkFG+want.FG)
-	}
-	return out
-}

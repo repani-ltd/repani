@@ -127,7 +127,6 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 				col = least
 			}
 			say(".at %d %d", row, col)
-			return
 		}
 		row := 0
 		center(row, doc.Title, 2)
