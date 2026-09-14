@@ -10,13 +10,13 @@ GALLERY · ΕΙΚΟΝΕΣ · 2/4
 .at 2
 .fg yellow
 .bg default
-                           ☀
+                           ●
 .fg white
-       ☁ ☁                 
+       ▒ ▒                 
 .fg default
-                ☁            ☁
+                ▒            ▒
 .fg cyan
-        ☁            ───
+        ▒            ───
 .fg yellow
                      │▓│
 .fg red

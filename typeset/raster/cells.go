@@ -7,18 +7,15 @@ import "fmt"
 // presentation, so a row of cells is a row of columns in any
 // monospace renderer.
 
-// symbolRunes maps 0x01..0x10 (index 1..16) and, at index 0, 0x7F.
-var symbolRunes = [17]rune{
+// symbolRunes maps 0x01..0x19 (index 1..25) and, at index 0, 0x7F.
+var symbolRunes = [26]rune{
 	'€',      // 0x7F, stored at index 0
 	'─', '│', // 0x01..0x02 rules
 	'←', '↑', '→', '↓', // 0x03..0x06 arrows
 	'░', '▒', '▓', '█', // 0x07..0x0A blocks
 	'°', '±', '×', '÷', '•', '·', // 0x0B..0x10 symbols
+	'┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', // 0x11..0x19 junctions
 }
-
-// weatherRunes maps 0x90..0x96: sun, cloud, umbrella, moon, snowflake,
-// lightning, warning.
-var weatherRunes = [7]rune{'☀', '☁', '☂', '☾', '❄', '↯', '⚠'}
 
 // typoRunes maps 0x97..0x9C: the quotes and dashes text generators
 // emit by default.
@@ -27,6 +24,10 @@ var typoRunes = [6]rune{'‘', '’', '“', '”', '–', '—'}
 // markRunes maps 0x9D..0xA5: smile, sad, heart, star, check, cross,
 // full and empty status dots, pound.
 var markRunes = [9]rune{'☺', '☹', '♥', '★', '✓', '✗', '●', '○', '£'}
+
+// italianRunes maps 0xA6..0xB1: the accented letters of Italian,
+// capitals included, since Italian keeps the accent on a capital.
+var italianRunes = [12]rune{'à', 'è', 'é', 'ì', 'ò', 'ù', 'À', 'È', 'É', 'Ì', 'Ò', 'Ù'}
 
 // greekRunes maps 0xC0..0xFF: monotonic Greek and its punctuation.
 var greekRunes = [64]rune{
@@ -42,18 +43,18 @@ var greekRunes = [64]rune{
 // unassigned values render as a space.
 func CellRune(b byte) rune {
 	switch {
-	case b >= 0x01 && b <= 0x10:
+	case b >= 0x01 && b <= 0x19:
 		return symbolRunes[b]
 	case b >= 0x20 && b <= 0x7E:
 		return rune(b)
 	case b == 0x7F:
 		return symbolRunes[0]
-	case b >= 0x90 && b <= 0x96:
-		return weatherRunes[b-0x90]
 	case b >= 0x97 && b <= 0x9C:
 		return typoRunes[b-0x97]
 	case b >= 0x9D && b <= 0xA5:
 		return markRunes[b-0x9D]
+	case b >= 0xA6 && b <= 0xB1:
+		return italianRunes[b-0xA6]
 	case b >= 0xC0:
 		return greekRunes[b-0xC0]
 	default:
@@ -74,14 +75,14 @@ var runeToCell = func() map[rune]byte {
 			m[r] = byte(i)
 		}
 	}
-	for i, r := range weatherRunes {
-		m[r] = byte(0x90 + i)
-	}
 	for i, r := range typoRunes {
 		m[r] = byte(0x97 + i)
 	}
 	for i, r := range markRunes {
 		m[r] = byte(0x9D + i)
+	}
+	for i, r := range italianRunes {
+		m[r] = byte(0xA6 + i)
 	}
 	for i, r := range greekRunes {
 		m[r] = byte(0xC0 + i)

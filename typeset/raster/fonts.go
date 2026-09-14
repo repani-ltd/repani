@@ -6,24 +6,23 @@ import (
 	"fmt"
 )
 
-// The face the HTML renderer embeds: JuliaMono (SIL Open Font
-// License, fonts/OFL.txt), the one open monospace family found to
-// hold every glyph of the cell repertoire (2026-09-05: JetBrains
+// The face the HTML renderer embeds: JuliaMono Regular (SIL Open
+// Font License, fonts/OFL.txt), the one open monospace family found
+// to hold every glyph of the cell repertoire (2026-09-05: JetBrains
 // Mono, Fira Mono, Source Code Pro, Cascadia, Hack and Iosevka each
-// lack some of the weather set and the marks; DejaVu Sans Mono has
-// all but advances 0.602em). Its advance is 0.6em, so a cell is a
-// whole pixel at 15px and 20px. Each face is subset to the
-// repertoire -- the space included, since a blank cell is a glyph
-// too -- with every layout feature stripped, so a page draws the
-// same glyphs in every browser without a network and the browser
-// shapes nothing. Any glyph a subset lacked would be drawn from the
-// next face in the stack, whose advance differs by a hair, and
-// every cell of it would move the rest of the row: a cell is a
-// glyph, one to one, and the subset holds every glyph a page can
-// show, blanks first. Regular is what HTMLDocument embeds; Bold and
-// Italic are here for a renderer that says hierarchy with weight.
-// The subsets are made with pyftsubset, layout features emptied and
-// hinting dropped, about 12K a face.
+// lacked some of the marks; DejaVu Sans Mono has all but advances
+// 0.602em). Its advance is 0.6em, so a cell is a whole pixel at 15px
+// and 20px. The face is subset to the repertoire -- the space
+// included, since a blank cell is a glyph too -- with every layout
+// feature stripped, so a raster draws the same glyphs in every
+// browser without a network and the browser shapes nothing. Any
+// glyph the subset lacked would be drawn from the next face in the
+// stack, whose advance differs by a hair, and every cell of it would
+// move the rest of the row: a cell is a glyph, one to one, and the
+// subset holds every glyph a raster can show, blanks first. The
+// subset is made from pica/pdf/fonts/JuliaMono-Regular.ttf with
+// pyftsubset, layout features emptied and hinting dropped, about
+// 12K; regenerate it whenever the table changes.
 //
 //go:embed fonts/*.woff2
 var fontFiles embed.FS

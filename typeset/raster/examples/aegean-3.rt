@@ -40,11 +40,11 @@ HW 03:12  0.3   LW 09:48  0.1
 HW 15:36  0.4   LW 22:01  0.0
 .at 23
 .fg cyan
-☀
+SUN
 .fg default
 +  ↑06:58 ↓19:41
 .fg cyan
-+  ☾
++  MOON
 .fg default
 +  ↑18:20
 .fg white

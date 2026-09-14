@@ -34,11 +34,11 @@ GALLERY · ΕΙΚΟΝΕΣ · 3/4
 .at 4 16
  ▒▒▒▒▒▒▒
 .at 5 16
-   ☂ ☂
+   • •
 .at 6 16
-  ☂ ☂ ☂
+  • • •
 .at 7 16
-   ☂ ☂
+   • •
 .fg yellow
 .at 3 24
     ▓▓
@@ -55,7 +55,7 @@ GALLERY · ΕΙΚΟΝΕΣ · 3/4
  SUNNY   CLOUDY  RAIN    STORM
 .at 11
 .fg cyan
-   ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄ ❄
+   * * * * * * * * * * * * * * *
 .fg default
 .at 13
  Four icons on one row, one ink
@@ -76,5 +76,5 @@ GALLERY · ΕΙΚΟΝΕΣ · 3/4
 .bg blue
 .fill 27
 .at 27 2
-☀☁☂☾❄↯⚠ ☺☹♥★✓✗ ‘’“”–—
+┌┬┐├┼┤└┴┘ ☺☹♥★✓✗ ‘’“”–— àèéìòù
 

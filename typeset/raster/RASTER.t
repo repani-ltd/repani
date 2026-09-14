@@ -67,15 +67,16 @@ as a blank; the table grows by appending, never by reassigning.
     0x03..0x06  arrows       ← ↑ → ↓
     0x07..0x0A  blocks       ░ ▒ ▓ █
     0x0B..0x10  symbols      ° ± × ÷ • ·
-    0x11..0x1F  unassigned: render blank
+    0x11..0x19  junctions    ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼
+    0x1A..0x1F  unassigned: render blank
     0x20..0x7E  ASCII
     0x7F        €
-    0x80..0x8F  unassigned: render blank
-    0x90..0x96  weather      ☀ ☁ ☂ ☾ ❄ ↯ ⚠
+    0x80..0x96  unassigned: render blank
     0x97..0x9C  typographic  ‘ ’ “ ” – —
     0x9D..0xA2  marks        ☺ ☹ ♥ ★ ✓ ✗
     0xA3..0xA5  status, currency  ● ○ £
-    0xA6..0xBF  unassigned: render blank
+    0xA6..0xB1  Italian      à è é ì ò ù À È É Ì Ò Ù
+    0xB2..0xBF  unassigned: render blank
     0xC0..0xD8  Greek lowercase  α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π
                 ρ ς σ τ υ φ χ ψ ω
     0xD9..0xE3  accented        ά έ ή ί ό ύ ώ ϊ ϋ ΐ ΰ  (monotonic)
@@ -88,7 +89,13 @@ as a blank; the table grows by appending, never by reassigning.
 Every glyph is one column wide in a monospace renderer: its
 Unicode East Asian Width is not Wide, and it has text
 presentation by default. A glyph that fails this test is not
-admitted, whatever its demand, because a cell is a column.
+admitted, whatever its demand, because a cell is a column. Nor
+is a pictogram: a weather set was tried and withdrawn
+(2026-09-14), since a symbol drawn at x-height in a text face is
+a speck in a cell on every screen. A condition is a word or a
+code, a state is ● or ○ in an ink, and a picture is a mosaic.
+The table admits a language, not a glyph: Greek, English and
+Italian are in, and the room left holds about one more.
 
 Content is authored in UTF-8 and transcoded; the repertoire is
 the contract, and a rune outside it is an authoring error, never
@@ -305,10 +312,11 @@ flashing. Emphasis is ink; structure is a rule.
 
 # Parked designs, with their admission tests
 
-.item Mosaics. The 2×2 quadrant set (16 patterns) fits the
-unassigned range and would be the first append; the 2×3
-sextants do not fit. ADMISSION TEST: the first page that wants a
-chart or a logo.
+.item Mosaics. The 2×2 quadrant set (16 patterns) is exactly
+0x80..0x8F, held for it; the 2×3 sextants do not fit. Icons are
+mosaics: a sun or a cloud is two by two cells composed by the
+writer, never a glyph. ADMISSION TEST: the first raster that
+wants a chart, a logo or an icon.
 .item A second repertoire. The table is fixed, which is what lets
 every raster tool read every raster; a script beyond it needs a
 new format, not a parameter. ADMISSION TEST: the first raster

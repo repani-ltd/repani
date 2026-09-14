@@ -38,8 +38,8 @@ Vourkari     ▓▓▓▓▓░░░░░░░  5/12
 .fg cyan
 WEATHER · KAFIREAS
 .fg default
-☀ 28°C  N 5  sea moderate
-☾ 18:20  ☀ ↓19:41 ↑06:58
+28°C  N 5  sea moderate
+MOON ↑18:20  SUN ↑06:58 ↓19:41
 .at 23
 .fg red
 GALE WARNING

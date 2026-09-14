@@ -66,7 +66,7 @@ Vourkari | ▓▓▓▓▓░░░░░░░ | 5/12
 ## Weather · Kafireas
 
 .term Now
-☀ 28 °C, N 5, sea moderate
+28 °C, N 5, sea moderate
 .term Sun
 ↑ 06:58, ↓ 19:41
 .term Moon
