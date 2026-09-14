@@ -10,20 +10,18 @@ import (
 // carry the 1-based source line. Compilation is reproducible: the
 // same source yields the same raster.
 func Compile(src string) (*Raster, error) {
-	r := New()
-	k := compiler{r: r, colRow: -1}
+	c := compiler{r: New(), colRow: -1}
 	src = strings.TrimSuffix(src, "\n")
 	for n := 1; ; n++ {
 		raw, rest, more := strings.Cut(src, "\n")
-		k.n = n
-		if err := k.line(raw); err != nil {
+		if err := c.line(raw); err != nil {
 			return nil, fmt.Errorf("line %d: %w", n, err)
 		}
 		if !more {
-			if k.defining != nil {
-				return nil, fmt.Errorf("line %d: raster: .def %s without .enddef", n, k.defining.name)
+			if c.defining != nil {
+				return nil, fmt.Errorf("line %d: raster: .def %s without .enddef", n, c.defining.name)
 			}
-			return r, nil
+			return c.r, nil
 		}
 		src = rest
 	}
@@ -31,7 +29,6 @@ func Compile(src string) (*Raster, error) {
 
 type compiler struct {
 	r *Raster
-	n int // the current source line
 
 	pen    Ink
 	curRow int // the cursor: the next run lands here, at column 0
@@ -39,269 +36,91 @@ type compiler struct {
 	penRow, penCol int  // just past the last run ("+" continues there)
 	atCol          int  // the column of a pending .at or .col, else 0
 	colRow         int  // the row of a pending .col (the last run's), else -1
-	havePen        bool // false after .at
+	haveRun        bool // a run to attach to; false after .at
 
 	aliases  map[string]*alias // by name
 	defining *alias            // the .def being collected, else nil
 }
 
-// An alias is a named body of lines with one slot, $NAME (RASTER.t,
-// "Aliases"). The body is parsed when the definition closes: a
-// command line is kept as written, a content line is split into
-// literal text and the slot. A use fills the slot with its text as
-// content, never as source.
-type alias struct {
-	name string
-	ops  []aliasOp
-	slot bool // the body uses $NAME
-}
+// A line's kind (RASTER.t, "Authoring"): a command or alias use (a
+// dot and a lowercase letter), a continuation ("+ "), or content.
+type kind int
 
-// An aliasOp is one body line: a command (raw), or content or a
-// continuation as pieces, literal text and the slot.
-type aliasOp struct {
-	raw    string // a command line, else ""
-	cont   bool   // a "+ " continuation
-	pieces []piece
-}
+const (
+	kindContent kind = iota
+	kindCommand
+	kindContinuation
+)
 
-type piece struct {
-	text string
-	slot bool
-}
-
-func colorIndex(name string) (byte, error) {
-	for i, n := range ColorNames {
-		if n == name {
-			return byte(i), nil
-		}
+// lex classifies a line and splits it: a command's name (with its
+// dot) and the rest after one space; a continuation's run, which is
+// everything after the "+"; content whole.
+func lex(raw string) (k kind, name, rest string) {
+	switch {
+	case strings.HasPrefix(raw, "+ "):
+		return kindContinuation, "", raw[1:]
+	case len(raw) > 1 && raw[0] == '.' && raw[1] >= 'a' && raw[1] <= 'z':
+		name, rest, _ = strings.Cut(raw, " ")
+		return kindCommand, name, rest
+	default:
+		return kindContent, "", raw
 	}
-	return 0, fmt.Errorf("raster: unknown color %q (default red green yellow blue magenta cyan white)", name)
 }
+
+// commands is the closed set; an alias may not take one of its names.
+var commands = map[string]bool{".at": true, ".col": true, ".fg": true, ".bg": true, ".fill": true, ".rem": true, ".def": true, ".enddef": true}
 
 func (c *compiler) line(raw string) error {
 	if c.defining != nil {
-		if raw == ".enddef" {
-			a := c.defining
-			c.defining = nil
-			c.aliases[a.name] = a
-			return nil
-		}
 		return c.collect(raw)
 	}
-	switch {
-	case strings.HasPrefix(raw, "+ "):
-		return c.continuation(raw[1:])
-	case len(raw) > 1 && raw[0] == '.' && raw[1] >= 'a' && raw[1] <= 'z':
-		if a, ok := c.aliasOf(raw); ok {
-			return c.expand(a, raw)
+	k, name, rest := lex(raw)
+	switch k {
+	case kindContinuation:
+		return c.continuation(rest)
+	case kindCommand:
+		if a, ok := c.aliases[name[1:]]; ok {
+			return c.expand(a, rest)
 		}
-		return c.command(raw)
+		return c.command(name, rest)
 	default:
 		return c.content(raw)
 	}
 }
 
-// commands is the closed set; an alias may not take one of its names.
-var commands = map[string]bool{"at": true, "col": true, "fg": true, "bg": true, "fill": true, "rem": true, "def": true, "enddef": true}
-
-// define begins collecting an alias: ".def NAME".
-func (c *compiler) define(raw string) error {
-	fields := strings.Fields(raw)[1:]
-	if len(fields) != 1 {
-		return fmt.Errorf("raster: .def wants a name and nothing else")
-	}
-	name := fields[0]
-	if commands[name] {
-		return fmt.Errorf("raster: .def %s: a command's name", name)
-	}
-	for _, r := range name {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
-			return fmt.Errorf("raster: .def %s: names are letters, digits and _", name)
-		}
-	}
-	if c.aliases == nil {
-		c.aliases = map[string]*alias{}
-	}
-	if _, dup := c.aliases[name]; dup {
-		return fmt.Errorf("raster: .def %s: already defined", name)
-	}
-	c.defining = &alias{name: name}
-	return nil
-}
-
-// collect parses one body line of the alias being defined.
-func (c *compiler) collect(raw string) error {
-	a := c.defining
-	switch {
-	case strings.HasPrefix(raw, ".def ") || raw == ".def":
-		return fmt.Errorf("raster: .def inside .def %s", a.name)
-	case strings.HasPrefix(raw, "+ "):
-		pieces := a.split(raw[2:])
-		a.ops = append(a.ops, aliasOp{cont: true, pieces: pieces})
+func (c *compiler) command(name, rest string) error {
+	switch name {
+	case ".rem":
 		return nil
-	case len(raw) > 1 && raw[0] == '.' && raw[1] >= 'a' && raw[1] <= 'z':
-		if raw == ".rem" || strings.HasPrefix(raw, ".rem ") {
-			return nil
-		}
-		cmd, args, _ := strings.Cut(raw, " ")
-		if _, ok := c.aliases[cmd[1:]]; ok {
-			return fmt.Errorf("raster: .def %s: an alias inside an alias", a.name)
-		}
-		if !commands[cmd[1:]] {
-			return fmt.Errorf("raster: .def %s: unknown command %s", a.name, cmd)
-		}
-		if cmd == ".at" {
-			return fmt.Errorf("raster: .def %s: .at inside an alias (a body is relative)", a.name)
-		}
-		if cmd == ".fill" && strings.TrimSpace(args) != "" {
-			return fmt.Errorf("raster: .def %s: .fill takes no arguments inside an alias (its own row)", a.name)
-		}
-		if strings.Contains(args, "$"+a.name) {
-			return fmt.Errorf("raster: .def %s: $%s in a command (the slot fills content only)", a.name, a.name)
-		}
-		a.ops = append(a.ops, aliasOp{raw: raw})
-		return nil
-	default:
-		a.ops = append(a.ops, aliasOp{pieces: a.split(raw)})
-		return nil
-	}
-}
-
-// split cuts a content line at its slots: "$NAME" where the next
-// character is not a name character. Any other "$" is text.
-func (a *alias) split(s string) []piece {
-	var pieces []piece
-	slot := "$" + a.name
-	lit := ""
-	for s != "" {
-		i := strings.Index(s, slot)
-		if i < 0 {
-			break
-		}
-		end := i + len(slot)
-		if end < len(s) && isNameChar(s[end]) {
-			lit += s[:end]
-			s = s[end:]
-			continue
-		}
-		pieces = append(pieces, piece{text: lit + s[:i]}, piece{slot: true})
-		lit = ""
-		s = s[end:]
-		a.slot = true
-	}
-	return append(pieces, piece{text: lit + s})
-}
-
-func isNameChar(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_'
-}
-
-// aliasOf returns the alias a line uses, if any.
-func (c *compiler) aliasOf(raw string) (*alias, bool) {
-	if len(raw) < 2 || raw[0] != '.' {
-		return nil, false
-	}
-	name, _, _ := strings.Cut(raw[1:], " ")
-	a, ok := c.aliases[name]
-	return a, ok
-}
-
-// expand compiles a use: the text after the name and one space fills
-// the slot, the body runs at the cursor, and the pen is restored
-// after.
-func (c *compiler) expand(a *alias, raw string) error {
-	text := strings.TrimPrefix(raw[1+len(a.name):], " ")
-	if text != "" && !a.slot {
-		return fmt.Errorf("raster: .%s takes no text", a.name)
-	}
-	pen := c.pen
-	defer func() { c.pen = pen }()
-	for k, op := range a.ops {
-		var err error
-		switch {
-		case op.raw != "":
-			err = c.command(op.raw)
-		default:
-			var b strings.Builder
-			for _, p := range op.pieces {
-				if p.slot {
-					b.WriteString(text)
-				} else {
-					b.WriteString(p.text)
-				}
-			}
-			if op.cont {
-				err = c.continuation(" " + b.String())
-			} else {
-				err = c.content(b.String())
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("%w (.%s line %d)", err, a.name, k+1)
-		}
-	}
-	return nil
-}
-
-// args holds a command's arguments: at most four, space-separated.
-type args struct {
-	s [4]string
-	n int
-}
-
-// parse splits a command line into its name and arguments.
-func parse(raw string) (cmd string, a args, err error) {
-	raw = strings.TrimSpace(raw)
-	cmd, rest, _ := strings.Cut(raw, " ")
-	for rest = strings.TrimSpace(rest); rest != ""; rest = strings.TrimSpace(rest) {
-		if a.n == len(a.s) {
-			return cmd, a, fmt.Errorf("raster: %s: too many arguments", cmd)
-		}
-		a.s[a.n], rest, _ = strings.Cut(rest, " ")
-		a.n++
-	}
-	return cmd, a, nil
-}
-
-// ints parses min..max integer arguments into out.
-func (a args) ints(out []int, min, max int) (int, error) {
-	if a.n < min || a.n > max {
-		if min == max {
-			return 0, fmt.Errorf("raster: want %d arguments, have %d", min, a.n)
-		}
-		return 0, fmt.Errorf("raster: want %d to %d arguments, have %d", min, max, a.n)
-	}
-	for i := range a.n {
-		n, err := strconv.Atoi(a.s[i])
-		if err != nil {
-			return 0, fmt.Errorf("raster: bad number %q", a.s[i])
-		}
-		out[i] = n
-	}
-	return a.n, nil
-}
-
-func (c *compiler) command(raw string) error {
-	if raw == ".rem" || strings.HasPrefix(raw, ".rem ") {
-		return nil
-	}
-	if raw == ".def" || strings.HasPrefix(raw, ".def ") {
-		return c.define(raw)
-	}
-	if raw == ".enddef" {
+	case ".def":
+		return c.define(rest)
+	case ".enddef":
 		return fmt.Errorf("raster: .enddef without .def")
-	}
-	cmd, a, err := parse(raw)
-	if err != nil {
-		return err
+	case ".fg", ".bg":
+		var i byte // bare: default
+		if rest = strings.TrimSpace(rest); rest != "" {
+			if strings.ContainsAny(rest, " \t") {
+				return fmt.Errorf("raster: %s wants one color name, or none for default", name)
+			}
+			var err error
+			if i, err = colorIndex(rest); err != nil {
+				return err
+			}
+		}
+		if name == ".fg" {
+			c.pen.FG = i
+		} else {
+			c.pen.BG = i
+		}
+		return nil
 	}
 	var n [4]int
-	switch cmd {
+	switch name {
 	case ".col":
-		if _, err := a.ints(n[:], 1, 1); err != nil {
+		if _, err := ints(rest, n[:], 1, 1); err != nil {
 			return err
 		}
-		if !c.havePen {
+		if !c.haveRun {
 			return fmt.Errorf("raster: .col with no run to attach to (.at begins anew)")
 		}
 		if n[0] < 0 || n[0] >= Cols {
@@ -310,7 +129,7 @@ func (c *compiler) command(raw string) error {
 		c.colRow, c.atCol = c.penRow, n[0]
 		return nil
 	case ".at":
-		have, err := a.ints(n[:], 1, 2)
+		have, err := ints(rest, n[:], 1, 2)
 		if err != nil {
 			return err
 		}
@@ -322,27 +141,10 @@ func (c *compiler) command(raw string) error {
 			return fmt.Errorf("raster: .at %d %d outside rows 0..%d, cols 0..%d", n[0], col, MaxRows-1, Cols-1)
 		}
 		c.curRow, c.atCol, c.colRow = n[0], col, -1
-		c.havePen = false
-		return nil
-	case ".fg", ".bg":
-		if a.n > 1 {
-			return fmt.Errorf("raster: %s wants one color name, or none for default", cmd)
-		}
-		var i byte // bare: default
-		if a.n == 1 {
-			var err error
-			if i, err = colorIndex(a.s[0]); err != nil {
-				return err
-			}
-		}
-		if cmd == ".fg" {
-			c.pen.FG = i
-		} else {
-			c.pen.BG = i
-		}
+		c.haveRun = false
 		return nil
 	case ".fill":
-		have, err := a.ints(n[:], 0, 4)
+		have, err := ints(rest, n[:], 0, 4)
 		if err != nil {
 			return err
 		}
@@ -363,27 +165,44 @@ func (c *compiler) command(raw string) error {
 		}
 		return c.fill(row, col, rows, cols)
 	}
-	return fmt.Errorf("raster: unknown command %s (.at .col .fg .bg .fill .rem .def .enddef)", cmd)
+	return fmt.Errorf("raster: unknown command %s (.at .col .fg .bg .fill .rem .def .enddef)", name)
 }
 
-// paint places a run's cells at (row, col) in the pen's ink: leading
-// spaces position and paint nothing, the rest is painted.
-func (c *compiler) paint(row, col int, cells []byte) error {
-	lead := 0
-	for lead < len(cells) && cells[lead] == ' ' {
-		lead++
+// ints parses min..max space-separated integers from s into out.
+func ints(s string, out []int, min, max int) (int, error) {
+	n := 0
+	for f := range strings.FieldsSeq(s) {
+		if n == max {
+			n++
+			break
+		}
+		v, err := strconv.Atoi(f)
+		if err != nil {
+			return 0, fmt.Errorf("raster: bad number %q", f)
+		}
+		out[n] = v
+		n++
 	}
-	if end := col + len(cells); end > Cols {
-		return fmt.Errorf("raster: row %d: %d cells at column %d overflow the row", row, len(cells), col)
+	if n < min || n > max {
+		if min == max {
+			return 0, fmt.Errorf("raster: want %d arguments, have %d", min, n)
+		}
+		return 0, fmt.Errorf("raster: want %d to %d arguments, have %d", min, max, n)
 	}
-	r := c.r.Row(row)
-	for i, b := range cells[lead:] {
-		r[col+lead+i] = Cell{Glyph: b, Ink: c.pen}
-	}
-	c.penRow, c.penCol, c.havePen = row, col+len(cells), true
-	return nil
+	return n, nil
 }
 
+func colorIndex(name string) (byte, error) {
+	for i, n := range ColorNames {
+		if n == name {
+			return byte(i), nil
+		}
+	}
+	return 0, fmt.Errorf("raster: unknown color %q (%s)", name, strings.Join(ColorNames[:], " "))
+}
+
+// content paints a line at the cursor, or where a pending .at or .col
+// put it, and moves the cursor down unless .col held it.
 func (c *compiler) content(raw string) error {
 	// Right-trim: invisible trailing spaces must not clobber
 	// neighbours; clearing is .fill's explicit job.
@@ -394,41 +213,52 @@ func (c *compiler) content(raw string) error {
 		row = c.colRow
 	}
 	c.atCol, c.colRow = 0, -1
-	if raw == "" {
-		if !onLastRow {
-			c.curRow++ // an empty line, or one of only spaces, flows one row
+	if raw != "" {
+		if row >= MaxRows {
+			return fmt.Errorf("raster: content below row %d", MaxRows-1)
 		}
-		return nil
-	}
-	cells, err := Transcode(raw)
-	if err != nil {
-		return err
-	}
-	if row >= MaxRows {
-		return fmt.Errorf("raster: content below row %d", MaxRows-1)
-	}
-	if err := c.paint(row, col, cells); err != nil {
-		return err
+		if err := c.paint(row, col, raw); err != nil {
+			return err
+		}
 	}
 	if !onLastRow {
-		c.curRow++
+		c.curRow++ // an empty line, or one of only spaces, flows one row too
 	}
 	return nil
 }
 
-func (c *compiler) continuation(rest string) error {
-	if !c.havePen {
+// continuation paints text just past the last run, on its row.
+func (c *compiler) continuation(text string) error {
+	if !c.haveRun {
 		return fmt.Errorf("raster: + with nothing to continue (.at begins anew)")
 	}
-	rest = strings.TrimRight(rest, " \t")
-	if rest == "" {
+	text = strings.TrimRight(text, " \t")
+	if text == "" {
 		return fmt.Errorf("raster: empty continuation")
 	}
-	cells, err := Transcode(rest)
+	return c.paint(c.penRow, c.penCol, text)
+}
+
+// paint places a run at (row, col) in the pen's ink: leading spaces
+// position and paint nothing, the rest is painted.
+func (c *compiler) paint(row, col int, text string) error {
+	cells, err := Transcode(text)
 	if err != nil {
 		return err
 	}
-	return c.paint(c.penRow, c.penCol, cells)
+	if end := col + len(cells); end > Cols {
+		return fmt.Errorf("raster: row %d: %d cells at column %d overflow the row", row, len(cells), col)
+	}
+	lead := 0
+	for lead < len(cells) && cells[lead] == ' ' {
+		lead++
+	}
+	r := c.r.Row(row)
+	for i, b := range cells[lead:] {
+		r[col+lead+i] = Cell{Glyph: b, Ink: c.pen}
+	}
+	c.penRow, c.penCol, c.haveRun = row, col+len(cells), true
+	return nil
 }
 
 // fill paints a region of spaces in the pen's ink, over anything:
@@ -441,6 +271,148 @@ func (c *compiler) fill(row, col, rows, cols int) error {
 		r := c.r.Row(y)
 		for x := col; x < col+cols; x++ {
 			r[x] = Cell{Glyph: ' ', Ink: c.pen}
+		}
+	}
+	return nil
+}
+
+// An alias is a named body of lines with one slot, $NAME (RASTER.t,
+// "Aliases"). The body is parsed when the definition closes: a
+// command line is kept as its name and rest, a content line or a
+// continuation is split into literal text and the slot. A use fills
+// the slot with its text as content, never as source.
+type alias struct {
+	name string
+	ops  []aliasOp
+	slot bool // the body uses $NAME
+}
+
+// An aliasOp is one body line.
+type aliasOp struct {
+	kind       kind
+	name, rest string  // a command's
+	pieces     []piece // content's or a continuation's
+}
+
+type piece struct {
+	text string
+	slot bool
+}
+
+// define begins collecting an alias: ".def NAME".
+func (c *compiler) define(rest string) error {
+	name := strings.TrimSpace(rest)
+	if name == "" || strings.ContainsAny(name, " \t") {
+		return fmt.Errorf("raster: .def wants a name and nothing else")
+	}
+	if commands["."+name] {
+		return fmt.Errorf("raster: .def %s: a command's name", name)
+	}
+	for i := range len(name) {
+		if !isNameChar(name[i]) {
+			return fmt.Errorf("raster: .def %s: names are letters, digits and _", name)
+		}
+	}
+	if c.aliases == nil {
+		c.aliases = map[string]*alias{}
+	}
+	if _, dup := c.aliases[name]; dup {
+		return fmt.Errorf("raster: .def %s: already defined", name)
+	}
+	c.defining = &alias{name: name}
+	return nil
+}
+
+// collect parses one body line of the alias being defined.
+func (c *compiler) collect(raw string) error {
+	a := c.defining
+	if raw == ".enddef" {
+		c.defining = nil
+		c.aliases[a.name] = a
+		return nil
+	}
+	k, name, rest := lex(raw)
+	if k != kindCommand {
+		a.ops = append(a.ops, aliasOp{kind: k, pieces: a.split(rest)})
+		return nil
+	}
+	switch {
+	case name == ".rem":
+		return nil
+	case name == ".def":
+		return fmt.Errorf("raster: .def inside .def %s", a.name)
+	case c.aliases[name[1:]] != nil:
+		return fmt.Errorf("raster: .def %s: an alias inside an alias", a.name)
+	case !commands[name]:
+		return fmt.Errorf("raster: .def %s: unknown command %s", a.name, name)
+	case name == ".at":
+		return fmt.Errorf("raster: .def %s: .at inside an alias (a body is relative)", a.name)
+	case name == ".fill" && strings.TrimSpace(rest) != "":
+		return fmt.Errorf("raster: .def %s: .fill takes no arguments inside an alias (its own row)", a.name)
+	case strings.Contains(rest, "$"+a.name):
+		return fmt.Errorf("raster: .def %s: $%s in a command (the slot fills content only)", a.name, a.name)
+	}
+	a.ops = append(a.ops, aliasOp{kind: kindCommand, name: name, rest: rest})
+	return nil
+}
+
+// split cuts a line at its slots: "$NAME" where the next character is
+// not a name character. Any other "$" is text.
+func (a *alias) split(s string) []piece {
+	var pieces []piece
+	slot := "$" + a.name
+	from := 0 // the start of the text not yet cut
+	for i := 0; ; {
+		j := strings.Index(s[i:], slot)
+		if j < 0 {
+			break
+		}
+		i += j + len(slot)
+		if i < len(s) && isNameChar(s[i]) {
+			continue
+		}
+		pieces = append(pieces, piece{text: s[from : i-len(slot)]}, piece{slot: true})
+		from = i
+		a.slot = true
+	}
+	return append(pieces, piece{text: s[from:]})
+}
+
+func isNameChar(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_'
+}
+
+// expand compiles a use: the text after the name and one space fills
+// the slot, the body runs at the cursor, and the pen is restored
+// after.
+func (c *compiler) expand(a *alias, rest string) error {
+	if rest != "" && !a.slot {
+		return fmt.Errorf("raster: .%s takes no text", a.name)
+	}
+	pen := c.pen
+	defer func() { c.pen = pen }()
+	for k, op := range a.ops {
+		var err error
+		switch op.kind {
+		case kindCommand:
+			err = c.command(op.name, op.rest)
+		default:
+			var b strings.Builder
+			for _, p := range op.pieces {
+				if p.slot {
+					b.WriteString(rest)
+				} else {
+					b.WriteString(p.text)
+				}
+			}
+			if op.kind == kindContinuation {
+				err = c.continuation(b.String())
+			} else {
+				err = c.content(b.String())
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("%w (.%s line %d)", err, a.name, k+1)
 		}
 	}
 	return nil

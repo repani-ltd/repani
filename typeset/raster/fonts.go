@@ -1,9 +1,9 @@
 package raster
 
 import (
-	"embed"
+	_ "embed"
 	"encoding/base64"
-	"fmt"
+	"sync"
 )
 
 // The face the HTML renderer embeds: JuliaMono Regular (SIL Open
@@ -26,20 +26,12 @@ import (
 // pyftsubset, layout features emptied and hinting dropped, about
 // 12K; regenerate it whenever the table changes.
 //
-//go:embed fonts/*.woff2
-var fontFiles embed.FS
+//go:embed fonts/JuliaMono-Regular.woff2
+var font []byte
 
-// fontFace returns an @font-face rule for one weight and style,
-// the file as a data URI.
-func fontFace(file, weight, style string) string {
-	data, err := fontFiles.ReadFile("fonts/" + file)
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("@font-face { font-family: \"JuliaMono\"; font-weight: %s; font-style: %s; src: url(data:font/woff2;base64,%s) format(\"woff2\"); }\n",
-		weight, style, base64.StdEncoding.EncodeToString(data))
-}
-
-// FontCSS is the embedded regular face, which HTMLDocument always
-// includes.
-func FontCSS() string { return fontFace("JuliaMono-Regular.woff2", "400", "normal") }
+// FontCSS is the @font-face rule for the embedded face, the file as
+// a data URI, which HTMLDocument always includes.
+var FontCSS = sync.OnceValue(func() string {
+	return `@font-face { font-family: "JuliaMono"; font-weight: 400; font-style: normal; src: url(data:font/woff2;base64,` +
+		base64.StdEncoding.EncodeToString(font) + `) format("woff2"); }` + "\n"
+})

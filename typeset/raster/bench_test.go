@@ -67,3 +67,17 @@ func BenchmarkRead10(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkHTML10(b *testing.B) {
+	r, _ := Compile(benchTenRows)
+	for b.Loop() {
+		_ = r.HTMLRows()
+	}
+}
+
+func BenchmarkDocument10(b *testing.B) {
+	r, _ := Compile(benchTenRows)
+	for b.Loop() {
+		_ = HTMLDocument([]*Raster{r}, 1, "bench", Teletext)
+	}
+}

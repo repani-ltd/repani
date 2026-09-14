@@ -2,17 +2,20 @@ package raster
 
 import "unicode/utf8"
 
-// Text renders the raster as Height rows of plain text: blanks render
-// as spaces, ink is dropped, rows are trimmed on the right.
-func (r *Raster) Text() []string {
+// lines renders every row through app, one string a row.
+func (r *Raster) lines(app func(dst []byte, row int) []byte) []string {
 	out := make([]string, r.Height())
 	var buf []byte
 	for i := range out {
-		buf = r.AppendText(buf[:0], i)
+		buf = app(buf[:0], i)
 		out[i] = string(buf)
 	}
 	return out
 }
+
+// Text renders the raster as Height rows of plain text: blanks render
+// as spaces, ink is dropped, rows are trimmed on the right.
+func (r *Raster) Text() []string { return r.lines(r.AppendText) }
 
 // AppendText appends one row of Text to dst.
 func (r *Raster) AppendText(dst []byte, row int) []byte {
@@ -37,24 +40,17 @@ var sgrBG = [8]string{"\x1b[49m", "\x1b[41m", "\x1b[42m", "\x1b[43m", "\x1b[44m"
 
 // ANSI renders the raster as Height rows of exactly Cols cells with
 // ANSI colors, each row reset at its end.
-func (r *Raster) ANSI() []string {
-	out := make([]string, r.Height())
-	var buf []byte
-	for i := range out {
-		buf = r.AppendANSI(buf[:0], i)
-		out[i] = string(buf)
-	}
-	return out
-}
+func (r *Raster) ANSI() []string { return r.lines(r.AppendANSI) }
 
 // AppendANSI appends one row of ANSI to dst.
 func (r *Raster) AppendANSI(dst []byte, row int) []byte {
+	var blank Row
+	cells := blank[:]
+	if row < len(r.Rows) {
+		cells = r.Rows[row][:]
+	}
 	var s Ink
 	dst = append(dst, "\x1b[0m"...)
-	var cells Row
-	if row < len(r.Rows) {
-		cells = r.Rows[row]
-	}
 	for _, cell := range cells {
 		if cell.FG != s.FG {
 			dst = append(dst, sgrFG[cell.FG]...)

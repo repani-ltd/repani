@@ -6,6 +6,25 @@ import (
 	"strings"
 )
 
+// spanOpen is the opening tag of every ink, by background then
+// foreground: <span class="fN bM">.
+var spanOpen = func() (t [8][8]string) {
+	for bg := range t {
+		for fg := range t[bg] {
+			t[bg][fg] = `<span class="f` + string(rune('0'+fg)) + ` b` + string(rune('0'+bg)) + `">`
+		}
+	}
+	return t
+}()
+
+// cellHTML is every glyph byte as HTML text.
+var cellHTML = func() (t [256]string) {
+	for b := range t {
+		t[b] = html.EscapeString(string(CellRune(byte(b))))
+	}
+	return t
+}()
+
 // HTMLRows renders the raster as Height lines of HTML for a <pre>:
 // runs of cells in one ink become <span class="fN bM"> elements (N
 // and M the palette indices); default-ink runs are bare text; a link
@@ -29,7 +48,7 @@ func (r *Raster) HTMLRows() []string {
 		for x, cell := range r.Rows[i] {
 			if len(links) > 0 && links[0].Col == x {
 				closeSpan()
-				fmt.Fprintf(&b, `<a href="#%s">`, html.EscapeString(links[0].Target))
+				b.WriteString(`<a href="#` + html.EscapeString(links[0].Target) + `">`)
 				linkEnd = x + links[0].Len
 				links = links[1:]
 			}
@@ -45,12 +64,12 @@ func (r *Raster) HTMLRows() []string {
 			if s != open || (!inSpan && s != Ink{}) {
 				closeSpan()
 				if s != (Ink{}) {
-					fmt.Fprintf(&b, `<span class="f%d b%d">`, s.FG, s.BG)
+					b.WriteString(spanOpen[s.BG][s.FG])
 					inSpan = true
 				}
 				open = s
 			}
-			b.WriteString(html.EscapeString(string(CellRune(cell.Glyph))))
+			b.WriteString(cellHTML[cell.Glyph])
 			if x+1 == linkEnd {
 				closeSpan()
 				b.WriteString("</a>")

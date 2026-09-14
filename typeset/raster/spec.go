@@ -13,7 +13,8 @@ func Spec() string { return spec }
 //go:embed js/raster.js
 var js string
 
-// JS returns the JavaScript decoder, js/raster.js, embedded at build
-// time so a server ships the decoder its compiler was built beside.
-// It is an ES module: serve it as text/javascript and import it.
+// JS returns the JavaScript reader and painter, js/raster.js,
+// embedded at build time so a server ships the reader its compiler
+// was built beside. It is an ES module: serve it as text/javascript
+// and import it.
 func JS() string { return js }

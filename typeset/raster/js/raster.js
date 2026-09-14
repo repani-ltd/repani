@@ -3,7 +3,7 @@
 // fixture test holds the two to the same answers. ES module, no
 // dependencies, runs in a browser or in node.
 
-export const COLS = 40, MAX_ROWS = 1024;
+export const COLS = 40;
 
 // The cell table: the display character of every glyph byte. Blanks
 // and unassigned values are a space.

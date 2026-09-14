@@ -1,6 +1,9 @@
 package raster
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // Cols is the width of every row (RASTER.t, "Rows"): a raster is 40
 // columns wide, and nothing else about its shape is stated.
@@ -59,7 +62,9 @@ func (r *Raster) Row(i int) *Row {
 		panic(fmt.Sprintf("raster: row %d outside 0..%d", i, MaxRows-1))
 	}
 	if i >= len(r.Rows) {
-		r.Rows = append(r.Rows, make([]Row, i+1-len(r.Rows))...)
+		// Rows only ever grow, so the capacity past len is fresh, zeroed
+		// memory: extend into it without a second allocation.
+		r.Rows = slices.Grow(r.Rows, i+1-len(r.Rows))[:i+1]
 	}
 	return &r.Rows[i]
 }

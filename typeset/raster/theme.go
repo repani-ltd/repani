@@ -7,15 +7,15 @@ import (
 
 // A Theme is what the palette's eight entries look like in a
 // renderer that has colours to choose: the foreground and background
-// colour of each ink index, the page's ground, the panel's ground and
-// its rule, as CSS colours. Index 0 is the default: the theme's own
-// text colour and ground. The format states no colours (RASTER.t,
+// colour of each ink index, the document's ground, a raster's ground
+// and its border, as CSS colours. Index 0 is the default: the theme's
+// own text colour and ground. The format states no colours (RASTER.t,
 // "Ink"); a theme is a renderer's, and an app picks one.
 type Theme struct {
 	Name         string
 	FG, BG       [8]string
-	Ground, Rule string // the page's ground and the panel's border
-	Panel        string // the panel's ground
+	Ground, Rule string // the document's ground and a raster's border
+	Panel        string // a raster's ground (the --panel variable)
 }
 
 // Themes are the built-in themes by name: "teletext", the seven hues
@@ -37,7 +37,7 @@ var (
 	// the text a dark navy; the text hues are the dark theme's bar
 	// grounds, which carry contrast on white; the bars stay those
 	// same saturated hues, with white text on them as on the dark
-	// page; and index 7, light text on a bar, is white as text and a
+	// theme; and index 7, light text on a bar, is white as text and a
 	// dark slate as a band, the inverse of the dark theme's white band.
 	TeletextLight = Theme{
 		Name:   "teletext-light",

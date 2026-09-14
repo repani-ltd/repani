@@ -94,9 +94,6 @@ is set in the half blocks: one pixel a column and two a row, so
 square on the 1:2 cell every monospace renderer draws. That is
 enough for a QR code, a barcode or a logo, composed by a writer.
 
-.pre
-.end
-
 Every glyph is one column wide in a monospace renderer: its
 Unicode East Asian Width is not Wide, and it has text
 presentation by default. A glyph that fails this test is not
@@ -128,7 +125,7 @@ and seven hues, which a renderer themes:
 .end
 
 Entry 0 is the renderer's own foreground or background -- the
-terminal's, the theme's -- so an uncolored page reads correctly
+terminal's, the theme's -- so an uncolored raster reads correctly
 in every theme.
 
 The INK BYTE of a cell holds both indices: the background in
@@ -143,9 +140,9 @@ another ink, and a row may be full in any ink.
 
 # Authoring
 
-Pages are authored in a line-oriented dot-command language: a
+Rasters are authored in a line-oriented dot-command language: a
 line is one command or one run of content, and the command set
-is closed. A page that says everything the language has:
+is closed. A source that says everything the language has:
 
 .pre
     .rem A notice: a title bar, a heading, a paragraph, a table.
@@ -229,11 +226,11 @@ source yields the same bytes.
 closing bracket on the same row, with at least one cell between
 them. The whole span, brackets included, is the tappable region,
 and the text between the brackets is its TARGET. What a tap does
-with the target is the app's; the page only names it. A link is
+with the target is the app's; the raster only names it. A link is
 derived from the cells, never stored, so it costs nothing in the
 bytes and survives every renderer: plain text shows the
 brackets, HTML makes the span an anchor, a phone makes it a tap
-target. Brackets mean link and nothing else on a raster page.
+target. Brackets mean link and nothing else on a raster.
 
 # Aliases
 
@@ -336,7 +333,7 @@ new format, not a parameter. ADMISSION TEST: the first raster
 that needs one.
 .item A wider palette. Bit 3 of each ink nibble is zero; set, it
 would double the palette to sixteen entries without changing the
-cell. ADMISSION TEST: the first page that needs a ninth color.
+cell. ADMISSION TEST: the first raster that needs a ninth color.
 
 .width 72
 .cols 1
