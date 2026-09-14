@@ -66,25 +66,35 @@ as a blank; the table grows by appending, never by reassigning.
     0x01..0x02  rules        ─ │
     0x03..0x06  arrows       ← ↑ → ↓
     0x07..0x0A  blocks       ░ ▒ ▓ █
-    0x0B..0x10  symbols      ° ± × ÷ • ·
-    0x11..0x19  junctions    ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼
-    0x1A        ©
-    0x1B..0x1F  unassigned: render blank
+    0x0B..0x0C  half blocks  ▀ ▄
+    0x0D..0x12  symbols      ° ± × ÷ • ·
+    0x13..0x1B  junctions    ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼
+    0x1C        ©
+    0x1D..0x1F  unassigned: render blank
     0x20..0x7E  ASCII
     0x7F        €
-    0x80..0x96  unassigned: render blank
-    0x97..0x9C  typographic  ‘ ’ “ ” – —
-    0x9D..0xA2  marks        ☺ ☹ ♥ ★ ✓ ✗
-    0xA3..0xA5  status, currency  ● ○ £
-    0xA6..0xB1  Italian      à è é ì ò ù À È É Ì Ò Ù
-    0xB2..0xBF  unassigned: render blank
-    0xC0..0xD8  Greek lowercase  α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π
+    0x80..0x85  typographic  ‘ ’ “ ” – —
+    0x86..0x8B  marks        ☺ ☹ ♥ ★ ✓ ✗
+    0x8C..0x8E  status, currency  ● ○ £
+    0x8F..0x9A  Italian      à è é ì ò ù À È É Ì Ò Ù
+    0x9B..0xB3  Greek lowercase  α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π
                 ρ ς σ τ υ φ χ ψ ω
-    0xD9..0xE3  accented        ά έ ή ί ό ύ ώ ϊ ϋ ΐ ΰ  (monotonic)
-    0xE4..0xFB  Greek uppercase Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π
+    0xB4..0xBE  accented        ά έ ή ί ό ύ ώ ϊ ϋ ΐ ΰ  (monotonic)
+    0xBF..0xD6  Greek uppercase Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π
                 Ρ Σ Τ Υ Φ Χ Ψ Ω   (no tonos on capitals, the
                 standard Greek typographic convention)
-    0xFC..0xFF  « » … ―
+    0xD7..0xDA  « » … ―
+    0xDB..0xFF  unassigned: render blank
+.end
+
+The two stretches outside ASCII are contiguous, 0x01..0x1C and
+0x7F..0xDA, and the table appends at 0x1D and at 0xDB. A BITMAP
+is set in the half blocks: one pixel a column and two a row, so
+▀, ▄, █ and blank are the four states of a cell, and a pixel is
+square on the 1:2 cell every monospace renderer draws. That is
+enough for a QR code, a barcode or a logo, composed by a writer.
+
+.pre
 .end
 
 Every glyph is one column wide in a monospace renderer: its
@@ -94,7 +104,7 @@ admitted, whatever its demand, because a cell is a column. Nor
 is a pictogram: a weather set was tried and withdrawn
 (2026-09-14), since a symbol drawn at x-height in a text face is
 a speck in a cell on every screen. A condition is a word or a
-code, a state is ● or ○ in an ink, and a picture is a mosaic.
+code, a state is ● or ○ in an ink, and a picture is a bitmap.
 The table admits a language, not a glyph: Greek, English and
 Italian are in, and the room left holds about one more.
 
@@ -313,11 +323,13 @@ flashing. Emphasis is ink; structure is a rule.
 
 # Parked designs, with their admission tests
 
-.item Mosaics. The 2×2 quadrant set (16 patterns) is exactly
-0x80..0x8F, held for it; the 2×3 sextants do not fit. Icons are
-mosaics: a sun or a cloud is two by two cells composed by the
-writer, never a glyph. ADMISSION TEST: the first raster that
-wants a chart, a logo or an icon.
+.item Finer mosaics. The half blocks are the mosaic set: a square
+pixel on the 1:2 cell. The 2×2 quadrants (14 more patterns)
+would double the horizontal resolution at the price of a pixel
+twice as tall as wide; the 2×3 sextants the face lacks; the
+eighth blocks (13) would give sparklines and bars in a row. Each
+was tried on sample boards (2026-09-14) and not admitted.
+ADMISSION TEST: a raster that wants one and looks right with it.
 .item A second repertoire. The table is fixed, which is what lets
 every raster tool read every raster; a script beyond it needs a
 new format, not a parameter. ADMISSION TEST: the first raster

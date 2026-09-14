@@ -266,7 +266,7 @@ func TestCellTable(t *testing.T) {
 	glyphs := 0
 	for b := range 256 {
 		r := CellRune(byte(b))
-		if b == 0 || (b >= 0x1B && b <= 0x1F) || (b >= 0x80 && b <= 0x96) || (b >= 0xB2 && b <= 0xBF) {
+		if b == 0 || (b >= 0x1D && b <= 0x1F) || b >= 0xDB {
 			if r != ' ' {
 				t.Errorf("%02X renders %q, want blank", b, r)
 			}
@@ -278,8 +278,13 @@ func TestCellTable(t *testing.T) {
 			t.Errorf("%02X %q: round trip %X %v", b, r, cells, err)
 		}
 	}
-	if glyphs != 213 { // 26 symbols + 95 ASCII + € + 6 typographic + 9 marks + 12 Italian + 64 Greek
-		t.Fatalf("%d glyph values, want 213", glyphs)
+	if glyphs != 215 { // 28 low + 95 ASCII + 92 high
+		t.Fatalf("%d glyph values, want 215", glyphs)
+	}
+	// The two stretches are contiguous, and the first free value of
+	// each is where the table appends.
+	if CellRune(0x1C) != '©' || CellRune(0x1D) != ' ' || CellRune(0xDA) != '―' || CellRune(0xDB) != ' ' {
+		t.Fatal("table ends")
 	}
 }
 

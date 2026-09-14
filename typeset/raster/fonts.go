@@ -11,8 +11,10 @@ import (
 // to hold every glyph of the cell repertoire (2026-09-05: JetBrains
 // Mono, Fira Mono, Source Code Pro, Cascadia, Hack and Iosevka each
 // lacked some of the marks; DejaVu Sans Mono has all but advances
-// 0.602em). Its advance is 0.6em, so a cell is a whole pixel at 15px
-// and 20px. The face is subset to the repertoire -- the space
+// 0.602em). Its advance is 0.6em and its blocks span 1.175em, ascent
+// to descent, so the renderer's cell is 16px by 18.8px: a block in
+// one row touches the block below it, which a bitmap of half blocks
+// needs. The face is subset to the repertoire -- the space
 // included, since a blank cell is a glyph too -- with every layout
 // feature stripped, so a raster draws the same glyphs in every
 // browser without a network and the browser shapes nothing. Any

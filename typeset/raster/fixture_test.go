@@ -42,8 +42,9 @@ var fixtureSources = []struct{ name, src string }{
 	{"ink", ".fg red\nALERT\n.fg default\n+ north quay closed\n.fg white\n.bg blue\nX\n.fg default\n.bg default\n.at 2\nAB\n.fg cyan\n+ CD\n.fg white\n.bg blue\n+ EF\n.fg red\n" + strings.Repeat("x", 40) + "\n"},
 	{"fills", ".bg blue\n.fill 0\n.fg white\n.at 0\nTITLE\n.fg default\n.bg default\n.bg red\n.fill 2 10 2 8\n.bg green\n.fill 4 0 1 40\n.bg red\n.fg yellow\n.at 2 13\nQ\n"},
 	{"links", "Tap [close] or [tide tables].\n[] [x\n.fg red\n[ALERT] now\n.fg default\nno]link[\n"},
-	{"repertoire", "─│ ←↑→↓ ░▒▓█ °±×÷•· ┌┐└┘├┤┬┴┼ ©\n€£ ‘’“”–— ☺☹♥★✓✗ ●○ àèéìòù ÀÈÉÌÒÙ\nαβγδεζηθικλμνξοπρςστυφχψω\nάέήίόύώϊϋΐΰ\nΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ\n«…» ― <&>\"'\n"},
+	{"repertoire", "─│ ←↑→↓ ░▒▓█ ▀▄ °±×÷•· ┌┐└┘├┤┬┴┼ ©\n€£ ‘’“”–— ☺☹♥★✓✗ ●○ àèéìòù ÀÈÉÌÒÙ\nαβγδεζηθικλμνξοπρςστυφχψω\nάέήίόύώϊϋΐΰ\nΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ\n«…» ― <&>\"'\n"},
 	{"sparse", ".at 3\nthree\n.at 100 35\nfar\n.at 1023\nlast\n"},
+	{"bitmap", "▀▄█ ▄▀\n█▀▄ ▀▄\n"},
 	{"aliases", ".def bar\n.fg white\n.bg blue\n.fill\n$bar\n.enddef\n.def t\n$t\n.enddef\n.bar TITLE\n.t .fg red\n.fg green\n.t + text\nstill green\n"},
 	{"blank", ""},
 }

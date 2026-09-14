@@ -85,7 +85,7 @@ func HTMLDocument(rs []*Raster, across int, title string, theme Theme) string {
 .raster pre {
   margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--rule);
   font-family: JuliaMono, monospace;
-  font-size: 15px; line-height: 20px; white-space: pre;
+  font-size: 16px; line-height: 18.8px; white-space: pre;
   font-variant-ligatures: none; font-kerning: none; font-feature-settings: "calt" 0, "liga" 0; text-rendering: optimizeSpeed;
 }
 a { color: inherit; text-decoration: none; cursor: pointer; }
