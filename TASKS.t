@@ -55,6 +55,19 @@ compact per-row body (glyphs then ink runs) is ever wanted; it
 is not now. Tessera, the former binding, is in the attic
 (~/repos/_attic/tessera, 2026-09-14). Trigger: the first raster
 to go out over quietcasting.
+.term QR codes: a primitive and a CLI verb, not a command
+A raster carries a QR code as half blocks, one module a column
+and two a row on a white bar with a two-module quiet zone
+(RASTER.t, "Cells"; a version-2 code is 29 by 15 cells and
+scans from a screen, tried 2026-09-14). The encoder is a
+primitive, typeset/qr: text in, rows of ▀ ▄ █ out, standard
+library only, known-answer tests against a reference encoder;
+composers call it and emit the rows as content, and "raster qr
+TEXT" prints the source lines for a hand author, with a .rem
+beside them naming the target. Decided against a .qr command:
+the language computes nothing, and a command would pin version,
+error level and mask selection in the spec for every
+implementation. Trigger: the first board that carries a code.
 .term trudge as a primitive
 trudge imports ascon and sits outside the primitive list in
 README and CLAUDE.md. Since 2026-09-03 primitives may import
