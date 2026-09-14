@@ -253,7 +253,7 @@ plain
 	if links := c.Links(10); len(links) != 1 || links[0].Target != "Repani" {
 		t.Errorf("raster links %v", links)
 	}
-	vocab := strings.Replace(Vocabulary, ".def heading TEXT\n.fg yellow", ".def heading TEXT\n.fg red", 1)
+	vocab := strings.Replace(Vocabulary, ".def heading\n.fg yellow", ".def heading\n.fg red", 1)
 	res2, err := Render(doc, l, vocab)
 	if err != nil {
 		t.Fatal(err)

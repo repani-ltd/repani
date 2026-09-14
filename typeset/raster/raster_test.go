@@ -237,7 +237,7 @@ func TestErrors(t *testing.T) {
 		{".at 0 36\nHELLO\n", "line 2: raster: row 0: 5 cells at column 36 overflow the row"},
 		{".fill 0 0 1 41\n", "outside the raster"},
 		{".fill 1023 0 2\n", "outside the raster"},
-		{".fill\n", "want 1 to 4 arguments"},
+		{".fill 1 2 3 4 5\n", "too many arguments"},
 		{"+ \n", "nothing to continue"},
 		{".at 1023\nx\ny\n", "below row 1023"},
 	} {
@@ -383,26 +383,50 @@ func TestJSEmbedded(t *testing.T) {
 }
 
 func TestAliases(t *testing.T) {
-	vocab := ".def bar TITLE\n.fg white\n.bg blue\n.fill 0\n.at 0\n$TITLE\n.fg\n.bg\n.enddef\n" +
-		".def field LABEL VALUE\n.fg cyan\n$LABEL\n.fg\n.col 6\n$VALUE\n.enddef\n" +
-		".def wind SPEED\n.field WIND NW $SPEED kt\n.enddef\n"
-	r := compile(t, vocab+".bar HARBOUR · 02 SEP\n.at 2\n.field TEMP 31°C  dew 11°C\n.wind 18\nplain $x\n")
+	vocab := ".def bar\n.fg white\n.bg blue\n.fill\n$bar\n.enddef\n" +
+		".def label\n.fg cyan\n$label\n.enddef\n" +
+		".def rule\n────────\n.enddef\n" +
+		".def t\n$t\n.enddef\n" +
+		".def twice\n$twice $twice! $twicer $\n.enddef\n"
+	r := compile(t, vocab+".bar HARBOUR · 02 SEP\n.at 2\n.label TEMP\n.col 6\n31°C  dew 11°C\n.rule\n.twice ab\nplain $x\n.bar\n")
 	rows := r.Text()
-	if rows[0] != "HARBOUR · 02 SEP" || rows[2] != "TEMP  31°C  dew 11°C" || rows[3] != "WIND  NW 18 kt" || rows[4] != "plain $x" {
-		t.Fatalf("rows = %q", rows[:5])
+	want := []string{"HARBOUR · 02 SEP", "", "TEMP  31°C  dew 11°C", "────────", "ab ab! $twicer $", "plain $x", ""}
+	if strings.Join(rows, "|") != strings.Join(want, "|") {
+		t.Fatalf("rows = %q, want %q", rows, want)
 	}
-	if r.Rows[0][0].FG != 7 || r.Rows[0][0].BG != 4 || r.Rows[2][0].FG != 6 || r.Rows[2][6].FG != 0 {
+	if r.Rows[0][0].FG != 7 || r.Rows[0][0].BG != 4 || r.Rows[2][0].FG != 6 || r.Rows[2][6].FG != 0 || r.Rows[6][39].BG != 4 {
 		t.Fatal("alias ink")
 	}
+	// Hygiene: a text that looks like a command or a continuation is
+	// painted, not obeyed; a slot inside a continuation too.
+	r = compile(t, vocab+".def c\nA\n+ $c\n.enddef\n.t .fg red\n.t + not a continuation\n.c .bg blue\n.t   two leading spaces\n")
+	if rows := r.Text(); rows[0] != ".fg red" || rows[1] != "+ not a continuation" || rows[2] != "A .bg blue" || rows[3] != "  two leading spaces" || r.Rows[0][1].FG != 0 || r.Rows[2][3].BG != 0 {
+		t.Fatalf("hygiene: %q", rows)
+	}
+	// The pen is the caller's: a body sets it, the use restores it, and
+	// text after a use is in the caller's ink. A body is relative: the
+	// same use at another row is the same rows shifted.
+	r = compile(t, vocab+".fg green\n.label X\nafter\n.at 5\n.bar B\nnext\n")
+	if r.Rows[0][0].FG != 6 || r.Rows[1][0].FG != 2 || r.Rows[5][0].BG != 4 || r.Rows[6][0].Glyph != 'n' || r.Rows[6][0].BG != 0 {
+		t.Fatal("pen not restored, or body not relative")
+	}
 	for _, tc := range []struct{ src, want string }{
-		{".def at X\n.enddef\n", "a command's name"},
-		{".def a-b X\n.enddef\n", "letters, digits"},
-		{".def a X\n.def b Y\n.enddef\n.end\n", ".def inside .def"},
-		{".def a X\n$X\n", ".def a without .enddef"},
+		{".def at\n.enddef\n", "a command's name"},
+		{".def a-b\n.enddef\n", "letters, digits"},
+		{".def a b\n.enddef\n", "a name and nothing else"},
+		{".def a\n.def b\n.enddef\n.enddef\n", ".def inside .def"},
+		{".def a\n$a\n", ".def a without .enddef"},
 		{".enddef\n", ".enddef without .def"},
-		{".def f A B\n$A $B\n.enddef\n.f one\n", "wants 2 arguments (A B), has 1"},
+		{".def a\n$a\n.enddef\n.def a\n.enddef\n", "already defined"},
+		{".def a\nx\n.enddef\n.a text\n", ".a takes no text"},
+		{".def a\n.at 3\n.enddef\n", ".at inside an alias"},
+		{".def a\n.fill 3\n.enddef\n", ".fill takes no arguments inside an alias"},
+		{".def a\n$a\n.enddef\n.def b\n.a $b\n.enddef\n", "an alias inside an alias"},
+		{".def a\n.fg $a\n.enddef\n", "$a in a command"},
+		{".def a\n.bogus\n.enddef\n", "unknown command .bogus"},
 		{".use marine\n", "unknown command"},
-		{".def f X\n.fg $X\n.enddef\n.f puce\n", `unknown color "puce" (default red green yellow blue magenta cyan white) (.f line 1)`},
+		{".def f\n.fg puce\n.enddef\n.f\n", `unknown color "puce" (default red green yellow blue magenta cyan white) (.f line 1)`},
+		{".def f\n$f\n.enddef\n.at 0 38\n.f abc\n", "overflow the row (.f line 1)"},
 	} {
 		if _, err := Compile(tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)

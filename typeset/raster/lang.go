@@ -45,14 +45,28 @@ type compiler struct {
 	defining *alias            // the .def being collected, else nil
 }
 
-// An alias is a named block of lines with parameters (RASTER.t,
-// "Aliases"): a use substitutes its arguments and compiles the lines.
-// Bodies are stored expanded, so a body may use aliases defined
-// before it and recursion cannot arise.
+// An alias is a named body of lines with one slot, $NAME (RASTER.t,
+// "Aliases"). The body is parsed when the definition closes: a
+// command line is kept as written, a content line is split into
+// literal text and the slot. A use fills the slot with its text as
+// content, never as source.
 type alias struct {
-	name   string
-	params []string
-	body   []string
+	name string
+	ops  []aliasOp
+	slot bool // the body uses $NAME
+}
+
+// An aliasOp is one body line: a command (raw), or content or a
+// continuation as pieces, literal text and the slot.
+type aliasOp struct {
+	raw    string // a command line, else ""
+	cont   bool   // a "+ " continuation
+	pieces []piece
+}
+
+type piece struct {
+	text string
+	slot bool
 }
 
 func colorIndex(name string) (byte, error) {
@@ -69,29 +83,10 @@ func (c *compiler) line(raw string) error {
 		if raw == ".enddef" {
 			a := c.defining
 			c.defining = nil
-			// Inline the uses of earlier aliases, so a body composes them
-			// and a use expands one level, never recursively.
-			var body []string
-			for k, line := range a.body {
-				if inner, ok := c.aliasOf(line); ok {
-					lines, err := inner.substitute(line)
-					if err != nil {
-						return fmt.Errorf("%w (.%s line %d)", err, a.name, k+1)
-					}
-					body = append(body, lines...)
-				} else {
-					body = append(body, line)
-				}
-			}
-			a.body = body
 			c.aliases[a.name] = a
 			return nil
 		}
-		if strings.HasPrefix(raw, ".def ") || raw == ".def" {
-			return fmt.Errorf("raster: .def inside .def %s", c.defining.name)
-		}
-		c.defining.body = append(c.defining.body, raw)
-		return nil
+		return c.collect(raw)
 	}
 	switch {
 	case strings.HasPrefix(raw, "+ "):
@@ -109,28 +104,96 @@ func (c *compiler) line(raw string) error {
 // commands is the closed set; an alias may not take one of its names.
 var commands = map[string]bool{"at": true, "col": true, "fg": true, "bg": true, "fill": true, "rem": true, "def": true, "enddef": true}
 
-// define begins collecting an alias: ".def NAME PARAM...".
+// define begins collecting an alias: ".def NAME".
 func (c *compiler) define(raw string) error {
 	fields := strings.Fields(raw)[1:]
-	if len(fields) == 0 {
-		return fmt.Errorf("raster: .def wants a name")
+	if len(fields) != 1 {
+		return fmt.Errorf("raster: .def wants a name and nothing else")
 	}
 	name := fields[0]
 	if commands[name] {
 		return fmt.Errorf("raster: .def %s: a command's name", name)
 	}
-	for _, f := range fields {
-		for _, r := range f {
-			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
-				return fmt.Errorf("raster: .def %s: names are letters, digits and _", name)
-			}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+			return fmt.Errorf("raster: .def %s: names are letters, digits and _", name)
 		}
 	}
 	if c.aliases == nil {
 		c.aliases = map[string]*alias{}
 	}
-	c.defining = &alias{name: name, params: fields[1:]}
+	if _, dup := c.aliases[name]; dup {
+		return fmt.Errorf("raster: .def %s: already defined", name)
+	}
+	c.defining = &alias{name: name}
 	return nil
+}
+
+// collect parses one body line of the alias being defined.
+func (c *compiler) collect(raw string) error {
+	a := c.defining
+	switch {
+	case strings.HasPrefix(raw, ".def ") || raw == ".def":
+		return fmt.Errorf("raster: .def inside .def %s", a.name)
+	case strings.HasPrefix(raw, "+ "):
+		pieces := a.split(raw[2:])
+		a.ops = append(a.ops, aliasOp{cont: true, pieces: pieces})
+		return nil
+	case len(raw) > 1 && raw[0] == '.' && raw[1] >= 'a' && raw[1] <= 'z':
+		if raw == ".rem" || strings.HasPrefix(raw, ".rem ") {
+			return nil
+		}
+		cmd, args, _ := strings.Cut(raw, " ")
+		if _, ok := c.aliases[cmd[1:]]; ok {
+			return fmt.Errorf("raster: .def %s: an alias inside an alias", a.name)
+		}
+		if !commands[cmd[1:]] {
+			return fmt.Errorf("raster: .def %s: unknown command %s", a.name, cmd)
+		}
+		if cmd == ".at" {
+			return fmt.Errorf("raster: .def %s: .at inside an alias (a body is relative)", a.name)
+		}
+		if cmd == ".fill" && strings.TrimSpace(args) != "" {
+			return fmt.Errorf("raster: .def %s: .fill takes no arguments inside an alias (its own row)", a.name)
+		}
+		if strings.Contains(args, "$"+a.name) {
+			return fmt.Errorf("raster: .def %s: $%s in a command (the slot fills content only)", a.name, a.name)
+		}
+		a.ops = append(a.ops, aliasOp{raw: raw})
+		return nil
+	default:
+		a.ops = append(a.ops, aliasOp{pieces: a.split(raw)})
+		return nil
+	}
+}
+
+// split cuts a content line at its slots: "$NAME" where the next
+// character is not a name character. Any other "$" is text.
+func (a *alias) split(s string) []piece {
+	var pieces []piece
+	slot := "$" + a.name
+	lit := ""
+	for s != "" {
+		i := strings.Index(s, slot)
+		if i < 0 {
+			break
+		}
+		end := i + len(slot)
+		if end < len(s) && isNameChar(s[end]) {
+			lit += s[:end]
+			s = s[end:]
+			continue
+		}
+		pieces = append(pieces, piece{text: lit + s[:i]}, piece{slot: true})
+		lit = ""
+		s = s[end:]
+		a.slot = true
+	}
+	return append(pieces, piece{text: lit + s})
+}
+
+func isNameChar(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_'
 }
 
 // aliasOf returns the alias a line uses, if any.
@@ -143,42 +206,37 @@ func (c *compiler) aliasOf(raw string) (*alias, bool) {
 	return a, ok
 }
 
-// substitute returns the alias's body for a use: the arguments are
-// the words after the name, one per parameter, the last parameter
-// taking the rest of the line as written; $PARAM in the body is
-// replaced by its text.
-func (a *alias) substitute(raw string) ([]string, error) {
-	rest := strings.TrimLeft(raw[1+len(a.name):], " ")
-	args := make([]string, len(a.params))
-	for i := range a.params {
-		if rest == "" {
-			return nil, fmt.Errorf("raster: .%s wants %d arguments (%s), has %d", a.name, len(a.params), strings.Join(a.params, " "), i)
-		}
-		if i == len(a.params)-1 {
-			args[i] = strings.TrimRight(rest, " ")
-			break
-		}
-		args[i], rest, _ = strings.Cut(rest, " ")
-		rest = strings.TrimLeft(rest, " ")
-	}
-	out := make([]string, len(a.body))
-	for k, line := range a.body {
-		for i, p := range a.params {
-			line = strings.ReplaceAll(line, "$"+p, args[i])
-		}
-		out[k] = line
-	}
-	return out, nil
-}
-
-// expand compiles an alias use.
+// expand compiles a use: the text after the name and one space fills
+// the slot, the body runs at the cursor, and the pen is restored
+// after.
 func (c *compiler) expand(a *alias, raw string) error {
-	lines, err := a.substitute(raw)
-	if err != nil {
-		return err
+	text := strings.TrimPrefix(raw[1+len(a.name):], " ")
+	if text != "" && !a.slot {
+		return fmt.Errorf("raster: .%s takes no text", a.name)
 	}
-	for k, line := range lines {
-		if err := c.line(line); err != nil {
+	pen := c.pen
+	defer func() { c.pen = pen }()
+	for k, op := range a.ops {
+		var err error
+		switch {
+		case op.raw != "":
+			err = c.command(op.raw)
+		default:
+			var b strings.Builder
+			for _, p := range op.pieces {
+				if p.slot {
+					b.WriteString(text)
+				} else {
+					b.WriteString(p.text)
+				}
+			}
+			if op.cont {
+				err = c.continuation(" " + b.String())
+			} else {
+				err = c.content(b.String())
+			}
+		}
+		if err != nil {
 			return fmt.Errorf("%w (.%s line %d)", err, a.name, k+1)
 		}
 	}
@@ -284,11 +342,14 @@ func (c *compiler) command(raw string) error {
 		}
 		return nil
 	case ".fill":
-		have, err := a.ints(n[:], 1, 4)
+		have, err := a.ints(n[:], 0, 4)
 		if err != nil {
 			return err
 		}
-		row, col, rows, cols := n[0], 0, 1, 0
+		row, col, rows, cols := c.curRow, 0, 1, 0
+		if have > 0 {
+			row = n[0]
+		}
 		if have > 1 {
 			col = n[1]
 		}

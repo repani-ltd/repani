@@ -5,51 +5,50 @@
 .rem definitions of the same names to Render.
 .rem
 .rem Whole-line aliases receive a line that starts at the cursor.
-.rem The writer places the title centered on row 0 of panel 0; the
-.rem alias paints the bar and the text and never positions.
-.def title TEXT
+.rem The writer places the title centered on row 0 of the first
+.rem screen; the alias paints the bar and the text and never
+.rem positions. The pen is restored after every use, so no alias
+.rem resets it.
+.def title
 .fg white
 .bg blue
-.fill 0
-$TEXT
-.fg
-.bg
+.fill
+$title
 .enddef
-.def byline TEXT
-$TEXT
+.def byline
+$byline
 .enddef
-.def heading TEXT
+.def heading
 .fg yellow
-$TEXT
-.fg
+$heading
 .enddef
-.def subheading TEXT
+.def subheading
 .fg cyan
-$TEXT
-.fg
+$subheading
 .enddef
-.def tablehead TEXT
+.def tablehead
 .fg cyan
-$TEXT
-.fg
+$tablehead
 .enddef
-.def total TEXT
+.def total
 .fg yellow
-$TEXT
-.fg
+$total
 .enddef
-.def rights TEXT
-$TEXT
+.def rights
+$rights
 .enddef
 .rem Span aliases overpaint part of a row the writer has already
 .rem painted in default ink.
-.def label TEXT
+.def label
 .fg cyan
-$TEXT
-.fg
+$label
 .enddef
-.def emph TEXT
+.def emph
 .fg white
-$TEXT
-.fg
+$emph
+.enddef
+.rem t paints a line as written, whatever it begins with: the
+.rem writer's every plain line goes through it.
+.def t
+$t
 .enddef

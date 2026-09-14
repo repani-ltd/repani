@@ -44,6 +44,7 @@ var fixtureSources = []struct{ name, src string }{
 	{"links", "Tap [close] or [tide tables].\n[] [x\n.fg red\n[ALERT] now\n.fg default\nno]link[\n"},
 	{"repertoire", "─│ ←↑→↓ ░▒▓█ °±×÷•·\n€£ ☀☁☂☾❄↯⚠ ‘’“”–— ☺☹♥★✓✗ ●○\nαβγδεζηθικλμνξοπρςστυφχψω\nάέήίόύώϊϋΐΰ\nΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ\n«…» ― <&>\"'\n"},
 	{"sparse", ".at 3\nthree\n.at 100 35\nfar\n.at 1023\nlast\n"},
+	{"aliases", ".def bar\n.fg white\n.bg blue\n.fill\n$bar\n.enddef\n.def t\n$t\n.enddef\n.bar TITLE\n.t .fg red\n.fg green\n.t + text\nstill green\n"},
 	{"blank", ""},
 }
 

@@ -171,11 +171,12 @@ The commands:
                     ended; the run is everything after the "+"
     .col C          the next run lands at column C of the row of the
                     last run; one-shot, the cursor does not move
-    .fill R [C [ROWS [COLS]]]   a region of spaces in the pen's ink;
-                    defaults: column 0, one row, to the right edge
+    .fill [R [C [ROWS [COLS]]]]  a region of spaces in the pen's ink;
+                    defaults: the cursor's row, column 0, one row,
+                    to the right edge
     .rem TEXT       comment, dropped
-    .def NAME PARAM...          an alias: the lines to .enddef, with
-    .enddef         $PARAM standing for a use's words (see Aliases)
+    .def NAME       an alias: the lines to .enddef, with $NAME
+    .enddef         standing for a use's text (see Aliases)
 .end
 
 The rules:
@@ -218,54 +219,65 @@ target. Brackets mean link and nothing else on a raster page.
 
 # Aliases
 
-An ALIAS names a block of lines, so a page's idioms -- a title
-bar, a label and its value -- are one line each to write. The
-mechanism is raster's; the words are the page's or the app's,
-never this specification's.
+An ALIAS names a body of lines with one slot for text, so a
+source's idioms -- a title bar, a heading, a label -- are one
+line each to write, and the roles a semantic layer knows are
+the names the source uses. The mechanism is raster's; the names
+and the inks are the source's or the app's, never this
+specification's.
 
 .pre
-    .def bar TITLE
+    .def bar
     .fg white
     .bg blue
-    .fill 0
-    .at 0
-    $TITLE
-    .fg
-    .bg
+    .fill
+    $bar
     .enddef
-    .def field LABEL VALUE
+    .def label
     .fg cyan
-    $LABEL
-    .fg
-    .col 6
-    $VALUE
+    $label
     .enddef
 
     .bar HARBOUR NOTICE · 02 SEP
-    .field WIND NW 040° 18 kt
+    .label WIND
+    .col 6
+    NW 040° 18 kt
 .end
 
 The rules, and they are the whole of it:
 
-.item A definition is ".def NAME PARAM..." through ".enddef"; the
-lines between are its body. (Not ".end": a pica document quotes
-raster pages in .pre blocks, which ".end" would close.) Names
-are letters, digits and the underscore, and an alias may not
-take a command's name.
-.item A use is ".NAME" followed by its arguments: one word per
-parameter, the last parameter taking the rest of the line as
-written, so a title needs no quotes. Too few words is an error.
-.item In the body, "$PARAM" is replaced by the argument's text,
-as text. Nothing is computed; any other "$" is literal.
-.item A body may use aliases defined before it; they are inlined
-when the definition closes, so a use expands one level and
-recursion cannot arise. A definition inside a definition is an
-error, as is a use that a definition has not preceded.
-.item An error in an expanded line names the alias and the line
-of its body, after the line of the use.
+.item A definition is ".def NAME" through ".enddef"; the lines
+between are its body. (Not ".end": a pica document quotes
+raster sources in .pre blocks, which ".end" would close.) Names
+are letters, digits and the underscore; an alias may not take a
+command's name, and a name is defined once.
+.item A use is ".NAME", one space, and the rest of the line,
+which is the use's TEXT: everything after that space, as
+written, leading spaces included, possibly nothing. In the
+body, "$NAME" is the SLOT, and the text fills
+it as content -- never as source, so a text that begins with a
+dot or a plus is painted, not obeyed. "$NAME" is the slot only
+where the next character is not a name character; any other
+"$" is text. A body may use its slot any number of times; a body
+with no slot takes no text, and a use that gives it some is an
+error.
+.item A body is relative: it runs at the cursor, its content
+moves the cursor as content does, and it may not say .at; a
+bare .fill is its own row. The pen is the caller's: a body may
+set it and the use restores it, so a body never ends with a
+reset and a use never leaks one.
+.item A body is commands and content only: no .def, and no use
+of another alias. A definition precedes its uses, and a use that
+no definition has preceded is an unknown command.
+.item An error in a body's line names the alias and the line of
+its body, after the line of the use.
 .item There is no conditional, no loop, no default value, no
-arithmetic, and none will be admitted: a page that needs them is
-written by a program, which has all of those.
+arithmetic, no escape, and none will be admitted: a source that
+needs them is written by a program, which has all of those.
+.item A source is complete: it defines every alias it uses, and
+there is no include. So a source is archival as the rows are --
+read cold, it says what every name meant -- and the rows carry
+none of it: a reader of rows never meets an alias.
 
 # Non-goals
 

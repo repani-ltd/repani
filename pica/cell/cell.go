@@ -204,11 +204,10 @@ type span struct {
 }
 
 // emit writes one line at (row, start): a whole-row alias, or the
-// text in default ink and then its spans. Raster carries no
-// position from line to line, so every line is placed by its own
-// .at. Content that would lex as a command or a continuation is
-// peeled one leading rune at a time, each painted alone, and the
-// rest placed after it with .col.
+// text in default ink through the identity alias .t (so a line that
+// begins like a command is painted as written) and then its spans.
+// Raster carries no position from line to line, so every line is
+// placed by its own .at.
 func emit(say func(string, ...any), ln line, row, start int) {
 	if ln.alias != "" {
 		say(".at %d %d", row, start+leadSpaces(ln.text))
@@ -216,21 +215,7 @@ func emit(say func(string, ...any), ln line, row, start int) {
 		return
 	}
 	say(".at %d %d", row, start)
-	text := ln.text
-	off := 0
-	for misparsed(text) {
-		say("%s", text[:1])
-		text = text[1:]
-		off++
-	}
-	if off > 0 {
-		if strings.TrimSpace(text) != "" {
-			say(".col %d", start+off)
-			say("%s", text)
-		}
-	} else {
-		say("%s", text)
-	}
+	say(".t %s", ln.text)
 	for _, sp := range ln.spans {
 		runes := []rune(ln.text)
 		t := string(runes[sp.start:sp.end])
@@ -242,13 +227,6 @@ func emit(say func(string, ...any), ln line, row, start int) {
 		say(".col %d", start+sp.start+lead)
 		say(".%s %s", sp.alias, t)
 	}
-}
-
-// misparsed reports whether a content line would lex as a command
-// or an alias use (a dot and a lowercase letter) or as a
-// continuation ("+ ").
-func misparsed(s string) bool {
-	return (len(s) > 1 && s[0] == '.' && s[1] >= 'a' && s[1] <= 'z') || strings.HasPrefix(s, "+ ")
 }
 
 func leadSpaces(s string) int {
