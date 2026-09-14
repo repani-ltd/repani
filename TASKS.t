@@ -55,6 +55,24 @@ compact per-row body (glyphs then ink runs) is ever wanted; it
 is not now. Tessera, the former binding, is in the attic
 (~/repos/_attic/tessera, 2026-09-14). Trigger: the first raster
 to go out over quietcasting.
+.term pictograms redrawn from Noto Sans Symbols
+JuliaMono draws its pictograms (sun, moon, cloud, the marks ● ○ ★
+✓ ✗, the faces) at about two thirds of cap height, which is why
+the weather set was withdrawn (2026-09-14). The icons that read
+well on limasoul.com are a system fallback (Apple Symbols; Fira
+Mono lacks them), which differs by platform and drifts a row by
+its own advance. Tried the same day and judged very nice: the
+embedded JuliaMono subset with those glyphs redrawn from Noto
+Sans Symbols and Noto Sans Symbols 2 (OFL, like JuliaMono),
+each scaled to fill a 0.56 by 0.74 em box on the baseline at
+the 0.6 em advance, so they are full height, exactly aligned,
+embedded and identical on every screen (~/repos/tmp/geometry:
+composite2.py, out/symbols.html, fonts/julia-noto.woff2). Not
+adopted yet. When it is: the weather set returns to the table
+(appended, not at its old codes), the subset carries the Noto
+outlines for it and for the marks, and fonts.go records the two
+donors and the box. Trigger: the first board that wants a
+pictogram.
 .term QR codes: a primitive and a CLI verb, not a command
 A raster carries a QR code as half blocks, one module a column
 and two a row on a white bar with a two-module quiet zone
