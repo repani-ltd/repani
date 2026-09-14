@@ -1,46 +1,57 @@
-RASTER -- A PAGE OF COLORED CELLS
+RASTER -- ROWS OF COLORED CELLS
 .date 2026-09-14
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
 .rem Format specification. Sections through "Authoring" are normative.
 
-A raster is a page of colored text cells, a glyph and an ink per
-cell, in panels of rows by columns. The geometry -- columns,
-rows, panels -- is the instantiating format's, and nothing else
-is: the cell repertoire, the ink model and the authoring language
-are fixed here, so every raster format shares them and every
-raster tool reads every raster page. The page is the archival
-form: every cell is addressable in its bytes, and nothing in
-them is encoded, compressed or implied. A transport that needs
-fewer bytes -- a radio slot -- defines its own binding to and
-from the page, and is not this specification.
+A raster is rows of colored text cells, forty columns wide, a
+glyph and an ink per cell. The width, the cell repertoire, the
+ink model, the row record and the authoring language are all
+fixed here, so every raster tool reads every raster and every
+renderer shows the same cells: the same glyph in the same row
+and column in the same ink, whatever its font, theme or screen.
+The row is the unit of everything: of storage, of update, of
+transmission. A file is rows; an update is rows; a radio slot
+carries rows. Nothing above the row is defined here -- not a
+page, not a screen, not a height -- because nothing above the
+row needs to be shared for a raster to be read.
 
-# The page
+# Rows
 
-A PAGE is P PANELS of R rows by C columns, read in order 0 to
-P-1, as one contiguous raster: cell i of the page is
+A raster is ROWS numbered 0 to 1023, each of 40 CELLS numbered
+0 to 39. Every cell is content; there are no special rows, no
+headers, no trailers. An unwritten cell is blank in default ink.
+A raster has no height of its own: it has the rows written in
+it, and a format that shows a screen states how many rows a
+screen is.
+
+A row's RECORD is its bytes: a two-byte header, then the row's
+cells to its written length. Little-endian, as everything is:
 
 .pre
-    panel  = i div (R×C)
-    row    = (i mod (R×C)) div C     (0..R-1, within the panel)
-    column = i mod C                 (0..C-1)
+    bytes 0-1   header: bits 0-5 the LENGTH N (0..40),
+                bits 6-15 the ROW (0..1023)
+    bytes 2..N+1      N glyph bytes (see Cells)
+    bytes N+2..2N+1   N ink bytes (see Ink)
 .end
 
-so a panel is R×C consecutive cells in row-major order, and the
-page is the panels back to back. Every cell is content; there
-are no special rows, no headers, no trailers.
+so a record is 2+2N bytes, at most 82. A record is the whole
+row: cells N to 39 are blank in default ink, whatever the row
+held before. It is never a partial write. The WRITTEN LENGTH of
+a row is one past its last cell that is not blank in default
+ink, so a row with content only at its right pays full length,
+and a blank row is 0.
 
-The BYTES of a page are two per cell, in cell order: the GLYPH
-byte (see Cells), then the INK byte (see Ink), so cell i is bytes
-2i and 2i+1, and a page is 2×P×R×C bytes. An unwritten cell is
-0x00 0x00, so identical content is identical bytes, and a blank
-page is all zeros.
+The BYTES of a raster are its rows as records, ascending, each
+row once, each at its written length, blank rows omitted. So
+identical content is identical bytes, a blank raster is no
+bytes, and a file cut short is refused, not rendered shorter.
 
-A panel is the unit of flow. Content may run down a panel's rows
-freely; it never continues from one panel into another. A
-renderer may show the panels in any arrangement -- side by side,
-stacked, in a grid, one at a time -- and a flow that crossed a
-panel edge would break in every arrangement but one.
+A STREAM is records in any order: a row repeated replaces its
+earlier value, and a record of length 0 clears its row. Folding
+a stream onto a raster is the whole of update: a producer sends
+the rows it owns, whole, and a reader replaces them. There is
+no delta below the row and none is needed.
 
 The renderer chooses the cell's shape. The format states no
 glyph aspect, font, or pixel.
@@ -149,10 +160,8 @@ is closed. A page that says everything the language has:
 The commands:
 
 .pre
-    .panel N        switch to panel N (0..P-1); the page starts in
-                    panel 0, at row 0
     .at R [C]       the next run lands at row R, column C (default
-                    0); one-shot
+                    0); one-shot; the source starts at row 0
     .fg [NAME]      the pen's foreground; persists until changed;
                     bare, the default
     .bg [NAME]      the pen's background, likewise
@@ -172,28 +181,31 @@ The commands:
 The rules:
 
 .item Names are default red green yellow blue magenta cyan white.
-Rows, columns and panels count from 0.
+Rows and columns count from 0.
 .item A line that begins with a dot and a lowercase letter is a
 command or the use of an alias, and one that is neither is an
 error. A line
 that begins with "+ " is a continuation; a lone "+" and "+5" are
 content. "+" and .col attach to the last run, and there is none
-after .panel or .at.
+after .at.
 .item Content is right-trimmed. Leading spaces position the run
 and paint nothing, so a run's text lands at the cursor plus its
 leading spaces; interior spaces are painted. An empty line, or
 one of only spaces, moves the cursor one row and paints nothing.
-.item A run that overflows its row, a cursor below the last row,
-and a rune outside the repertoire are errors.
-.item The pen is the author's: nothing resets it, .panel
-included, which moves only the cursor. Position is never
-carried: a line lands where its own leading spaces, or the .at
-or .col just before it, say, else at column 0.
+.item A run that overflows its row, a cursor below row 1023, and
+a rune outside the repertoire are errors. A format that shows a
+screen checks the rows itself: the language does not know how
+tall a screen is.
+.item The state that crosses lines is the pen and the row cursor,
+and nothing else. The pen is the author's: nothing resets it.
+Position is never carried: a line lands where its own leading
+spaces, or the .at or .col just before it, say, else at column
+0.
 .item Painting is by cell, in source order, later over earlier;
 a fill clears what it covers. A cell's ink is the pen's when it
 was last painted, so the order of the source never changes a
 color elsewhere, and compilation is reproducible: the same
-source on the same geometry yields the same bytes.
+source yields the same bytes.
 .item A LINK is a bracketed span: an opening bracket and the next
 closing bracket on the same row, with at least one cell between
 them. The whole span, brackets included, is the tappable region,
@@ -257,19 +269,23 @@ written by a program, which has all of those.
 
 # Non-goals
 
-.item No geometry of its own: a raster format states its P, R
-and C; this specification states none.
+.item No page, no panel, no screen, no height. A raster is rows;
+what a screen shows of them, and how many, is the format's or
+the viewer's that shows it. A second width is a second format.
 .item No navigation, no actions: a link names a target and the
-app does the rest; the page is content only.
+app does the rest; the raster is content only.
 .item No mark, no version byte, no reserved fields. Nothing in
 the bytes says what format they are: that is declared wherever
-the page itself is. A revision that appends to the cell table
+the raster itself is. A revision that appends to the cell table
 needs no announcement, since an older renderer shows the new
 cells as blanks.
-.item No compactness. Two bytes a cell is the page, whatever
-the medium; a transport that must be smaller binds the page to
-its own representation and back, and that binding, not this
-format, carries the cleverness.
+.item No compression. A record is its cells, two bytes each,
+whatever the medium; a transport that must be smaller packs
+whole records and carries short rows short, and that is all the
+compactness there is.
+.item No partial rows. A record replaces its row whole, so a
+producer never needs to know what a row held before, and no
+residue can be left on it.
 .item No text styles: no underline, no bold, no double height, no
 flashing. Emphasis is ink; structure is a rule.
 .item No mosaics yet, no general Unicode: see the parked designs.
@@ -281,10 +297,10 @@ flashing. Emphasis is ink; structure is a rule.
 unassigned range and would be the first append; the 2×3
 sextants do not fit. ADMISSION TEST: the first page that wants a
 chart or a logo.
-.item A second repertoire. The table is fixed for every raster
-format, which is what lets every raster tool read every page; a
-script beyond it needs a new format, not a parameter. ADMISSION
-TEST: the first page that needs one.
+.item A second repertoire. The table is fixed, which is what lets
+every raster tool read every raster; a script beyond it needs a
+new format, not a parameter. ADMISSION TEST: the first raster
+that needs one.
 .item A wider palette. Bit 3 of each ink nibble is zero; set, it
 would double the palette to sixteen entries without changing the
 cell. ADMISSION TEST: the first page that needs a ninth color.

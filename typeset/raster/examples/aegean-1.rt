@@ -1,0 +1,55 @@
+.rem Aegean marine bulletin: four panels, one page.
+.rem Colored and plain rows alike start at column 0.
+
+.fill 0
+.at 0 2
+FORECAST TO 1800 UTC · BEAUFORT
+.at 2
+.fg yellow
+.bg default
+AREA        WIND    SEA     VIS
+.fg default
+───────────────────────────────
+THRAKIKO   NE 4-5  MOD     GOOD
+THERMAIKOS N 3-4   SLIGHT  GOOD
+N.EVOIKOS  NE 4    SLIGHT  GOOD
+.fg yellow
+KAFIREAS   N 6-7   ROUGH   MOD
+.fg red
+KYKLADON   N 7-8   V.ROUGH MOD
+IKARIO     N 7-9   V.ROUGH POOR
+KARPATHIO  NW 7    ROUGH   MOD
+.fg default
+KRITIKO    NW 5-6  MOD     GOOD
+SARONIKOS  N 4-5   SLIGHT  GOOD
+.fg yellow
+SAMOS SEA  N 6     ROUGH   MOD
+.fg default
+KITHIRA    NW 5    MOD     GOOD
+IONIO N    NW 3    SMOOTH  GOOD
+IONIO S    W 3-4   SLIGHT  GOOD
+PATRAIKOS  W 3     SMOOTH  GOOD
+.at 20
+.fg red
+RED
+.fg default
++  gale 7-9
+.fg yellow
++  ·
+.fg default
++  strong 6
+.at 22
+.fg cyan
+WIND KYKLADON TODAY (BFT)
+.fg default
+06  ▓▓▓▓▓▓ 6
+12  ▓▓▓▓▓▓▓ 7
+.fg red
+18  ▓▓▓▓▓▓▓▓ 8
+00  ▓▓▓▓▓▓▓ 7
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+VALID 0600-1800 UTC · HNMS
+

@@ -1,25 +1,25 @@
 package raster
 
-import (
-	"strings"
-	"unicode/utf8"
-)
+import "unicode/utf8"
 
-// Text renders one panel as Rows rows of Cols runes, plain: blanks
-// render as spaces, ink is dropped. Rows are trimmed on the right.
-func (p *Page) Text(panel int) []string {
-	out := make([]string, p.Rows)
+// Text renders the raster as Height rows of plain text: blanks render
+// as spaces, ink is dropped, rows are trimmed on the right.
+func (r *Raster) Text() []string {
+	out := make([]string, r.Height())
 	var buf []byte
-	for r := range p.Rows {
-		buf = p.AppendText(buf[:0], panel, r)
-		out[r] = string(buf)
+	for i := range out {
+		buf = r.AppendText(buf[:0], i)
+		out[i] = string(buf)
 	}
 	return out
 }
 
 // AppendText appends one row of Text to dst.
-func (p *Page) AppendText(dst []byte, panel, row int) []byte {
-	cells := p.Row(panel, row)
+func (r *Raster) AppendText(dst []byte, row int) []byte {
+	if row >= len(r.Rows) {
+		return dst
+	}
+	cells := r.Rows[row][:]
 	end := len(cells)
 	for end > 0 && cells[end-1].blank() {
 		end--
@@ -35,23 +35,27 @@ func (p *Page) AppendText(dst []byte, panel, row int) []byte {
 var sgrFG = [8]string{"\x1b[39m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[37m"}
 var sgrBG = [8]string{"\x1b[49m", "\x1b[41m", "\x1b[42m", "\x1b[43m", "\x1b[44m", "\x1b[45m", "\x1b[46m", "\x1b[47m"}
 
-// ANSI renders one panel as Rows rows of exactly Cols cells with ANSI
-// colors, each row reset at its end.
-func (p *Page) ANSI(panel int) []string {
-	out := make([]string, p.Rows)
+// ANSI renders the raster as Height rows of exactly Cols cells with
+// ANSI colors, each row reset at its end.
+func (r *Raster) ANSI() []string {
+	out := make([]string, r.Height())
 	var buf []byte
-	for r := range p.Rows {
-		buf = p.AppendANSI(buf[:0], panel, r)
-		out[r] = string(buf)
+	for i := range out {
+		buf = r.AppendANSI(buf[:0], i)
+		out[i] = string(buf)
 	}
 	return out
 }
 
 // AppendANSI appends one row of ANSI to dst.
-func (p *Page) AppendANSI(dst []byte, panel, row int) []byte {
+func (r *Raster) AppendANSI(dst []byte, row int) []byte {
 	var s Ink
 	dst = append(dst, "\x1b[0m"...)
-	for _, cell := range p.Row(panel, row) {
+	var cells Row
+	if row < len(r.Rows) {
+		cells = r.Rows[row]
+	}
+	for _, cell := range cells {
 		if cell.FG != s.FG {
 			dst = append(dst, sgrFG[cell.FG]...)
 		}
@@ -62,46 +66,4 @@ func (p *Page) AppendANSI(dst []byte, panel, row int) []byte {
 		dst = utf8.AppendRune(dst, CellRune(cell.Glyph))
 	}
 	return append(dst, "\x1b[0m"...)
-}
-
-// Layout arranges panels' rendered rows in reading order, across
-// panels per row of panels, with a two-space gutter between panels
-// and a blank line between rows of panels. Every panel must have the
-// same number of lines; plain rows are padded to cols cells.
-func Layout(panels [][]string, cols, across int) []string {
-	if across < 1 {
-		across = 1
-	}
-	var out []string
-	for first := 0; first < len(panels); first += across {
-		if first > 0 {
-			out = append(out, "")
-		}
-		last := min(first+across, len(panels))
-		for r := range panels[first] {
-			var b strings.Builder
-			for i := first; i < last; i++ {
-				if i > first {
-					b.WriteString("  ")
-				}
-				line := panels[i][r]
-				b.WriteString(line)
-				if n := len([]rune(line)); n < cols && !strings.Contains(line, "\x1b") {
-					b.WriteString(strings.Repeat(" ", cols-n))
-				}
-			}
-			out = append(out, strings.TrimRight(b.String(), " "))
-		}
-	}
-	return out
-}
-
-// Rendered returns every panel through render, in order: the shape
-// Layout takes.
-func (p *Page) Rendered(render func(panel int) []string) [][]string {
-	out := make([][]string, p.Panels)
-	for i := range out {
-		out[i] = render(i)
-	}
-	return out
 }

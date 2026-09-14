@@ -16,45 +16,46 @@ import (
 //go:embed vocabulary.rt
 var Vocabulary string
 
-// Layout is where a document lands: the page geometry, and how the
-// panels are divided into columns.
+// Layout is where a document lands: the screens, and how each is
+// divided into columns.
 type Layout struct {
-	raster.Geometry
-	Columns int // columns per panel; 0 means the document's .cols
+	Rows    int // rows per screen; 0 means one screen of any height
+	Screens int // screens at most; 0 means as many as the document needs
+	Columns int // columns per screen; 0 means the document's .cols
 	Gutter  int // blank cells between columns; 0 means 1
 	Margin  int // blank cells before the first column
-	// Head is the rows the masthead occupies on panel 0 before the
-	// columns begin; 0 means as many as it needs (the title, the
-	// byline, a blank row, a rule, a blank row). More pads with
-	// blank rows, so a panel can match a printed page whose masthead
-	// is taller than its type.
+	// Head is the rows the masthead occupies on the first screen
+	// before the columns begin; 0 means as many as it needs (the
+	// title, the byline, a blank row, a rule, a blank row). More pads
+	// with blank rows, so a screen can match a printed page whose
+	// masthead is taller than its type.
 	Head int
 }
 
-// Link is a .link block as the page carries it: the bracketed text
-// on the page and the URL it stood for in the document.
+// Link is a .link block as the raster carries it: the bracketed text
+// on the raster and the URL it stood for in the document.
 type Link struct{ Text, URL string }
 
-// Result is a rendered document: the raster source (the vocabulary,
-// then the page), the page compiled from it, and the links.
+// Result is a rendered document: one raster per screen, each with
+// the source it was compiled from (the vocabulary, then the screen),
+// and the links.
 type Result struct {
-	Source string
-	Page   *raster.Page
-	Links  []Link
+	Sources []string
+	Rasters []*raster.Raster
+	Links   []Link
 }
 
 // minWidth is the narrowest column the writer will set.
 const minWidth = 8
 
 // Render sets doc on the layout in the vocabulary (Vocabulary if
-// empty). A document that does not fit in the panels is an error
+// empty). A document that does not fit in the screens is an error
 // saying how many lines are left over, as is a rune outside the
 // raster repertoire.
 func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 	if vocabulary == "" {
 		vocabulary = Vocabulary
 	}
-	g := l.Geometry
 	n := l.Columns
 	if n <= 0 {
 		n = doc.Layout.Cols
@@ -67,10 +68,10 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 		gutter = 1
 	}
 	margin := max(l.Margin, 0)
-	usable := g.Cols - margin - (n-1)*gutter
+	usable := raster.Cols - margin - (n-1)*gutter
 	colW := usable / n
 	if colW < minWidth {
-		return nil, fmt.Errorf("cell: %d columns of %d cells leave a measure of %d, under %d", n, g.Cols, colW, minWidth)
+		return nil, fmt.Errorf("cell: %d columns of %d cells leave a measure of %d, under %d", n, raster.Cols, colW, minWidth)
 	}
 
 	var links []Link
@@ -79,8 +80,8 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 		return nil, err
 	}
 
-	// The masthead on panel 0: the title and byline centered over
-	// the columns, a blank row, a rule across them, a blank row.
+	// The masthead on the first screen: the title and byline centered
+	// over the columns, a blank row, a rule across them, a blank row.
 	span := n*colW + (n-1)*gutter
 	mast := 0
 	if doc.Title != "" {
@@ -92,87 +93,84 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 	if l.Head > mast {
 		mast = l.Head
 	}
+	rows := l.Rows
+	if rows <= 0 {
+		rows = raster.MaxRows
+	}
 	capacity := func(col int) int {
 		if col/n == 0 {
-			return g.Rows - mast
+			return rows - mast
 		}
-		return g.Rows
+		return rows
 	}
 	cols := flow(blocks, capacity)
-	if len(cols) > g.Panels*n {
+	screens := (len(cols) + n - 1) / n
+	if l.Rows <= 0 && screens > 1 || l.Screens > 0 && screens > l.Screens {
+		limit := max(l.Screens, 1)
 		left := 0
-		for _, c := range cols[g.Panels*n:] {
+		for _, c := range cols[limit*n:] {
 			left += len(c)
 		}
-		return nil, fmt.Errorf("cell: %d lines do not fit in %d panels", left, g.Panels)
-	}
-
-	var src strings.Builder
-	say := func(format string, args ...any) { fmt.Fprintf(&src, format+"\n", args...) }
-	if doc.Title != "" {
-		// Centered over the columns.
-		center := func(row int, text string) {
-			text = pica.TruncLine(text, span)
-			say(".at %d %d", row, margin+(span-utf8.RuneCountInString(text))/2)
-		}
-		row := 0
-		center(row, doc.Title)
-		say(".title %s", pica.TruncLine(doc.Title, span))
-		row++
-		if bl := doc.Byline(); bl != "" {
-			center(row, bl)
-			say(".byline %s", pica.TruncLine(bl, span))
-			row++
-		}
-		row++
-		say(".at %d %d", row, margin)
-		say("%s", strings.Repeat("─", span))
+		return nil, fmt.Errorf("cell: %d lines do not fit in %d screens", left, limit)
 	}
 	depth := make([]int, len(cols))
 	for ci, col := range cols {
 		depth[ci] = len(col)
 	}
-	for ci, col := range cols {
-		panel, k := ci/n, ci%n
-		start := margin + k*(colW+gutter)
-		row := 0
-		if panel == 0 {
-			row = mast
-		}
-		if k == 0 && panel > 0 {
-			say(".panel %d", panel)
-		}
-		for _, ln := range col {
-			emit(say, ln, row, start)
-			row++
-		}
-	}
 
-	// Hairlines down the gutters, to content depth, when the gutter
-	// has a blank cell on either side of the rule.
-	if gutter >= 3 {
-		for panel := 0; panel < g.Panels; panel++ {
-			top := 0
-			if panel == 0 {
-				top = mast
+	res := &Result{Links: links}
+	for s := range screens {
+		var src strings.Builder
+		say := func(format string, args ...any) { fmt.Fprintf(&src, format+"\n", args...) }
+		top := 0
+		if s == 0 {
+			top = mast
+		}
+		if s == 0 && doc.Title != "" {
+			// Centered over the columns.
+			center := func(row int, text string) {
+				text = pica.TruncLine(text, span)
+				say(".at %d %d", row, margin+(span-utf8.RuneCountInString(text))/2)
 			}
+			row := 0
+			center(row, doc.Title)
+			say(".title %s", pica.TruncLine(doc.Title, span))
+			row++
+			if bl := doc.Byline(); bl != "" {
+				center(row, bl)
+				say(".byline %s", pica.TruncLine(bl, span))
+				row++
+			}
+			row++
+			say(".at %d %d", row, margin)
+			say("%s", strings.Repeat("─", span))
+		}
+		for k := range n {
+			ci := s*n + k
+			if ci >= len(cols) {
+				break
+			}
+			start := margin + k*(colW+gutter)
+			row := top
+			for _, ln := range cols[ci] {
+				emit(say, ln, row, start)
+				row++
+			}
+		}
+		// Hairlines down the gutters, to content depth, when the gutter
+		// has a blank cell on either side of the rule.
+		if gutter >= 3 {
 			for k := 1; k < n; k++ {
-				left, right := panel*n+k-1, panel*n+k
+				left, right := s*n+k-1, s*n+k
 				if left >= len(cols) {
 					break
 				}
-				d := 0
-				if left < len(depth) {
-					d = depth[left]
-				}
+				d := depth[left]
 				if right < len(depth) && depth[right] > d {
 					d = depth[right]
 				}
 				if d == 0 {
 					continue
-				}
-				if k == 1 {
-					say(".panel %d", panel)
 				}
 				say(".at %d", top)
 				rule := strings.Repeat(" ", margin+k*(colW+gutter)-gutter+gutter/2) + "│"
@@ -181,14 +179,15 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 				}
 			}
 		}
+		full := vocabulary + src.String()
+		r, err := raster.Compile(full)
+		if err != nil {
+			return nil, err
+		}
+		res.Sources = append(res.Sources, full)
+		res.Rasters = append(res.Rasters, r)
 	}
-
-	full := vocabulary + src.String()
-	page, err := raster.Compile(g, full)
-	if err != nil {
-		return nil, err
-	}
-	return &Result{Source: full, Page: page, Links: links}, nil
+	return res, nil
 }
 
 // A line to place: its text, the alias that paints the whole row

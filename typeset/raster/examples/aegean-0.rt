@@ -1,0 +1,49 @@
+.rem Aegean marine bulletin: four panels, one page.
+.rem Colored and plain rows alike start at column 0.
+
+.fg white
+.bg blue
+.fill 0
+.at 0 2
+ΑΙΓΑΙΟ · AEGEAN MARINE BULLETIN
+.fg cyan
+.bg default
+.at 1
+02 SEP 2026 · 0600 UTC · HNMS
+.fg default
+.at 3
+.fg yellow
+SYNOPSIS
+.fg default
+High 1024 over central Europe,
+low 1004 over Cyprus moving E.
+The meltemi (N winds) over the
+Aegean strengthens through the
+afternoon and peaks tonight.
+.at 9
+.fg yellow
+OUTLOOK TO WED 03 SEP
+.fg default
+Gale 8 Kykladon, Ikario and
+Karpathio from 1800, locally 9
+over Ikario. Easing to 5-6 by
+Wednesday noon. Ionian: fair.
+.at 15
+.fg yellow
+NOTICES TO MARINERS
+.fg default
+· Piraeus: Gate E1 closed for
+ works until 10 Sep.
+· Rafina: 1600 and 1730 ferries
+ to Mykonos cancelled.
+· Lavrio: Ε/Γ traffic to Kea
+ suspended from 1800.
+.at 23
+.fg green
+SEA 25°C · UV 8 · ☀↑06:58 ☾↑18:20
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+NEXT UPDATE 1200 UTC · VHF CH 16
+

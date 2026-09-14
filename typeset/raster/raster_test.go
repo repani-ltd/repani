@@ -6,227 +6,242 @@ import (
 	"testing"
 )
 
-// A 40 by 24 by 4 geometry; the tests that fix the cell model run on
-// it, and TestGeometryIsAParameter on others.
-var g40 = Geometry{Cols: 40, Rows: 24, Panels: 4}
-
-func compile(t *testing.T, src string) *Page {
+func compile(t *testing.T, src string) *Raster {
 	t.Helper()
-	p, err := Compile(g40, src)
+	r, err := Compile(src)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	return p
+	return r
 }
 
-func written(p *Page) int {
+func written(r *Raster) int {
 	n := 0
-	for _, c := range p.Cells {
-		if c != (Cell{}) {
-			n++
+	for i := range r.Rows {
+		for _, c := range r.Rows[i] {
+			if c != (Cell{}) {
+				n++
+			}
 		}
 	}
 	return n
 }
 
-func TestGeometry(t *testing.T) {
-	if g40.PanelLen() != 960 || g40.Len() != 3840 || g40.Size() != 7680 || g40.Offset(2, 3, 5) != 2045 {
-		t.Fatalf("geometry: panel %d page %d size %d offset %d", g40.PanelLen(), g40.Len(), g40.Size(), g40.Offset(2, 3, 5))
+func TestRows(t *testing.T) {
+	r := New()
+	if r.Height() != 0 || len(r.Bytes()) != 0 {
+		t.Fatal("a new raster is not blank")
 	}
-	g := Geometry{Cols: 40, Rows: 10, Panels: 3}
-	if g.Len() != 1200 || g.Offset(1, 2, 3) != 483 {
-		t.Fatalf("40x10x3: len %d offset %d", g.Len(), g.Offset(1, 2, 3))
+	r.Row(5)[3] = Cell{'x', Ink{}}
+	if r.Height() != 6 || r.Rows[5][3].Glyph != 'x' || r.Rows[2].end() != 0 {
+		t.Fatalf("Row grows: height %d", r.Height())
 	}
-	p := New(g)
-	if len(p.Row(2, 9)) != 40 || &p.Row(2, 9)[0] != &p.Cells[1160] {
-		t.Fatal("Row does not alias the cells")
+	if r.Rows[5].end() != 4 {
+		t.Fatalf("end = %d, want 4", r.Rows[5].end())
 	}
-}
-
-func TestGeometryIsAParameter(t *testing.T) {
-	g := Geometry{Cols: 40, Rows: 3, Panels: 2}
-	p, err := Compile(g, ".panel 1\n.at 2 31\n.fg red\nABCDEFGHI\n")
-	if err != nil {
-		t.Fatal(err)
+	// A blank cell in ink counts as written; a written space in
+	// default ink does not.
+	r.Row(6)[9] = Cell{' ', Ink{BG: 4}}
+	r.Row(7)[9] = Cell{' ', Ink{}}
+	if r.Rows[6].end() != 10 || r.Rows[7].end() != 0 {
+		t.Fatalf("ends %d %d", r.Rows[6].end(), r.Rows[7].end())
 	}
-	if r := p.Row(1, 2); r[31] != (Cell{'A', Ink{FG: 1}}) || r[39] != (Cell{'I', Ink{FG: 1}}) {
-		t.Fatalf("row = %+v", r[28:])
-	}
-	if _, err := Compile(Geometry{34, 28, 4}, ".panel 1\n.at 2 31\n.fg red\nABCDEFGHI\n"); err == nil || !strings.Contains(err.Error(), "overflow") {
-		t.Fatalf("34 columns accepted a 9-cell run at 31: %v", err)
-	}
-	for _, tc := range []struct{ src, want string }{
-		{".panel 2\n", "panel 2 out of range 0..1"},
-		{".at 3\n", "outside rows 0..2, cols 0..39"},
-		{"\n\n\nx\n", "below row 2"},
-		{".fill 0 0 1 41\n", "outside the panel"},
-		{".margin 2\n", "unknown command .margin"},
-	} {
-		if _, err := Compile(g, tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
-		}
-	}
-	// Single-column, single-row, single-panel is a page too, and the
-	// page starts in panel 0.
-	if p, err := Compile(Geometry{1, 1, 1}, "X\n"); err != nil || p.Cells[0].Glyph != 'X' {
-		t.Fatalf("1x1x1: %v %v", p, err)
+	// Rows past the slice are blank for every reader.
+	if r.Links(50) != nil || string(r.AppendText(nil, 50)) != "" || len(r.AppendANSI(nil, 50)) != 8+40 {
+		t.Fatal("rows past the slice")
 	}
 }
 
-// "RASTER" in yellow at panel 2, row 3, column 6: six cells, each the
-// glyph and the ink, and nothing else on the page.
+// "RASTER" in yellow at row 3, column 6: six cells, each the glyph
+// and the ink, and nothing else written.
 func TestVector(t *testing.T) {
-	p := compile(t, ".panel 2\n.at 3 6\n.fg yellow\nRASTER\n")
-	o := g40.Offset(2, 3, 6)
+	r := compile(t, ".at 3 6\n.fg yellow\nRASTER\n")
 	for i, g := range []byte("RASTER") {
-		if p.Cells[o+i] != (Cell{g, Ink{FG: 3}}) {
-			t.Fatalf("cell %d = %+v", i, p.Cells[o+i])
+		if r.Rows[3][6+i] != (Cell{g, Ink{FG: 3}}) {
+			t.Fatalf("cell %d = %+v", i, r.Rows[3][6+i])
 		}
 	}
-	if n := written(p); n != 6 {
-		t.Fatalf("%d written cells, want 6", n)
+	if n := written(r); n != 6 || r.Height() != 4 {
+		t.Fatalf("%d written cells, height %d", n, r.Height())
 	}
-	// The same page from a leading space at column 5.
-	q := compile(t, ".panel 2\n.at 3 5\n.fg yellow\n RASTER\n")
-	if !bytes.Equal(p.Bytes(), q.Bytes()) {
+	// The same raster from a leading space at column 5.
+	q := compile(t, ".at 3 5\n.fg yellow\n RASTER\n")
+	if !bytes.Equal(r.Bytes(), q.Bytes()) {
 		t.Fatal("a leading space and .at one column right differ")
 	}
-	// The bytes: glyph then ink, background high, foreground low.
-	b := p.Bytes()
-	if len(b) != g40.Size() || b[2*o] != 'R' || b[2*o+1] != 0x03 {
-		t.Fatalf("bytes at %d: % X", 2*o, b[2*o:2*o+2])
+	// The bytes: one record, header little-endian with row 3 and
+	// length 12, twelve glyphs (the unwritten six are 0x00), twelve
+	// inks.
+	b := r.Bytes()
+	want := append([]byte{byte(3<<6 | 12), byte(3 >> 2)}, 0, 0, 0, 0, 0, 0)
+	want = append(want, []byte("RASTER")...)
+	want = append(want, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3)
+	if !bytes.Equal(b, want) {
+		t.Fatalf("bytes = % X\nwant    % X", b, want)
 	}
 }
 
-func TestBytesRoundTrip(t *testing.T) {
-	src := ".fg red\nALERT\n.fg default\n+ now\n.bg blue\n.fill 1\n.fg white\n.at 1 2\nTITLE\n.fg default\n.bg default\n.at 3 4\nx\n"
-	p := compile(t, src)
-	b := p.Bytes()
-	q, err := Of(g40, b)
+func TestBytesAndRead(t *testing.T) {
+	src := ".fg red\nALERT\n.fg default\n+ now\n.bg blue\n.fill 1\n.fg white\n.at 1 2\nTITLE\n.fg default\n.bg default\n.at 3 4\nx\n.at 1000\nfar\n"
+	r := compile(t, src)
+	b := r.Bytes()
+	// Rows 0, 1, 3, 1000: row 2 is blank and absent; the bar row is
+	// full length; row 1000 is the last record.
+	if len(b) != (2+2*9)+(2+2*40)+(2+2*5)+(2+2*3) {
+		t.Fatalf("%d bytes", len(b))
+	}
+	if h := uint16(b[len(b)-8]) | uint16(b[len(b)-7])<<8; h>>6 != 1000 || h&0x3F != 3 {
+		t.Fatalf("last header %#04x", h)
+	}
+	q, err := Read(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(b, q.Bytes()) || q.Cells[g40.Offset(0, 1, 2)] != (Cell{'T', Ink{FG: 7, BG: 4}}) {
+	if !bytes.Equal(b, q.Bytes()) || q.Height() != 1001 || q.Rows[1][2] != (Cell{'T', Ink{FG: 7, BG: 4}}) {
 		t.Fatal("bytes do not round trip")
 	}
-	if _, err := Of(g40, b[:len(b)-1]); err == nil || !strings.Contains(err.Error(), "bytes for geometry") {
-		t.Fatalf("short bytes: %v", err)
+	// A stream: any order, a repeat replaces, length 0 clears.
+	stream := append([]byte{}, b...)
+	two, _ := Compile(".at 1\nTWO\n")
+	stream = append(stream, two.Bytes()...)
+	stream = append(stream, byte(3<<6), byte(3>>2)) // clear row 3
+	s, err := Read(stream)
+	if err != nil {
+		t.Fatal(err)
 	}
-	b[1] = 0x80
-	if _, err := Of(g40, b); err == nil || !strings.Contains(err.Error(), "not two palette indices") {
-		t.Fatalf("reserved bit: %v", err)
+	if got := s.Text()[1]; got != "TWO" {
+		t.Fatalf("replaced row 1 = %q", got)
 	}
-	if _, err := Of(g40, make([]byte, g40.Size())); err != nil {
-		t.Fatalf("blank page: %v", err)
+	if s.Rows[3].end() != 0 || s.Rows[1][10] != (Cell{}) {
+		t.Fatal("clear or replace left residue")
+	}
+	// Errors: cut short, length past 40, a reserved ink bit.
+	for _, tc := range []struct {
+		name string
+		b    []byte
+		want string
+	}{
+		{"header cut", []byte{0x01}, "header cut short"},
+		{"row cut", []byte{0x02, 0x00, 'a'}, "cut short"},
+		{"length 41", []byte{41, 0x00}, "length 41"},
+		{"ink bit", []byte{0x01, 0x00, 'a', 0x80}, "not two palette indices"},
+	} {
+		if _, err := Read(tc.b); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v", tc.name, err)
+		}
+	}
+	if r, err := Read(nil); err != nil || r.Height() != 0 {
+		t.Fatalf("empty stream: %v", err)
 	}
 }
 
 func TestInk(t *testing.T) {
 	// Every cell carries its own ink: colored text can be glued to
 	// text, can start at column 0, and can fill the whole row.
-	p := compile(t, "AB\n.fg cyan\n+ CD\n.fg white\n.bg blue\n+ EF\n.fg red\n"+strings.Repeat("x", 40)+"\n")
-	r := p.Row(0, 0)
-	if r[1] != (Cell{'B', Ink{}}) || r[3] != (Cell{'C', Ink{FG: 6}}) || r[6] != (Cell{'E', Ink{FG: 7, BG: 4}}) {
-		t.Fatalf("row 0 = %+v", r[:8])
+	r := compile(t, "AB\n.fg cyan\n+ CD\n.fg white\n.bg blue\n+ EF\n.fg red\n"+strings.Repeat("x", 40)+"\n")
+	row := r.Rows[0]
+	if row[1] != (Cell{'B', Ink{}}) || row[3] != (Cell{'C', Ink{FG: 6}}) || row[6] != (Cell{'E', Ink{FG: 7, BG: 4}}) {
+		t.Fatalf("row 0 = %+v", row[:8])
 	}
-	r = p.Row(0, 1)
-	if r[0] != (Cell{'x', Ink{FG: 1, BG: 4}}) || r[39] != (Cell{'x', Ink{FG: 1, BG: 4}}) {
-		t.Fatalf("full red row: %+v %+v", r[0], r[39])
+	row = r.Rows[1]
+	if row[0] != (Cell{'x', Ink{FG: 1, BG: 4}}) || row[39] != (Cell{'x', Ink{FG: 1, BG: 4}}) {
+		t.Fatalf("full red row: %+v %+v", row[0], row[39])
 	}
 	// Bare .fg and .bg are the default.
-	p = compile(t, ".fg red\n.bg blue\nA\n.fg\n.bg\nB\n")
-	if p.Row(0, 0)[0].Ink != (Ink{FG: 1, BG: 4}) || p.Row(0, 1)[0].Ink != (Ink{}) {
+	r = compile(t, ".fg red\n.bg blue\nA\n.fg\n.bg\nB\n")
+	if r.Rows[0][0].Ink != (Ink{FG: 1, BG: 4}) || r.Rows[1][0].Ink != (Ink{}) {
 		t.Fatal("bare .fg/.bg")
 	}
 	// Painting order does not matter: a red word placed before a
 	// default one to its right recolors nothing.
 	a := compile(t, ".at 0 10\nX\n.fg red\n.at 0\nALERT\n")
 	b := compile(t, ".fg red\nALERT\n.fg default\n.at 0 10\nX\n")
-	if !bytes.Equal(a.Bytes(), b.Bytes()) || a.Row(0, 0)[10].FG != 0 || a.Row(0, 0)[0].FG != 1 {
-		t.Fatal("order changed the page")
+	if !bytes.Equal(a.Bytes(), b.Bytes()) || a.Rows[0][10].FG != 0 || a.Rows[0][0].FG != 1 {
+		t.Fatal("order changed the raster")
 	}
 }
 
 func TestFill(t *testing.T) {
 	// A bar: spaces in the ink to the edge; text over it inherits the
 	// background it is painted in.
-	p := compile(t, ".bg blue\n.fill 0\n.at 0 2\nHI\n")
-	r := p.Row(0, 0)
-	if r[0] != (Cell{' ', Ink{BG: 4}}) || r[2] != (Cell{'H', Ink{BG: 4}}) || r[39] != (Cell{' ', Ink{BG: 4}}) {
-		t.Fatalf("bar row = %+v", r[:4])
+	r := compile(t, ".bg blue\n.fill 0\n.at 0 2\nHI\n")
+	row := r.Rows[0]
+	if row[0] != (Cell{' ', Ink{BG: 4}}) || row[2] != (Cell{'H', Ink{BG: 4}}) || row[39] != (Cell{' ', Ink{BG: 4}}) {
+		t.Fatalf("bar row = %+v", row[:4])
 	}
 	// A partial fill covers exactly its cells.
-	p = compile(t, ".bg red\n.fill 5 10 1 4\n")
-	if r := p.Row(0, 5); r[9] != (Cell{}) || r[10] != (Cell{' ', Ink{BG: 1}}) || r[13] != (Cell{' ', Ink{BG: 1}}) || r[14] != (Cell{}) {
-		t.Fatalf("partial fill = %+v", r[8:16])
+	r = compile(t, ".bg red\n.fill 5 10 1 4\n")
+	if row := r.Rows[5]; row[9] != (Cell{}) || row[10] != (Cell{' ', Ink{BG: 1}}) || row[13] != (Cell{' ', Ink{BG: 1}}) || row[14] != (Cell{}) {
+		t.Fatalf("partial fill = %+v", row[8:16])
 	}
 	// Two rows, column defaults, rows given.
-	p = compile(t, ".bg green\n.fill 3 0 2\n")
-	if p.Row(0, 3)[0].BG != 2 || p.Row(0, 4)[0].BG != 2 || p.Row(0, 5)[0] != (Cell{}) {
+	r = compile(t, ".bg green\n.fill 3 0 2\n")
+	if r.Rows[3][0].BG != 2 || r.Rows[4][0].BG != 2 || r.Height() != 5 {
 		t.Fatal("two-row fill")
 	}
 	// A default fill over content clears it.
-	p = compile(t, ".fg red\nABC\n.fg default\n.fill 0\n")
-	if n := written(p); n != 40 || p.Row(0, 0)[0] != (Cell{' ', Ink{}}) {
-		t.Fatalf("clearing fill: %d written, first %+v", n, p.Row(0, 0)[0])
+	r = compile(t, ".fg red\nABC\n.fg default\n.fill 0\n")
+	if n := written(r); n != 40 || r.Rows[0][0] != (Cell{' ', Ink{}}) || len(r.Bytes()) != 0 {
+		t.Fatalf("clearing fill: %d written, first %+v, %d bytes", n, r.Rows[0][0], len(r.Bytes()))
 	}
 }
 
 func TestAt(t *testing.T) {
-	p := compile(t, ".fg yellow\n  HEAD\n.fg default\nbody\n.at 5 10\nfar\nback\n")
-	if p.Row(0, 0)[2].Glyph != 'H' || p.Row(0, 0)[2].FG != 3 || p.Row(0, 1)[0].Glyph != 'b' {
+	r := compile(t, ".fg yellow\n  HEAD\n.fg default\nbody\n.at 5 10\nfar\nback\n")
+	if r.Rows[0][2].Glyph != 'H' || r.Rows[0][2].FG != 3 || r.Rows[1][0].Glyph != 'b' {
 		t.Fatal("leading spaces or the flow to column 0 not honoured")
 	}
-	if p.Row(0, 5)[10].Glyph != 'f' || p.Row(0, 6)[0].Glyph != 'b' {
+	if r.Rows[5][10].Glyph != 'f' || r.Rows[6][0].Glyph != 'b' {
 		t.Fatal(".at is not one-shot, or does not return to column 0")
 	}
-	// .panel moves only the cursor: the pen persists.
-	p = compile(t, ".fg red\n.at 3 1\n.panel 1\nX\n")
-	if x := p.Row(1, 0)[0]; x.Glyph != 'X' || x.FG != 1 {
-		t.Fatalf("after .panel: %+v", x)
-	}
 	// The blank line flows a row and returns to column 0.
-	p = compile(t, ".at 0 5\n\nY\n")
-	if p.Row(0, 1)[0].Glyph != 'Y' {
+	r = compile(t, ".at 0 5\n\nY\n")
+	if r.Rows[1][0].Glyph != 'Y' {
 		t.Fatal("blank line after .at")
 	}
 	// .col places on the row of the last run and leaves the cursor
 	// alone: a label at column 0, its value at column 6, the next
 	// line below both.
-	p = compile(t, ".fg cyan\nWIND\n.fg\n.col 6\nNW 6 kt\nnext\n.col 10\nmore\n")
-	if r := p.Row(0, 0); r[0].Glyph != 'W' || r[0].FG != 6 || r[6].Glyph != 'N' || r[6].FG != 0 || r[4].Glyph != 0 {
-		t.Fatalf(".col row 0 = %q", string(p.AppendText(nil, 0, 0)))
+	r = compile(t, ".fg cyan\nWIND\n.fg\n.col 6\nNW 6 kt\nnext\n.col 10\nmore\n")
+	if row := r.Rows[0]; row[0].Glyph != 'W' || row[0].FG != 6 || row[6].Glyph != 'N' || row[6].FG != 0 || row[4].Glyph != 0 {
+		t.Fatalf(".col row 0 = %q", string(r.AppendText(nil, 0)))
 	}
-	if r := p.Row(0, 1); r[0].Glyph != 'n' || r[10].Glyph != 'm' || p.Row(0, 2)[0].Glyph != 0 {
-		t.Fatalf(".col row 1 = %q", string(p.AppendText(nil, 0, 1)))
+	if row := r.Rows[1]; row[0].Glyph != 'n' || row[10].Glyph != 'm' || r.Height() != 2 {
+		t.Fatalf(".col row 1 = %q", string(r.AppendText(nil, 1)))
 	}
 	// A lone + and a +5 are content.
-	p = compile(t, "+\n+5\n")
-	if p.Row(0, 0)[0].Glyph != '+' || p.Row(0, 1)[1].Glyph != '5' {
+	r = compile(t, "+\n+5\n")
+	if r.Rows[0][0].Glyph != '+' || r.Rows[1][1].Glyph != '5' {
 		t.Fatal("+ as content")
+	}
+	// Rows reach 1023 and no further.
+	r = compile(t, ".at 1023\nlast\n")
+	if r.Height() != 1024 {
+		t.Fatalf("height %d", r.Height())
 	}
 }
 
 func TestErrors(t *testing.T) {
 	for _, tc := range []struct{ src, want string }{
-		{".panel 4\n", "panel 4 out of range"},
-		{".at 24 0\n", "outside rows"},
+		{".at 1024 0\n", "outside rows 0..1023"},
 		{".at 0 0\n+ X\n", "nothing to continue"},
 		{".col 6\nX\n", "no run to attach to"},
 		{"A\n.at 1\n.col 6\nX\n", "no run to attach to"},
 		{"A\n.col 40\nX\n", "outside columns 0..39"},
 		{".bogus\n", "unknown command"},
+		{".panel 1\n", "unknown command .panel"},
+		{".margin 2\n", "unknown command .margin"},
 		{".fg puce\n", "unknown color"},
 		{".fg red blue\n", "one color name, or none"},
-		{".ink red\n", "unknown command"},
 		{"日本\n", "outside the cell repertoire"},
 		{".at 0 36\nHELLO\n", "line 2: raster: row 0: 5 cells at column 36 overflow the row"},
-		{".fill 0 0 1 41\n", "outside the panel"},
+		{".fill 0 0 1 41\n", "outside the raster"},
+		{".fill 1023 0 2\n", "outside the raster"},
 		{".fill\n", "want 1 to 4 arguments"},
 		{"+ \n", "nothing to continue"},
-		{strings.Repeat("x\n", 25), "below row 23"},
+		{".at 1023\nx\ny\n", "below row 1023"},
 	} {
-		_, err := Compile(g40, tc.src)
+		_, err := Compile(tc.src)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
 		}
@@ -234,18 +249,15 @@ func TestErrors(t *testing.T) {
 }
 
 func TestReproducibleAndText(t *testing.T) {
-	src := ".panel 1\n.fg yellow\nΚΑΙΡΟΣ ─── 12°\n.fg default\n\nΑθήνα   21°\n. dotted\n"
+	src := ".fg yellow\nΚΑΙΡΟΣ ─── 12°\n.fg default\n\nΑθήνα   21°\n. dotted\n"
 	a := compile(t, src)
 	b := compile(t, src)
 	if !bytes.Equal(a.Bytes(), b.Bytes()) {
 		t.Fatal("compilation is not reproducible")
 	}
-	rows := a.Text(1)
-	if rows[0] != "ΚΑΙΡΟΣ ─── 12°" || rows[1] != "" || rows[2] != "Αθήνα   21°" || rows[3] != ". dotted" {
-		t.Fatalf("text = %q", rows[:4])
-	}
-	if len(rows) != g40.Rows || a.Text(0)[0] != "" {
-		t.Fatalf("text shape: %d rows, panel 0 row 0 %q", len(rows), a.Text(0)[0])
+	rows := a.Text()
+	if len(rows) != 4 || rows[0] != "ΚΑΙΡΟΣ ─── 12°" || rows[1] != "" || rows[2] != "Αθήνα   21°" || rows[3] != ". dotted" {
+		t.Fatalf("text = %q", rows)
 	}
 }
 
@@ -271,118 +283,88 @@ func TestCellTable(t *testing.T) {
 	}
 }
 
-func TestANSIAndLayout(t *testing.T) {
-	g := Geometry{Cols: 6, Rows: 2, Panels: 3}
-	p, err := Compile(g, ".fg red\n AB\n.fg default\n.panel 1\nCD\n.panel 2\n.at 1\nEF\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a := p.ANSI(0); a[0] != "\x1b[0m \x1b[31mAB\x1b[39m   \x1b[0m" {
-		t.Fatalf("ANSI = %q", a[0])
-	}
-	got := Layout(p.Rendered(p.Text), g.Cols, 2)
-	want := []string{" AB     CD", "", "", "", "EF"}
-	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("Layout = %q, want %q", got, want)
+func TestANSI(t *testing.T) {
+	r := compile(t, ".fg red\n AB\n.fg default\n\nEF\n")
+	a := r.ANSI()
+	if len(a) != 3 || a[0] != "\x1b[0m \x1b[31mAB\x1b[39m"+strings.Repeat(" ", 37)+"\x1b[0m" || a[1] != "\x1b[0m"+strings.Repeat(" ", 40)+"\x1b[0m" {
+		t.Fatalf("ANSI = %q", a)
 	}
 }
 
 func TestHTML(t *testing.T) {
-	p := compile(t, ".bg blue\n.fill 0 0 1 5\n.fg white\n.at 0 2\n<>\n.fg default\n.bg default\n.at 1\nplain\n")
-	rows := p.HTMLRows(0)
+	r := compile(t, ".bg blue\n.fill 0 0 1 5\n.fg white\n.at 0 2\n<>\n.fg default\n.bg default\n.at 1\nplain\n")
+	rows := r.HTMLRows()
 	if want := `<span class="f0 b4">  </span><span class="f7 b4">&lt;&gt; </span>` + strings.Repeat(" ", 35); rows[0] != want {
 		t.Fatalf("row 0 = %q, want %q", rows[0], want)
 	}
 	if want := "plain" + strings.Repeat(" ", 35); rows[1] != want {
 		t.Fatalf("row 1 = %q", rows[1])
 	}
-	doc := HTMLDocument(p, 2, "t<t", Teletext)
-	if !strings.Contains(doc, "<title>t&lt;t</title>") || strings.Count(doc, "<pre>") != 4 || !strings.Contains(doc, "repeat(2, max-content)") {
+	doc := HTMLDocument([]*Raster{r, r, r}, 2, "t<t", Teletext)
+	if !strings.Contains(doc, "<title>t&lt;t</title>") || strings.Count(doc, "<pre>") != 3 || !strings.Contains(doc, "repeat(2, max-content)") {
 		t.Fatal("document shape")
 	}
 }
 
 func TestSpec(t *testing.T) {
 	s := Spec()
-	for _, want := range []string{"# The page", "# Cells", "# Ink", "# Authoring"} {
+	for _, want := range []string{"# Rows", "# Cells", "# Ink", "# Authoring", "# Aliases"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("spec missing %q", want)
 		}
 	}
-	// The Authoring example is a page: it compiles on the 40-column
-	// geometry, with its red ALERT at column 0 of its row.
+	// The Authoring example is a raster: it compiles, with its red
+	// ALERT at column 0 of its row.
 	a := strings.Index(s, "    .rem A notice:")
 	b := strings.Index(s[a:], ".end")
 	var src strings.Builder
 	for _, l := range strings.Split(s[a:a+b], "\n") {
 		src.WriteString(strings.TrimPrefix(l, "    ") + "\n")
 	}
-	p, err := Compile(g40, src.String())
+	r, err := Compile(src.String())
 	if err != nil {
 		t.Fatalf("spec example: %v", err)
 	}
-	if r := p.Row(0, 7); r[0] != (Cell{'A', Ink{FG: 1}}) || r[6] != (Cell{'n', Ink{}}) {
-		t.Fatalf("ALERT row = %+v", r[:8])
+	if row := r.Rows[7]; row[0] != (Cell{'A', Ink{FG: 1}}) || row[6] != (Cell{'n', Ink{}}) {
+		t.Fatalf("ALERT row = %+v", row[:8])
 	}
-	if rows := p.Text(0); rows[0] != "HARBOUR NOTICE · 02 SEP" || rows[6] != "FUEL    06:00-14:00, south quay" {
+	if rows := r.Text(); rows[0] != "HARBOUR NOTICE · 02 SEP" || rows[6] != "FUEL    06:00-14:00, south quay" {
 		t.Fatalf("spec example text = %q", rows[:8])
 	}
-	if l := p.Links(0, 10); len(l) != 1 || l[0] != (Link{Col: 4, Len: 7, Target: "tides"}) {
+	if l := r.Links(10); len(l) != 1 || l[0] != (Link{Col: 4, Len: 7, Target: "tides"}) {
 		t.Fatalf("spec example links = %+v", l)
 	}
 }
 
 func TestLinks(t *testing.T) {
-	p := compile(t, "Tap [close] or [tide tables]\n[] [x\n.fg red\n[ALERT] now\nno]link[\n")
+	r := compile(t, "Tap [close] or [tide tables]\n[] [x\n.fg red\n[ALERT] now\nno]link[\n")
 	want := []Link{{4, 7, "close"}, {15, 13, "tide tables"}}
-	got := p.Links(0, 0)
+	got := r.Links(0)
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("links = %+v, want %+v", got, want)
 	}
 	// An empty pair is no link; an unclosed bracket ends the search.
-	if l := p.Links(0, 1); len(l) != 0 {
+	if l := r.Links(1); len(l) != 0 {
 		t.Fatalf("row 1 links = %+v", l)
 	}
 	// A link in ink at column 0.
-	if l := p.Links(0, 2); len(l) != 1 || l[0].Target != "ALERT" || p.Row(0, 2)[0].FG != 1 {
+	if l := r.Links(2); len(l) != 1 || l[0].Target != "ALERT" || r.Rows[2][0].FG != 1 {
 		t.Fatalf("row 2 links = %+v", l)
 	}
-	if l := p.Links(0, 3); len(l) != 0 {
+	if l := r.Links(3); len(l) != 0 {
 		t.Fatalf("row 3 links = %+v", l)
 	}
 	// Links survive the text renderer as typed and become anchors in
 	// HTML, wrapping the span with its ink inside.
-	if rows := p.Text(0); rows[0] != "Tap [close] or [tide tables]" {
+	if rows := r.Text(); rows[0] != "Tap [close] or [tide tables]" {
 		t.Fatalf("text = %q", rows[0])
 	}
-	h := p.HTMLRows(0)
+	h := r.HTMLRows()
 	if !strings.HasPrefix(h[0], `Tap <a href="#close">[close]</a> or <a href="#tide tables">[tide tables]</a>`) {
 		t.Fatalf("html row 0 = %q", h[0])
 	}
 	if !strings.HasPrefix(h[2], `<a href="#ALERT"><span class="f1 b0">[ALERT]</span></a> <span class="f1 b0">now`) {
 		t.Fatalf("html row 2 = %q", h[2])
-	}
-}
-
-func TestPageReuse(t *testing.T) {
-	// A page compiled twice is exactly the second page, and the
-	// append renderers give the same rows as the allocating ones.
-	p := New(g40)
-	if err := p.Compile(".fg red\nALERT\n.bg blue\n.fill 3\n"); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Compile(".at 1 3\nquiet\n"); err != nil {
-		t.Fatal(err)
-	}
-	want := compile(t, ".at 1 3\nquiet\n")
-	if !bytes.Equal(p.Bytes(), want.Bytes()) {
-		t.Fatal("a reused page kept something")
-	}
-	if got, want := string(p.AppendANSI(nil, 0, 1)), want.ANSI(0)[1]; got != want {
-		t.Fatalf("AppendANSI %q, ANSI %q", got, want)
-	}
-	if got := string(p.AppendText(nil, 0, 1)); got != "   quiet" {
-		t.Fatalf("AppendText %q", got)
 	}
 }
 
@@ -395,7 +377,7 @@ func TestGreekCapitals(t *testing.T) {
 }
 
 func TestJSEmbedded(t *testing.T) {
-	if s := JS(); !strings.Contains(s, "export function decode(") || !strings.Contains(s, "export function paint(") {
+	if s := JS(); !strings.Contains(s, "export function read(") || !strings.Contains(s, "export function paint(") {
 		t.Fatal("JS() is not the reader")
 	}
 }
@@ -404,12 +386,12 @@ func TestAliases(t *testing.T) {
 	vocab := ".def bar TITLE\n.fg white\n.bg blue\n.fill 0\n.at 0\n$TITLE\n.fg\n.bg\n.enddef\n" +
 		".def field LABEL VALUE\n.fg cyan\n$LABEL\n.fg\n.col 6\n$VALUE\n.enddef\n" +
 		".def wind SPEED\n.field WIND NW $SPEED kt\n.enddef\n"
-	p := compile(t, vocab+".bar HARBOUR · 02 SEP\n.at 2\n.field TEMP 31°C  dew 11°C\n.wind 18\nplain $x\n")
-	rows := p.Text(0)
+	r := compile(t, vocab+".bar HARBOUR · 02 SEP\n.at 2\n.field TEMP 31°C  dew 11°C\n.wind 18\nplain $x\n")
+	rows := r.Text()
 	if rows[0] != "HARBOUR · 02 SEP" || rows[2] != "TEMP  31°C  dew 11°C" || rows[3] != "WIND  NW 18 kt" || rows[4] != "plain $x" {
 		t.Fatalf("rows = %q", rows[:5])
 	}
-	if p.Row(0, 0)[0].FG != 7 || p.Row(0, 0)[0].BG != 4 || p.Row(0, 2)[0].FG != 6 || p.Row(0, 2)[6].FG != 0 {
+	if r.Rows[0][0].FG != 7 || r.Rows[0][0].BG != 4 || r.Rows[2][0].FG != 6 || r.Rows[2][6].FG != 0 {
 		t.Fatal("alias ink")
 	}
 	for _, tc := range []struct{ src, want string }{
@@ -422,7 +404,7 @@ func TestAliases(t *testing.T) {
 		{".use marine\n", "unknown command"},
 		{".def f X\n.fg $X\n.enddef\n.f puce\n", `unknown color "puce" (default red green yellow blue magenta cyan white) (.f line 1)`},
 	} {
-		if _, err := Compile(g40, tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, err := Compile(tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
 		}
 	}
@@ -447,15 +429,15 @@ func TestThemes(t *testing.T) {
 			}
 		}
 	}
-	p := compile(t, ".fg red\nX\n")
-	if doc := HTMLDocument(p, 1, "t", TeletextLight); !strings.Contains(doc, "--c1: #b3271b") || !strings.Contains(doc, `<span class="f1 b0">X`) {
+	r := compile(t, ".fg red\nX\n")
+	if doc := HTMLDocument([]*Raster{r}, 1, "t", TeletextLight); !strings.Contains(doc, "--c1: #b3271b") || !strings.Contains(doc, `<span class="f1 b0">X`) {
 		t.Fatal("teletext-light document")
 	}
 	if _, ok := Themes["teletext-light"]; !ok || len(Themes) != 2 {
 		t.Fatalf("themes = %v", Themes)
 	}
 	// Every document carries the embedded face.
-	if doc := HTMLDocument(p, 1, "t", Teletext); !strings.Contains(doc, `@font-face { font-family: "JuliaMono"; font-weight: 400;`) {
+	if doc := HTMLDocument([]*Raster{r}, 1, "t", Teletext); !strings.Contains(doc, `@font-face { font-family: "JuliaMono"; font-weight: 400;`) {
 		t.Error("document lacks the embedded face")
 	}
 }

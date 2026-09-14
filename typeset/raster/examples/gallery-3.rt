@@ -1,0 +1,58 @@
+.rem Gallery: pictures drawn with the shade, box and weather glyphs.
+.rem Panel 0 is a banana filling the panel, generated from a bowed
+.rem arc shaded by its normal: lit face ▓, turn ▒, shadow ░.
+
+.fill 0
+.at 0 2
+GALLERY · ΕΙΚΟΝΕΣ · 4/4
+.at 2
+.fg yellow
+.bg default
+          N
+.fg default
+          ↑
+.fg cyan
+      ░   ▓   ░
+        ░ ▓ ░
+.fg yellow
+W ←  ░░░░▓█▓░░░░ → E
+.fg cyan
+        ░ ▓ ░
+      ░   ▓   ░
+.fg default
+          ↓
+.fg yellow
+          S
+.fg cyan
+.at 3
+                          ▓
+                         ▓▓▓
+                         ░▓░
+                          ▓
+                       ▓▓ ▓ ▓▓
+                       ▓▓ ▓ ▓▓
+                        ▓▓▓▓▓
+                         ▓▓▓
+.fg default
+.at 12
+ Wind rose and anchor in shades
+ and arrows, all in the
+ repertoire's cells. Nothing here
+ is a font's business but shape.
+.at 17
+.fg yellow
+ WIND ROSE · KYKLADON · % OF DAYS
+.fg default
+ N   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  46
+ NE  ▓▓▓▓▓▓▓▓▓▓  21
+ E   ▓▓   4
+ SE  ▓▓▓   6
+ S   ▓▓▓▓▓  10
+ SW  ▓▓▓   6
+ W   ▓▓   4
+ NW  ▓▓   3
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+ΚΑΛΗ ΘΑΛΑΣΣΑ · FAIR SEAS

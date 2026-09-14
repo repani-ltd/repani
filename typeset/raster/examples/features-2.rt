@@ -1,0 +1,95 @@
+.rem Every feature of the language on one page. Panel 0: ink and
+.rem placement. Panel 1: fills. Panel 2: the repertoire. Panel 3:
+.rem links and the odd cases. The page starts in panel 0 without
+.rem saying so. The title bar is an alias, used on every panel.
+.def bar TITLE
+.fg white
+.bg blue
+.fill 0
+.at 0
+$TITLE
+.fg
+.bg
+.enddef
+.bar FEATURES · ΟΛΑ · 1/4
+.at 2
+.fg red
+RED at column 0: the code is in
+.fg green
+GREEN the tail of the row, and
+.fg yellow
+YELLOW text keeps its column.
+.fg blue
+BLUE
+.fg magenta
+MAGENTA
+.fg cyan
+CYAN
+.fg white
+WHITE
+.fg default
+.at 10
+plain then
+.fg cyan
++ cyan then
+.fg default
++ plain again.
+.fg cyan
+LABEL
+.fg default
+.col 8
+value on the label's row
+.at 12
+ leading spaces position the run
+   and paint nothing, so this
+     staircase keeps its ground.
+.at 16
+.fg yellow
+    Four spaces in: the code
+.fg default
+    takes the blank before the
+text, and column 0 returns.
+.at 20 10
+.at 20 6
+.at 20 2
+One-shot .at: this run is at
+column 2 and the next is back at
+column 0.
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+INK · ΜΕΛΑΝΙ
+.bar FEATURES · ΟΛΑ · 3/4
+.at 2
+rules    ─────── │ │ │
+arrows   ← ↑ → ↓
+blocks   ░ ▒ ▓ █
+symbols  ° ± × ÷ • ·
+ascii    A-Z a-z 0-9 !"#$%&'()*
+         ,-./:;<=>?@\^_`{|}~
+euro     € 12 · pound £ 9
+weather  ☀ ☁ ☂ ☾ ❄ ↯ ⚠
+typo     ‘quote’ “quote” 1–2 — x
+marks    ☺ ☹ ♥ ★ ✓ ✗
+status   ● on  ○ off
+.at 14
+.fg cyan
+Greek   αβγδεζηθικλμνξοπρςστυφχψω
+.fg default
+accents  άέήίόύώϊϋΐΰ
+capitals ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ
+punct    «Καλώς ήρθατε» … ―
+.at 20
+Bars from blocks, one ink each:
+.fg green
+ ok    ████████████░░░░  75%
+.fg yellow
+ warn  ██████░░░░░░░░░░  38%
+.fg red
+ fail  ██░░░░░░░░░░░░░░  13%
+.fg white
+.bg blue
+.fill 27
+.at 27 2
+CELLS · ΨΗΦΙΑ

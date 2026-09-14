@@ -6,52 +6,40 @@ import (
 	"strings"
 )
 
-// Compile turns source (RASTER.t, "Authoring") into a page of the
-// geometry. Errors carry the 1-based source line. Compilation is
-// reproducible: the same source and geometry yield the same page. A
-// caller that compiles repeatedly keeps a Page and uses its Compile.
-func Compile(g Geometry, src string) (*Page, error) {
-	p := New(g)
-	if err := p.Compile(src); err != nil {
-		return nil, err
-	}
-	return p, nil
-}
-
-// Compile resets the page and paints the source onto it. Errors carry
-// the 1-based source line.
-func (p *Page) Compile(src string) error {
-	p.Reset()
-	k := compiler{page: p, colRow: -1}
+// Compile turns source (RASTER.t, "Authoring") into a raster. Errors
+// carry the 1-based source line. Compilation is reproducible: the
+// same source yields the same raster.
+func Compile(src string) (*Raster, error) {
+	r := New()
+	k := compiler{r: r, colRow: -1}
 	src = strings.TrimSuffix(src, "\n")
 	for n := 1; ; n++ {
 		raw, rest, more := strings.Cut(src, "\n")
 		k.n = n
 		if err := k.line(raw); err != nil {
-			return fmt.Errorf("line %d: %w", n, err)
+			return nil, fmt.Errorf("line %d: %w", n, err)
 		}
 		if !more {
 			if k.defining != nil {
-				return fmt.Errorf("line %d: raster: .def %s without .enddef", n, k.defining.name)
+				return nil, fmt.Errorf("line %d: raster: .def %s without .enddef", n, k.defining.name)
 			}
-			return nil
+			return r, nil
 		}
 		src = rest
 	}
 }
 
 type compiler struct {
-	page *Page
-	n    int // the current source line
+	r *Raster
+	n int // the current source line
 
-	panel  int
 	pen    Ink
 	curRow int // the cursor: the next run lands here, at column 0
 
 	penRow, penCol int  // just past the last run ("+" continues there)
 	atCol          int  // the column of a pending .at or .col, else 0
 	colRow         int  // the row of a pending .col (the last run's), else -1
-	havePen        bool // false after .panel and .at
+	havePen        bool // false after .at
 
 	aliases  map[string]*alias // by name
 	defining *alias            // the .def being collected, else nil
@@ -119,7 +107,7 @@ func (c *compiler) line(raw string) error {
 }
 
 // commands is the closed set; an alias may not take one of its names.
-var commands = map[string]bool{"panel": true, "at": true, "col": true, "fg": true, "bg": true, "fill": true, "rem": true, "def": true, "enddef": true}
+var commands = map[string]bool{"at": true, "col": true, "fg": true, "bg": true, "fill": true, "rem": true, "def": true, "enddef": true}
 
 // define begins collecting an alias: ".def NAME PARAM...".
 func (c *compiler) define(raw string) error {
@@ -236,7 +224,6 @@ func (a args) ints(out []int, min, max int) (int, error) {
 }
 
 func (c *compiler) command(raw string) error {
-	g := c.page.Geometry
 	if raw == ".rem" || strings.HasPrefix(raw, ".rem ") {
 		return nil
 	}
@@ -252,26 +239,15 @@ func (c *compiler) command(raw string) error {
 	}
 	var n [4]int
 	switch cmd {
-	case ".panel":
-		if _, err := a.ints(n[:], 1, 1); err != nil {
-			return err
-		}
-		if n[0] < 0 || n[0] >= g.Panels {
-			return fmt.Errorf("raster: panel %d out of range 0..%d", n[0], g.Panels-1)
-		}
-		c.panel = n[0]
-		c.curRow, c.atCol, c.colRow = 0, 0, -1
-		c.havePen = false
-		return nil
 	case ".col":
 		if _, err := a.ints(n[:], 1, 1); err != nil {
 			return err
 		}
 		if !c.havePen {
-			return fmt.Errorf("raster: .col with no run to attach to (.panel and .at begin anew)")
+			return fmt.Errorf("raster: .col with no run to attach to (.at begins anew)")
 		}
-		if n[0] < 0 || n[0] >= g.Cols {
-			return fmt.Errorf("raster: .col %d outside columns 0..%d", n[0], g.Cols-1)
+		if n[0] < 0 || n[0] >= Cols {
+			return fmt.Errorf("raster: .col %d outside columns 0..%d", n[0], Cols-1)
 		}
 		c.colRow, c.atCol = c.penRow, n[0]
 		return nil
@@ -284,8 +260,8 @@ func (c *compiler) command(raw string) error {
 		if have == 2 {
 			col = n[1]
 		}
-		if n[0] < 0 || n[0] >= g.Rows || col < 0 || col >= g.Cols {
-			return fmt.Errorf("raster: .at %d %d outside rows 0..%d, cols 0..%d", n[0], col, g.Rows-1, g.Cols-1)
+		if n[0] < 0 || n[0] >= MaxRows || col < 0 || col >= Cols {
+			return fmt.Errorf("raster: .at %d %d outside rows 0..%d, cols 0..%d", n[0], col, MaxRows-1, Cols-1)
 		}
 		c.curRow, c.atCol, c.colRow = n[0], col, -1
 		c.havePen = false
@@ -322,11 +298,11 @@ func (c *compiler) command(raw string) error {
 		if have > 3 {
 			cols = n[3]
 		} else {
-			cols = g.Cols - col
+			cols = Cols - col
 		}
 		return c.fill(row, col, rows, cols)
 	}
-	return fmt.Errorf("raster: unknown command %s (.panel .at .col .fg .bg .fill .rem .def .enddef)", cmd)
+	return fmt.Errorf("raster: unknown command %s (.at .col .fg .bg .fill .rem .def .enddef)", cmd)
 }
 
 // paint places a run's cells at (row, col) in the pen's ink: leading
@@ -336,10 +312,10 @@ func (c *compiler) paint(row, col int, cells []byte) error {
 	for lead < len(cells) && cells[lead] == ' ' {
 		lead++
 	}
-	if end := col + len(cells); end > c.page.Cols {
+	if end := col + len(cells); end > Cols {
 		return fmt.Errorf("raster: row %d: %d cells at column %d overflow the row", row, len(cells), col)
 	}
-	r := c.page.Row(c.panel, row)
+	r := c.r.Row(row)
 	for i, b := range cells[lead:] {
 		r[col+lead+i] = Cell{Glyph: b, Ink: c.pen}
 	}
@@ -367,8 +343,8 @@ func (c *compiler) content(raw string) error {
 	if err != nil {
 		return err
 	}
-	if row >= c.page.Rows {
-		return fmt.Errorf("raster: content below row %d", c.page.Rows-1)
+	if row >= MaxRows {
+		return fmt.Errorf("raster: content below row %d", MaxRows-1)
 	}
 	if err := c.paint(row, col, cells); err != nil {
 		return err
@@ -381,7 +357,7 @@ func (c *compiler) content(raw string) error {
 
 func (c *compiler) continuation(rest string) error {
 	if !c.havePen {
-		return fmt.Errorf("raster: + with nothing to continue (.panel and .at begin anew)")
+		return fmt.Errorf("raster: + with nothing to continue (.at begins anew)")
 	}
 	rest = strings.TrimRight(rest, " \t")
 	if rest == "" {
@@ -397,12 +373,11 @@ func (c *compiler) continuation(rest string) error {
 // fill paints a region of spaces in the pen's ink, over anything:
 // clearing is fill's job.
 func (c *compiler) fill(row, col, rows, cols int) error {
-	g := c.page.Geometry
-	if rows < 1 || cols < 1 || row < 0 || col < 0 || row+rows > g.Rows || col+cols > g.Cols {
-		return fmt.Errorf("raster: .fill %d %d %d %d outside the panel", row, col, rows, cols)
+	if rows < 1 || cols < 1 || row < 0 || col < 0 || row+rows > MaxRows || col+cols > Cols {
+		return fmt.Errorf("raster: .fill %d %d %d %d outside the raster", row, col, rows, cols)
 	}
 	for y := row; y < row+rows; y++ {
-		r := c.page.Row(c.panel, y)
+		r := c.r.Row(y)
 		for x := col; x < col+cols; x++ {
 			r[x] = Cell{Glyph: ' ', Ink: c.pen}
 		}

@@ -1,7 +1,9 @@
-// raster.js: a reader and DOM painter for raster pages (RASTER.t).
-// A second implementation of the specification beside the Go one; the
+// raster.js: a reader and DOM painter for rasters (RASTER.t). A
+// second implementation of the specification beside the Go one; the
 // fixture test holds the two to the same answers. ES module, no
 // dependencies, runs in a browser or in node.
+
+export const COLS = 40, MAX_ROWS = 1024;
 
 // The cell table: the display character of every glyph byte. Blanks
 // and unassigned values are a space.
@@ -21,31 +23,36 @@ export const TABLE = (() => {
   return t;
 })();
 
-// decodeRow turns one row's bytes, two per cell, into cells
-// {glyph, fg, bg}: the glyph byte, then the ink byte with the
-// background in its high nibble and the foreground in its low.
-export function decodeRow(bytes) {
-  const cells = new Array(bytes.length / 2);
-  for (let x = 0; x < cells.length; x++) {
-    const ink = bytes[2 * x + 1];
-    cells[x] = { glyph: bytes[2 * x], fg: ink & 0x07, bg: ink >> 4 };
-  }
-  return cells;
-}
+const blankRow = () => Array.from({ length: COLS }, () => ({ glyph: 0, fg: 0, bg: 0 }));
 
-// decode turns a page's bytes into panels of rows of cells.
-export function decode(bytes, { cols, rows, panels }) {
-  if (bytes.length !== 2 * cols * rows * panels) throw new Error(`raster: ${bytes.length} bytes for ${cols}x${rows}x${panels}`);
-  const out = [];
-  for (let p = 0; p < panels; p++) {
-    const panel = [];
-    for (let r = 0; r < rows; r++) {
-      const o = 2 * (p * rows + r) * cols;
-      panel.push(decodeRow(bytes.subarray(o, o + 2 * cols)));
+// read folds a stream of row records into rows: an array indexed by
+// row, each COLS cells {glyph, fg, bg}, as long as the highest row
+// read plus one. A record is a little-endian 16-bit header, the row
+// in its high ten bits and the length N in its low six, then N
+// glyph bytes, then N ink bytes (background high nibble, foreground
+// low); cells past N are blank. A row repeated replaces its earlier
+// value; a record of length 0 clears its row. Records may be applied
+// onto existing rows, for an update.
+export function read(bytes, rows = []) {
+  let at = 0;
+  while (at < bytes.length) {
+    if (bytes.length - at < 2) throw new Error(`raster: byte ${at}: record header cut short`);
+    const h = bytes[at] | bytes[at + 1] << 8;
+    const i = h >> 6, n = h & 0x3f;
+    at += 2;
+    if (n > COLS) throw new Error(`raster: byte ${at - 2}: row ${i} has length ${n}`);
+    if (bytes.length - at < 2 * n) throw new Error(`raster: byte ${at - 2}: row ${i} cut short`);
+    while (rows.length <= i) rows.push(blankRow());
+    const row = blankRow();
+    for (let k = 0; k < n; k++) {
+      const ink = bytes[at + n + k];
+      if (ink & 0x88) throw new Error(`raster: byte ${at + n + k}: ink ${ink} is not two palette indices`);
+      row[k] = { glyph: bytes[at + k], fg: ink & 0x07, bg: ink >> 4 };
     }
-    out.push(panel);
+    rows[i] = row;
+    at += 2 * n;
   }
-  return out;
+  return rows;
 }
 
 const blank = c => c.glyph === 0 || c.glyph === 0x20;
@@ -106,19 +113,18 @@ export function html(cells) {
   return out;
 }
 
-// paint writes one panel into a <pre> element, one child element per
-// row, and calls onTap with a link's target when one is clicked or
-// tapped. Painting again replaces only the rows whose rendering
-// changed, so a page pushed to replace the one shown repaints in
-// place and keeps focus on the rows it did not touch. Synchronous:
-// call it from the handler that received the bytes so it lands in
-// the current frame.
-export function paint(pre, panel, onTap) {
-  const rows = panel.map(html);
-  if (pre.childElementCount !== rows.length) {
-    pre.replaceChildren(...rows.map(h => { const d = document.createElement('div'); d.innerHTML = h; return d; }));
+// paint writes rows into a <pre> element, one child element per row,
+// and calls onTap with a link's target when one is clicked or tapped.
+// Painting again replaces only the rows whose rendering changed, so
+// rows pushed to replace the ones shown repaint in place and keep
+// focus on the rows they did not touch. Synchronous: call it from the
+// handler that received the bytes so it lands in the current frame.
+export function paint(pre, rows, onTap) {
+  const html_ = rows.map(html);
+  if (pre.childElementCount !== html_.length) {
+    pre.replaceChildren(...html_.map(h => { const d = document.createElement('div'); d.innerHTML = h; return d; }));
   } else {
-    rows.forEach((h, i) => { const d = pre.children[i]; if (d.innerHTML !== h) d.innerHTML = h; });
+    html_.forEach((h, i) => { const d = pre.children[i]; if (d.innerHTML !== h) d.innerHTML = h; });
   }
   if (onTap && !pre.rasterTap) {
     pre.rasterTap = true;

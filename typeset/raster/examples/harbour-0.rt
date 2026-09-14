@@ -1,0 +1,67 @@
+.rem Kea harbour master: a two-panel notice board. Panels 2 and 3
+.rem stay blank.
+
+.bg cyan
+.fill 0 0 3
+.fg white
+.at 1 2
+KEA HARBOUR MASTER · ΚΕΑ
+.fg default
+.bg default
+.at 4
+.fg yellow
+TODAY TUE 02 SEP · 0700 LT
+.fg default
+Harbour open. Berthing on the
+south quay only; the north quay
+is reserved for the 1830 ferry.
+Stern-to, lazy lines in place.
+.at 10
+.fg red
+⚠ MELTEMI TONIGHT
+.fg default
+N 7-8 from 1800, gusts 9 in the
+channel. Double up mooring lines
+and fenders. Anchoring in
+Vourkari bay is not advised.
+.at 16
+.fg cyan
+FUEL
+.fg default
+.col 12
+0600-1400 south quay
+.fg cyan
+WATER
+.fg default
+.col 12
+on both quays, 220 V
+.fg cyan
+SHOWERS
+.fg default
+.col 12
+06:00-22:00 office
+.fg cyan
+PORT POLICE
+.fg default
+.col 12
+VHF 12 · 22880 21344
+.fg cyan
+MEDICAL
+.fg default
+.col 12
+Ioulida 22880 22200
+.at 22
+.fg yellow
+FEES / NIGHT
+.fg default
+up to 10 m  14 €    10-15 m  22 €
+15-20 m     36 €    over 20 m ask
+.at 26
+.fg green
+ΚΑΛΩΣ ΗΡΘΑΤΕ · WELCOME TO KEA
+.fg white
+.bg cyan
+.fill 27
+.at 27 2
+HOURLY · ΛΙΜΕΝΑΡΧΕΙΟ ΚΕΑΣ
+

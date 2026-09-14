@@ -6,15 +6,15 @@ import (
 	"strings"
 )
 
-// HTMLRows renders one panel as Rows lines of HTML for a <pre>: runs
-// of cells in one ink become <span class="fN bM"> elements (N and M
-// the palette indices); default-ink runs are bare text; a link is an
-// <a> whose href is "#" and its target, wrapping the whole span,
-// brackets included. Lines are not trimmed, so every line is exactly
-// Cols cells.
-func (p *Page) HTMLRows(panel int) []string {
-	out := make([]string, p.Rows)
-	for r := range p.Rows {
+// HTMLRows renders the raster as Height lines of HTML for a <pre>:
+// runs of cells in one ink become <span class="fN bM"> elements (N
+// and M the palette indices); default-ink runs are bare text; a link
+// is an <a> whose href is "#" and its target, wrapping the whole
+// span, brackets included. Lines are not trimmed, so every line is
+// exactly Cols cells.
+func (r *Raster) HTMLRows() []string {
+	out := make([]string, r.Height())
+	for i := range out {
 		var b strings.Builder
 		var open Ink
 		inSpan := false
@@ -24,9 +24,9 @@ func (p *Page) HTMLRows(panel int) []string {
 				inSpan = false
 			}
 		}
-		links := p.Links(panel, r)
+		links := r.Links(i)
 		linkEnd := -1
-		for x, cell := range p.Row(panel, r) {
+		for x, cell := range r.Rows[i] {
 			if len(links) > 0 && links[0].Col == x {
 				closeSpan()
 				fmt.Fprintf(&b, `<a href="#%s">`, html.EscapeString(links[0].Target))
@@ -59,17 +59,17 @@ func (p *Page) HTMLRows(panel int) []string {
 			}
 		}
 		closeSpan()
-		out[r] = b.String()
+		out[i] = b.String()
 	}
 	return out
 }
 
-// HTMLDocument renders the page as one self-contained HTML document
-// in a theme: a <pre> per panel laid out across panels to a row, an
-// embedded stylesheet with the embedded face (FontCSS), no external
-// resources. It is the showcase form: open it in any browser, or
-// paste the body into another page.
-func HTMLDocument(p *Page, across int, title string, theme Theme) string {
+// HTMLDocument renders rasters as one self-contained HTML document in
+// a theme: a <pre> per raster laid out across to a row, an embedded
+// stylesheet with the embedded face (FontCSS), no external resources.
+// It is the showcase form: open it in any browser, or paste the body
+// into another page.
+func HTMLDocument(rs []*Raster, across int, title string, theme Theme) string {
 	if across < 1 {
 		across = 1
 	}
@@ -93,8 +93,8 @@ a:hover, a:active { text-decoration: underline; }
 %s</style>
 <div class="raster">
 `, html.EscapeString(title), FontCSS(), across, theme.CSS())
-	for i := range p.Panels {
-		fmt.Fprintf(&b, "<pre>%s</pre>\n", strings.Join(p.HTMLRows(i), "\n"))
+	for _, r := range rs {
+		fmt.Fprintf(&b, "<pre>%s</pre>\n", strings.Join(r.HTMLRows(), "\n"))
 	}
 	b.WriteString("</div>\n</html>\n")
 	return b.String()

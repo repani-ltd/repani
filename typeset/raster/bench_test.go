@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// A terminal answer: one panel of 40 by 10, one line or ten.
-var bg40 = Geometry{Cols: 40, Rows: 10, Panels: 1}
-
+// A terminal answer: one line or ten.
 const benchOneRow = ".fg cyan\nKEA\n.fg default\n+ 28°C N 5 moderate [tides] [more]\n"
 
 var benchTenRows = func() string {
@@ -21,7 +19,7 @@ var benchTenRows = func() string {
 
 func BenchmarkCompile1(b *testing.B) {
 	for b.Loop() {
-		if _, err := Compile(bg40, benchOneRow); err != nil {
+		if _, err := Compile(benchOneRow); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -29,62 +27,43 @@ func BenchmarkCompile1(b *testing.B) {
 
 func BenchmarkCompile10(b *testing.B) {
 	for b.Loop() {
-		if _, err := Compile(bg40, benchTenRows); err != nil {
+		if _, err := Compile(benchTenRows); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// Compile and render to ANSI the way a terminal app would with no
-// state kept between queries.
+// Compile and render to ANSI the way a terminal app would.
 func BenchmarkCompileRender10(b *testing.B) {
 	for b.Loop() {
-		p, err := Compile(bg40, benchTenRows)
+		r, err := Compile(benchTenRows)
 		if err != nil {
 			b.Fatal(err)
 		}
-		_ = strings.Join(p.ANSI(0), "\n")
+		_ = strings.Join(r.ANSI(), "\n")
 	}
 }
 
 func BenchmarkRender10(b *testing.B) {
-	p, _ := Compile(bg40, benchTenRows)
+	r, _ := Compile(benchTenRows)
 	for b.Loop() {
-		_ = strings.Join(p.ANSI(0), "\n")
+		_ = strings.Join(r.ANSI(), "\n")
 	}
 }
 
 func BenchmarkBytes10(b *testing.B) {
-	p, _ := Compile(bg40, benchTenRows)
+	r, _ := Compile(benchTenRows)
 	for b.Loop() {
-		_ = p.Bytes()
+		_ = r.Bytes()
 	}
 }
 
-// The same, with the page and the output buffer kept between
-// queries: the steady state of a terminal app.
-func BenchmarkReuse10(b *testing.B) {
-	p := New(bg40)
-	var buf []byte
+func BenchmarkRead10(b *testing.B) {
+	r, _ := Compile(benchTenRows)
+	bytes := r.Bytes()
 	for b.Loop() {
-		if err := p.Compile(benchTenRows); err != nil {
+		if _, err := Read(bytes); err != nil {
 			b.Fatal(err)
 		}
-		buf = buf[:0]
-		for r := range p.Rows {
-			buf = p.AppendANSI(buf, 0, r)
-			buf = append(buf, '\n')
-		}
-	}
-}
-
-func BenchmarkReuse1(b *testing.B) {
-	p := New(bg40)
-	var buf []byte
-	for b.Loop() {
-		if err := p.Compile(benchOneRow); err != nil {
-			b.Fatal(err)
-		}
-		buf = p.AppendANSI(buf[:0], 0, 0)
 	}
 }

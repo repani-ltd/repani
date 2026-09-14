@@ -17,11 +17,12 @@ directory is one project; its import path is `repani.com/<dir>/...`.
              (a number rounded or to places, a string cut or padded
              in runes, a time as HH:MM, a date as "Mon 02", a
              duration in its largest unit)
-             `typeset/raster`, a page of colored text cells in any
-             geometry: cell table, in-band ink, an authoring
-             language with aliases, links as bracketed spans,
-             text/ANSI/HTML renderers and a JavaScript decoder
-             (tessera is one geometry)
+             `typeset/raster`, rows of colored text cells, forty
+             wide: cell table, an ink per cell, a row record of up
+             to 82 bytes as the unit of storage and update, an
+             authoring language with aliases, links as bracketed
+             spans, text/ANSI/HTML renderers, a JavaScript reader
+             and the `raster` CLI (`typeset/raster/cmd/raster`)
 - `trudge/` -- trudge1, a simple memory-hard KDF on Ascon-XOF128
              (256 MiB pool, 2^24-step walk; spec in `trudge/SPEC.t`)
 

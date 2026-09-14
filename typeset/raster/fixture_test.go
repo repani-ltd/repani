@@ -13,37 +13,38 @@ import (
 
 var update = flag.Bool("update", false, "rewrite js/fixture.json from the Go implementation")
 
-// The fixture is the Go implementation's answer for a set of pages:
-// bytes in, and the cell table, text rows, HTML rows and links out.
-// A second implementation of the spec (js/raster.js) must agree. The
-// bytes are Page.Bytes: two per cell, glyph then ink.
+// The fixture is the Go implementation's answer for a set of rasters:
+// bytes in, and the cell table, text rows, HTML rows and links out,
+// plus one stream folded onto another. A second implementation of
+// the spec (js/raster.js) must agree.
 type fixture struct {
-	Table []string      `json:"table"` // CellRune of 0x00..0xFF
-	Pages []fixturePage `json:"pages"`
+	Table   []string        `json:"table"` // CellRune of 0x00..0xFF
+	Rasters []fixtureRaster `json:"rasters"`
+	Stream  fixtureStream   `json:"stream"`
 }
 
-type fixturePage struct {
-	Name   string     `json:"name"`
-	Cols   int        `json:"cols"`
-	Rows   int        `json:"rows"`
-	Panels int        `json:"panels"`
-	Bytes  string     `json:"bytes"` // hex
-	Text   [][]string `json:"text"`  // per panel, per row
-	HTML   [][]string `json:"html"`
-	Links  [][][]Link `json:"links"` // per panel, per row
+type fixtureRaster struct {
+	Name  string   `json:"name"`
+	Bytes string   `json:"bytes"` // hex, the canonical records
+	Text  []string `json:"text"`  // per row
+	HTML  []string `json:"html"`
+	Links [][]Link `json:"links"` // per row
 }
 
-var fixtureSources = []struct {
-	name string
-	g    Geometry
-	src  string
-}{
-	{"plain", Geometry{40, 3, 1}, "plain text\n  indented\n"},
-	{"ink", Geometry{40, 4, 1}, ".fg red\nALERT\n.fg default\n+ north quay closed\n.fg white\n.bg blue\nX\n.fg default\n.bg default\n.at 2\nAB\n.fg cyan\n+ CD\n.fg white\n.bg blue\n+ EF\n.fg red\n" + strings.Repeat("x", 40) + "\n"},
-	{"fills", Geometry{40, 6, 1}, ".bg blue\n.fill 0\n.fg white\n.at 0\nTITLE\n.fg default\n.bg default\n.bg red\n.fill 2 10 2 8\n.bg green\n.fill 4 0 1 40\n.bg red\n.fg yellow\n.at 2 13\nQ\n"},
-	{"links", Geometry{40, 4, 1}, "Tap [close] or [tide tables].\n[] [x\n.fg red\n[ALERT] now\n.fg default\nno]link[\n"},
-	{"repertoire", Geometry{40, 8, 1}, "─│ ←↑→↓ ░▒▓█ °±×÷•·\n€£ ☀☁☂☾❄↯⚠ ‘’“”–— ☺☹♥★✓✗ ●○\nαβγδεζηθικλμνξοπρςστυφχψω\nάέήίόύώϊϋΐΰ\nΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ\n«…» ― <&>\"'\n"},
-	{"panels", Geometry{20, 3, 2}, "  GO\n.fg green\n.at 2 5\n.panel 1\nstill green\n.at 2 5\nfar\n"},
+type fixtureStream struct {
+	First  string   `json:"first"`  // hex
+	Second string   `json:"second"` // hex, applied after
+	Text   []string `json:"text"`   // the result
+}
+
+var fixtureSources = []struct{ name, src string }{
+	{"plain", "plain text\n  indented\n"},
+	{"ink", ".fg red\nALERT\n.fg default\n+ north quay closed\n.fg white\n.bg blue\nX\n.fg default\n.bg default\n.at 2\nAB\n.fg cyan\n+ CD\n.fg white\n.bg blue\n+ EF\n.fg red\n" + strings.Repeat("x", 40) + "\n"},
+	{"fills", ".bg blue\n.fill 0\n.fg white\n.at 0\nTITLE\n.fg default\n.bg default\n.bg red\n.fill 2 10 2 8\n.bg green\n.fill 4 0 1 40\n.bg red\n.fg yellow\n.at 2 13\nQ\n"},
+	{"links", "Tap [close] or [tide tables].\n[] [x\n.fg red\n[ALERT] now\n.fg default\nno]link[\n"},
+	{"repertoire", "─│ ←↑→↓ ░▒▓█ °±×÷•·\n€£ ☀☁☂☾❄↯⚠ ‘’“”–— ☺☹♥★✓✗ ●○\nαβγδεζηθικλμνξοπρςστυφχψω\nάέήίόύώϊϋΐΰ\nΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ\n«…» ― <&>\"'\n"},
+	{"sparse", ".at 3\nthree\n.at 100 35\nfar\n.at 1023\nlast\n"},
+	{"blank", ""},
 }
 
 func buildFixture(t *testing.T) fixture {
@@ -53,26 +54,30 @@ func buildFixture(t *testing.T) fixture {
 		f.Table = append(f.Table, string(CellRune(byte(b))))
 	}
 	for _, s := range fixtureSources {
-		p, err := Compile(s.g, s.src)
+		r, err := Compile(s.src)
 		if err != nil {
 			t.Fatalf("%s: %v", s.name, err)
 		}
-		page := fixturePage{Name: s.name, Cols: s.g.Cols, Rows: s.g.Rows, Panels: s.g.Panels, Bytes: hex.EncodeToString(p.Bytes())}
-		for panel := range s.g.Panels {
-			page.Text = append(page.Text, p.Text(panel))
-			page.HTML = append(page.HTML, p.HTMLRows(panel))
-			var rows [][]Link
-			for row := range s.g.Rows {
-				l := p.Links(panel, row)
-				if l == nil {
-					l = []Link{}
-				}
-				rows = append(rows, l)
+		fr := fixtureRaster{Name: s.name, Bytes: hex.EncodeToString(r.Bytes()), Text: r.Text(), HTML: r.HTMLRows(), Links: [][]Link{}}
+		for row := range r.Height() {
+			l := r.Links(row)
+			if l == nil {
+				l = []Link{}
 			}
-			page.Links = append(page.Links, rows)
+			fr.Links = append(fr.Links, l)
 		}
-		f.Pages = append(f.Pages, page)
+		f.Rasters = append(f.Rasters, fr)
 	}
+	first, _ := Compile("one\ntwo\nthree\n")
+	second, _ := Compile(".at 1\nTWO\n")
+	// A cleared row is a record of length 0, which Compile never emits
+	// for a blank row: append one by hand for row 2.
+	stream := append(second.Bytes(), 2<<6, 0)
+	folded, err := Read(append(append([]byte{}, first.Bytes()...), stream...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Stream = fixtureStream{First: hex.EncodeToString(first.Bytes()), Second: hex.EncodeToString(stream), Text: folded.Text()}
 	return f
 }
 
@@ -100,7 +105,7 @@ func TestFixture(t *testing.T) {
 	}
 }
 
-// TestJS runs the JavaScript decoder's test against the fixture when
+// TestJS runs the JavaScript reader's test against the fixture when
 // node is installed, and skips otherwise.
 func TestJS(t *testing.T) {
 	node, err := exec.LookPath("node")

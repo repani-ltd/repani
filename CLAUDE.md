@@ -1,7 +1,7 @@
 # repani (module repani.com)
 
 One Go module. Top-level directories are either products with
-their own CLAUDE.md (`pica/`, `fact/`, `tessera/`, `kiosk/`) or primitive
+their own CLAUDE.md (`pica/`, `fact/`, `kiosk/`) or primitive
 packages (`ascon/`, `golay/`, `lz4s/`) or the typesetting family
 (`typeset/`: one directory, one package per member -- `typeset/tab`,
 `typeset/format`, `typeset/raster` -- every member under the primitive rule, so a
@@ -9,7 +9,7 @@ product never lives there); this file holds what is common.
 
 Primitive packages import only the standard library and other
 primitive packages (never a product package: pica, fact,
-tessera), carry no protocol constants or types (a primitive may
+kiosk), carry no protocol constants or types (a primitive may
 not know what a frame, slot, page or vault is), and are
 append-only: a changed algorithm is a new package, not a
 revision, which is what makes one primitive safe to build on
