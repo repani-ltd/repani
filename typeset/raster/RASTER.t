@@ -68,7 +68,8 @@ as a blank; the table grows by appending, never by reassigning.
     0x07..0x0A  blocks       ░ ▒ ▓ █
     0x0B..0x10  symbols      ° ± × ÷ • ·
     0x11..0x19  junctions    ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼
-    0x1A..0x1F  unassigned: render blank
+    0x1A        ©
+    0x1B..0x1F  unassigned: render blank
     0x20..0x7E  ASCII
     0x7F        €
     0x80..0x96  unassigned: render blank

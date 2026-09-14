@@ -7,14 +7,15 @@ import "fmt"
 // presentation, so a row of cells is a row of columns in any
 // monospace renderer.
 
-// symbolRunes maps 0x01..0x19 (index 1..25) and, at index 0, 0x7F.
-var symbolRunes = [26]rune{
+// symbolRunes maps 0x01..0x1A (index 1..26) and, at index 0, 0x7F.
+var symbolRunes = [27]rune{
 	'€',      // 0x7F, stored at index 0
 	'─', '│', // 0x01..0x02 rules
 	'←', '↑', '→', '↓', // 0x03..0x06 arrows
 	'░', '▒', '▓', '█', // 0x07..0x0A blocks
 	'°', '±', '×', '÷', '•', '·', // 0x0B..0x10 symbols
 	'┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', // 0x11..0x19 junctions
+	'©', // 0x1A
 }
 
 // typoRunes maps 0x97..0x9C: the quotes and dashes text generators
@@ -43,7 +44,7 @@ var greekRunes = [64]rune{
 // unassigned values render as a space.
 func CellRune(b byte) rune {
 	switch {
-	case b >= 0x01 && b <= 0x19:
+	case b >= 0x01 && b <= 0x1A:
 		return symbolRunes[b]
 	case b >= 0x20 && b <= 0x7E:
 		return rune(b)

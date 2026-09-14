@@ -10,7 +10,7 @@ export const COLS = 40, MAX_ROWS = 1024;
 export const TABLE = (() => {
   const t = new Array(256).fill(' ');
   const set = (at, s) => { let i = at; for (const r of s) t[i++] = r; };
-  set(0x01, '─│←↑→↓░▒▓█°±×÷•·┌┐└┘├┤┬┴┼');
+  set(0x01, '─│←↑→↓░▒▓█°±×÷•·┌┐└┘├┤┬┴┼©');
   for (let b = 0x20; b <= 0x7e; b++) t[b] = String.fromCharCode(b);
   t[0x7f] = '€';
   set(0x97, '‘’“”–—');
