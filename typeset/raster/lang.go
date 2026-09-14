@@ -7,28 +7,22 @@ import (
 )
 
 // Compile turns source (RASTER.t, "Authoring") into a page of the
-// geometry: the source paints a canvas, and the canvas is encoded.
-// Errors carry the 1-based source line. Compilation is reproducible:
-// the same source and geometry yield the same bytes. A caller that
-// compiles repeatedly keeps a Canvas and uses its Compile instead.
+// geometry. Errors carry the 1-based source line. Compilation is
+// reproducible: the same source and geometry yield the same page. A
+// caller that compiles repeatedly keeps a Page and uses its Compile.
 func Compile(g Geometry, src string) (*Page, error) {
-	c := NewCanvas(g)
-	if err := c.Compile(src); err != nil {
-		return nil, err
-	}
 	p := New(g)
-	if err := c.encodeInto(p); err != nil {
+	if err := p.Compile(src); err != nil {
 		return nil, err
 	}
 	return p, nil
 }
 
-// Compile resets the canvas and paints the source onto it. The bytes
-// come from Encode or EncodeInto; the renderers read the canvas
-// directly. Errors carry the 1-based source line.
-func (c *Canvas) Compile(src string) error {
-	c.Reset()
-	k := compiler{canvas: c, colRow: -1}
+// Compile resets the page and paints the source onto it. Errors carry
+// the 1-based source line.
+func (p *Page) Compile(src string) error {
+	p.Reset()
+	k := compiler{page: p, colRow: -1}
 	src = strings.TrimSuffix(src, "\n")
 	for n := 1; ; n++ {
 		raw, rest, more := strings.Cut(src, "\n")
@@ -46,22 +40,9 @@ func (c *Canvas) Compile(src string) error {
 	}
 }
 
-// encodeInto is EncodeInto with errors attributed to the source line
-// that last painted the failing row.
-func (c *Canvas) encodeInto(p *Page) error {
-	for panel := range c.Panels {
-		for row := range c.Rows {
-			if err := encodeRow(c.Row(panel, row), p.Row(panel, row)); err != nil {
-				return fmt.Errorf("line %d: raster: panel %d row %d: %w", c.rowLine[panel*c.Rows+row], panel, row, err)
-			}
-		}
-	}
-	return nil
-}
-
 type compiler struct {
-	canvas *Canvas
-	n      int // the current source line
+	page *Page
+	n    int // the current source line
 
 	panel  int
 	pen    Ink
@@ -255,7 +236,7 @@ func (a args) ints(out []int, min, max int) (int, error) {
 }
 
 func (c *compiler) command(raw string) error {
-	g := c.canvas.Geometry
+	g := c.page.Geometry
 	if raw == ".rem" || strings.HasPrefix(raw, ".rem ") {
 		return nil
 	}
@@ -351,28 +332,19 @@ func (c *compiler) command(raw string) error {
 // paint places a run's cells at (row, col) in the pen's ink: leading
 // spaces position and paint nothing, the rest is painted.
 func (c *compiler) paint(row, col int, cells []byte) error {
-	g := c.canvas.Geometry
 	lead := 0
 	for lead < len(cells) && cells[lead] == ' ' {
 		lead++
 	}
-	if end := col + len(cells); end > g.Cols {
+	if end := col + len(cells); end > c.page.Cols {
 		return fmt.Errorf("raster: row %d: %d cells at column %d overflow the row", row, len(cells), col)
 	}
-	r := c.canvas.Row(c.panel, row)
+	r := c.page.Row(c.panel, row)
 	for i, b := range cells[lead:] {
 		r[col+lead+i] = Cell{Glyph: b, Ink: c.pen}
 	}
-	c.canvas.rowLine[c.panel*g.Rows+row] = c.n
 	c.penRow, c.penCol, c.havePen = row, col+len(cells), true
 	return nil
-}
-
-// transcode is Transcode into the canvas's scratch buffer.
-func (c *compiler) transcode(text string) ([]byte, error) {
-	cells, err := AppendTranscode(c.canvas.scratch[:0], text)
-	c.canvas.scratch = cells[:0]
-	return cells, err
 }
 
 func (c *compiler) content(raw string) error {
@@ -391,12 +363,12 @@ func (c *compiler) content(raw string) error {
 		}
 		return nil
 	}
-	cells, err := c.transcode(raw)
+	cells, err := Transcode(raw)
 	if err != nil {
 		return err
 	}
-	if row >= c.canvas.Rows {
-		return fmt.Errorf("raster: content below row %d", c.canvas.Rows-1)
+	if row >= c.page.Rows {
+		return fmt.Errorf("raster: content below row %d", c.page.Rows-1)
 	}
 	if err := c.paint(row, col, cells); err != nil {
 		return err
@@ -415,7 +387,7 @@ func (c *compiler) continuation(rest string) error {
 	if rest == "" {
 		return fmt.Errorf("raster: empty continuation")
 	}
-	cells, err := c.transcode(rest)
+	cells, err := Transcode(rest)
 	if err != nil {
 		return err
 	}
@@ -425,16 +397,15 @@ func (c *compiler) continuation(rest string) error {
 // fill paints a region of spaces in the pen's ink, over anything:
 // clearing is fill's job.
 func (c *compiler) fill(row, col, rows, cols int) error {
-	g := c.canvas.Geometry
+	g := c.page.Geometry
 	if rows < 1 || cols < 1 || row < 0 || col < 0 || row+rows > g.Rows || col+cols > g.Cols {
 		return fmt.Errorf("raster: .fill %d %d %d %d outside the panel", row, col, rows, cols)
 	}
 	for y := row; y < row+rows; y++ {
-		r := c.canvas.Row(c.panel, y)
+		r := c.page.Row(c.panel, y)
 		for x := col; x < col+cols; x++ {
 			r[x] = Cell{Glyph: ' ', Ink: c.pen}
 		}
-		c.canvas.rowLine[c.panel*g.Rows+y] = c.n
 	}
 	return nil
 }

@@ -12,9 +12,9 @@ import (
 // <a> whose href is "#" and its target, wrapping the whole span,
 // brackets included. Lines are not trimmed, so every line is exactly
 // Cols cells.
-func (c *Canvas) HTMLRows(panel int) []string {
-	out := make([]string, c.Rows)
-	for r := range c.Rows {
+func (p *Page) HTMLRows(panel int) []string {
+	out := make([]string, p.Rows)
+	for r := range p.Rows {
 		var b strings.Builder
 		var open Ink
 		inSpan := false
@@ -24,9 +24,9 @@ func (c *Canvas) HTMLRows(panel int) []string {
 				inSpan = false
 			}
 		}
-		links := c.Links(panel, r)
+		links := p.Links(panel, r)
 		linkEnd := -1
-		for x, cell := range c.Row(panel, r) {
+		for x, cell := range p.Row(panel, r) {
 			if len(links) > 0 && links[0].Col == x {
 				closeSpan()
 				fmt.Fprintf(&b, `<a href="#%s">`, html.EscapeString(links[0].Target))
@@ -63,9 +63,6 @@ func (c *Canvas) HTMLRows(panel int) []string {
 	}
 	return out
 }
-
-// HTMLRows is Decode(p).HTMLRows.
-func (p *Page) HTMLRows(panel int) []string { return Decode(p).HTMLRows(panel) }
 
 // HTMLDocument renders the page as one self-contained HTML document
 // in a theme: a <pre> per panel laid out across panels to a row, an

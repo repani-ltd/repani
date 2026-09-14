@@ -1,22 +1,24 @@
 RASTER -- A PAGE OF COLORED CELLS
-.date 2026-09-03
+.date 2026-09-14
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
 .rem Format specification. Sections through "Authoring" are normative.
 
-A raster is a page of colored text cells, one byte per cell, in
-panels of rows by columns. The geometry -- columns, rows, panels
--- is the instantiating format's, and nothing else is: the cell
-repertoire, the ink model and the authoring language are fixed
-here, so every raster format shares them and every raster tool
-reads every raster page. Tessera (repani.com/tessera) is the
-first instantiation, 34 by 28 by 4, sized to quietcasting's
-slots; a notice board of forty-column cards is another.
+A raster is a page of colored text cells, a glyph and an ink per
+cell, in panels of rows by columns. The geometry -- columns,
+rows, panels -- is the instantiating format's, and nothing else
+is: the cell repertoire, the ink model and the authoring language
+are fixed here, so every raster format shares them and every
+raster tool reads every raster page. The page is the archival
+form: every cell is addressable in its bytes, and nothing in
+them is encoded, compressed or implied. A transport that needs
+fewer bytes -- a radio slot -- defines its own binding to and
+from the page, and is not this specification.
 
 # The page
 
 A PAGE is P PANELS of R rows by C columns, read in order 0 to
-P-1, as one contiguous raster: byte i of the page is
+P-1, as one contiguous raster: cell i of the page is
 
 .pre
     panel  = i div (R×C)
@@ -24,10 +26,15 @@ P-1, as one contiguous raster: byte i of the page is
     column = i mod C                 (0..C-1)
 .end
 
-so a panel is R×C consecutive bytes in row-major order, and the
+so a panel is R×C consecutive cells in row-major order, and the
 page is the panels back to back. Every cell is content; there
-are no special rows, no headers, no trailers. Unwritten cells
-are 0x00, so identical content is identical bytes.
+are no special rows, no headers, no trailers.
+
+The BYTES of a page are two per cell, in cell order: the GLYPH
+byte (see Cells), then the INK byte (see Ink), so cell i is bytes
+2i and 2i+1, and a page is 2×P×R×C bytes. An unwritten cell is
+0x00 0x00, so identical content is identical bytes, and a blank
+page is all zeros.
 
 A panel is the unit of flow. Content may run down a panel's rows
 freely; it never continues from one panel into another. A
@@ -40,11 +47,11 @@ glyph aspect, font, or pixel.
 
 # Cells
 
-All 256 byte values are defined. Values not assigned below render
+All 256 glyph values are defined. Values not assigned below render
 as a blank; the table grows by appending, never by reassigning.
 
 .pre
-    0x00        blank (a space; the value of every unwritten cell)
+    0x00        blank (a space; the glyph of every unwritten cell)
     0x01..0x02  rules        ─ │
     0x03..0x06  arrows       ← ↑ → ↓
     0x07..0x0A  blocks       ░ ▒ ▓ █
@@ -52,8 +59,7 @@ as a blank; the table grows by appending, never by reassigning.
     0x11..0x1F  unassigned: render blank
     0x20..0x7E  ASCII
     0x7F        €
-    0x80..0x87  INK: foreground palette 0..7 (see Ink)
-    0x88..0x8F  INK: background palette 0..7
+    0x80..0x8F  unassigned: render blank
     0x90..0x96  weather      ☀ ☁ ☂ ☾ ❄ ↯ ⚠
     0x97..0x9C  typographic  ‘ ’ “ ” – —
     0x9D..0xA2  marks        ☺ ☹ ♥ ★ ✓ ✗
@@ -96,39 +102,15 @@ Entry 0 is the renderer's own foreground or background -- the
 terminal's, the theme's -- so an uncolored page reads correctly
 in every theme.
 
-Ink travels in band, teletext-style. An INK CODE occupies a
-cell, renders as a blank in the state it establishes, and sets
-one attribute for the rest of its row: 0x80+n sets the
-foreground to palette entry n, 0x88+n the background. Nothing
-carries from row to row, so every row renders alone.
-
-A row's TAIL is the codes at its very end: the longest suffix of
-the row that is all ink codes. Codes in the tail set the row's
-OPENING INK, the state in which the row begins; elsewhere in the
-row they render as empty cells and are not applied again. A row
-with no code in its last cell has no tail and begins in default
-ink. So a red word in the first column costs the row's last cell,
-not its first, and a row that is a bar in one background is one
-code in its first cell or its last.
-
-The page is therefore two things at once: the CANVAS, every cell
-with its glyph and its ink, which is what an author paints and a
-renderer shows; and the BYTES, which encode the canvas with the
-codes hidden in cells that show nothing. Decoding is a scan of
-each row: the tail first, then left to right. Encoding is
-canonical, so the same canvas yields the same bytes:
-
-.item A change of background at a blank cell takes that cell.
-.item The changes a glyph needs -- background first, then
-foreground -- take the blank cells immediately before it, one
-per attribute. A glyph in the first cell has none before it, and
-its codes go to the tail instead.
-.item A cell that a code takes shows a blank in the new ink: the
-space before colored text takes its color. The last cell of a
-row cannot change background, since a code there would be tail.
-.item A canvas that needs a code where no blank cell is -- text
-in a new ink glued to text, or a full row that begins in ink --
-cannot be encoded, and the compiler says so with the column.
+The INK BYTE of a cell holds both indices: the background in
+its high nibble, the foreground in its low, so 0x00 is default
+on default, 0x41 is red on blue, and bit 3 of each nibble is
+zero. A reader rejects an ink byte with either of those bits set;
+they are the one place the format could grow a wider palette,
+and until it does they are zero. Ink is per cell and nothing
+carries from cell to cell or row to row: every cell renders
+alone, colored text may stand in any column, glued to text in
+another ink, and a row may be full in any ink.
 
 # Authoring
 
@@ -208,14 +190,10 @@ included, which moves only the cursor. Position is never
 carried: a line lands where its own leading spaces, or the .at
 or .col just before it, say, else at column 0.
 .item Painting is by cell, in source order, later over earlier;
-a fill clears what it covers. The bytes are encoded from the
-finished canvas, so the order of the source never changes a
-color, and compilation is reproducible: the same source on the
-same geometry yields the same bytes.
-.item Colored text spends cells that show nothing: the blank
-before it, one per attribute changed, and, in the first column,
-the row's tail. The one full row the format cannot hold is a
-full row that begins in ink; the error names the line.
+a fill clears what it covers. A cell's ink is the pen's when it
+was last painted, so the order of the source never changes a
+color elsewhere, and compilation is reproducible: the same
+source on the same geometry yields the same bytes.
 .item A LINK is a bracketed span: an opening bracket and the next
 closing bracket on the same row, with at least one cell between
 them. The whole span, brackets included, is the tappable region,
@@ -288,6 +266,10 @@ the bytes says what format they are: that is declared wherever
 the page itself is. A revision that appends to the cell table
 needs no announcement, since an older renderer shows the new
 cells as blanks.
+.item No compactness. Two bytes a cell is the page, whatever
+the medium; a transport that must be smaller binds the page to
+its own representation and back, and that binding, not this
+format, carries the cleverness.
 .item No text styles: no underline, no bold, no double height, no
 flashing. Emphasis is ink; structure is a rule.
 .item No mosaics yet, no general Unicode: see the parked designs.
@@ -303,9 +285,9 @@ chart or a logo.
 format, which is what lets every raster tool read every page; a
 script beyond it needs a new format, not a parameter. ADMISSION
 TEST: the first page that needs one.
-.item A canvas file. The canvas is a type in the package with no
-bytes of its own; the page's bytes are its only serialization.
-ADMISSION TEST: a page richer than the in-band bytes can hold.
+.item A wider palette. Bit 3 of each ink nibble is zero; set, it
+would double the palette to sixteen entries without changing the
+cell. ADMISSION TEST: the first page that needs a ninth color.
 
 .width 72
 .cols 1

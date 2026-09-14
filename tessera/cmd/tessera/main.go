@@ -1,4 +1,4 @@
-// Command tessera compiles page source to the 3,808 bytes and renders
+// Command tessera compiles page source to the 7,616 bytes and renders
 // it; usageText is the reference for its commands.
 package main
 
@@ -23,7 +23,7 @@ Usage:
   tessera text [-across N] FILE      compile and print the page plain
   tessera render [-across N] FILE    as text, with ANSI colors
   tessera html [-across N] [-theme T] FILE   as one self-contained HTML page
-  tessera page FILE                  compile and write the 3,808 bytes
+  tessera page FILE                  compile and write the 7,616 bytes
 
 -across N lays the four panels N to a row (default 2). -theme T
 colours the HTML page: teletext (default) or teletext-light. FILE
@@ -69,7 +69,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: %v\n", fs.Arg(0), err)
 		return 1
 	}
-	r := page.Raster()
+	r, err := page.Raster()
+	if err != nil {
+		fmt.Fprintf(stderr, "tessera: %v\n", err)
+		return 1
+	}
 	switch cmd {
 	case "check":
 	case "html":

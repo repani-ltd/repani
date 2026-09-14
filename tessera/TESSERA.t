@@ -1,27 +1,24 @@
-TESSERA -- A PAGE OF SIXTEEN TILES
-.date 2026-09-02
+TESSERA -- A PAGE OF 34 BY 28 BY 4
+.date 2026-09-14
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
-.rem Format specification. Sections through "The tile" are normative.
+.rem Format specification. "The page" is normative; "The tile" is
+.rem withdrawn, see below.
 
 A tessera is a mosaic tile. A tessera page is a raster (RASTER.t,
 repani.com/typeset/raster) of 34 columns by 28 rows by 4 panels:
-3,808 cells of colored text, one byte per cell, carried as sixteen
-tiles of 238 bytes. The tile is the unit of update: a page changes
-tile by tile, and each tile is complete on its own. A page holds
+3,808 cells of colored text, 7,616 bytes. A page holds
 teletext-sized information -- a masthead, a weather panel, a
-schedule, a notice -- and nothing longer. The tile is sized to a
-quietcasting slot, and a station's sixteen slots carry the sixteen
-tiles in order; that is the whole of the relation.
+schedule, a notice -- and nothing longer.
 
 Everything about cells, ink and authoring is RASTER.t's, normative
 here by reference and unchanged. This document states only what
-tessera adds: the geometry and the tile.
+tessera adds: the geometry.
 
 # The page
 
-The geometry is C = 34, R = 28, P = 4, so a panel is 952 bytes,
-the page 3,808, and RASTER.t's formula reads
+The geometry is C = 34, R = 28, P = 4, so a panel is 952 cells,
+the page 3,808 cells and 7,616 bytes, and RASTER.t's formula reads
 
 .pre
     panel  = i div 952
@@ -40,34 +37,19 @@ are correct.
 
 # The tile
 
-A TILE is seven whole rows: 238 consecutive bytes of the page,
-bytes 238k through 238k+237 forming tile k for k in 0..15, which
-is rows 7(k mod 4) through 7(k mod 4)+6 of panel k div 4. The
-tile is the smallest thing that changes: a one-line edit rewrites
-one tile and no other. Tiles are invisible to the author, who
-sees only panels, rows and columns; a tile boundary never falls
-inside a row.
+Withdrawn 2026-09-14. The tile was seven whole rows of one-byte
+cells, 238 bytes, one quietcasting slot, sixteen to the page.
+When RASTER.t went to two bytes a cell, the page became 7,616
+bytes, which no whole number of rows divides into 238-byte
+slots, and the in-band ink that let a tile render alone went
+with it. The radio's representation of a page is now a binding
+of its own, to be specified separately (TASKS.t, "quietcasting
+binding of raster"); until it is, tessera is the geometry alone.
 
-A tile is identified by its position and by nothing in its bytes.
-Tiles may therefore arrive in any order and any subset, and a
-page assembled from whatever tiles have arrived is exactly right
-where they are and blank where they are not; what a renderer
-shows for a missing tile -- blank, grey, the last value -- is
-presentation. Every row carries its own ink (RASTER.t, "Ink"),
-so a tile renders correctly with no knowledge of its neighbours,
-and unwritten cells are 0x00, so an unchanged page changes no
-tile.
-
-Frozen vector: "TESSERA" in yellow at panel 2, row 3, column
-6, its ink code in the gap at column 5, which is page offset
-2×952 + 3×34 + 5 = 2011, tile 8 (2011 div 238), bytes 107
-through 114 of it:
-
-.pre
-    83 54 45 53 53 45 52 41
-.end
-
-the source being ".panel 2", ".at 3 6", ".fg yellow", "TESSERA".
+The vector that survives the change: "TESSERA" in yellow at
+panel 2, row 3, column 6 is cell 2×952 + 3×34 + 6 = 2012, bytes
+4024 and 4025 of the page, 54 03, the T and its ink, and nothing
+else on the page is nonzero.
 
 # Non-goals
 

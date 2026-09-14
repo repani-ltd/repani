@@ -22,7 +22,7 @@ type Layout struct {
 	raster.Geometry
 	Columns int // columns per panel; 0 means the document's .cols
 	Gutter  int // blank cells between columns; 0 means 1
-	Margin  int // blank cells before the first column; 0 means 1
+	Margin  int // blank cells before the first column
 	// Head is the rows the masthead occupies on panel 0 before the
 	// columns begin; 0 means as many as it needs (the title, the
 	// byline, a blank row, a rule, a blank row). More pads with
@@ -42,10 +42,6 @@ type Result struct {
 	Page   *raster.Page
 	Links  []Link
 }
-
-// DefaultMargin is the blank column at the left of every row, where
-// the code of a row that begins in ink goes; a layout may widen it.
-const DefaultMargin = 1
 
 // minWidth is the narrowest column the writer will set.
 const minWidth = 8
@@ -70,10 +66,7 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 	if gutter <= 0 {
 		gutter = 1
 	}
-	margin := l.Margin
-	if margin <= 0 {
-		margin = DefaultMargin
-	}
+	margin := max(l.Margin, 0)
 	usable := g.Cols - margin - (n-1)*gutter
 	colW := usable / n
 	if colW < minWidth {
@@ -117,22 +110,17 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 	var src strings.Builder
 	say := func(format string, args ...any) { fmt.Fprintf(&src, format+"\n", args...) }
 	if doc.Title != "" {
-		// Centered over the columns; a title needs two blank cells
-		// before it for its codes, a byline none.
-		center := func(row int, text string, least int) {
-			text = pica.TruncLine(text, span-least)
-			col := margin + (span-utf8.RuneCountInString(text))/2
-			if col < least {
-				col = least
-			}
-			say(".at %d %d", row, col)
+		// Centered over the columns.
+		center := func(row int, text string) {
+			text = pica.TruncLine(text, span)
+			say(".at %d %d", row, margin+(span-utf8.RuneCountInString(text))/2)
 		}
 		row := 0
-		center(row, doc.Title, 2)
-		say(".title %s", pica.TruncLine(doc.Title, span-2))
+		center(row, doc.Title)
+		say(".title %s", pica.TruncLine(doc.Title, span))
 		row++
 		if bl := doc.Byline(); bl != "" {
-			center(row, bl, 0)
+			center(row, bl)
 			say(".byline %s", pica.TruncLine(bl, span))
 			row++
 		}
@@ -161,8 +149,7 @@ func Render(doc *pica.Doc, l Layout, vocabulary string) (*Result, error) {
 	}
 
 	// Hairlines down the gutters, to content depth, when the gutter
-	// has a blank cell on either side of the rule for the codes of
-	// the columns it separates.
+	// has a blank cell on either side of the rule.
 	if gutter >= 3 {
 		for panel := 0; panel < g.Panels; panel++ {
 			top := 0
@@ -416,7 +403,7 @@ func justified(b pica.Block, w int) []string {
 }
 
 // prose marks one wrapped line's emphasis: the marker underscores
-// become the blank cells the ink codes take.
+// become blank cells around the emphasized span.
 func prose(s string, open bool) (line, bool) {
 	clean, spans, still := pica.EmphLine(s, open)
 	ln := line{text: clean}

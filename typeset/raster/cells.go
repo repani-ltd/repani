@@ -38,8 +38,8 @@ var greekRunes = [64]rune{
 	'«', '»', '…', '―',
 }
 
-// CellRune returns the display rune of a cell byte. Blanks, ink codes
-// and unassigned values render as a space.
+// CellRune returns the display rune of a glyph byte. Blanks and
+// unassigned values render as a space.
 func CellRune(b byte) rune {
 	switch {
 	case b >= 0x01 && b <= 0x10:

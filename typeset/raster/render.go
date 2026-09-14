@@ -5,21 +5,21 @@ import (
 	"unicode/utf8"
 )
 
-// Text renders one panel as Rows rows of Cols runes, plain: ink and
-// blanks render as spaces. Rows are trimmed on the right.
-func (c *Canvas) Text(panel int) []string {
-	out := make([]string, c.Rows)
+// Text renders one panel as Rows rows of Cols runes, plain: blanks
+// render as spaces, ink is dropped. Rows are trimmed on the right.
+func (p *Page) Text(panel int) []string {
+	out := make([]string, p.Rows)
 	var buf []byte
-	for r := range c.Rows {
-		buf = c.AppendText(buf[:0], panel, r)
+	for r := range p.Rows {
+		buf = p.AppendText(buf[:0], panel, r)
 		out[r] = string(buf)
 	}
 	return out
 }
 
 // AppendText appends one row of Text to dst.
-func (c *Canvas) AppendText(dst []byte, panel, row int) []byte {
-	cells := c.Row(panel, row)
+func (p *Page) AppendText(dst []byte, panel, row int) []byte {
+	cells := p.Row(panel, row)
 	end := len(cells)
 	for end > 0 && cells[end-1].blank() {
 		end--
@@ -37,21 +37,21 @@ var sgrBG = [8]string{"\x1b[49m", "\x1b[41m", "\x1b[42m", "\x1b[43m", "\x1b[44m"
 
 // ANSI renders one panel as Rows rows of exactly Cols cells with ANSI
 // colors, each row reset at its end.
-func (c *Canvas) ANSI(panel int) []string {
-	out := make([]string, c.Rows)
+func (p *Page) ANSI(panel int) []string {
+	out := make([]string, p.Rows)
 	var buf []byte
-	for r := range c.Rows {
-		buf = c.AppendANSI(buf[:0], panel, r)
+	for r := range p.Rows {
+		buf = p.AppendANSI(buf[:0], panel, r)
 		out[r] = string(buf)
 	}
 	return out
 }
 
 // AppendANSI appends one row of ANSI to dst.
-func (c *Canvas) AppendANSI(dst []byte, panel, row int) []byte {
+func (p *Page) AppendANSI(dst []byte, panel, row int) []byte {
 	var s Ink
 	dst = append(dst, "\x1b[0m"...)
-	for _, cell := range c.Row(panel, row) {
+	for _, cell := range p.Row(panel, row) {
 		if cell.FG != s.FG {
 			dst = append(dst, sgrFG[cell.FG]...)
 		}
@@ -63,12 +63,6 @@ func (c *Canvas) AppendANSI(dst []byte, panel, row int) []byte {
 	}
 	return append(dst, "\x1b[0m"...)
 }
-
-// Text is Decode(p).Text.
-func (p *Page) Text(panel int) []string { return Decode(p).Text(panel) }
-
-// ANSI is Decode(p).ANSI.
-func (p *Page) ANSI(panel int) []string { return Decode(p).ANSI(panel) }
 
 // Layout arranges panels' rendered rows in reading order, across
 // panels per row of panels, with a two-space gutter between panels

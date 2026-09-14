@@ -54,41 +54,37 @@ func BenchmarkRender10(b *testing.B) {
 	}
 }
 
-func BenchmarkDecode10(b *testing.B) {
+func BenchmarkBytes10(b *testing.B) {
 	p, _ := Compile(bg40, benchTenRows)
 	for b.Loop() {
-		_ = Decode(p)
+		_ = p.Bytes()
 	}
 }
 
-// The same, with the canvas, the page and the output buffer kept
-// between queries: the steady state of a terminal app.
+// The same, with the page and the output buffer kept between
+// queries: the steady state of a terminal app.
 func BenchmarkReuse10(b *testing.B) {
-	c := NewCanvas(bg40)
 	p := New(bg40)
 	var buf []byte
 	for b.Loop() {
-		if err := c.Compile(benchTenRows); err != nil {
-			b.Fatal(err)
-		}
-		if err := c.EncodeInto(p); err != nil {
+		if err := p.Compile(benchTenRows); err != nil {
 			b.Fatal(err)
 		}
 		buf = buf[:0]
-		for r := range c.Rows {
-			buf = c.AppendANSI(buf, 0, r)
+		for r := range p.Rows {
+			buf = p.AppendANSI(buf, 0, r)
 			buf = append(buf, '\n')
 		}
 	}
 }
 
 func BenchmarkReuse1(b *testing.B) {
-	c := NewCanvas(bg40)
+	p := New(bg40)
 	var buf []byte
 	for b.Loop() {
-		if err := c.Compile(benchOneRow); err != nil {
+		if err := p.Compile(benchOneRow); err != nil {
 			b.Fatal(err)
 		}
-		buf = c.AppendANSI(buf[:0], 0, 0)
+		buf = p.AppendANSI(buf[:0], 0, 0)
 	}
 }

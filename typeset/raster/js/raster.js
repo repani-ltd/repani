@@ -1,10 +1,10 @@
-// raster.js: a decoder and DOM painter for raster pages (RASTER.t).
+// raster.js: a reader and DOM painter for raster pages (RASTER.t).
 // A second implementation of the specification beside the Go one; the
 // fixture test holds the two to the same answers. ES module, no
 // dependencies, runs in a browser or in node.
 
-// The cell table: the display character of every byte value. Blanks,
-// ink codes and unassigned values are a space.
+// The cell table: the display character of every glyph byte. Blanks
+// and unassigned values are a space.
 export const TABLE = (() => {
   const t = new Array(256).fill(' ');
   const set = (at, s) => { let i = at; for (const r of s) t[i++] = r; };
@@ -21,42 +21,27 @@ export const TABLE = (() => {
   return t;
 })();
 
-export const INK_FG = 0x80, INK_BG = 0x88, INK_LAST = 0x8f;
-export const isInk = b => b >= INK_FG && b <= INK_LAST;
-
-function apply(ink, b) {
-  if (b >= INK_FG && b < INK_BG) return { fg: b - INK_FG, bg: ink.bg };
-  if (b >= INK_BG && b <= INK_LAST) return { fg: ink.fg, bg: b - INK_BG };
-  return ink;
-}
-
-// decodeRow turns one row's bytes into cells {glyph, fg, bg}: the
-// tail (the codes at the very end) sets the opening ink; every other
-// code sets the ink from its cell on and becomes an empty cell.
+// decodeRow turns one row's bytes, two per cell, into cells
+// {glyph, fg, bg}: the glyph byte, then the ink byte with the
+// background in its high nibble and the foreground in its low.
 export function decodeRow(bytes) {
-  let t = bytes.length;
-  while (t > 0 && isInk(bytes[t - 1])) t--;
-  let s = { fg: 0, bg: 0 };
-  for (let x = t; x < bytes.length; x++) s = apply(s, bytes[x]);
-  const cells = new Array(bytes.length);
-  for (let x = 0; x < bytes.length; x++) {
-    const b = bytes[x];
-    if (x >= t) cells[x] = { glyph: 0, ...s };
-    else if (isInk(b)) { s = apply(s, b); cells[x] = { glyph: 0, ...s }; }
-    else cells[x] = { glyph: b, ...s };
+  const cells = new Array(bytes.length / 2);
+  for (let x = 0; x < cells.length; x++) {
+    const ink = bytes[2 * x + 1];
+    cells[x] = { glyph: bytes[2 * x], fg: ink & 0x07, bg: ink >> 4 };
   }
   return cells;
 }
 
 // decode turns a page's bytes into panels of rows of cells.
 export function decode(bytes, { cols, rows, panels }) {
-  if (bytes.length !== cols * rows * panels) throw new Error(`raster: ${bytes.length} bytes for ${cols}x${rows}x${panels}`);
+  if (bytes.length !== 2 * cols * rows * panels) throw new Error(`raster: ${bytes.length} bytes for ${cols}x${rows}x${panels}`);
   const out = [];
   for (let p = 0; p < panels; p++) {
     const panel = [];
     for (let r = 0; r < rows; r++) {
-      const o = (p * rows + r) * cols;
-      panel.push(decodeRow(bytes.subarray(o, o + cols)));
+      const o = 2 * (p * rows + r) * cols;
+      panel.push(decodeRow(bytes.subarray(o, o + 2 * cols)));
     }
     out.push(panel);
   }

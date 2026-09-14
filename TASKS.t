@@ -40,6 +40,19 @@ line breaking.
 
 # Elsewhere
 
+.term quietcasting binding of raster
+Raster went to two bytes a cell on 2026-09-14, the archival form,
+and tessera's tile (seven rows of one-byte cells in a 238-byte
+slot) was withdrawn with it. The radio needs its own binding,
+decided the same day: a fixed row map of five rows per slot, the
+slot being 200 glyph bytes then 19 two-byte ink runs (cell offset,
+ink byte, sorted, each holding until the next), unused runs zero;
+a slot needing more runs is a publish-time error naming the rows;
+a 24-row panel is five slots. General compression per slot was
+rejected: whether a slot fits would depend on its text. Whether
+this is tessera redefined or a new name, and the run budget, are
+set from real 40-column boards. Trigger: the first page to go out
+over quietcasting.
 .term trudge as a primitive
 trudge imports ascon and sits outside the primitive list in
 README and CLAUDE.md. Since 2026-09-03 primitives may import

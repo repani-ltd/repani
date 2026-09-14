@@ -6,47 +6,38 @@ import (
 	"testing"
 )
 
-// A 34 by 28 by 4 geometry; the tests that fix the cell model run on
+// A 40 by 24 by 4 geometry; the tests that fix the cell model run on
 // it, and TestGeometryIsAParameter on others.
-var g34 = Geometry{Cols: 34, Rows: 28, Panels: 4}
+var g40 = Geometry{Cols: 40, Rows: 24, Panels: 4}
 
 func compile(t *testing.T, src string) *Page {
 	t.Helper()
-	p, err := Compile(g34, src)
+	p, err := Compile(g40, src)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 	return p
 }
 
-func nonzero(p *Page) int {
+func written(p *Page) int {
 	n := 0
-	for _, b := range p.Cells {
-		if b != 0 {
+	for _, c := range p.Cells {
+		if c != (Cell{}) {
 			n++
 		}
 	}
 	return n
 }
 
-// row compiles src and returns row 0 of panel 0 as its body (trailing
-// zeros trimmed) and its tail (the codes at its end).
-func row(t *testing.T, src string) ([]byte, []byte) {
-	t.Helper()
-	r := compile(t, src).Row(0, 0)
-	ts := tailStart(r)
-	return bytes.TrimRight(r[:ts], "\x00"), r[ts:]
-}
-
 func TestGeometry(t *testing.T) {
-	if g34.PanelLen() != 952 || g34.Len() != 3808 || g34.Offset(2, 3, 5) != 2011 {
-		t.Fatalf("geometry: panel %d page %d offset %d", g34.PanelLen(), g34.Len(), g34.Offset(2, 3, 5))
+	if g40.PanelLen() != 960 || g40.Len() != 3840 || g40.Size() != 7680 || g40.Offset(2, 3, 5) != 2045 {
+		t.Fatalf("geometry: panel %d page %d size %d offset %d", g40.PanelLen(), g40.Len(), g40.Size(), g40.Offset(2, 3, 5))
 	}
 	g := Geometry{Cols: 40, Rows: 10, Panels: 3}
 	if g.Len() != 1200 || g.Offset(1, 2, 3) != 483 {
 		t.Fatalf("40x10x3: len %d offset %d", g.Len(), g.Offset(1, 2, 3))
 	}
-	p := Of(g, make([]byte, 1200))
+	p := New(g)
 	if len(p.Row(2, 9)) != 40 || &p.Row(2, 9)[0] != &p.Cells[1160] {
 		t.Fatal("Row does not alias the cells")
 	}
@@ -58,10 +49,10 @@ func TestGeometryIsAParameter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := p.Row(1, 2); r[30] != InkFG+1 || r[31] != 'A' || r[39] != 'I' {
-		t.Fatalf("row = % X", r[28:])
+	if r := p.Row(1, 2); r[31] != (Cell{'A', Ink{FG: 1}}) || r[39] != (Cell{'I', Ink{FG: 1}}) {
+		t.Fatalf("row = %+v", r[28:])
 	}
-	if _, err := Compile(g34, ".panel 1\n.at 2 31\n.fg red\nABCDEFGHI\n"); err == nil || !strings.Contains(err.Error(), "overflow") {
+	if _, err := Compile(Geometry{34, 28, 4}, ".panel 1\n.at 2 31\n.fg red\nABCDEFGHI\n"); err == nil || !strings.Contains(err.Error(), "overflow") {
 		t.Fatalf("34 columns accepted a 9-cell run at 31: %v", err)
 	}
 	for _, tc := range []struct{ src, want string }{
@@ -77,140 +68,141 @@ func TestGeometryIsAParameter(t *testing.T) {
 	}
 	// Single-column, single-row, single-panel is a page too, and the
 	// page starts in panel 0.
-	if p, err := Compile(Geometry{1, 1, 1}, "X\n"); err != nil || p.Cells[0] != 'X' {
+	if p, err := Compile(Geometry{1, 1, 1}, "X\n"); err != nil || p.Cells[0].Glyph != 'X' {
 		t.Fatalf("1x1x1: %v %v", p, err)
 	}
 }
 
-// "RASTER" in yellow at panel 2, row 3, column 6: the ink code in the
-// gap at column 5 and the R at 6.
+// "RASTER" in yellow at panel 2, row 3, column 6: six cells, each the
+// glyph and the ink, and nothing else on the page.
 func TestVector(t *testing.T) {
 	p := compile(t, ".panel 2\n.at 3 6\n.fg yellow\nRASTER\n")
-	want := []byte{0x83, 0x52, 0x41, 0x53, 0x54, 0x45, 0x52}
-	o := g34.Offset(2, 3, 5)
-	if got := p.Cells[o : o+7]; !bytes.Equal(got, want) {
-		t.Fatalf("cells = % X, want % X", got, want)
-	}
-	if n := nonzero(p); n != 7 {
-		t.Fatalf("%d nonzero bytes, want 7", n)
-	}
-	// The same bytes from a leading space at column 5.
-	q := compile(t, ".panel 2\n.at 3 5\n.fg yellow\n RASTER\n")
-	if !bytes.Equal(p.Cells, q.Cells) {
-		t.Fatal("a leading space and .at one column right differ")
-	}
-}
-
-func TestInkPlacement(t *testing.T) {
-	for _, tc := range []struct {
-		name, src string
-		want      []byte // the row's body, trailing zeros trimmed
-		tail      []byte // the codes at its end
-	}{
-		{"plain", "AB\n", []byte("AB"), nil},
-		{"gap takes the code", "AB\n.fg cyan\n+ CD\n", []byte{'A', 'B', InkFG + 6, 'C', 'D'}, nil},
-		{"two attributes, two gaps, bar closed after", "AB\n.fg white\n.bg blue\n+  CD\n", []byte{'A', 'B', InkBG + 4, InkFG + 7, 'C', 'D', InkBG}, nil},
-		{"column 0 goes to the tail", ".fg red\nALERT\n", []byte("ALERT"), []byte{InkFG + 1}},
-		{"leading space, gap at 0", ".fg red\n ALERT\n", []byte{InkFG + 1, 'A', 'L', 'E', 'R', 'T'}, nil},
-		{"back to default costs the gap", ".fg red\n ABC\n.fg default\n+ D\n", []byte{InkFG + 1, 'A', 'B', 'C', InkFG, 'D'}, nil},
-		{"bare .fg is default", ".fg red\n ABC\n.fg\n+ D\n", []byte{InkFG + 1, 'A', 'B', 'C', InkFG, 'D'}, nil},
-		{"title at column 0 in a bar: both codes in the tail", ".bg blue\n.fill 0\n.fg white\nTITLE\n", append([]byte("TITLE"), bytes.Repeat([]byte{' '}, 27)...), []byte{InkBG + 4, InkFG + 7}},
-		{"fg only leaves bg alone", ".bg blue\n.fill 0\n.fg yellow\n.at 0 3\nQ\n", append([]byte{InkBG + 4, ' ', InkFG + 3, 'Q'}, bytes.Repeat([]byte{' '}, 30)...), nil},
-	} {
-		got, tail := row(t, tc.src)
-		if !bytes.Equal(got, tc.want) || !bytes.Equal(tail, tc.tail) {
-			t.Errorf("%s: row = % X tail % X, want % X tail % X", tc.name, got, tail, tc.want, tc.tail)
+	o := g40.Offset(2, 3, 6)
+	for i, g := range []byte("RASTER") {
+		if p.Cells[o+i] != (Cell{g, Ink{FG: 3}}) {
+			t.Fatalf("cell %d = %+v", i, p.Cells[o+i])
 		}
 	}
-	// Opening ink with both attributes, and a tail of two.
-	r := compile(t, ".fg white\n.bg blue\nX\n").Row(0, 0)
-	if r[0] != 'X' || r[32] != InkBG+4 || r[33] != InkFG+7 {
-		t.Fatalf("two-code tail = % X … % X", r[:2], r[32:])
+	if n := written(p); n != 6 {
+		t.Fatalf("%d written cells, want 6", n)
+	}
+	// The same page from a leading space at column 5.
+	q := compile(t, ".panel 2\n.at 3 5\n.fg yellow\n RASTER\n")
+	if !bytes.Equal(p.Bytes(), q.Bytes()) {
+		t.Fatal("a leading space and .at one column right differ")
+	}
+	// The bytes: glyph then ink, background high, foreground low.
+	b := p.Bytes()
+	if len(b) != g40.Size() || b[2*o] != 'R' || b[2*o+1] != 0x03 {
+		t.Fatalf("bytes at %d: % X", 2*o, b[2*o:2*o+2])
 	}
 }
 
-func TestOrderDoesNotMatter(t *testing.T) {
-	// Painting the same cells in any order yields the same bytes: a
-	// red word placed before a default one to its right recolors
-	// nothing (the fix for in-band recoloring to the right).
+func TestBytesRoundTrip(t *testing.T) {
+	src := ".fg red\nALERT\n.fg default\n+ now\n.bg blue\n.fill 1\n.fg white\n.at 1 2\nTITLE\n.fg default\n.bg default\n.at 3 4\nx\n"
+	p := compile(t, src)
+	b := p.Bytes()
+	q, err := Of(g40, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(b, q.Bytes()) || q.Cells[g40.Offset(0, 1, 2)] != (Cell{'T', Ink{FG: 7, BG: 4}}) {
+		t.Fatal("bytes do not round trip")
+	}
+	if _, err := Of(g40, b[:len(b)-1]); err == nil || !strings.Contains(err.Error(), "bytes for geometry") {
+		t.Fatalf("short bytes: %v", err)
+	}
+	b[1] = 0x80
+	if _, err := Of(g40, b); err == nil || !strings.Contains(err.Error(), "not two palette indices") {
+		t.Fatalf("reserved bit: %v", err)
+	}
+	if _, err := Of(g40, make([]byte, g40.Size())); err != nil {
+		t.Fatalf("blank page: %v", err)
+	}
+}
+
+func TestInk(t *testing.T) {
+	// Every cell carries its own ink: colored text can be glued to
+	// text, can start at column 0, and can fill the whole row.
+	p := compile(t, "AB\n.fg cyan\n+ CD\n.fg white\n.bg blue\n+ EF\n.fg red\n"+strings.Repeat("x", 40)+"\n")
+	r := p.Row(0, 0)
+	if r[1] != (Cell{'B', Ink{}}) || r[3] != (Cell{'C', Ink{FG: 6}}) || r[6] != (Cell{'E', Ink{FG: 7, BG: 4}}) {
+		t.Fatalf("row 0 = %+v", r[:8])
+	}
+	r = p.Row(0, 1)
+	if r[0] != (Cell{'x', Ink{FG: 1, BG: 4}}) || r[39] != (Cell{'x', Ink{FG: 1, BG: 4}}) {
+		t.Fatalf("full red row: %+v %+v", r[0], r[39])
+	}
+	// Bare .fg and .bg are the default.
+	p = compile(t, ".fg red\n.bg blue\nA\n.fg\n.bg\nB\n")
+	if p.Row(0, 0)[0].Ink != (Ink{FG: 1, BG: 4}) || p.Row(0, 1)[0].Ink != (Ink{}) {
+		t.Fatal("bare .fg/.bg")
+	}
+	// Painting order does not matter: a red word placed before a
+	// default one to its right recolors nothing.
 	a := compile(t, ".at 0 10\nX\n.fg red\n.at 0\nALERT\n")
 	b := compile(t, ".fg red\nALERT\n.fg default\n.at 0 10\nX\n")
-	if !bytes.Equal(a.Cells, b.Cells) {
-		t.Fatalf("order changed the bytes:\n% X\n% X", a.Row(0, 0), b.Row(0, 0))
-	}
-	c := Decode(a)
-	if x := c.Row(0, 0)[10]; x.Glyph != 'X' || x.FG != 0 {
-		t.Fatalf("X = %+v, want default ink", x)
-	}
-	if c.Row(0, 0)[0].FG != 1 {
-		t.Fatal("ALERT is not red")
+	if !bytes.Equal(a.Bytes(), b.Bytes()) || a.Row(0, 0)[10].FG != 0 || a.Row(0, 0)[0].FG != 1 {
+		t.Fatal("order changed the page")
 	}
 }
 
 func TestFill(t *testing.T) {
-	// A bar: code in the first cell, spaces to the edge, no closing code;
-	// text over it inherits the background without a new code.
+	// A bar: spaces in the ink to the edge; text over it inherits the
+	// background it is painted in.
 	p := compile(t, ".bg blue\n.fill 0\n.at 0 2\nHI\n")
 	r := p.Row(0, 0)
-	if r[0] != InkBG+4 || r[1] != ' ' || r[2] != 'H' || r[3] != 'I' || r[4] != ' ' || r[33] != ' ' {
-		t.Fatalf("bar row = % X", r)
+	if r[0] != (Cell{' ', Ink{BG: 4}}) || r[2] != (Cell{'H', Ink{BG: 4}}) || r[39] != (Cell{' ', Ink{BG: 4}}) {
+		t.Fatalf("bar row = %+v", r[:4])
 	}
-	// A partial fill closes at its right edge in the cell after it.
+	// A partial fill covers exactly its cells.
 	p = compile(t, ".bg red\n.fill 5 10 1 4\n")
-	if r := p.Row(0, 5); r[10] != InkBG+1 || r[13] != ' ' || r[14] != InkBG || r[15] != 0 {
-		t.Fatalf("partial fill = % X", r[8:16])
+	if r := p.Row(0, 5); r[9] != (Cell{}) || r[10] != (Cell{' ', Ink{BG: 1}}) || r[13] != (Cell{' ', Ink{BG: 1}}) || r[14] != (Cell{}) {
+		t.Fatalf("partial fill = %+v", r[8:16])
 	}
 	// Two rows, column defaults, rows given.
 	p = compile(t, ".bg green\n.fill 3 0 2\n")
-	if p.Row(0, 3)[0] != InkBG+2 || p.Row(0, 4)[0] != InkBG+2 || p.Row(0, 5)[0] != 0 {
+	if p.Row(0, 3)[0].BG != 2 || p.Row(0, 4)[0].BG != 2 || p.Row(0, 5)[0] != (Cell{}) {
 		t.Fatal("two-row fill")
 	}
 	// A default fill over content clears it.
 	p = compile(t, ".fg red\nABC\n.fg default\n.fill 0\n")
-	if n := nonzero(p); n != 34 || p.Row(0, 0)[0] != ' ' {
-		t.Fatalf("clearing fill: %d nonzero, first %X", n, p.Row(0, 0)[0])
-	}
-	// A bar one short of the edge: the last cell keeps the bar's
-	// background, since a code there would read as opening ink.
-	p = compile(t, ".bg blue\n.fill 0 0 1 33\n")
-	if r := p.Row(0, 0); r[33] != 0 || Decode(p).Row(0, 0)[33].BG != 4 {
-		t.Fatalf("bar to 32: last cell %X", r[33])
+	if n := written(p); n != 40 || p.Row(0, 0)[0] != (Cell{' ', Ink{}}) {
+		t.Fatalf("clearing fill: %d written, first %+v", n, p.Row(0, 0)[0])
 	}
 }
 
 func TestAt(t *testing.T) {
 	p := compile(t, ".fg yellow\n  HEAD\n.fg default\nbody\n.at 5 10\nfar\nback\n")
-	c := Decode(p)
-	if c.Row(0, 0)[2].Glyph != 'H' || c.Row(0, 0)[2].FG != 3 || c.Row(0, 1)[0].Glyph != 'b' {
+	if p.Row(0, 0)[2].Glyph != 'H' || p.Row(0, 0)[2].FG != 3 || p.Row(0, 1)[0].Glyph != 'b' {
 		t.Fatal("leading spaces or the flow to column 0 not honoured")
 	}
-	if c.Row(0, 5)[10].Glyph != 'f' || c.Row(0, 6)[0].Glyph != 'b' {
+	if p.Row(0, 5)[10].Glyph != 'f' || p.Row(0, 6)[0].Glyph != 'b' {
 		t.Fatal(".at is not one-shot, or does not return to column 0")
 	}
 	// .panel moves only the cursor: the pen persists.
 	p = compile(t, ".fg red\n.at 3 1\n.panel 1\nX\n")
-	if x := Decode(p).Row(1, 0)[0]; x.Glyph != 'X' || x.FG != 1 {
+	if x := p.Row(1, 0)[0]; x.Glyph != 'X' || x.FG != 1 {
 		t.Fatalf("after .panel: %+v", x)
 	}
 	// The blank line flows a row and returns to column 0.
 	p = compile(t, ".at 0 5\n\nY\n")
-	if Decode(p).Row(0, 1)[0].Glyph != 'Y' {
+	if p.Row(0, 1)[0].Glyph != 'Y' {
 		t.Fatal("blank line after .at")
 	}
 	// .col places on the row of the last run and leaves the cursor
 	// alone: a label at column 0, its value at column 6, the next
 	// line below both.
 	p = compile(t, ".fg cyan\nWIND\n.fg\n.col 6\nNW 6 kt\nnext\n.col 10\nmore\n")
-	c = Decode(p)
-	if r := c.Row(0, 0); r[0].Glyph != 'W' || r[0].FG != 6 || r[6].Glyph != 'N' || r[6].FG != 0 || r[4].Glyph != 0 {
-		t.Fatalf(".col row 0 = %q", string(c.AppendText(nil, 0, 0)))
+	if r := p.Row(0, 0); r[0].Glyph != 'W' || r[0].FG != 6 || r[6].Glyph != 'N' || r[6].FG != 0 || r[4].Glyph != 0 {
+		t.Fatalf(".col row 0 = %q", string(p.AppendText(nil, 0, 0)))
 	}
-	if r := c.Row(0, 1); r[0].Glyph != 'n' || r[10].Glyph != 'm' || c.Row(0, 2)[0].Glyph != 0 {
-		t.Fatalf(".col row 1 = %q", string(c.AppendText(nil, 0, 1)))
+	if r := p.Row(0, 1); r[0].Glyph != 'n' || r[10].Glyph != 'm' || p.Row(0, 2)[0].Glyph != 0 {
+		t.Fatalf(".col row 1 = %q", string(p.AppendText(nil, 0, 1)))
 	}
 	// A lone + and a +5 are content.
 	p = compile(t, "+\n+5\n")
-	if p.Row(0, 0)[0] != '+' || p.Row(0, 1)[1] != '5' {
+	if p.Row(0, 0)[0].Glyph != '+' || p.Row(0, 1)[1].Glyph != '5' {
 		t.Fatal("+ as content")
 	}
 }
@@ -218,26 +210,23 @@ func TestAt(t *testing.T) {
 func TestErrors(t *testing.T) {
 	for _, tc := range []struct{ src, want string }{
 		{".panel 4\n", "panel 4 out of range"},
-		{".at 28 0\n", "outside rows"},
+		{".at 24 0\n", "outside rows"},
 		{".at 0 0\n+ X\n", "nothing to continue"},
 		{".col 6\nX\n", "no run to attach to"},
 		{"A\n.at 1\n.col 6\nX\n", "no run to attach to"},
-		{"A\n.col 34\nX\n", "outside columns 0..33"},
+		{"A\n.col 40\nX\n", "outside columns 0..39"},
 		{".bogus\n", "unknown command"},
 		{".fg puce\n", "unknown color"},
 		{".fg red blue\n", "one color name, or none"},
 		{".ink red\n", "unknown command"},
 		{"日本\n", "outside the cell repertoire"},
-		{".at 0 30\nHELLO\n", "overflow the row"},
-		{".fg red\n" + strings.Repeat("x", 34) + "\n", "line 2: raster: panel 0 row 0: column 0 starts in ink and the row is full"},
-		{"ABC\n.fg red\n.at 0 3\nD\n", "column 3 needs 1 blank cells before it"},
-		{".fg white\n.bg blue\n.at 0 1\nX\n", "column 1 needs 2 blank cells"},
-		{".fill 0 0 1 35\n", "outside the panel"},
+		{".at 0 36\nHELLO\n", "line 2: raster: row 0: 5 cells at column 36 overflow the row"},
+		{".fill 0 0 1 41\n", "outside the panel"},
 		{".fill\n", "want 1 to 4 arguments"},
 		{"+ \n", "nothing to continue"},
-		{strings.Repeat("x\n", 29), "below row 27"},
+		{strings.Repeat("x\n", 25), "below row 23"},
 	} {
-		_, err := Compile(g34, tc.src)
+		_, err := Compile(g40, tc.src)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
 		}
@@ -248,42 +237,24 @@ func TestReproducibleAndText(t *testing.T) {
 	src := ".panel 1\n.fg yellow\nΚΑΙΡΟΣ ─── 12°\n.fg default\n\nΑθήνα   21°\n. dotted\n"
 	a := compile(t, src)
 	b := compile(t, src)
-	if !bytes.Equal(a.Cells, b.Cells) {
+	if !bytes.Equal(a.Bytes(), b.Bytes()) {
 		t.Fatal("compilation is not reproducible")
 	}
 	rows := a.Text(1)
 	if rows[0] != "ΚΑΙΡΟΣ ─── 12°" || rows[1] != "" || rows[2] != "Αθήνα   21°" || rows[3] != ". dotted" {
 		t.Fatalf("text = %q", rows[:4])
 	}
-	if len(rows) != g34.Rows || a.Text(0)[0] != "" {
+	if len(rows) != g40.Rows || a.Text(0)[0] != "" {
 		t.Fatalf("text shape: %d rows, panel 0 row 0 %q", len(rows), a.Text(0)[0])
 	}
 }
 
-func TestDecodeEncode(t *testing.T) {
-	// Encode(Decode(p)) is p for a compiled page, and Decode reads the
-	// tail as opening ink.
-	src := ".fg red\nALERT\n.fg default\n+ now\n.bg blue\n.fill 1\n.fg white\n.at 1 2\nTITLE\n.fg default\n.bg default\n.at 3 4\nx\n"
-	p := compile(t, src)
-	q, err := Decode(p).Encode()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(p.Cells, q.Cells) {
-		t.Fatalf("round trip:\n% X\n% X", p.Row(0, 0), q.Row(0, 0))
-	}
-	c := Decode(p)
-	if r := c.Row(0, 0); r[0].FG != 1 || r[0].Glyph != 'A' || r[6].FG != 0 || r[6].Glyph != 'n' {
-		t.Fatalf("decoded row 0: %+v %+v", r[0], r[6])
-	}
-}
-
 func TestCellTable(t *testing.T) {
-	// Round trip for every glyph value; codes and unassigned render blank.
+	// Round trip for every glyph value; unassigned values render blank.
 	glyphs := 0
 	for b := range 256 {
 		r := CellRune(byte(b))
-		if b == 0 || IsInk(byte(b)) || (b >= 0x11 && b <= 0x1F) || (b >= 0xA6 && b <= 0xBF) {
+		if b == 0 || (b >= 0x11 && b <= 0x1F) || (b >= 0x80 && b <= 0x8F) || (b >= 0xA6 && b <= 0xBF) {
 			if r != ' ' {
 				t.Errorf("%02X renders %q, want blank", b, r)
 			}
@@ -306,7 +277,7 @@ func TestANSIAndLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := p.ANSI(0); a[0] != "\x1b[0m\x1b[31m AB   \x1b[0m" {
+	if a := p.ANSI(0); a[0] != "\x1b[0m \x1b[31mAB\x1b[39m   \x1b[0m" {
 		t.Fatalf("ANSI = %q", a[0])
 	}
 	got := Layout(p.Rendered(p.Text), g.Cols, 2)
@@ -319,10 +290,10 @@ func TestANSIAndLayout(t *testing.T) {
 func TestHTML(t *testing.T) {
 	p := compile(t, ".bg blue\n.fill 0 0 1 5\n.fg white\n.at 0 2\n<>\n.fg default\n.bg default\n.at 1\nplain\n")
 	rows := p.HTMLRows(0)
-	if want := `<span class="f0 b4">  </span><span class="f7 b4">&lt;&gt; </span>` + strings.Repeat(" ", 29); rows[0] != want {
+	if want := `<span class="f0 b4">  </span><span class="f7 b4">&lt;&gt; </span>` + strings.Repeat(" ", 35); rows[0] != want {
 		t.Fatalf("row 0 = %q, want %q", rows[0], want)
 	}
-	if want := "plain" + strings.Repeat(" ", 29); rows[1] != want {
+	if want := "plain" + strings.Repeat(" ", 35); rows[1] != want {
 		t.Fatalf("row 1 = %q", rows[1])
 	}
 	doc := HTMLDocument(p, 2, "t<t", Teletext)
@@ -338,47 +309,45 @@ func TestSpec(t *testing.T) {
 			t.Errorf("spec missing %q", want)
 		}
 	}
-	// The Authoring example is a page: it compiles on the 34-column
-	// geometry, with its red ALERT in the tail of its row.
+	// The Authoring example is a page: it compiles on the 40-column
+	// geometry, with its red ALERT at column 0 of its row.
 	a := strings.Index(s, "    .rem A notice:")
 	b := strings.Index(s[a:], ".end")
 	var src strings.Builder
 	for _, l := range strings.Split(s[a:a+b], "\n") {
 		src.WriteString(strings.TrimPrefix(l, "    ") + "\n")
 	}
-	p, err := Compile(g34, src.String())
+	p, err := Compile(g40, src.String())
 	if err != nil {
 		t.Fatalf("spec example: %v", err)
 	}
-	if r := p.Row(0, 7); r[0] != 'A' || r[33] != InkFG+1 || r[5] != InkFG {
-		t.Fatalf("ALERT row = % X", r)
+	if r := p.Row(0, 7); r[0] != (Cell{'A', Ink{FG: 1}}) || r[6] != (Cell{'n', Ink{}}) {
+		t.Fatalf("ALERT row = %+v", r[:8])
 	}
 	if rows := p.Text(0); rows[0] != "HARBOUR NOTICE · 02 SEP" || rows[6] != "FUEL    06:00-14:00, south quay" {
 		t.Fatalf("spec example text = %q", rows[:8])
 	}
-	if l := Decode(p).Links(0, 10); len(l) != 1 || l[0] != (Link{Col: 4, Len: 7, Target: "tides"}) {
+	if l := p.Links(0, 10); len(l) != 1 || l[0] != (Link{Col: 4, Len: 7, Target: "tides"}) {
 		t.Fatalf("spec example links = %+v", l)
 	}
 }
 
 func TestLinks(t *testing.T) {
 	p := compile(t, "Tap [close] or [tide tables]\n[] [x\n.fg red\n[ALERT] now\nno]link[\n")
-	c := Decode(p)
 	want := []Link{{4, 7, "close"}, {15, 13, "tide tables"}}
-	got := c.Links(0, 0)
+	got := p.Links(0, 0)
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("links = %+v, want %+v", got, want)
 	}
 	// An empty pair is no link; an unclosed bracket ends the search.
-	if l := c.Links(0, 1); len(l) != 0 {
+	if l := p.Links(0, 1); len(l) != 0 {
 		t.Fatalf("row 1 links = %+v", l)
 	}
-	// A link in ink at column 0: the bracket is the glyph in the first
-	// cell, its ink in the tail, and the link is still derived.
-	if l := c.Links(0, 2); len(l) != 1 || l[0].Target != "ALERT" || c.Row(0, 2)[0].FG != 1 {
+	// A link in ink at column 0.
+	if l := p.Links(0, 2); len(l) != 1 || l[0].Target != "ALERT" || p.Row(0, 2)[0].FG != 1 {
 		t.Fatalf("row 2 links = %+v", l)
 	}
-	if l := c.Links(0, 3); len(l) != 0 {
+	if l := p.Links(0, 3); len(l) != 0 {
 		t.Fatalf("row 3 links = %+v", l)
 	}
 	// Links survive the text renderer as typed and become anchors in
@@ -395,39 +364,25 @@ func TestLinks(t *testing.T) {
 	}
 }
 
-func TestCanvasReuse(t *testing.T) {
-	// A canvas compiled twice is exactly the second page, and the
+func TestPageReuse(t *testing.T) {
+	// A page compiled twice is exactly the second page, and the
 	// append renderers give the same rows as the allocating ones.
-	c := NewCanvas(g34)
-	if err := c.Compile(".fg red\nALERT\n.bg blue\n.fill 3\n"); err != nil {
+	p := New(g40)
+	if err := p.Compile(".fg red\nALERT\n.bg blue\n.fill 3\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Compile(".at 1 3\nquiet\n"); err != nil {
-		t.Fatal(err)
-	}
-	p := New(g34)
-	if err := c.EncodeInto(p); err != nil {
+	if err := p.Compile(".at 1 3\nquiet\n"); err != nil {
 		t.Fatal(err)
 	}
 	want := compile(t, ".at 1 3\nquiet\n")
-	if !bytes.Equal(p.Cells, want.Cells) {
-		t.Fatal("a reused canvas kept something")
+	if !bytes.Equal(p.Bytes(), want.Bytes()) {
+		t.Fatal("a reused page kept something")
 	}
-	if got, want := string(c.AppendANSI(nil, 0, 1)), want.ANSI(0)[1]; got != want {
+	if got, want := string(p.AppendANSI(nil, 0, 1)), want.ANSI(0)[1]; got != want {
 		t.Fatalf("AppendANSI %q, ANSI %q", got, want)
 	}
-	if got := string(c.AppendText(nil, 0, 1)); got != "   quiet" {
+	if got := string(p.AppendText(nil, 0, 1)); got != "   quiet" {
 		t.Fatalf("AppendText %q", got)
-	}
-	if err := c.EncodeInto(New(Geometry{1, 1, 1})); err == nil {
-		t.Fatal("EncodeInto accepted another geometry")
-	}
-	// Errors from encoding name the line that painted the row.
-	if err := c.Compile(".fg red\n" + strings.Repeat("x", 34) + "\n"); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.encodeInto(p); err == nil || !strings.Contains(err.Error(), "line 2:") {
-		t.Fatalf("attributed error = %v", err)
 	}
 }
 
@@ -441,7 +396,7 @@ func TestGreekCapitals(t *testing.T) {
 
 func TestJSEmbedded(t *testing.T) {
 	if s := JS(); !strings.Contains(s, "export function decode(") || !strings.Contains(s, "export function paint(") {
-		t.Fatal("JS() is not the decoder")
+		t.Fatal("JS() is not the reader")
 	}
 }
 
@@ -454,8 +409,7 @@ func TestAliases(t *testing.T) {
 	if rows[0] != "HARBOUR · 02 SEP" || rows[2] != "TEMP  31°C  dew 11°C" || rows[3] != "WIND  NW 18 kt" || rows[4] != "plain $x" {
 		t.Fatalf("rows = %q", rows[:5])
 	}
-	c := Decode(p)
-	if c.Row(0, 0)[2].FG != 7 || c.Row(0, 0)[2].BG != 4 || c.Row(0, 2)[0].FG != 6 || c.Row(0, 2)[6].FG != 0 {
+	if p.Row(0, 0)[0].FG != 7 || p.Row(0, 0)[0].BG != 4 || p.Row(0, 2)[0].FG != 6 || p.Row(0, 2)[6].FG != 0 {
 		t.Fatal("alias ink")
 	}
 	for _, tc := range []struct{ src, want string }{
@@ -468,7 +422,7 @@ func TestAliases(t *testing.T) {
 		{".use marine\n", "unknown command"},
 		{".def f X\n.fg $X\n.enddef\n.f puce\n", `unknown color "puce" (default red green yellow blue magenta cyan white) (.f line 1)`},
 	} {
-		if _, err := Compile(g34, tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, err := Compile(g40, tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: err %v, want %q", tc.src, err, tc.want)
 		}
 	}

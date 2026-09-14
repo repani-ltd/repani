@@ -20,10 +20,8 @@
 // that a document set on a panel the size of its printed column
 // breaks where the PDF breaks. The document's .width and .cols are
 // consumed, not rendered: the panel's width is the measure, and
-// .cols is the default number of columns per panel. The margin
-// column of every row is blank, so that a row beginning in ink has
-// the cell its code needs; a gutter of blank cells separates columns
-// for the same reason. Every rune
+// .cols is the default number of columns per panel; a gutter of
+// blank cells separates columns. Every rune
 // must be in the raster repertoire; one that is not is an error
 // naming the line, never a substitution. Brackets in prose become
 // links, as on every raster page. A .link block is set as its title

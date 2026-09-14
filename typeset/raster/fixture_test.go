@@ -15,7 +15,8 @@ var update = flag.Bool("update", false, "rewrite js/fixture.json from the Go imp
 
 // The fixture is the Go implementation's answer for a set of pages:
 // bytes in, and the cell table, text rows, HTML rows and links out.
-// A second implementation of the spec (js/raster.js) must agree.
+// A second implementation of the spec (js/raster.js) must agree. The
+// bytes are Page.Bytes: two per cell, glyph then ink.
 type fixture struct {
 	Table []string      `json:"table"` // CellRune of 0x00..0xFF
 	Pages []fixturePage `json:"pages"`
@@ -38,8 +39,8 @@ var fixtureSources = []struct {
 	src  string
 }{
 	{"plain", Geometry{40, 3, 1}, "plain text\n  indented\n"},
-	{"tail and gaps", Geometry{40, 4, 1}, ".fg red\nALERT\n.fg default\n+ north quay closed\n.fg white\n.bg blue\nX\n.fg default\n.bg default\n.at 2\nAB\n.fg cyan\n+ CD\n.fg white\n.bg blue\n+  EF\n"},
-	{"fills", Geometry{40, 6, 1}, ".bg blue\n.fill 0\n.fg white\n.at 0 2\nTITLE\n.fg default\n.bg default\n.bg red\n.fill 2 10 2 8\n.bg green\n.fill 4 0 1 39\n.bg red\n.fg yellow\n.at 2 13\nQ\n"},
+	{"ink", Geometry{40, 4, 1}, ".fg red\nALERT\n.fg default\n+ north quay closed\n.fg white\n.bg blue\nX\n.fg default\n.bg default\n.at 2\nAB\n.fg cyan\n+ CD\n.fg white\n.bg blue\n+ EF\n.fg red\n" + strings.Repeat("x", 40) + "\n"},
+	{"fills", Geometry{40, 6, 1}, ".bg blue\n.fill 0\n.fg white\n.at 0\nTITLE\n.fg default\n.bg default\n.bg red\n.fill 2 10 2 8\n.bg green\n.fill 4 0 1 40\n.bg red\n.fg yellow\n.at 2 13\nQ\n"},
 	{"links", Geometry{40, 4, 1}, "Tap [close] or [tide tables].\n[] [x\n.fg red\n[ALERT] now\n.fg default\nno]link[\n"},
 	{"repertoire", Geometry{40, 8, 1}, "─│ ←↑→↓ ░▒▓█ °±×÷•·\n€£ ☀☁☂☾❄↯⚠ ‘’“”–— ☺☹♥★✓✗ ●○\nαβγδεζηθικλμνξοπρςστυφχψω\nάέήίόύώϊϋΐΰ\nΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ\n«…» ― <&>\"'\n"},
 	{"panels", Geometry{20, 3, 2}, "  GO\n.fg green\n.at 2 5\n.panel 1\nstill green\n.at 2 5\nfar\n"},
@@ -56,14 +57,13 @@ func buildFixture(t *testing.T) fixture {
 		if err != nil {
 			t.Fatalf("%s: %v", s.name, err)
 		}
-		c := Decode(p)
-		page := fixturePage{Name: s.name, Cols: s.g.Cols, Rows: s.g.Rows, Panels: s.g.Panels, Bytes: hex.EncodeToString(p.Cells)}
+		page := fixturePage{Name: s.name, Cols: s.g.Cols, Rows: s.g.Rows, Panels: s.g.Panels, Bytes: hex.EncodeToString(p.Bytes())}
 		for panel := range s.g.Panels {
-			page.Text = append(page.Text, c.Text(panel))
-			page.HTML = append(page.HTML, c.HTMLRows(panel))
+			page.Text = append(page.Text, p.Text(panel))
+			page.HTML = append(page.HTML, p.HTMLRows(panel))
 			var rows [][]Link
 			for row := range s.g.Rows {
-				l := c.Links(panel, row)
+				l := p.Links(panel, row)
 				if l == nil {
 					l = []Link{}
 				}

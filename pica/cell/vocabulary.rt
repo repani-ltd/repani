@@ -5,9 +5,7 @@
 .rem definitions of the same names to Render.
 .rem
 .rem Whole-line aliases receive a line that starts at the cursor.
-.rem The writer places the title centered on row 0 of panel 0, at
-.rem least two cells in, so the bar's background and the title's
-.rem foreground each have a blank cell before the first glyph; the
+.rem The writer places the title centered on row 0 of panel 0; the
 .rem alias paints the bar and the text and never positions.
 .def title TEXT
 .fg white
@@ -44,8 +42,7 @@ $TEXT
 $TEXT
 .enddef
 .rem Span aliases overpaint part of a row the writer has already
-.rem painted in default ink; the blank cell before the span is the
-.rem marker underscore, the term gap, or the column's margin.
+.rem painted in default ink.
 .def label TEXT
 .fg cyan
 $TEXT
