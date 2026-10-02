@@ -13,9 +13,9 @@ import (
 
 var update = flag.Bool("update", false, "rewrite js/fixture.json from the Go implementation")
 
-// The fixture is the Go implementation's streams for the corpus pages
-// and their deltas, plus the known answers; js/lz4s.js must decode
-// every one to the same bytes.
+// The fixture is the Go implementation's streams for the benchmark
+// inputs and a delta between two of them, plus the known answers;
+// js/lz4s.js must decode every one to the same bytes.
 type fixture struct {
 	Pages  []fixturePage  `json:"pages"`
 	Deltas []fixtureDelta `json:"deltas"`
@@ -44,16 +44,12 @@ const fixturePath = "js/fixture.json"
 func buildFixture(t *testing.T) fixture {
 	t.Helper()
 	var f fixture
-	names, _ := filepath.Glob("testdata/*.bin")
-	for _, n := range names {
-		page, _ := os.ReadFile(n)
-		f.Pages = append(f.Pages, fixturePage{strings.TrimSuffix(filepath.Base(n), ".bin"), hex.EncodeToString(page), hex.EncodeToString(Compress(page))})
+	in := benchInputs()
+	in["text-edited"] = edited(in["text"])
+	for _, n := range []string{"random", "text", "text-edited"} {
+		f.Pages = append(f.Pages, fixturePage{n, hex.EncodeToString(in[n]), hex.EncodeToString(Compress(in[n]))})
 	}
-	for _, pair := range [][2]string{{"qam-report", "qam-report2"}, {"tess-harbour", "tess-harbour2"}} {
-		base, _ := os.ReadFile("testdata/" + pair[0] + ".bin")
-		src, _ := os.ReadFile("testdata/" + pair[1] + ".bin")
-		f.Deltas = append(f.Deltas, fixtureDelta{pair[0], pair[1], hex.EncodeToString(Delta(base, src))})
-	}
+	f.Deltas = append(f.Deltas, fixtureDelta{"text", "text-edited", hex.EncodeToString(Delta(in["text"], in["text-edited"]))})
 	for _, src := range []string{"abc", "abcabc", "abcdefg", "abcdefgh", strings.Repeat("x", 300), "the quick brown fox jumps over the lazy dog the quick brown fox"} {
 		f.Known = append(f.Known, fixtureKnown{hex.EncodeToString([]byte(src)), hex.EncodeToString(Compress([]byte(src)))})
 	}
