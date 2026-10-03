@@ -271,6 +271,23 @@ are the same class and harmless (sorting loses no information).
 Recommendation: the removal, as one less concept and a uniform
 §7 boundary. Trigger: ratification.
 
+.term pica tables: a short row spans
+Board's authoring format (repani-lab/board/DESIGN.t, Authoring)
+settled on 2026-10-03 that a row with fewer cells than its table
+has columns puts its last cell across the remaining columns,
+separators included, keeping its first column's alignment and
+wrap; empty cells keep the columns (`a | |`). Pica leaves the
+missing cells blank. Adopt the same rule in pica, so a table
+written in either reads the same and a heading, a note or an
+address can span a table without a second table. It changes how
+existing documents lay out: a sweep of the .t files under ~/repos
+on 2026-10-03 (212 tables, `..` note rows excluded) found seven
+short data rows in two files, six in research/EU-POSITION.t (a
+five-column spec, four cells a row) and one in pica-forth's
+corpus/tables-clip.t, each to be given its empty cells or let
+span. Trigger: the board compiler's table layout, which pica can
+share.
+
 # Primitives
 
 .term lz4s: the frame is at its optimum; a dictionary is not a feature
