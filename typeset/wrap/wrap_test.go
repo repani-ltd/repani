@@ -541,6 +541,41 @@ func TestOverlongWordWithoutPointsIsCut(t *testing.T) {
 	}
 }
 
+func TestJustifyKeepsAFittingFirstWord(t *testing.T) {
+	// "responsibility" fits 17: the justified breaker once split it
+	// anyway, costing its suffix at a cost not yet computed.
+	p := "responsibility character typesetting hyphenation he government is my me justification by"
+	if got := JustifyParagraph(p, 17, hyphen.Default)[0]; strings.TrimSpace(got) != "responsibility" {
+		t.Errorf("first line %q", got)
+	}
+}
+
+// wideW is a proportional face with one wide glyph: W is 1000 units,
+// every other rune 100, the space 250, so the hyphen hangs 70.
+type wideW struct{}
+
+func (wideW) Width(s string) int {
+	n := 0
+	for _, r := range s {
+		if r == 'W' {
+			n += 1000
+		} else {
+			n += 100
+		}
+	}
+	return n
+}
+func (wideW) Space() int { return 250 }
+
+func TestJustifySingleRuneInTheHang(t *testing.T) {
+	// W is wider than 950 but within the hang: it sets alone, and the
+	// lines before it keep their words.
+	got := Flatten(Justify("aa bb W cc dd", 950, nil, wideW{}))
+	if strings.Join(got, "|") != "aa bb|W|cc dd" {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestSingleRuneOverflows(t *testing.T) {
 	// One rune wider than the measure cannot be broken: it sets
 	// alone, and the words around it keep their lines.

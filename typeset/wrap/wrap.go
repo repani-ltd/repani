@@ -801,12 +801,13 @@ func justifyDP(words []word, start, end, first, measure, sp, hang int, cost []fl
 					break
 				}
 			}
+			if j == i && lineLen > width && !multiRune(words[j].text) {
+				// A single rune wider than the measure sets alone and
+				// overflows: nothing can break it.
+				bestCost, bestJ, bestHyph = cost[i+1], i+1, -1
+				break
+			}
 			if lineLen > width+hang+allow {
-				if j == i {
-					// A single rune wider than the measure overflows.
-					bestCost, bestJ, bestHyph = cost[i+1], i+1, -1
-					break
-				}
 				// Try hyphenating words[j] to fit.
 				if len(words[j].prefix) > 0 {
 					if hc, ok := tryHyphenAtJustify(words[j], lineLen-wLen-sp, width, wordsOnLine, cost[j], sp, hang); ok {
@@ -856,14 +857,14 @@ func justifyDP(words []word, start, end, first, measure, sp, hang int, cost []fl
 
 			// Proactive hyphenation: try splitting words[j]
 			// even though it fits, to tighten the line for
-			// justification. Skip on last lines (not justified).
-			if j+1 < n && len(words[j].prefix) > 0 {
-				spaceUsed := -1
-				if j > i {
-					spaceUsed = lineLen - wLen - sp
-				}
+			// justification. Skip on last lines (not justified),
+			// and on a line's first word: the suffix would start
+			// the same line again, at a cost (cost[i]) this pass
+			// has not computed yet.
+			if j+1 < n && j > i && len(words[j].prefix) > 0 {
+				spaceUsed := lineLen - wLen - sp
 				if hc, ok := tryHyphenAtJustify(words[j], spaceUsed, width, wordsOnLine, cost[j], sp, hang); ok {
-					if j > i && next[j] == n {
+					if next[j] == n {
 						hc.cost += finalHyphenPenalty
 					}
 					if hc.cost < bestCost {
