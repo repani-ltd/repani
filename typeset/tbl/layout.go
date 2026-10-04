@@ -27,12 +27,16 @@ type entry struct {
 }
 
 // Add appends a row under its resolved format. It refuses a data row
-// with more cells than its format has groups, a note row with no data
-// row before it, and a format of another grid, which is a host's
-// mistake: every format of one table resolves from one full format.
+// with more cells than its format has groups and a note row with no
+// data row before it; and, a host's mistake, a format of another grid
+// (every format of one table resolves from one full format) and a
+// data row with no cells, which ParseRow never makes.
 func (t *Table) Add(fm Format, r Row) error {
 	if len(t.entries) > 0 && !sameGrid(t.entries[0].fm, fm) {
 		return errors.New("tbl: a row under a format of another grid; start a new Table at each full format")
+	}
+	if r.Kind == Data && len(r.Cells) == 0 {
+		return errors.New("tbl: a data row with no cells")
 	}
 	if r.Kind == Data {
 		if g := len(groups(fm)); len(r.Cells) > g {

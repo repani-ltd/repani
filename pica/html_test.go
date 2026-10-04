@@ -58,7 +58,7 @@ func TestHTML(t *testing.T) {
 		"<blockquote>\n<p>Said thing.</p>\n<p class=\"attrib\">Who</p>\n</blockquote>",
 		`<table style="max-width:20ch">`,
 		"<thead>\n<tr><th>name</th><th style=\"text-align:right\">amount</th></tr>\n</thead>",
-		`<tr class="note"><td></td><td style="text-align:right">eur</td></tr>`,
+		`<tr class="note"><td></td><td>eur</td></tr>`,
 		`<tr><td>a</td><td style="text-align:right">1.50</td></tr>`,
 		`<tr class="total"><td>total</td><td style="text-align:right">1.50</td></tr>`,
 		`<tr><td colspan="2">wide</td></tr>`,

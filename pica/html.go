@@ -116,9 +116,10 @@ func splitLink(s string) (url, title string) {
 
 // htmlTable writes a table: the header row in <thead> when the table
 // has one, then data rows, total rows (class "total") and note rows
-// (class "note"); every cell carries the text-align of its box's
-// first column, and a box over several columns a colspan. A fixed
-// width from the spec becomes max-width in ch.
+// (class "note"); every cell but a note's, which sets left as on
+// every page, carries the text-align of its box's first column, and
+// a box over several columns a colspan. A fixed width from the spec
+// becomes max-width in ch.
 func htmlTable(w *strings.Builder, b Block) {
 	t := b.Table
 	open := "<table>"
@@ -133,10 +134,11 @@ func htmlTable(w *strings.Builder, b Block) {
 			if bx.Last > bx.First {
 				attrs = ` colspan="` + itoa(bx.Last-bx.First+1) + `"`
 			}
-			switch t.fm.Cols[bx.First].Align {
-			case 'R', 'N':
+			switch align := t.fm.Cols[bx.First].Align; {
+			case t.rows[i].role == tbl.Note:
+			case align == 'R' || align == 'N':
 				attrs += ` style="text-align:right"`
-			case 'C':
+			case align == 'C':
 				attrs += ` style="text-align:center"`
 			}
 			w.WriteString("<" + tag + attrs + ">" + esc(t.rows[i].cells[k]) + "</" + tag + ">")

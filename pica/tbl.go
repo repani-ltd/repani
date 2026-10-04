@@ -314,7 +314,7 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 				var pcs []ProseCell
 				reserve := make([]bool, len(bs))
 				for k, b := range bs {
-					pcs = append(pcs, t.measure(lines[0][k], row.cells[k], t.fm.Cols[b.First].Align, mHead, runeUnits))
+					pcs = append(pcs, t.measure(lines[0][k], row.cells[k], t.fm.Cols[b.First], mHead, runeUnits))
 					reserve[k] = true
 				}
 				tl.HeaderProse = pcs
@@ -326,8 +326,8 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 			if m != nil {
 				reserve := make([]bool, len(bs))
 				for k, b := range bs {
-					if t.fm.Cols[b.First].Align == 'P' {
-						pcs = append(pcs, t.measure(lines[0][k], row.cells[k], 'P', m, runeUnits))
+					if col := t.fm.Cols[b.First]; col.Align == 'P' {
+						pcs = append(pcs, t.measure(lines[0][k], row.cells[k], col, m, runeUnits))
 						reserve[k] = true
 					}
 				}
@@ -346,12 +346,12 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 }
 
 // measure wraps a cell under m at its box's measure.
-func (t *Table) measure(p tbl.Placed, text string, align byte, m Measurer, runeUnits int) ProseCell {
-	return ProseCell{
-		Box:   Span{Start: p.Start, End: p.End},
-		Align: align,
-		Lines: wrapCellMeasured(text, (p.End-p.Start)*runeUnits, m),
+func (t *Table) measure(p tbl.Placed, text string, col tbl.Column, m Measurer, runeUnits int) ProseCell {
+	lines := wrapCellMeasured(text, (p.End-p.Start)*runeUnits, m)
+	if col.Clip && len(lines) > 1 {
+		lines = lines[:1] // a clip column is one line, measured or not
 	}
+	return ProseCell{Box: Span{Start: p.Start, End: p.End}, Align: col.Align, Lines: lines}
 }
 
 // reserveBoxes blanks the reserved boxes of a laid row on every line

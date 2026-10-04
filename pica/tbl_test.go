@@ -252,6 +252,22 @@ func TestTable_TotalRows(t *testing.T) {
 	}
 }
 
+func TestTable_ClippedProseIsOneLine(t *testing.T) {
+	// "!" holds for a measured P cell as for a mono one: one line.
+	tbl := mustTable(t, "3L 8P!")
+	tbl.Row("a", "one two three four five")
+	tl, err := tbl.LayoutMeasured(12, Mono, nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Rows[0]) != 1 || len(tl.RowProse[0][0].Lines) != 1 {
+		t.Errorf("rows %q, measured lines %d", tl.Rows[0], len(tl.RowProse[0][0].Lines))
+	}
+	if _, err := mustTable(t, "4L").Note().Layout(10); err == nil {
+		t.Error("a note with no cells accepted")
+	}
+}
+
 func TestTable_ProseColumn(t *testing.T) {
 	tbl := mustTable(t, "4L *P")
 	tbl.Header("key", "meaning")
