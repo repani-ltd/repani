@@ -5,7 +5,11 @@
 // opener loudly. Documented in doc.go.
 package pica
 
-import "unicode"
+import (
+	"unicode"
+
+	"repani.com/typeset/wrap"
+)
 
 // isEmphOpen reports whether an underscore between prev and next
 // opens emphasis: preceded by nothing (start of text or line),
@@ -115,33 +119,57 @@ func EmphSegments(s string) []EmphSeg {
 	return segs
 }
 
-// EmphLine scans ONE already-wrapped monospace line, carrying the
-// span state across lines of a block: clean is the line with each
-// marker underscore blanked to a space (the grid never moves),
-// spans are the rune intervals an underline covers -- marker cells
+// EmphLines finds a paragraph's emphasis once, over the whole
+// paragraph, and maps it onto the monospace lines a breaker made of
+// it -- the paragraph's words in order, gaps widened, a hyphen added
+// at a break. For each line, clean is the line with each marker
+// underscore blanked to a space (the grid never moves) and spans
+// are the rune intervals an underline covers -- marker cells
 // included, so the drawn rule occupies exactly the cells the text
-// page gives to the underscores -- and still is the state handed
-// to the next line. A span open at the line's end underlines to
-// the end and continues; a line beginning inside a span underlines
-// from its first rune.
-func EmphLine(line string, open bool) (clean string, spans []Span, still bool) {
-	runes := []rune(line)
-	marks, still := emphWalk(runes, open)
-	if len(marks) == 0 && !open {
-		return line, nil, false
+// page gives to the underscores. A span open at a line's end
+// underlines to the end; the next line underlines from its start.
+// Scanning line by line instead would read a gate at a line's edge
+// or beside an added hyphen that the paragraph does not have.
+func EmphLines(para string, lines []string) (clean []string, spans [][]Span) {
+	src := []rune(para)
+	marks, open := emphWalk(src, false)
+	if open {
+		marks = marks[:len(marks)-1] // unclosed: a literal underscore
 	}
-	start := 0 // meaningful only while inside a span
+	isMark := make(map[int]bool, len(marks))
 	for _, i := range marks {
-		runes[i] = ' '
-		if open {
-			spans = append(spans, Span{Start: start, End: i + 1})
-		} else {
-			start = i
+		isMark[i] = true
+	}
+	p, open := 0, false
+	clean, spans = make([]string, len(lines)), make([][]Span, len(lines))
+	for li, line := range lines {
+		runes := []rune(line)
+		start := 0 // meaningful only while inside a span
+		for k, r := range runes {
+			if r == ' ' {
+				continue
+			}
+			for p < len(src) && wrap.IsBreakingSpace(src[p]) {
+				p++
+			}
+			if p >= len(src) || src[p] != r {
+				continue // a hyphen the breaker added
+			}
+			if isMark[p] {
+				runes[k] = ' '
+				if open {
+					spans[li] = append(spans[li], Span{Start: start, End: k + 1})
+				} else {
+					start = k
+				}
+				open = !open
+			}
+			p++
 		}
-		open = !open
+		if open && start < len(runes) {
+			spans[li] = append(spans[li], Span{Start: start, End: len(runes)})
+		}
+		clean[li] = string(runes)
 	}
-	if open && start < len(runes) {
-		spans = append(spans, Span{Start: start, End: len(runes)})
-	}
-	return string(runes), spans, still
+	return clean, spans
 }

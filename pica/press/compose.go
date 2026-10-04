@@ -292,12 +292,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				open := false
-				for _, ln := range pica.JustifyParagraph(blk.Text, width) {
-					var sl sline
-					sl, open = emphSline("", ln, open)
-					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
-				}
+				fb.segs = monoProse(blk.Text, pica.JustifyParagraph(blk.Text, width), noPrefix)
 			}
 
 		case pica.Quote:
@@ -322,12 +317,8 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				}
 			} else {
 				inset := strings.Repeat(" ", pica.QuoteIndent)
-				open := false
-				for _, ln := range pica.JustifyParagraph(blk.Text, width-2*pica.QuoteIndent) {
-					var sl sline
-					sl, open = emphSline(inset, ln, open)
-					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
-				}
+				lines := pica.JustifyParagraph(blk.Text, width-2*pica.QuoteIndent)
+				fb.segs = monoProse(blk.Text, lines, func(int) string { return inset })
 				if blk.Attrib != "" {
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: pica.AttribLine(blk.Attrib, width)}}})
 				}
@@ -553,16 +544,13 @@ func composeItem(blk pica.Block, t typo, width int) fblock {
 			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 		}
 	} else {
-		open := false
-		for i, ln := range pica.JustifyParagraph(blk.Text, width-pica.ItemIndent) {
-			pre := strings.Repeat(" ", pica.ItemIndent)
+		lines := pica.JustifyParagraph(blk.Text, width-pica.ItemIndent)
+		fb.segs = append(fb.segs, monoProse(blk.Text, lines, func(i int) string {
 			if i == 0 {
-				pre = pica.Bullet + " "
+				return pica.Bullet + " "
 			}
-			var sl sline
-			sl, open = emphSline(pre, ln, open)
-			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
-		}
+			return strings.Repeat(" ", pica.ItemIndent)
+		})...)
 	}
 	return fb
 }
@@ -605,50 +593,52 @@ func composeTerm(blk pica.Block, t typo, width int) fblock {
 	}
 	hang := strings.Repeat(" ", pica.ItemIndent)
 	first, runIn := pica.TermRunIn(blk.Label, width)
-	open := false
 	if !runIn {
 		label := pica.TruncLine(blk.Label, width)
 		fb.segs = append(fb.segs, seg{lines: []sline{{text: label, lead: label}}})
-		for _, ln := range pica.JustifyParagraph(blk.Text, width-pica.ItemIndent) {
-			var sl sline
-			sl, open = emphSline(hang, ln, open)
-			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
-		}
+		lines := pica.JustifyParagraph(blk.Text, width-pica.ItemIndent)
+		fb.segs = append(fb.segs, monoProse(blk.Text, lines, func(int) string { return hang })...)
 		return fb
 	}
-	for i, ln := range pica.JustifyParagraphRunIn(blk.Text, first, width-pica.ItemIndent) {
-		pre := hang
+	lines := pica.JustifyParagraphRunIn(blk.Text, first, width-pica.ItemIndent)
+	fb.segs = monoProse(blk.Text, lines, func(i int) string {
 		if i == 0 {
-			pre = blk.Label + strings.Repeat(" ", pica.TermGap)
+			return blk.Label + strings.Repeat(" ", pica.TermGap)
 		}
-		var sl sline
-		sl, open = emphSline(pre, ln, open)
-		if i == 0 {
-			sl.lead = blk.Label
-		}
-		fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+		return hang
+	})
+	if len(fb.segs) > 0 {
+		fb.segs[0].lines[0].lead = blk.Label
 	}
 	return fb
 }
 
-// emphSline scans one composed monospace prose line for emphasis,
-// carrying the span state across a block's lines: marker cells are
-// blanked, the underline intervals recorded. pre is the line's
-// prefix -- an inset, a bullet, a run-in label -- baked in front of
-// the scanned text, so the recorded cells are the drawn cells while
-// the prefix's own runes are never read as markers (a label may
-// begin with an underscore). Only prose lines come through here;
-// verbatim, table and heading text never carries emphasis.
-func emphSline(pre, text string, open bool) (sline, bool) {
-	clean, spans, still := pica.EmphLine(text, open)
-	if off := utf8.RuneCountInString(pre); off > 0 {
-		for i := range spans {
-			spans[i].Start += off
-			spans[i].End += off
+// monoProse composes a prose block's monospace lines, one segment
+// each: emphasis found once over the paragraph and mapped onto the
+// lines (pica.EmphLines), marker cells blanked, underlines recorded.
+// prefix gives line i's prefix -- an inset, a bullet, a run-in label
+// -- set in front of it, so the recorded cells are the drawn cells
+// while the prefix is never read for markers (a label may begin with
+// an underscore). Only prose comes through here; verbatim, table and
+// heading text never carries emphasis.
+func monoProse(para string, lines []string, prefix func(i int) string) []seg {
+	clean, spans := pica.EmphLines(para, lines)
+	segs := make([]seg, len(lines))
+	for i := range lines {
+		pre := prefix(i)
+		if off := utf8.RuneCountInString(pre); off > 0 {
+			for k := range spans[i] {
+				spans[i][k].Start += off
+				spans[i][k].End += off
+			}
 		}
+		segs[i] = seg{lines: []sline{{text: pre + clean[i], uline: spans[i]}}}
 	}
-	return sline{text: pre + clean, uline: spans}, still
+	return segs
 }
+
+// noPrefix is monoProse's prefix for lines set flush.
+func noPrefix(int) string { return "" }
 
 func toSlines(lines []string) []sline {
 	out := make([]sline, len(lines))

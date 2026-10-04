@@ -49,40 +49,31 @@ func TestEmphUnclosed(t *testing.T) {
 	}
 }
 
-func TestEmphLineCarriesAcrossLines(t *testing.T) {
+func TestEmphLinesCarryAcrossLines(t *testing.T) {
 	// A span opened on one wrapped line closes on the next: the
-	// first line underlines from its marker to its end, the second
-	// from its start to its marker, and the marker cells are
-	// blanked in place -- the grid never moves.
-	clean, spans, open := EmphLine("say _two", false)
-	if !open {
-		t.Fatal("span should stay open at line end")
+	// first line underlines from its marker to its end, a middle
+	// line whole, the last from its start to its marker, and the
+	// marker cells are blanked in place -- the grid never moves. A
+	// marker-free line outside any span passes through untouched.
+	clean, spans := EmphLines("say _two middle words_ end plain text",
+		[]string{"say _two", "middle", "words_ end", "plain text"})
+	wantClean := []string{"say  two", "middle", "words  end", "plain text"}
+	wantSpans := [][]Span{{{Start: 4, End: 8}}, {{Start: 0, End: 6}}, {{Start: 0, End: 6}}, nil}
+	if !reflect.DeepEqual(clean, wantClean) || !reflect.DeepEqual(spans, wantSpans) {
+		t.Errorf("clean %q spans %v", clean, spans)
 	}
-	if clean != "say  two" {
-		t.Errorf("clean = %q, want %q", clean, "say  two")
-	}
-	if want := []Span{{Start: 4, End: 8}}; !reflect.DeepEqual(spans, want) {
-		t.Errorf("spans = %v, want %v", spans, want)
-	}
-	clean, spans, open = EmphLine("words_ end", true)
-	if open {
-		t.Fatal("span should close")
-	}
-	if clean != "words  end" {
-		t.Errorf("clean = %q, want %q", clean, "words  end")
-	}
-	if want := []Span{{Start: 0, End: 6}}; !reflect.DeepEqual(spans, want) {
-		t.Errorf("spans = %v, want %v", spans, want)
-	}
-	// A middle line entirely inside the span underlines whole.
-	clean, spans, open = EmphLine("middle", true)
-	if !open || clean != "middle" || !reflect.DeepEqual(spans, []Span{{Start: 0, End: 6}}) {
-		t.Errorf("middle line: clean=%q spans=%v open=%v", clean, spans, open)
-	}
-	// A marker-free line outside any span passes through untouched.
-	clean, spans, open = EmphLine("plain text", false)
-	if open || clean != "plain text" || spans != nil {
-		t.Errorf("plain line: clean=%q spans=%v open=%v", clean, spans, open)
+}
+
+func TestEmphLinesHyphenatedMarker(t *testing.T) {
+	// The paragraph's gates, not the line's: an underscore before a
+	// hyphen the breaker added is interior, not a closer, so
+	// _snake_case_words_ is one span over three hyphenated lines.
+	lines := []string{"_snake_-", "case_-", "words_", "end"}
+	clean, spans := EmphLines("_snake_case_words_ end", lines)
+	wantClean := []string{" snake_-", "case_-", "words ", "end"}
+	wantSpans := [][]Span{{{Start: 0, End: 8}}, {{Start: 0, End: 6}}, {{Start: 0, End: 6}}, nil}
+	if !reflect.DeepEqual(clean, wantClean) || !reflect.DeepEqual(spans, wantSpans) {
+		t.Errorf("clean %q spans %v", clean, spans)
 	}
 }
 

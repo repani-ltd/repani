@@ -187,7 +187,7 @@ type ProseCell struct {
 
 // Span is one column's [Start,End) rune interval on the full grid:
 // the cell's offsets within a formatted line (tab.Span; also the
-// rune interval of an emphasis underline, see EmphLine). In the text
+// rune interval of an emphasis underline, see EmphLines). In the text
 // writer and mono documents a P cell lays out as L.
 type Span = tab.Span
 
