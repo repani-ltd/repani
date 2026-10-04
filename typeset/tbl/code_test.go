@@ -9,7 +9,7 @@ import (
 func TestParseCode(t *testing.T) {
 	for i := range len(letters) {
 		c := Color(i)
-		l := string(c.Letter())
+		l := string(letter(c))
 		for s, want := range map[string]Code{
 			l:           {FG: c, HasFG: true},
 			"/" + l:     {BG: c, HasBG: true},
@@ -17,9 +17,9 @@ func TestParseCode(t *testing.T) {
 			"w/" + l:    {FG: White, BG: c, HasFG: true, HasBG: true},
 			l + "/d":    {FG: c, BG: Default, HasFG: true, HasBG: true},
 		} {
-			got, err := ParseCode(s, 1)
+			got, err := parseCode(s, 1)
 			if err != nil || got != want {
-				t.Errorf("ParseCode(%q) = %+v, %v; want %+v", s, got, err, want)
+				t.Errorf("parseCode(%q) = %+v, %v; want %+v", s, got, err, want)
 			}
 			if got.String() != s {
 				t.Errorf("Code(%q).String() = %q", s, got.String())
@@ -49,14 +49,14 @@ func TestParseCodeErrors(t *testing.T) {
 		{"λ", 7, 7, "'λ' is not a colour letter"},
 		{"r/bλ", 3, 6, `'λ' after "r/b"`},
 	} {
-		_, err := ParseCode(tc.s, tc.col)
+		_, err := parseCode(tc.s, tc.col)
 		var e *Error
 		if !errors.As(err, &e) || !errors.Is(err, ErrCode) {
-			t.Errorf("ParseCode(%q) = %v, want an ErrCode *Error", tc.s, err)
+			t.Errorf("parseCode(%q) = %v, want an ErrCode *Error", tc.s, err)
 			continue
 		}
 		if e.Col != tc.want || !strings.Contains(err.Error(), tc.msg) {
-			t.Errorf("ParseCode(%q) at %d = column %d %q, want column %d containing %q", tc.s, tc.col, e.Col, err, tc.want, tc.msg)
+			t.Errorf("parseCode(%q) at %d = column %d %q, want column %d containing %q", tc.s, tc.col, e.Col, err, tc.want, tc.msg)
 		}
 	}
 }
@@ -82,7 +82,7 @@ func TestCodeOver(t *testing.T) {
 }
 
 func TestColorNames(t *testing.T) {
-	if Cyan.String() != "cyan" || Cyan.Letter() != 'c' || Color(9).String() != "Color(9)" || Color(9).Letter() != '?' {
+	if Cyan.String() != "cyan" || letter(Cyan) != 'c' || Color(9).String() != "Color(9)" || letter(Color(9)) != '?' {
 		t.Error("colour names")
 	}
 }

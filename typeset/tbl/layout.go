@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"repani.com/typeset/format"
+	"repani.com/typeset/raster"
 	"repani.com/typeset/wrap"
 	"repani.com/typeset/wrap/hyphen"
 )
@@ -83,19 +84,15 @@ func sameGrid(a, b Format) bool {
 type LaidRow struct {
 	Kind   Kind
 	Role   Role
-	FG, BG Color
+	FG, BG raster.Color
 	Lines  [][]Placed
 }
 
 // Placed is one cell's box on one line: grid columns Start to End
 // (exclusive), Text of exactly End - Start code points, resolved
-// colours, and the cell's link target or "".
-type Placed struct {
-	Start, End int
-	Text       string
-	FG, BG     Color
-	Target     string
-}
+// colours, and the cell's link target or "" -- a raster segment, so
+// a board's line of boxes is its row's segments as they stand.
+type Placed = raster.Segment
 
 // groups returns the format's groups as column ranges: a column that
 // is not S begins one, and each S column after it joins it.
@@ -168,10 +165,10 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 		row := e.fm.Row
 		lr := LaidRow{Kind: e.row.Kind, Role: e.row.Role, FG: row.FG, BG: row.BG}
 		if !row.HasFG {
-			lr.FG = Default
+			lr.FG = raster.Default
 		}
 		if !row.HasBG {
-			lr.BG = Default
+			lr.BG = raster.Default
 		}
 		if e.row.Kind == Data {
 			if lr.Lines, err = layRow(e.fm, e.row, grid); err != nil {

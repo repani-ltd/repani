@@ -46,9 +46,6 @@ type Row struct {
 	Cells []Cell
 }
 
-// MaxTarget is the longest link target, in bytes.
-const MaxTarget = 255
-
 // trim trims spaces -- the breaker's breaking spaces, so a cell's
 // words are the words the breaker sets -- from both ends of s and
 // returns the trimmed string and the code points removed from its
@@ -115,7 +112,7 @@ func parseCell(s string, col int) (Cell, error) {
 			if seenCode {
 				return Cell{}, errAt(col, ErrMark, "a second : in one cell")
 			}
-			code, err := ParseCode(mark[1:], col+1)
+			code, err := parseCode(mark[1:], col+1)
 			if err != nil {
 				return Cell{}, err
 			}
@@ -148,40 +145,14 @@ func parseCell(s string, col int) (Cell, error) {
 }
 
 // checkTarget reports whether t, starting at source column col, is a
-// link target: 1 to MaxTarget bytes of a URI reference as RFC 3986
-// writes it, in ASCII from its unreserved and reserved sets, anything
-// else percent-encoded.
+// link target as raster defines one (raster.CheckTarget), at the
+// column where it goes wrong.
 func checkTarget(t string, col int) error {
 	if t == "" {
 		return errAt(col, ErrTarget, "@ with no target")
 	}
-	if len(t) > MaxTarget {
-		return errAt(col, ErrTarget, "target of %d bytes, more than %d", len(t), MaxTarget)
-	}
-	for i := 0; i < len(t); i++ {
-		switch b := t[i]; {
-		case b == '%':
-			if i+2 >= len(t) || !isHex(t[i+1]) || !isHex(t[i+2]) {
-				return errAt(col+runes(t[:i]), ErrTarget, "%% not followed by two hex digits")
-			}
-			i += 2
-		case !isURIByte(b):
-			return errAt(col+runes(t[:i]), ErrTarget, "%s is not allowed in a URI reference; percent-encode it", quote(t, i))
-		}
+	if at, err := raster.CheckTarget(t); err != nil {
+		return errAt(col+runes(t[:at]), ErrTarget, "%v", err)
 	}
 	return nil
-}
-
-func isHex(b byte) bool {
-	return '0' <= b && b <= '9' || 'a' <= b && b <= 'f' || 'A' <= b && b <= 'F'
-}
-
-// isURIByte reports whether b is in RFC 3986's unreserved or
-// reserved sets.
-func isURIByte(b byte) bool {
-	switch {
-	case 'a' <= b && b <= 'z', 'A' <= b && b <= 'Z', '0' <= b && b <= '9':
-		return true
-	}
-	return strings.IndexByte("-._~:/?#[]@!$&'()*+,;=", b) >= 0
 }

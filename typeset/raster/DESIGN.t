@@ -216,9 +216,12 @@ THE PACKAGE STAYS LIGHT. It is all a renderer or a program
 producer imports, so it imports nothing that typesets: a test fails
 if its dependencies reach typeset/tbl, typeset/wrap, pica or
 board. Compilers that set text on rows -- board's language
--- import those and raster, never the reverse. Its link-target
-check is its own for the same reason, duplicated on purpose from
-tbl's. `golang.org/x/text` is its one dependency outside the
+-- import those and raster, never the reverse. The dependency runs
+one way only, so the concepts a page shares with its producers are
+raster's and theirs by import: tbl's colours are raster.Color, its
+placed cell is raster.Segment, and its cell text and link targets
+keep raster's rules through Columns and CheckTarget.
+`golang.org/x/text` is raster's one dependency outside the
 standard library, for NFC and width.
 
 # What is open

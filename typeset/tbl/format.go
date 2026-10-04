@@ -96,7 +96,7 @@ func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
 			if i != 0 {
 				return Format{}, false, errAt(t.col, ErrToken, "row code %q must be the first token", t.s)
 			}
-			c, err := ParseCode(t.s, t.col)
+			c, err := parseCode(t.s, t.col)
 			if err != nil {
 				return Format{}, false, err
 			}
@@ -218,7 +218,7 @@ func parseColumn(t token) (colToken, error) {
 		if j := strings.IndexByte(rest, '!'); j >= 0 {
 			return ct, errAt(t.col+runes(s[:i+j]), ErrToken, "! must end the token")
 		}
-		c, err := ParseCode(rest, t.col+runes(s[:i]))
+		c, err := parseCode(rest, t.col+runes(s[:i]))
 		if err != nil {
 			return ct, err
 		}

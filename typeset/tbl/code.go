@@ -1,59 +1,39 @@
 package tbl
 
 import (
-	"fmt"
 	"unicode/utf8"
+
+	"repani.com/typeset/raster"
 )
 
-// Color is a palette index, 0 to 7, as raster's palette numbers it.
-type Color uint8
-
-const (
-	Default Color = iota
-	Red
-	Green
-	Yellow
-	Blue
-	Magenta
-	Cyan
-	White
-)
-
-// letters are the colour letters in palette order.
+// letters are the colour letters in raster's palette order, d for
+// raster.Default to w for raster.White.
 const letters = "drgybmcw"
 
-// Letter returns c's letter in a colour code, '?' outside the
+// letter returns c's letter in a colour code, '?' outside the
 // palette.
-func (c Color) Letter() byte {
+func letter(c raster.Color) byte {
 	if int(c) < len(letters) {
 		return letters[c]
 	}
 	return '?'
 }
 
-func (c Color) String() string {
-	names := [...]string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}
-	if int(c) < len(names) {
-		return names[c]
-	}
-	return fmt.Sprintf("Color(%d)", uint8(c))
-}
-
 // colorOf returns the colour a letter names.
-func colorOf(b byte) (Color, bool) {
+func colorOf(b byte) (raster.Color, bool) {
 	for i := range len(letters) {
 		if letters[i] == b {
-			return Color(i), true
+			return raster.Color(i), true
 		}
 	}
 	return 0, false
 }
 
-// Code is a colour code: a foreground and a background, each set or
-// unset. The zero Code sets neither. A set Default is a colour, not
-// unset.
+// Code is a colour code: a foreground and a background from raster's
+// palette, each set or unset. The zero Code sets neither. A set
+// raster.Default is a colour, not unset.
 type Code struct {
-	FG, BG       Color
+	FG, BG       raster.Color
 	HasFG, HasBG bool
 }
 
@@ -75,18 +55,18 @@ func (c Code) Over(lower Code) Code {
 func (c Code) String() string {
 	var b []byte
 	if c.HasFG {
-		b = append(b, c.FG.Letter())
+		b = append(b, letter(c.FG))
 	}
 	if c.HasBG {
-		b = append(b, '/', c.BG.Letter())
+		b = append(b, '/', letter(c.BG))
 	}
 	return string(b)
 }
 
-// ParseCode reads a colour code, s starting at source column col:
+// parseCode reads a colour code, s starting at source column col:
 // an optional foreground letter, then optionally "/" and a
 // background letter, at least one of the two.
-func ParseCode(s string, col int) (Code, error) {
+func parseCode(s string, col int) (Code, error) {
 	var c Code
 	i := 0
 	if i < len(s) && s[i] != '/' {

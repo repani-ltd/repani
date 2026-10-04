@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"repani.com/typeset/raster"
 )
 
 // parse parses line from column 1 and drops the cells' source
@@ -77,8 +79,8 @@ func TestCellMarks(t *testing.T) {
 	if got := parse(t, "@news/1?q=a%20b#top x"); got.Cells[0].Target != "news/1?q=a%20b#top" {
 		t.Errorf("target %q", got.Cells[0].Target)
 	}
-	if got := parse(t, "@"+strings.Repeat("a", MaxTarget)); len(got.Cells[0].Target) != MaxTarget {
-		t.Error("a target of MaxTarget bytes refused")
+	if got := parse(t, "@"+strings.Repeat("a", raster.MaxTarget)); len(got.Cells[0].Target) != raster.MaxTarget {
+		t.Error("a target of raster.MaxTarget bytes refused")
 	}
 	// ~ is content: "about five" is written ~5.
 	if got := parse(t, "~5 | ~100 ms"); got.Cells[0] != (Cell{Text: "~5"}) || got.Cells[1] != (Cell{Text: "~100 ms"}) {
@@ -108,7 +110,7 @@ func TestRowErrors(t *testing.T) {
 		{"a | 東京", 1, ErrText, 5, "wide"},
 		{"a\x01b", 1, ErrText, 1, "control"},
 		{"a | x​z", 1, ErrText, 5, "zero-width"},
-		{"@" + strings.Repeat("a", MaxTarget+1), 1, ErrTarget, 2, "256 bytes"},
+		{"@" + strings.Repeat("a", raster.MaxTarget+1), 1, ErrTarget, 2, "256 bytes"},
 		{"  ^ λ | :q", 5, ErrCode, 14, "'q' is not a colour letter"}, // columns 5..14, λ one
 	} {
 		_, err := ParseRow(tc.line, tc.col)

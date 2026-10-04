@@ -179,8 +179,8 @@ func (r Row) check() error {
 			return fmt.Errorf("segment %d: background: %w", i, err)
 		}
 		if s.IsLink() {
-			if err := checkTarget(s.Target); err != nil {
-				return fmt.Errorf("segment %d: %w", i, err)
+			if _, err := CheckTarget(s.Target); err != nil {
+				return fmt.Errorf("segment %d: target: %w", i, err)
 			}
 		}
 		if !hasGlyph(s.Text) && s.FG != Default {
@@ -274,26 +274,30 @@ func checkColumn(c rune) error {
 	return nil
 }
 
-// checkTarget reports whether t is a URI reference as RFC 3986 writes
-// it: ASCII from its unreserved and reserved sets, anything else
-// percent-encoded. The grammar's structure is the application's.
-func checkTarget(t string) error {
+// CheckTarget reports whether t is a link target: 1 to MaxTarget
+// bytes of a URI reference as RFC 3986 writes it, ASCII from its
+// unreserved and reserved sets, anything else percent-encoded (the
+// grammar's structure is the application's). On an error, at is the
+// byte of t where it goes wrong, for a producer that reports a
+// position.
+func CheckTarget(t string) (at int, err error) {
 	if len(t) == 0 || len(t) > MaxTarget {
-		return fmt.Errorf("target of %d bytes, not 1 to %d", len(t), MaxTarget)
+		return 0, fmt.Errorf("%d bytes, not 1 to %d", len(t), MaxTarget)
 	}
 	for i := 0; i < len(t); i++ {
 		c := t[i]
 		switch {
 		case c == '%':
 			if i+2 >= len(t) || !isHex(t[i+1]) || !isHex(t[i+2]) {
-				return fmt.Errorf("target: %% at byte %d of the target not followed by two hex digits", i)
+				return i, fmt.Errorf("%% not followed by two hex digits")
 			}
 			i += 2
 		case !isURIChar(c):
-			return fmt.Errorf("target: byte %#02x at byte %d of the target not allowed in a URI reference", c, i)
+			r, _ := utf8.DecodeRuneInString(t[i:])
+			return i, fmt.Errorf("%q is not allowed in a URI reference; percent-encode it", r)
 		}
 	}
-	return nil
+	return 0, nil
 }
 
 func isHex(c byte) bool {
