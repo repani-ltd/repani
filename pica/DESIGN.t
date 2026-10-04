@@ -834,8 +834,9 @@ the txtar convention, and scheduling stay with callers (the CLI
 keeps its loaders; a station keeps its carousel). pica render now
 validates through desk -- the one behavioural change, deliberate.
 .item Package pica itself stays stdlib-only (wire clients parse
-without fonts; since §12 it imports the tab primitive, which is
-itself stdlib-only, so the property it protects holds); pdf stays primitives. The naming account: the
+without fonts; since §12 it imports the tab primitive and since
+§16 the wrap primitive, each itself stdlib-only, so the property
+it protects holds); pdf stays primitives. The naming account: the
 desk writes copy, the press prints it, pica is the language
 between them.
 .item The minimal txtar parser was to be duplicated rather than
@@ -1127,5 +1128,25 @@ table wider than the measure, and a document longer than the
 panels are errors naming what did not fit; the app shrinks,
 splits or adds a panel. The writer never truncates a table or
 drops a block.
+
+# 16. The breaker is a primitive: wrap (decided 2026-10-04)
+
+Driver: the table language moved below pica into
+repani.com/typeset/tbl, shared with board (repani-lab/board,
+DESIGN.t), and a cell must break the same in both; tbl cannot
+import pica, which imports it. So the breaker moved where §12 put
+the grid: wrap.go and hyphen.go, with the embedded pattern sets,
+are repani.com/typeset/wrap, under the primitive rule (stdlib
+only, no document or font). It holds the Measurer and Line, the
+ragged and justified Knuth-Plass breakers, the cell breaker with
+its hard cut, and Token for callers that style words. What stayed
+is what is pica's syntax: _emphasis_, tokenized in pica and handed
+over as Tokens. Pica keeps every exported name -- Measurer, Line
+and Mono as aliases, WrapLines, JustifyLines and the rest as
+one-line delegates -- so the press, the cell writer and the PDF
+writer are unchanged. The breaker's tests and benchmarks moved
+with it. Verified by rendering every .t document under ~/repos in
+text, pdf, html and report before and after: 255 outputs, byte for
+byte the same.
 
 .font sans

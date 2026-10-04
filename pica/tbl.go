@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"repani.com/typeset/tab"
+	"repani.com/typeset/wrap"
 )
 
 // The spec errors are tab's, under pica's names; the align error is
@@ -343,7 +344,7 @@ func wrapCellMeasured(s string, measure int, m Measurer) []Line {
 	if strings.TrimSpace(s) == "" {
 		return nil
 	}
-	return wrapRagged(s, measure, hyphenPenaltyCell, m)
+	return wrap.Ragged(s, measure, wrap.PenaltyCell, m)
 }
 
 // noteRow formats one note row on a grid scaled by scale: scale 2 is
@@ -427,27 +428,6 @@ func renderRow(cols []colSpec, grid *tab.Grid, cells []string, proseHeights []in
 	return lines
 }
 
-// wrapCell wraps a cell's text to width with the same Knuth-Plass
-// breaker paragraphs get, but with the cell-tuned hyphen penalty:
-// in a narrow column, "Isolated thunder-" / "storms inland" beats
-// one word per line. A word that is longer than the column even
-// after hyphenation is hard-cut into chunks. Cells hyphenate with
-// every embedded pattern set (cell content is short and often
-// mixed).
-func wrapCell(s string, width int) []string {
-	var out []string
-	for _, ln := range flattenLines(wrapRagged(s, width, hyphenPenaltyCell, Mono)) {
-		for len(ln) > width && runeLen(ln) > width {
-			r := []rune(ln)
-			out = append(out, string(r[:width]))
-			ln = string(r[width:])
-		}
-		if ln != "" {
-			out = append(out, ln)
-		}
-	}
-	if len(out) == 0 {
-		return []string{""}
-	}
-	return out
-}
+// wrapCell wraps a cell's text to width: wrap.Cell, the breaker the
+// table language shares.
+func wrapCell(s string, width int) []string { return wrap.Cell(s, width) }

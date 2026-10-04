@@ -1,7 +1,7 @@
 // Knuth-Liang hyphenation. TeX pattern files for English and
 // Greek are embedded at compile time. The algorithm and its
 // fragment guards are described at Hyphenate.
-package pica
+package wrap
 
 import (
 	_ "embed"

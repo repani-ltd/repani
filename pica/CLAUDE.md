@@ -1,7 +1,9 @@
 # pica (repani.com/pica)
 
-Text typesetting library: wrapping, hyphenation, tables (the root package,
-stdlib-only), with PDF primitives (`pdf/`, `pdf/ttf/`), the compositor and
+Text typesetting library: the language, paragraphs and tables (the root
+package; it imports only the stdlib-only primitives `typeset/tab`, the
+grid, and `typeset/wrap`, the line breaker and hyphenation, DESIGN.t
+sections 12 and 16), with PDF primitives (`pdf/`, `pdf/ttf/`), the compositor and
 its two presentations (`press/`: `press.PDF` the default, `press.Report`),
 the copy desk (`desk/`: the template vocabulary and the validating
 `Render`; values are formatted by `repani.com/typeset/format`), the cell

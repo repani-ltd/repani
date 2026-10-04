@@ -31,12 +31,6 @@ package (Courier is fixed at 600; Helvetica and Times need four
 tables each). Cannot set Greek, so no page written today wants
 it. Trigger: a consumer that does; the face interface should be
 shaped by the TrueType case alone until then.
-.term breaker and hyphenation
-pica's wrap.go and hyphen.go with the embedded pattern sets
-(patterns/, 40K), as typeset/wrap or similar, imported back by
-the pica root as it imports tab. Trigger: a tessera panel that
-fills a paragraph from a template, or any second consumer of
-line breaking.
 
 # Elsewhere
 
