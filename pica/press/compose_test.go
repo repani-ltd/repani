@@ -81,6 +81,25 @@ func TestCompose_EvenRowPitch(t *testing.T) {
 	}
 }
 
+func TestCompose_LongTermLabelFits(t *testing.T) {
+	// A label too long to run in stands on its own line, cut to the
+	// measure in the bold face that draws it.
+	src := "T\n\n.term " + strings.Repeat("label ", 12) + "\nthe text\n\n.width 30\n.font sans\n"
+	doc, err := pica.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	units := 30 * pdf.AvgAdvance(pdf.Sans)
+	blocks, err := compose(doc, typo{sans: true, ps: 9, psMono: 9, lineH: 11, units: units})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := blocks[0].segs[0].lines[0].lead
+	if w := pdf.Measure(pdf.SansBold).Width(lead); lead == "" || w > units {
+		t.Errorf("label %q is %d wide in %d", lead, w, units)
+	}
+}
+
 func TestCompose_ProseCells(t *testing.T) {
 	// In a sans document a P cell's measured lines attach to the
 	// row's slines as positioned spans at the column's grid offset,

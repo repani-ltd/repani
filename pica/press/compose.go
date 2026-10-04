@@ -367,11 +367,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				label = url
 			}
 			if t.sans {
-				m := pdf.Measure(pdf.Sans)
-				for m.Width(label) > t.units && len([]rune(label)) > 1 {
-					r := []rune(label)
-					label = string(r[:len(r)-1])
-				}
+				label = truncMeasured(label, t.units, pdf.Measure(pdf.Sans))
 				fb.segs = []seg{{lines: []sline{{words: []string{label}, style: styleGray, href: url}}}}
 			} else {
 				fb.segs = []seg{{lines: []sline{{text: pica.TruncLine(label, width), style: styleGray, href: url}}}}
@@ -571,7 +567,7 @@ func composeTerm(blk pica.Block, t typo, width int) fblock {
 		lead := mb.Width(blk.Label) + pica.TermGap*m.Space()
 		first := t.units - lead
 		if 2*first < t.units {
-			fb.segs = append(fb.segs, seg{lines: []sline{{lead: blk.Label}}})
+			fb.segs = append(fb.segs, seg{lines: []sline{{lead: truncMeasured(blk.Label, t.units, mb)}}})
 			lines := pica.JustifyLinesEmph(blk.Text, measure, m, mi)
 			for i, ln := range lines {
 				last := i == len(lines)-1
@@ -635,6 +631,18 @@ func monoProse(para string, lines []string, prefix func(i int) string) []seg {
 		segs[i] = seg{lines: []sline{{text: pre + clean[i], uline: spans[i]}}}
 	}
 	return segs
+}
+
+// truncMeasured cuts s to its longest prefix no wider than units
+// under m, one rune at the least: pica.TruncLine for a measured face,
+// for the one-line texts a sans page never wraps (a link's label, a
+// term's label on its own line).
+func truncMeasured(s string, units int, m pdf.Measurer) string {
+	r := []rune(s)
+	for len(r) > 1 && m.Width(string(r)) > units {
+		r = r[:len(r)-1]
+	}
+	return string(r)
 }
 
 // noPrefix is monoProse's prefix for lines set flush.
