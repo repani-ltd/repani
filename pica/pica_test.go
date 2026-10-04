@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"repani.com/typeset/wrap"
+	"repani.com/typeset/wrap/hyphen"
 )
 
 // The breaker's tests -- hyphenation, ragged and justified wrapping,
@@ -42,8 +43,8 @@ func TestWrapLinesIsWrapRagged(t *testing.T) {
 	// same through either.
 	const p = "Isolated thunderstorms developing inland during the afternoons"
 	got := strings.Join(wrapParagraph(p, 20), "|")
-	want := strings.Join(wrap.Flatten(wrap.Ragged(p, 20, wrap.PenaltyProse, wrap.Mono)), "|")
+	want := strings.Join(wrap.Flatten(wrap.Hyphenated(p, 20, hyphen.Default, wrap.PenaltyProse, wrap.Mono)), "|")
 	if got != want {
-		t.Errorf("wrapParagraph = %q, wrap.Ragged = %q", got, want)
+		t.Errorf("wrapParagraph = %q, wrap.Hyphenated = %q", got, want)
 	}
 }

@@ -1,13 +1,15 @@
-// Line breaking for pica: the breaker itself -- Knuth-Plass with
-// Knuth-Liang hyphenation -- is repani.com/typeset/wrap, shared with
-// the table language. This file keeps pica's names for it and adds
-// the one thing that is pica's own: _emphasis_ tokenization.
+// Line breaking for pica: the breaker itself -- Knuth-Plass -- is
+// repani.com/typeset/wrap, shared with the table language, and pica
+// always hyphenates, with typeset/wrap/hyphen's patterns. This file
+// keeps pica's names for it and adds the one thing that is pica's
+// own: _emphasis_ tokenization.
 package pica
 
 import (
 	"unicode/utf8"
 
 	"repani.com/typeset/wrap"
+	"repani.com/typeset/wrap/hyphen"
 )
 
 // Measurer reports advance widths in abstract integer units; see
@@ -28,31 +30,31 @@ func LineOf(parts []string, m Measurer) Line { return wrap.LineOf(parts, m) }
 // WrapLines wraps ONE paragraph ragged-right under the measurer,
 // with the prose hyphen penalty.
 func WrapLines(para string, width int, m Measurer) []Line {
-	return wrap.Ragged(para, width, wrap.PenaltyProse, m)
+	return wrap.Hyphenated(para, width, hyphen.Default, wrap.PenaltyProse, m)
 }
 
 // WrapLinesRunIn is WrapLines with the first line on the measure
 // first, what a run-in lead (a .term label) leaves of it.
 func WrapLinesRunIn(para string, first, width int, m Measurer) []Line {
-	return wrap.RaggedRunIn(para, first, width, wrap.PenaltyProse, m)
+	return wrap.HyphenatedRunIn(para, first, width, hyphen.Default, wrap.PenaltyProse, m)
 }
 
 // JustifyLines chooses justified line breaks under the measurer,
 // returning lines at natural spacing; see wrap.Justify.
 func JustifyLines(para string, width int, m Measurer) []Line {
-	return wrap.Justify(para, width, m)
+	return wrap.Justify(para, width, hyphen.Default, m)
 }
 
 // JustifyParagraph wraps ONE paragraph with the justified breaker
 // under Mono and flushes every non-final line to width.
 func JustifyParagraph(para string, width int) []string {
-	return wrap.JustifyParagraph(para, width)
+	return wrap.JustifyParagraph(para, width, hyphen.Default)
 }
 
 // JustifyParagraphRunIn is JustifyParagraph with the first line on
 // the measure first.
 func JustifyParagraphRunIn(para string, first, width int) []string {
-	return wrap.JustifyParagraphRunIn(para, first, width)
+	return wrap.JustifyParagraphRunIn(para, first, width, hyphen.Default)
 }
 
 // HangHyphen is the width a line-final hyphen protrudes into the
@@ -69,13 +71,13 @@ func HangHyphen(m Measurer) int { return wrap.HangHyphen(m) }
 // spaces, and the hyphen hang, stay on the body measurer m. A
 // paragraph without markers behaves exactly as JustifyLines.
 func JustifyLinesEmph(para string, width int, m, em Measurer) []Line {
-	return wrap.JustifyTokens(emphTokens(para, m, em), width, width, m)
+	return wrap.JustifyTokens(emphTokens(para, m, em), width, width, hyphen.Default, m)
 }
 
 // JustifyLinesEmphRunIn is JustifyLinesEmph with the first line on
 // the measure first (see WrapLinesRunIn).
 func JustifyLinesEmphRunIn(para string, first, width int, m, em Measurer) []Line {
-	return wrap.JustifyTokens(emphTokens(para, m, em), first, width, m)
+	return wrap.JustifyTokens(emphTokens(para, m, em), first, width, hyphen.Default, m)
 }
 
 // emphTokens tokenizes a marked paragraph: EmphSegments strips the

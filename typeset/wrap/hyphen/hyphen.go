@@ -1,13 +1,17 @@
-// Knuth-Liang hyphenation. TeX pattern files for English and
-// Greek are embedded at compile time. The algorithm and its
-// fragment guards are described at Hyphenate.
-package wrap
+// Package hyphen finds where words may be hyphenated: Knuth-Liang
+// patterns, TeX's pattern files for English and Greek embedded at
+// compile time. It is the heavy half of typeset/wrap, kept apart so
+// that a program which breaks lines without hyphenation links
+// neither the patterns nor this code: Default satisfies
+// wrap.Hyphenator, and only a caller that passes it pays for it.
+// The algorithm and its fragment guards are described at Hyphenate.
+package hyphen
 
 import (
 	_ "embed"
 	"strings"
+	"sync"
 	"unicode"
-	"unicode/utf8"
 )
 
 //go:embed patterns/en.txt
@@ -16,28 +20,30 @@ var patternsEN string
 //go:embed patterns/el.txt
 var patternsEL string
 
-// hyphenator holds compiled hyphenation patterns.
-type hyphenator struct {
+// Patterns is a set of hyphenation patterns, compiled on first use.
+type Patterns struct {
+	sets     []string
+	once     sync.Once
 	patterns map[string][]int
 	maxLen   int // longest pattern key in runes; bounds the lookup window
 }
 
-// defaultHyphenator merges every embedded pattern set. The embedded
-// scripts are disjoint, so the merged set hyphenates each language
+// Default merges every embedded pattern set. The embedded scripts
+// are disjoint, so the merged set hyphenates each language
 // correctly; per-language selection would only matter if sets for
-// languages sharing a script were added (see DESIGN.t: the .lang
-// command was removed until that demand exists).
-var defaultHyphenator = newHyphenator(patternsEN, patternsEL)
+// languages sharing a script were added (see pica's DESIGN.t: the
+// .lang command was removed until that demand exists). Its patterns
+// compile on the first Hyphenate, not when the package loads.
+var Default = &Patterns{sets: []string{patternsEN, patternsEL}}
 
-func newHyphenator(patternSets ...string) *hyphenator {
-	h := &hyphenator{patterns: make(map[string][]int)}
-	for _, set := range patternSets {
+func (h *Patterns) compile() {
+	h.patterns = make(map[string][]int)
+	for _, set := range h.sets {
 		h.loadPatterns(set)
 	}
-	return h
 }
 
-func (h *hyphenator) loadPatterns(text string) {
+func (h *Patterns) loadPatterns(text string) {
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "%") || strings.HasPrefix(line, "#") {
@@ -47,7 +53,7 @@ func (h *hyphenator) loadPatterns(text string) {
 	}
 }
 
-func (h *hyphenator) addPattern(pattern string) {
+func (h *Patterns) addPattern(pattern string) {
 	var key []rune
 	var levels []int
 
@@ -76,8 +82,9 @@ func (h *hyphenator) addPattern(pattern string) {
 // length guards apply to the letter core only, so a break never
 // strands punctuation with fewer than 2 letters. Returns nil for
 // cores shorter than 5 runes (no break is ever placed in the
-// first or last 2 characters).
-func (h *hyphenator) Hyphenate(word string) []int {
+// first or last 2 characters). It is safe for concurrent use.
+func (h *Patterns) Hyphenate(word string) []int {
+	h.once.Do(h.compile)
 	all := []rune(strings.ToLower(word))
 	start, stop := 0, len(all)
 	for start < stop && !unicode.IsLetter(all[start]) {
@@ -169,9 +176,4 @@ func insertPoint(points []int, p int) []int {
 	copy(points[i+1:], points[i:])
 	points[i] = p
 	return points
-}
-
-// runeLen returns the number of runes in a string.
-func runeLen(s string) int {
-	return utf8.RuneCountInString(s)
 }

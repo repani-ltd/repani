@@ -10,8 +10,9 @@ language that pica's `.table` blocks and board's `.fmt` documents
 share. It reads FORMAT lines (a column spec) and ROW lines, keeps
 the current format, and lays rows out as lines of placed cells on
 a monospace grid. It imports `repani.com/typeset/tab` for column
-fitting and cell alignment and `repani.com/typeset/wrap` for cell
-line breaking, and nothing above them. The host -- pica
+fitting and cell alignment, and `repani.com/typeset/wrap` with
+`repani.com/typeset/wrap/hyphen` for cell line breaking, and
+nothing above them. The host -- pica
 or board -- recognises its own directives, hands tbl the spec text
 and the row lines, supplies the measure, and renders what tbl lays
 out.
@@ -201,9 +202,10 @@ format's fitting is its full format's, so every row of a table
 shares one grid.
 .term wrapping
 A cell whose box column is neither clip nor N is broken to the
-box's width by `wrap.Cell`: Knuth-Plass with hyphenation at the
-cell penalty, a word longer than the box cut into box-sized
-pieces, every line at most the box's width, empty text one empty
+box's width by `wrap.Cell` with `hyphen.Default`: Knuth-Plass
+with hyphenation at the cell penalty, a word wider than the box
+broken at its hyphenation points where one fits and cut where none
+does, every line at most the box's width, empty text one empty
 line. A clip cell is one line, cut to the box's
 width. An N cell is one line, aligned as `tab` aligns it and cut
 to the box's width; an N cell whose box is a span or a join is

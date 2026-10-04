@@ -8,6 +8,7 @@ import (
 
 	"repani.com/typeset/tab"
 	"repani.com/typeset/wrap"
+	"repani.com/typeset/wrap/hyphen"
 )
 
 // gap is the blank columns between two columns.
@@ -228,7 +229,7 @@ func layRow(f Format, r Row, spans []span, grid *tab.Grid) [][]Placed {
 		case col.Clip:
 			stacks[i] = []string{pad(cut(text, w), w, col.Align)}
 		default:
-			for _, ln := range wrap.Cell(text, w) {
+			for _, ln := range wrap.Cell(text, w, hyphen.Default) {
 				stacks[i] = append(stacks[i], pad(ln, w, col.Align))
 			}
 		}

@@ -129,5 +129,5 @@ else.
 - Widths count runes, not display cells: double-width (CJK) glyphs
   misalign. The package targets scripts where one rune is one
   monospace cell.
-- The hyphenation patterns under `patterns/` derive from the TeX
-  patterns; see `patterns/README.md`.
+- The hyphenation patterns, in `typeset/wrap/hyphen/patterns/`,
+  derive from the TeX patterns; see the README there.

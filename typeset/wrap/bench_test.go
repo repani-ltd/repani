@@ -1,6 +1,10 @@
 package wrap
 
-import "testing"
+import (
+	"testing"
+
+	"repani.com/typeset/wrap/hyphen"
+)
 
 const benchPara = "The international meteorological organisation announced that " +
 	"temperatures across the southern hemisphere would remain unseasonably " +
@@ -11,27 +15,16 @@ const benchPara = "The international meteorological organisation announced that 
 	"travellers carry lightweight waterproof clothing and reconsider any " +
 	"extraordinarily ambitious mountaineering expeditions."
 
-func BenchmarkHyphenate(b *testing.B) {
-	words := []string{"hyphenation", "thunderstorm", "temperature", "international",
-		"extraordinarily", "φαρμακείο", "θερμοκρασία", "four-line", "reconsider"}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		for _, w := range words {
-			defaultHyphenator.Hyphenate(w)
-		}
-	}
-}
-
 func BenchmarkRagged(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		Ragged(benchPara, 40, PenaltyProse, Mono)
+		Hyphenated(benchPara, 40, hyphen.Default, PenaltyProse, Mono)
 	}
 }
 
 func BenchmarkJustifyParagraph(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		JustifyParagraph(benchPara, 40)
+		JustifyParagraph(benchPara, 40, hyphen.Default)
 	}
 }

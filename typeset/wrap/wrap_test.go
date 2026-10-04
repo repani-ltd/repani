@@ -3,59 +3,16 @@ package wrap
 import (
 	"strings"
 	"testing"
-	"unicode"
+	"time"
+
+	"repani.com/typeset/wrap/hyphen"
 )
 
 const testWidth = 40
 
 // ragged is the monospace text of a prose paragraph.
 func ragged(para string, width int) []string {
-	return Flatten(Ragged(para, width, PenaltyProse, Mono))
-}
-
-// --- Hyphenation ---
-
-func TestHyphenateEnglish(t *testing.T) {
-	tests := []struct {
-		word   string
-		expect bool
-	}{
-		{"hyphenation", true},
-		{"thunderstorm", true},
-		{"temperature", true},
-		{"international", true},
-		{"cat", false},
-		{"the", false},
-		{"wind", false},
-	}
-
-	for _, tt := range tests {
-		points := defaultHyphenator.Hyphenate(tt.word)
-		got := len(points) > 0
-		if got != tt.expect {
-			t.Errorf("Hyphenate(%q): got points=%v, want hasPoints=%v", tt.word, points, tt.expect)
-		}
-	}
-}
-
-func TestHyphenateGreek(t *testing.T) {
-	tests := []struct {
-		word   string
-		expect bool
-	}{
-		{"φαρμακείο", true},
-		{"θερμοκρασία", true},
-		{"πληροφορίες", true},
-		{"ναι", false},
-	}
-
-	for _, tt := range tests {
-		points := defaultHyphenator.Hyphenate(tt.word)
-		got := len(points) > 0
-		if got != tt.expect {
-			t.Errorf("Hyphenate(%q): got points=%v, want hasPoints=%v", tt.word, points, tt.expect)
-		}
-	}
+	return Flatten(Hyphenated(para, width, hyphen.Default, PenaltyProse, Mono))
 }
 
 func TestHyphenateCompoundHyphen(t *testing.T) {
@@ -68,7 +25,7 @@ func TestHyphenateCompoundHyphen(t *testing.T) {
 		{"well-known", "well-", "known"},
 		{"self-evident", "self-", "evident"},
 	} {
-		points := defaultHyphenator.Hyphenate(tt.compound)
+		points := hyphen.Default.Hyphenate(tt.compound)
 		if len(points) == 0 {
 			t.Errorf("Hyphenate(%q): no points, want the compound break", tt.compound)
 			continue
@@ -94,74 +51,21 @@ func TestHyphenateCompoundHyphen(t *testing.T) {
 	}
 }
 
-func TestHyphenateAttachedPunctuation(t *testing.T) {
-	// Punctuation attached to a token must not count as letters:
-	// "judgment." once broke as "judgmen-" / "t.", stranding a
-	// single letter, and edge punctuation shifted the pattern
-	// word boundaries. Points are indices into the full token,
-	// with >= 2 letters on each side of every break.
-	for _, word := range []string{"judgment.", "(judgment", "judgment,»", "μέρα.", "philosophy;"} {
-		runes := []rune(word)
-		core := strings.TrimFunc(word, func(r rune) bool { return !unicode.IsLetter(r) })
-		bare := defaultHyphenator.Hyphenate(core)
-		start := strings.Index(word, core)
-		startRunes := len([]rune(word[:max(start, 0)]))
-		for _, p := range defaultHyphenator.Hyphenate(word) {
-			letters := 0
-			for _, r := range runes[p:] {
-				if unicode.IsLetter(r) {
-					letters++
-				}
-			}
-			if p-startRunes < 2 || letters < 2 {
-				t.Errorf("Hyphenate(%q): point %d leaves <2 letters on a side", word, p)
-			}
-		}
-		got := defaultHyphenator.Hyphenate(word)
-		if len(got) != len(bare) {
-			t.Errorf("Hyphenate(%q): %d points, want %d (same as bare %q)", word, len(got), len(bare), core)
-			continue
-		}
-		for i := range got {
-			if got[i] != bare[i]+startRunes {
-				t.Errorf("Hyphenate(%q): point %d, want bare point %d shifted by %d", word, got[i], bare[i], startRunes)
-			}
-		}
-	}
-}
-
-func TestMergedPatternsCoverGreek(t *testing.T) {
-	// The merged all-sets hyphenator must find points in Greek
-	// (disjoint scripts: the sets cannot mis-hyphenate each other).
-	const word = "θερμοκρασία"
-	if pts := defaultHyphenator.Hyphenate(word); len(pts) == 0 {
-		t.Error("merged pattern sets found no points in a Greek word")
-	}
-}
-
-func TestHyphenateCompoundShortPrefix(t *testing.T) {
-	// The explicit-hyphen break keeps the 2-letter guard on the
-	// prefix: "e-mail" must not break as "e-" | "mail".
-	for _, w := range []string{"e-mail", "a--bcdefghij"} {
-		runes := []rune(w)
-		for _, p := range defaultHyphenator.Hyphenate(w) {
-			if p < 3 {
-				t.Errorf("Hyphenate(%q): point %d strands %q", w, p, string(runes[:p]))
-			}
-		}
-	}
-}
-
 func TestHyphenateDoubleHyphenBreaksAfterRun(t *testing.T) {
 	// "abcd--efgh...": the only explicit break is after the second
 	// hyphen; breaking between them would head a line with "-".
 	w := "abcd--efghijklmnop"
-	for _, p := range defaultHyphenator.Hyphenate(w) {
+	for _, p := range hyphen.Default.Hyphenate(w) {
 		if []rune(w)[p] == '-' {
 			t.Errorf("Hyphenate(%q): point %d strands a hyphen", w, p)
 		}
 	}
-	lines := Ragged(w, 5, PenaltyProse, Mono)
+	// At 7 the break after the run fits. (At 5 nothing fits and the
+	// word is cut: a cut is raw, and may head a line with "-".)
+	lines := Hyphenated(w, 7, hyphen.Default, PenaltyProse, Mono)
+	if lines[0].Words[0] != "abcd--" {
+		t.Errorf("first line %q, want the break after the run", lines[0].Words)
+	}
 	for _, l := range lines {
 		if len(l.Words) > 0 && strings.HasPrefix(l.Words[0], "-") {
 			t.Errorf("line starts with hyphen: %q", l.Words)
@@ -177,7 +81,7 @@ func TestWidthPanics(t *testing.T) {
 			t.Fatal("JustifyParagraph with width 0 did not panic")
 		}
 	}()
-	JustifyParagraph("hello", 0)
+	JustifyParagraph("hello", 0, hyphen.Default)
 }
 
 // --- Wrap ---
@@ -204,16 +108,18 @@ func TestCell(t *testing.T) {
 		{"Paphos via Heraklion", 13, []string{"Paphos via", "Heraklion"}},
 		{"aaaaaaaaaaaaaaaaaaaa", 8, []string{"aaaaaaaa", "aaaaaaaa", "aaaa"}}, // no points: cut
 	} {
-		got := Cell(tc.text, tc.width)
+		got := Cell(tc.text, tc.width, hyphen.Default)
 		if strings.Join(got, "|") != strings.Join(tc.want, "|") {
 			t.Errorf("Cell(%q, %d) = %q, want %q", tc.text, tc.width, got, tc.want)
 		}
 	}
-	// Every line fits, whatever the text.
-	for _, w := range []int{1, 3, 7, 12} {
-		for _, ln := range Cell("Isolated thunderstorms developing inland internationalization", w) {
-			if runeLen(ln) > w {
-				t.Errorf("Cell at width %d: %q overflows", w, ln)
+	// Every line fits, whatever the text, hyphenated or not.
+	for _, h := range []Hyphenator{hyphen.Default, nil} {
+		for _, w := range []int{1, 3, 7, 12} {
+			for _, ln := range Cell("Isolated thunderstorms developing inland internationalization", w, h) {
+				if runeLen(ln) > w {
+					t.Errorf("Cell at width %d: %q overflows", w, ln)
+				}
 			}
 		}
 	}
@@ -221,11 +127,65 @@ func TestCell(t *testing.T) {
 
 func TestCellLongWord(t *testing.T) {
 	// One unbreakable word of 50000 runes at width 3: 16667 pieces,
-	// cut once over the runes (fuzzing found the old cut quadratic,
-	// seconds where this takes milliseconds).
-	got := Cell(strings.Repeat("λ", 50000), 3)
+	// in linear time (the old cut was quadratic: seconds where this
+	// takes milliseconds).
+	got := Cell(strings.Repeat("λ", 50000), 3, hyphen.Default)
 	if len(got) != 16667 || got[0] != "λλλ" || got[len(got)-1] != "λλ" {
 		t.Errorf("%d pieces, first %q, last %q", len(got), got[0], got[len(got)-1])
+	}
+}
+
+func TestLongHyphenatedWordIsLinear(t *testing.T) {
+	// A word of 10400 letters with points throughout, at width 6:
+	// every piece breaks at the word's own points, found once.
+	// Re-hyphenating and re-measuring each remainder took 17 s.
+	s := strings.Repeat("international", 800)
+	start := time.Now()
+	got := Cell(s, 6, hyphen.Default)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("took %v", d)
+	}
+	var b strings.Builder
+	for _, ln := range got {
+		if runeLen(ln) > 6 {
+			t.Fatalf("%q overflows", ln)
+		}
+		b.WriteString(strings.TrimSuffix(ln, "-"))
+	}
+	if b.String() != s {
+		t.Error("the pieces do not rejoin to the word")
+	}
+}
+
+func TestRaggedPlain(t *testing.T) {
+	// Without a hyphenator, lines end only between words, and a word
+	// wider than the measure is cut with no hyphen added.
+	got := Flatten(Ragged("Isolated thunderstorms developing inland", 10, Mono))
+	want := []string{"Isolated", "thundersto", "rms", "developing", "inland"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	// A cut remainder shares its line with the words after it.
+	got = Flatten(Ragged("abcdefghijk lm no", 8, Mono))
+	want = []string{"abcdefgh", "ijk lm", "no"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestCutProportional(t *testing.T) {
+	// Under a proportional measurer the cut is the longest prefix
+	// that fits; a measure narrower than one rune still advances,
+	// a rune a line.
+	m := wideMeasurer{} // 10 units a rune
+	for _, ln := range Ragged("abcdefghij", 35, m) {
+		if ln.Width > 35 || ln.Width != m.Width(ln.Words[0]) {
+			t.Errorf("line %q width %d", ln.Words, ln.Width)
+		}
+	}
+	got := Flatten(Ragged("abc", 5, m))
+	if strings.Join(got, "|") != "a|b|c" {
+		t.Errorf("narrower than a rune: %q", got)
 	}
 }
 
@@ -258,7 +218,7 @@ func TestJustifyGapCost(t *testing.T) {
 
 func TestJustify_FlushLines(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies"
-	lines := JustifyParagraph(input, testWidth)
+	lines := JustifyParagraph(input, testWidth, hyphen.Default)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -293,7 +253,7 @@ func maxConsecutiveSpaces(s string) int {
 func TestJustify_MaxGap(t *testing.T) {
 	// With enough words, no justified gap should exceed 3 spaces.
 	input := "The unprecedented international collaboration has fundamentally transformed the interconnected Mediterranean communities over the past several decades of cooperation"
-	lines := JustifyParagraph(input, testWidth)
+	lines := JustifyParagraph(input, testWidth, hyphen.Default)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -311,7 +271,7 @@ func TestJustify_PrefersHyphenOverWideGaps(t *testing.T) {
 	// without hyphenation. The algorithm should hyphenate to keep
 	// inter-word gaps narrow.
 	input := "Transformation internationally recognized and comprehensive collaboration"
-	lines := JustifyParagraph(input, testWidth)
+	lines := JustifyParagraph(input, testWidth, hyphen.Default)
 	for i, ln := range lines[:len(lines)-1] {
 		gap := maxConsecutiveSpaces(ln)
 		if gap > 3 {
@@ -368,7 +328,7 @@ func (fakeMeasurer) Space() int { return 5 }
 func TestRagged_MeasuredFits(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing illuminated butterflies"
 	m := fakeMeasurer{}
-	lines := Ragged(input, 300, PenaltyProse, m)
+	lines := Hyphenated(input, 300, hyphen.Default, PenaltyProse, m)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -397,7 +357,7 @@ func TestJustify_MeasuredSlack(t *testing.T) {
 	input := "The unprecedented international collaboration has fundamentally transformed the interconnected communities over several decades"
 	m := fakeMeasurer{}
 	width := 300
-	lines := Justify(input, width, m)
+	lines := Justify(input, width, hyphen.Default, m)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -439,7 +399,7 @@ func TestJustify_ShrinkAbsorbsWord(t *testing.T) {
 	// alternative. The optimum is a shrunk five-word first line and
 	// a natural two-word last line.
 	m := wideMeasurer{}
-	lines := Justify("aaaa bbbb cccc dddd eeee ffff gggg", 230, m)
+	lines := Justify("aaaa bbbb cccc dddd eeee ffff gggg", 230, hyphen.Default, m)
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines, got %d: %v", len(lines), lines)
 	}
@@ -488,7 +448,7 @@ func TestJustify_MonoNeverShrinks(t *testing.T) {
 	// The monospace measurer has no sub-character shrink: every
 	// line must fit within width at natural spacing.
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	for _, ln := range Justify(input, testWidth, Mono) {
+	for _, ln := range Justify(input, testWidth, hyphen.Default, Mono) {
 		if ln.Width > testWidth {
 			t.Errorf("mono line overfull: %d > %d: %v", ln.Width, testWidth, ln.Words)
 		}
@@ -497,9 +457,9 @@ func TestJustify_MonoNeverShrinks(t *testing.T) {
 
 func TestJustify_MonoMatchesJustifyParagraph(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	lines := Justify(input, testWidth, Mono)
+	lines := Justify(input, testWidth, hyphen.Default, Mono)
 	flat := Flatten(lines)
-	want := JustifyParagraph(input, testWidth)
+	want := JustifyParagraph(input, testWidth, hyphen.Default)
 	if len(flat) != len(want) {
 		t.Fatalf("line count %d != %d", len(flat), len(want))
 	}
@@ -521,8 +481,8 @@ func TestJustifyTokens_MatchesJustify(t *testing.T) {
 	for _, f := range Fields(input) {
 		toks = append(toks, Token{Text: f, M: fakeMeasurer{}})
 	}
-	got := JustifyTokens(toks, 300, 300, fakeMeasurer{})
-	want := Justify(input, 300, fakeMeasurer{})
+	got := JustifyTokens(toks, 300, 300, hyphen.Default, fakeMeasurer{})
+	want := Justify(input, 300, hyphen.Default, fakeMeasurer{})
 	if len(got) != len(want) {
 		t.Fatalf("line count %d != %d", len(got), len(want))
 	}
@@ -536,7 +496,7 @@ func TestJustifyTokens_MatchesJustify(t *testing.T) {
 func TestRaggedVsJustify_Differ(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
 	r := strings.Join(ragged(input, testWidth), "\n")
-	justified := strings.Join(JustifyParagraph(input, testWidth), "\n")
+	justified := strings.Join(JustifyParagraph(input, testWidth, hyphen.Default), "\n")
 	if r == justified {
 		t.Error("ragged and justified output should differ")
 	}
@@ -548,8 +508,8 @@ func TestOverlongWordHyphenates(t *testing.T) {
 	const word = "internationalization" // 20 runes
 	const width = 12
 	for name, lines := range map[string][]Line{
-		"ragged":  Ragged(word, width, PenaltyProse, Mono),
-		"justify": Justify(word, width, Mono),
+		"ragged":  Hyphenated(word, width, hyphen.Default, PenaltyProse, Mono),
+		"justify": Justify(word, width, hyphen.Default, Mono),
 	} {
 		if len(lines) < 2 {
 			t.Errorf("%s: %q at width %d stayed on one line", name, word, width)
@@ -567,12 +527,25 @@ func TestOverlongWordHyphenates(t *testing.T) {
 	}
 }
 
-func TestOverlongWordWithoutPointsOverflows(t *testing.T) {
-	// No hyphenation points: the word has nowhere to break and
-	// overflows -- the documented fallback (Cell cuts it).
+func TestOverlongWordWithoutPointsIsCut(t *testing.T) {
+	// No hyphenation point fits: the word is cut at the measure, in
+	// both breakers, with no hyphen added.
 	const word = "aaaaaaaaaaaaaaaaaaaa" // no valid Liang points
-	lines := Ragged(word, 12, PenaltyProse, Mono)
-	if len(lines) != 1 || lines[0].Width != 20 {
-		t.Errorf("expected a single overflowing line, got %v", lines)
+	for name, lines := range map[string][]Line{
+		"ragged":  Hyphenated(word, 12, hyphen.Default, PenaltyProse, Mono),
+		"justify": Justify(word, 12, hyphen.Default, Mono),
+	} {
+		if got := strings.Join(Flatten(lines), "|"); got != "aaaaaaaaaaaa|aaaaaaaa" {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+}
+
+func TestSingleRuneOverflows(t *testing.T) {
+	// One rune wider than the measure cannot be broken: it sets
+	// alone, and the words around it keep their lines.
+	got := Flatten(Ragged("ab W cd", 2, wideMeasurer{}))
+	if strings.Join(got, "|") != "a|b|W|c|d" {
+		t.Errorf("got %q", got)
 	}
 }

@@ -1155,4 +1155,37 @@ with it. Verified by rendering every .t document under ~/repos in
 text, pdf, html and report before and after: 255 outputs, byte for
 byte the same.
 
+# 17. Hyphenation apart, and the breaker cuts (decided 2026-10-04)
+
+Driver: simple programs need the breaker -- optimal ragged-right
+breaks -- without hyphenation, and without paying for it: every
+importer of typeset/wrap compiled the 5,511 pattern lines at
+start-up (1.9 ms, 1.2 MB, 11,111 allocations, measured) and linked
+them, hyphenating or not.
+
+.item The hyphenator is repani.com/typeset/wrap/hyphen: the
+patterns, compiled on first use, behind wrap.Hyphenator. wrap
+imports nothing of it, and a test fails the day it does. Every
+breaker takes a Hyphenator or none: Ragged none, Hyphenated and
+HyphenatedRunIn one with its penalty, the justified breakers and
+Cell one or nil. Pica passes hyphen.Default everywhere, so its
+breaks are its own as before.
+.item Every line fits. A word wider than the measure was left to
+overflow (prose) or cut after breaking (cells). Now the breaker
+splits it: at the rightmost hyphenation point whose prefix fits,
+else CUT at the longest prefix that fits, with no hyphen, one rune
+at the least. Pieces after the first break at the word's own
+points, shifted -- a word is hyphenated once, as TeX does -- and
+the last piece takes the word's place, so it may share a line with
+the words after it. Truncating stays the caller's (tbl's clip).
+.item Linear in the word. Splitting re-hyphenated and re-measured
+each remainder, every piece: a hyphenatable word of 10,400 runes
+at 6 took 17 s, growing faster than the square. The split measures
+only prefixes near a line's width, and points are found once:
+10 ms. Prefix widths are measured only up to twice the measure.
+
+Verified as §16 was: 255 outputs, one changed -- a corpus table
+cell, `headerless` in four columns, once `head` / `erle` / `ss`, is
+now `head` / `er-` / `less`.
+
 .font sans

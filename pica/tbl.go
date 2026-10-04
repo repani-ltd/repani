@@ -13,6 +13,7 @@ import (
 
 	"repani.com/typeset/tab"
 	"repani.com/typeset/wrap"
+	"repani.com/typeset/wrap/hyphen"
 )
 
 // The spec errors are tab's, under pica's names; the align error is
@@ -344,7 +345,7 @@ func wrapCellMeasured(s string, measure int, m Measurer) []Line {
 	if strings.TrimSpace(s) == "" {
 		return nil
 	}
-	return wrap.Ragged(s, measure, wrap.PenaltyCell, m)
+	return wrap.Hyphenated(s, measure, hyphen.Default, wrap.PenaltyCell, m)
 }
 
 // noteRow formats one note row on a grid scaled by scale: scale 2 is
@@ -430,4 +431,4 @@ func renderRow(cols []colSpec, grid *tab.Grid, cells []string, proseHeights []in
 
 // wrapCell wraps a cell's text to width: wrap.Cell, the breaker the
 // table language shares.
-func wrapCell(s string, width int) []string { return wrap.Cell(s, width) }
+func wrapCell(s string, width int) []string { return wrap.Cell(s, width, hyphen.Default) }

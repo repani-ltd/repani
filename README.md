@@ -17,8 +17,9 @@ directory is one project; its import path is `repani.com/<dir>/...`.
              (a number rounded or to places, a string cut or padded
              in runes, a time as HH:MM, a date as "Mon 02", a
              duration in its largest unit);
-             `typeset/wrap`, line breaking: Knuth-Plass with
-             Knuth-Liang hyphenation, English and Greek;
+             `typeset/wrap`, line breaking: Knuth-Plass, and
+             `typeset/wrap/hyphen`, its optional Knuth-Liang
+             hyphenation, English and Greek;
              `typeset/tbl`, the table language pica and board
              share (`SPEC.t`); `typeset/raster`, rows of forty
              columns, each row a record of segments -- stretches
