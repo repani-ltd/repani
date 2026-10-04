@@ -93,6 +93,36 @@ func TestTable_DataDriven(t *testing.T) {
 	}
 }
 
+func TestTable_DataIsNeverSyntax(t *testing.T) {
+	// A value the language would read as a mark, a role or a cell
+	// break is refused, naming the row and field; the same text away
+	// from the first cell, or not leading, is fine.
+	for _, tc := range []struct {
+		a, b string
+		ok   bool
+	}{
+		{"=sum", "x", false},
+		{"..x", "x", false},
+		{"^top", "x", false},
+		{"---", "x", false},
+		{"a", ":r", false},
+		{"a", "@home", false},
+		{"a|b", "x", false},
+		{"x", "=sum", true},
+		{"x", "a:b@c", true},
+		{"x", "-- dash", true},
+	} {
+		rows := []any{map[string]any{"A": tc.a, "B": tc.b}}
+		_, err := table("6L 6L", "", rows, "A", "B")
+		if (err == nil) != tc.ok {
+			t.Errorf("%q | %q: err = %v", tc.a, tc.b, err)
+		}
+		if err != nil && !strings.Contains(err.Error(), "row 0 field") {
+			t.Errorf("error does not name the place: %v", err)
+		}
+	}
+}
+
 func TestTable_EndToEndThroughLanguage(t *testing.T) {
 	// The helper's output must parse as a valid .table block.
 	rows := []any{map[string]any{"A": "x", "B": "longer cell value here"}}

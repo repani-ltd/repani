@@ -195,11 +195,20 @@ func cells(spec string, width int, rows any, fields ...string) ([][]string, erro
 // is the header row, which the helper marks "^", or "" to emit none.
 // rows must be a slice of objects; each cell is the named field
 // formatted with %v (Rows). A missing field or a non-object row is an
-// error -- never a silently blank cell.
+// error -- never a silently blank cell -- and so is a value the table
+// language would read as syntax rather than text (plainCell): the
+// language has no escape, and data must never change a row's role.
 func table(spec, header string, rows any, fields ...string) (string, error) {
 	data, err := Rows(rows, fields...)
 	if err != nil {
 		return "", fmt.Errorf("table: %w", err)
+	}
+	for i, cells := range data {
+		for j, c := range cells {
+			if err := plainCell(c, j == 0); err != nil {
+				return "", fmt.Errorf("table: row %d field %q: %w", i, fields[j], err)
+			}
+		}
 	}
 	var b strings.Builder
 	b.WriteString(".table ")
@@ -216,4 +225,21 @@ func table(spec, header string, rows any, fields ...string) (string, error) {
 	}
 	b.WriteString(".end")
 	return b.String(), nil
+}
+
+// plainCell refuses a value that would not read back as its own text
+// in a table row: a "|", which splits cells; a leading ":" or "@", a
+// colour or link mark; and in a row's first cell a leading "^", "="
+// or "..", a role, or the value "---", a rule.
+func plainCell(v string, first bool) error {
+	s := strings.TrimSpace(v)
+	switch {
+	case strings.Contains(s, "|"):
+		return fmt.Errorf("%q holds |, which splits cells", v)
+	case strings.HasPrefix(s, ":") || strings.HasPrefix(s, "@"):
+		return fmt.Errorf("%q begins with a colour or link mark", v)
+	case first && (strings.HasPrefix(s, "^") || strings.HasPrefix(s, "=") || strings.HasPrefix(s, "..") || s == "---"):
+		return fmt.Errorf("%q would mark the row", v)
+	}
+	return nil
 }
