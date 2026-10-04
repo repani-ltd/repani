@@ -141,7 +141,7 @@ func RenderBlock(b Block, width int) ([]string, error) {
 // opens with Bullet and a space, which together are ItemIndent
 // runes wide, and its turnover lines hang ItemIndent runes under
 // the bullet. The bullet is U+2022, covered by all four embedded
-// faces (a full 600/1000 em cell in Fira Mono).
+// faces (a full 600/1000 em cell in JuliaMono).
 const (
 	QuoteIndent = 2
 	ItemIndent  = 2

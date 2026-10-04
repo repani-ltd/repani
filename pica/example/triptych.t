@@ -121,7 +121,7 @@ DATE        RUN      N  PLATE
 2026-06-25  morning  4  current
 .end
 
-The ledger and the glossary are both drawn in Fira Mono at the size where the document's declared width fits the column exactly, so the fixed grid and the measured prose share one visual measure. Alignment inside the grid is done by padding with spaces, which is the whole point of a grid; justification never touches it.
+The ledger and the glossary are both drawn in JuliaMono at the size where the document's declared width fits the column exactly, so the fixed grid and the measured prose share one visual measure. Alignment inside the grid is done by padding with spaces, which is the whole point of a grid; justification never touches it.
 
 ## The ledger, priced
 
@@ -155,7 +155,7 @@ None of these refusals are suggestions to the author. They are properties of the
 
 # The type behind the page
 
-Two faces set everything here. Fira Sans carries the prose, with its kerning read straight from the font's pair-positioning tables and re-expressed as positioning adjustments in the PDF text stream. Fira Mono carries the grids, the masthead's little sibling duties, and anything that must align by character cell. Both are subset before embedding: the PDF contains exactly the glyphs this document uses and no others, which is why the file stays small while carrying two full faces.
+Two faces set everything here. Fira Sans carries the prose, with its kerning read straight from the font's pair-positioning tables and re-expressed as positioning adjustments in the PDF text stream. JuliaMono carries the grids, the masthead's little sibling duties, and anything that must align by character cell. Both are subset before embedding: the PDF contains exactly the glyphs this document uses and no others, which is why the file stays small while carrying two full faces.
 
 The sources for both, and for the machinery, are a short walk away:
 

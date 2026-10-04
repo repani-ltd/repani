@@ -289,7 +289,7 @@ DATE        RUN      N  PLATE
 2026-06-25  morning  4  current
 
 The ledger and the glossary
-are both drawn in Fira Mono at
+are both drawn in JuliaMono at
 the size where the document's
 declared width fits the column
 exactly, so the fixed grid and
@@ -418,7 +418,7 @@ straight from the font's
 pair-positioning tables and
 re-expressed as positioning
 adjustments in the PDF text
-stream. Fira Mono carries the
+stream. JuliaMono carries the
 grids, the masthead's little
 sibling duties, and anything
 that must align by character

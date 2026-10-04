@@ -128,11 +128,13 @@ emits the element that carries the meaning (h2/h3, ul/li, dl/dt/dd,
 table with thead, blockquote, a real <a>) and lets the browser wrap, so
 layout commands and widths are consumed, not rendered. A consumer that
 wants the data rather than a rendering walks Doc.Blocks directly.
-Line counts are deterministic in every writer, and for plain blocks
-a text page and a mono PDF column stay the same object. Two things
-deliberately trade that exact identity away: .font sans trades it
-for proportional prose (line breaks measured, not counted), and the
-PDF writers' size roles trade it for hierarchy and density (a
+Line breaks are deterministic in every writer, and a text page and
+a mono PDF column share one grid: verbatim blocks, tables and rules
+are the same cells on both. Prose is not: the text page sets it
+ragged and the mono PDF justified, so their breaks differ. Two
+things trade more of the grid away: .font sans trades it for
+proportional prose (line breaks measured, not counted), and the PDF
+writers' size roles trade it for hierarchy and density (a
 heading occupies a taller slot at a larger scale; a table note row
 sets half-size on half the leading, where the text page renders it
 as an ordinary full-size row; a tight item run in which any item
@@ -177,8 +179,8 @@ whole-token, so punctuation attached to an emphasized word sets
 with it (the compositor's rule). The mono PDF blanks the two
 marker glyphs and strokes one continuous rule from the opening
 cell to the closing cell -- the typescript underline, occupying
-exactly the cells the text page gives to the underscores, so line
-breaks and counts keep the text/mono-PDF identity.
+exactly the cells the text page gives to the underscores, so
+emphasis never moves a cell.
 
 # Layout trailer
 
@@ -281,8 +283,9 @@ justified gaps may also shrink up to a third of a space
 (HangHyphen and the shrink allowance are both zero on the
 monospace grid), and a line-final hyphen hangs 70% of its width
 into the right margin so the flush edge stays optically straight.
-A word wider than the measure is hyphenated at whatever point
-fits; only a fragment with no valid break overflows the line.
+A word wider than the measure is hyphenated at the last point that
+fits, and where none fits it is cut at the measure, with no hyphen:
+every line fits, but a single character wider than the measure.
 An explicit hyphen in a compound is a break point after the
 hyphen (after the last of a run), never before it, and never
 leaving fewer than two letters on either side. Words break at

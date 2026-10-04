@@ -167,8 +167,8 @@ func (p *Page) Bytes() []byte {
 	return []byte(p.buf.String())
 }
 
-// EmWidth returns the font's default advance in ems (0.6 for Fira
-// Mono). Monospace layout math belongs on this number, not on a
+// EmWidth returns the font's default advance in ems (0.6 for
+// JuliaMono). Monospace layout math belongs on this number, not on a
 // caller-side constant, so geometry follows the embedded font.
 func EmWidth(font Font) float64 {
 	return float64(fontByID(font).DefaultWidth) / 1000.0
