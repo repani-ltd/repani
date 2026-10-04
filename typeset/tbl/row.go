@@ -23,11 +23,13 @@ const (
 
 // Cell is one cell of a data row: its content, its colours from a :
 // mark (each half set or unset), and its link target from an @ mark
-// ("" for none).
+// ("" for none). Col is the source column the cell starts at, after
+// its leading spaces, for errors a host reports later.
 type Cell struct {
 	Text   string
 	Code   Code
 	Target string
+	Col    int
 }
 
 // Row is a parsed row line.
@@ -98,9 +100,9 @@ func ParseRow(line string, col int) (Row, error) {
 // parseCell reads one cell's marks and content, s starting at source
 // column col.
 func parseCell(s string, col int) (Cell, error) {
-	var c Cell
 	s, lead := trim(s)
 	col += lead
+	c := Cell{Col: col}
 	var seenCode, seenLink bool
 	for s != "" && (s[0] == ':' || s[0] == '@') {
 		end := 0

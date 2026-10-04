@@ -7,13 +7,32 @@ import (
 	"testing"
 )
 
+// parse parses line from column 1 and drops the cells' source
+// columns, which TestCellColumns checks on their own.
 func parse(t *testing.T, line string) Row {
 	t.Helper()
 	r, err := ParseRow(line, 1)
 	if err != nil {
 		t.Fatalf("ParseRow(%q): %v", line, err)
 	}
+	for i := range r.Cells {
+		r.Cells[i].Col = 0
+	}
 	return r
+}
+
+func TestCellColumns(t *testing.T) {
+	r, err := ParseRow("^ a |  :r b|@x λ |", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []int
+	for _, c := range r.Cells {
+		got = append(got, c.Col)
+	}
+	if want := []int{5, 10, 15, 21}; !reflect.DeepEqual(got, want) { // a cell starts at its first mark
+		t.Errorf("cell columns %v, want %v", got, want)
+	}
 }
 
 func TestRowKinds(t *testing.T) {

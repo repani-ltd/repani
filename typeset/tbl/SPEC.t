@@ -162,8 +162,9 @@ last mark, trimmed, is the cell's content. Content therefore cannot
 start with `:` or `@`, and a data row's first cell cannot start with
 a role prefix; there is no escape. Content may be empty.
 
-A note row may not be a table's first row: it annotates the row
-above it. Header and total rows may stand anywhere and repeat.
+A note row annotates the data row above it, so a table must have a
+data row before it -- a blank or rule row does not count. Header
+and total rows may stand anywhere and repeat.
 
 # Cells on the grid
 
