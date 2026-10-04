@@ -8,9 +8,12 @@ packages (`ascon/`, `golay/`, `lz4s/`) or the typesetting family
 -- every member under the primitive rule, so a
 product never lives there); this file holds what is common.
 
-Primitive packages import only the standard library and other
-primitive packages (never a product package: pica, fact,
-kiosk), carry no protocol constants or types (a primitive may
+Primitive packages import only the standard library, other
+primitive packages, and well-known, well-tested external
+packages such as `golang.org/x/text` (never a product package:
+pica, fact, kiosk; an external package is admitted by name in
+the importing package's DESIGN.t, with what it is needed for),
+carry no protocol constants or types (a primitive may
 not know what a frame, slot, page or vault is), and are
 append-only: a changed algorithm is a new package, not a
 revision, which is what makes one primitive safe to build on
