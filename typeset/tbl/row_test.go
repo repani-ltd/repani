@@ -41,7 +41,7 @@ func TestRowKinds(t *testing.T) {
 }
 
 func TestCellMarks(t *testing.T) {
-	r := parse(t, "^~c TIME | ~r Gate closed | @888 [1] | ~/y @tel:+35725101189 25101189 | @x ~d plain |~y|")
+	r := parse(t, "^:c TIME | :r Gate closed | @888 [1] | :/y @tel:+35725101189 25101189 | @x :d plain |:y|")
 	want := []Cell{
 		{Text: "TIME", Code: fg(Cyan)},
 		{Text: "Gate closed", Code: fg(Red)},
@@ -60,6 +60,10 @@ func TestCellMarks(t *testing.T) {
 	if got := parse(t, "@"+strings.Repeat("a", MaxTarget)); len(got.Cells[0].Target) != MaxTarget {
 		t.Error("a target of MaxTarget bytes refused")
 	}
+	// ~ is content: "about five" is written ~5.
+	if got := parse(t, "~5 | ~100 ms"); got.Cells[0] != (Cell{Text: "~5"}) || got.Cells[1] != (Cell{Text: "~100 ms"}) {
+		t.Errorf("~ cells = %+v, want content", got.Cells)
+	}
 }
 
 func TestRowErrors(t *testing.T) {
@@ -70,10 +74,10 @@ func TestRowErrors(t *testing.T) {
 		at   int
 		msg  string
 	}{
-		{"a | ~x b", 1, ErrCode, 6, "'x' is not a colour letter"},
-		{"~ b", 1, ErrCode, 2, "empty"},
-		{"~rGate", 1, ErrCode, 3, `'G' after "r"`},
-		{"~r ~g b", 1, ErrMark, 4, "a second ~"},
+		{"a | :x b", 1, ErrCode, 6, "'x' is not a colour letter"},
+		{": b", 1, ErrCode, 2, "empty"},
+		{":rGate", 1, ErrCode, 3, `'G' after "r"`},
+		{":r :g b", 1, ErrMark, 4, "a second :"},
 		{"@a @b c", 1, ErrMark, 4, "a second @"},
 		{"@ x", 1, ErrTarget, 2, "no target"},
 		{"@a b|c", 1, nil, 0, ""}, // fine: | ends the cell
@@ -82,7 +86,7 @@ func TestRowErrors(t *testing.T) {
 		{"@café x", 1, ErrTarget, 5, "'é' is not allowed"},
 		{"@a\"b x", 1, ErrTarget, 3, `'"' is not allowed`},
 		{"@" + strings.Repeat("a", MaxTarget+1), 1, ErrTarget, 2, "256 bytes"},
-		{"  ^ λ | ~q", 5, ErrCode, 14, "'q' is not a colour letter"}, // columns 5..14, λ one
+		{"  ^ λ | :q", 5, ErrCode, 14, "'q' is not a colour letter"}, // columns 5..14, λ one
 	} {
 		_, err := ParseRow(tc.line, tc.col)
 		if tc.at == 0 {

@@ -150,7 +150,7 @@ literal `|`. Each cell is trimmed of spaces at both ends, then may
 start with MARKS, each ending at the next space or the end of the
 cell:
 
-.term ~code
+.term :code
 The cell's colours, a code as above.
 .term @target
 The cell is a link to target: 1 to 255 bytes of ASCII from RFC
@@ -159,7 +159,7 @@ digits; anything else in it is an error.
 
 Marks come in either order, each at most once; what follows the
 last mark, trimmed, is the cell's content. Content therefore cannot
-start with `~` or `@`, and a data row's first cell cannot start with
+start with `:` or `@`, and a data row's first cell cannot start with
 a role prefix; there is no escape. Content may be empty.
 
 A note row may not be a table's first row: it annotates the row

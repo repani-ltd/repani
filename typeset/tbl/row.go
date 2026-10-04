@@ -21,7 +21,7 @@ const (
 	Note               // ..
 )
 
-// Cell is one cell of a data row: its content, its colours from a ~
+// Cell is one cell of a data row: its content, its colours from a :
 // mark (each half set or unset), and its link target from an @ mark
 // ("" for none).
 type Cell struct {
@@ -102,16 +102,16 @@ func parseCell(s string, col int) (Cell, error) {
 	s, lead := trim(s)
 	col += lead
 	var seenCode, seenLink bool
-	for s != "" && (s[0] == '~' || s[0] == '@') {
+	for s != "" && (s[0] == ':' || s[0] == '@') {
 		end := 0
 		for end < len(s) && !isSpace(s[end]) {
 			end++
 		}
 		mark := s[:end]
 		switch mark[0] {
-		case '~':
+		case ':':
 			if seenCode {
-				return Cell{}, errAt(col, ErrMark, "a second ~ in one cell")
+				return Cell{}, errAt(col, ErrMark, "a second : in one cell")
 			}
 			code, err := ParseCode(mark[1:], col+1)
 			if err != nil {
