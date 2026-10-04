@@ -219,6 +219,16 @@ func TestCell(t *testing.T) {
 	}
 }
 
+func TestCellLongWord(t *testing.T) {
+	// One unbreakable word of 50000 runes at width 3: 16667 pieces,
+	// cut once over the runes (fuzzing found the old cut quadratic,
+	// seconds where this takes milliseconds).
+	got := Cell(strings.Repeat("λ", 50000), 3)
+	if len(got) != 16667 || got[0] != "λλλ" || got[len(got)-1] != "λλ" {
+		t.Errorf("%d pieces, first %q, last %q", len(got), got[0], got[len(got)-1])
+	}
+}
+
 // --- Justify gap cost ---
 
 func TestJustifyGapCost(t *testing.T) {

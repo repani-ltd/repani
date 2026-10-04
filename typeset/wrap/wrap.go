@@ -116,10 +116,15 @@ func Cell(s string, width int) []string {
 	checkWidth(width)
 	var out []string
 	for _, ln := range Flatten(wrapRagged(s, width, PenaltyCell, Mono)) {
-		for len(ln) > width && runeLen(ln) > width {
+		if len(ln) > width && runeLen(ln) > width {
+			// Cut once over the runes: re-converting the rest at each
+			// piece made a long unbreakable word quadratic.
 			r := []rune(ln)
-			out = append(out, string(r[:width]))
-			ln = string(r[width:])
+			for len(r) > width {
+				out = append(out, string(r[:width]))
+				r = r[width:]
+			}
+			ln = string(r)
 		}
 		if ln != "" {
 			out = append(out, ln)
