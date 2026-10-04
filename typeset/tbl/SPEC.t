@@ -94,8 +94,8 @@ between cells and any width the format leaves unused.
 The format's width when less than the measure the host gives;
 otherwise the measure.
 
-A FULL format has a width on every column and at least one column.
-It defines the GRID -- the number of columns, their widths, which
+A FULL format has at least one column and a width on every column;
+a format with no columns is therefore relative. It defines the GRID -- the number of columns, their widths, which
 is auto (`*`, at most one) -- and the narrowing. It inherits
 nothing.
 
@@ -115,7 +115,7 @@ set, else the full format's.
 A bare format -- no tokens -- is therefore the last full format
 again. A spec with widths on some columns and not others, a
 relative format with a column count other than zero or the grid's,
-an empty full format, an S in the first column, an S column with a
+an S in the first column, an S column with a
 code or `!`, a second `*`, a narrowing in a relative format, and a
 token out of order are errors.
 
@@ -250,7 +250,7 @@ Every error names its kind and its source column, from one. The
 kinds: a bad colour code; a token out of order or unknown; widths
 on some columns and not others; a relative format with the wrong
 column count, with a narrowing, or with no full format before it;
-an empty full format; S first, or S with a code or `!`; a second
+S first, or S with a code or `!`; a second
 `*`; columns that cannot fit the width; a bad or repeated mark; a
 bad target; more cells than groups; a note row with no row above.
 

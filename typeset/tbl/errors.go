@@ -26,7 +26,6 @@ var (
 	ErrColumnCount    = errors.New("tbl: relative format with the wrong column count")
 	ErrNarrowRelative = errors.New("tbl: narrowing in a relative format")
 	ErrNoFull         = errors.New("tbl: relative format with no full format before it")
-	ErrEmptyFull      = errors.New("tbl: full format with no columns")
 	ErrSpan           = errors.New("tbl: bad S column")
 	ErrAuto           = errors.New("tbl: more than one * column")
 	ErrFit            = errors.New("tbl: columns do not fit the width")
