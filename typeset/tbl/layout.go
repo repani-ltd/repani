@@ -221,15 +221,19 @@ func (t *Table) Layout(measure int) ([]LaidRow, error) {
 			lr.BG = Default
 		}
 		if e.row.Kind == Data {
-			lr.Lines = layRow(e.fm, e.row, spans, grid)
+			if lr.Lines, err = layRow(e.fm, e.row, spans, grid); err != nil {
+				return nil, err
+			}
 		}
 		out[k] = lr
 	}
 	return out, nil
 }
 
-// layRow lays one data row out as lines of boxes.
-func layRow(f Format, r Row, spans []tab.Span, grid *tab.Grid) [][]Placed {
+// layRow lays one data row out as lines of boxes. A number in an N
+// box wider than the box is an error: cutting it would show another
+// number.
+func layRow(f Format, r Row, spans []tab.Span, grid *tab.Grid) ([][]Placed, error) {
 	bs := f.Boxes(len(r.Cells))
 	stacks := make([][]string, len(bs))
 	height := 1
@@ -237,6 +241,9 @@ func layRow(f Format, r Row, spans []tab.Span, grid *tab.Grid) [][]Placed {
 		col := f.Cols[b.First]
 		w := spans[b.Last].End - spans[b.First].Start
 		text := r.Cells[i].Text
+		if _, _, num := tab.SplitNumeric(text); col.Align == 'N' && num && utf8.RuneCountInString(text) > w {
+			return nil, errAt(r.Cells[i].Col, ErrNumber, "%q in a box of %d", text, w)
+		}
 		switch {
 		case col.Align == 'N' && b.single():
 			stacks[i] = []string{grid.Cell(b.First, text)}
@@ -273,7 +280,7 @@ func layRow(f Format, r Row, spans []tab.Span, grid *tab.Grid) [][]Placed {
 		}
 		lines[h] = line
 	}
-	return lines
+	return lines, nil
 }
 
 // cut returns at most w code points of s.

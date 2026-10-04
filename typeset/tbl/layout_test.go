@@ -165,6 +165,27 @@ storms              |
 	}
 }
 
+func TestLayoutNumberTooWide(t *testing.T) {
+	// A number wider than its N box is an error, never a shorter
+	// number; a label that is not a number clips as before.
+	var fs Formats
+	fm, _, _ := fs.Apply("5N", 1)
+	for _, s := range []string{"1234567", "(12.5)"} {
+		var tb Table
+		r, _ := ParseRow(s, 1)
+		tb.Add(fm, r)
+		if _, err := tb.Layout(5); !errors.Is(err, ErrNumber) {
+			t.Errorf("%q in 5N: %v", s, err)
+		}
+	}
+	var tb Table
+	r, _ := ParseRow("Amount", 1)
+	tb.Add(fm, r)
+	if _, err := tb.Layout(5); err != nil {
+		t.Errorf("label: %v", err)
+	}
+}
+
 func TestLayoutNumbers(t *testing.T) {
 	rows := build(t, `
 .fmt 6L 8N

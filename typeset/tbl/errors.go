@@ -33,6 +33,7 @@ var (
 	ErrTarget         = errors.New("tbl: bad link target")
 	ErrCells          = errors.New("tbl: more cells than groups")
 	ErrNote           = errors.New("tbl: note row with no row above")
+	ErrNumber         = errors.New("tbl: a number wider than its box")
 )
 
 // errAt returns an Error of kind at col, with detail.

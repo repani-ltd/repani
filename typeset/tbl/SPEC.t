@@ -212,7 +212,8 @@ does, every line at most the box's width, empty text one empty
 line. A clip cell is one line, cut to the box's
 width. An N cell is one line, aligned as `tab` aligns it and cut
 to the box's width; an N cell whose box is a span or a join is
-aligned as R.
+aligned as R. A number wider than its N box is an error: cut, it
+would read as another number. Text that is not a number cuts.
 .term height
 A data row is as many lines as its tallest cell; a shorter cell's
 missing lines are empty.
@@ -258,7 +259,8 @@ on some columns and not others; a relative format with the wrong
 column count, with a narrowing, or with no full format before it;
 S first, or S with a code or `!`; a second
 `*`; columns that cannot fit the width; a bad or repeated mark; a
-bad target; more cells than groups; a note row with no row above.
+bad target; more cells than groups; a note row with no row above;
+a number wider than its N box.
 
 Rationale, history and the choices weighed: `repani-lab/board/DESIGN.t`.
 
