@@ -119,6 +119,12 @@ an empty full format, an S in the first column, an S column with a
 code or `!`, a second `*`, a narrowing in a relative format, and a
 token out of order are errors.
 
+`typeset/tab`'s column spec -- width and alignment, `L R C N`, `*`
+-- is an exact subset of a full format and means the same columns
+there. tbl keeps it so: a change to the token grammar that made a
+valid tab spec invalid here, or mean other columns, is a change to
+both packages or none.
+
 The resolved format, which every row is laid out by, holds the row
 code (fg and bg, each set or unset), the width, and per column:
 width, auto, align, clip, fg and bg (each set or unset).

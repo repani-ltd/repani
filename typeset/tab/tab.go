@@ -16,6 +16,12 @@
 // units position. Columns are joined by a gap of blank cells, one
 // by default.
 //
+// The spec is an exact subset of a full format in the table
+// language (typeset/tbl): every tab spec is a valid tbl spec that
+// means the same columns, so a template author's columns and a
+// table's are one syntax. A change here that broke the subset
+// would split the language.
+//
 // Widths count runes: one rune, one cell.
 package tab
 
