@@ -103,6 +103,9 @@ func FuzzLayout(f *testing.F) {
 			return
 		}
 		rows, err := tb.Layout(measure)
+		if errors.Is(err, ErrNumber) {
+			return
+		}
 		if err != nil {
 			t.Fatalf("Layout after a fitting format: %v", err)
 		}

@@ -1,6 +1,13 @@
 package tbl
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
+	"repani.com/typeset/raster"
+	"repani.com/typeset/wrap"
+)
 
 // Kind is what a row line is.
 type Kind uint8
@@ -42,21 +49,14 @@ type Row struct {
 // MaxTarget is the longest link target, in bytes.
 const MaxTarget = 255
 
-// isSpace reports whether b is a space as SPEC.t defines it.
-func isSpace(b byte) bool { return b == ' ' || b == '\t' }
-
-// trim trims spaces and tabs from both ends of s and returns the
-// trimmed string and the code points removed from its start.
+// trim trims spaces -- the breaker's breaking spaces, so a cell's
+// words are the words the breaker sets -- from both ends of s and
+// returns the trimmed string and the code points removed from its
+// start.
 func trim(s string) (string, int) {
-	i := 0
-	for i < len(s) && isSpace(s[i]) {
-		i++
-	}
-	j := len(s)
-	for j > i && isSpace(s[j-1]) {
-		j--
-	}
-	return s[i:j], i
+	t := strings.TrimLeftFunc(s, wrap.IsBreakingSpace)
+	lead := utf8.RuneCountInString(s[:len(s)-len(t)])
+	return strings.TrimRightFunc(t, wrap.IsBreakingSpace), lead
 }
 
 // ParseRow reads a row line, starting at source column col.
@@ -105,9 +105,9 @@ func parseCell(s string, col int) (Cell, error) {
 	c := Cell{Col: col}
 	var seenCode, seenLink bool
 	for s != "" && (s[0] == ':' || s[0] == '@') {
-		end := 0
-		for end < len(s) && !isSpace(s[end]) {
-			end++
+		end := strings.IndexFunc(s, wrap.IsBreakingSpace)
+		if end < 0 {
+			end = len(s)
 		}
 		mark := s[:end]
 		switch mark[0] {
@@ -134,6 +134,14 @@ func parseCell(s string, col int) (Cell, error) {
 		var skip int
 		s, skip = trim(s)
 		col += skip
+	}
+	// The content in NFC, its spaces collapsed as the breaker splits
+	// words, so a clipped, a numeric and a wrapped cell show the same
+	// text; and every code point one column, raster's rule, so a box
+	// is as wide on a board as in a document.
+	s = strings.Join(wrap.Fields(norm.NFC.String(s)), " ")
+	if _, err := raster.Columns(s); err != nil {
+		return Cell{}, errAt(col, ErrText, "%v", err)
 	}
 	c.Text = s
 	return c, nil

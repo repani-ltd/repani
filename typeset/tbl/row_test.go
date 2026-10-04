@@ -46,7 +46,8 @@ func TestRowKinds(t *testing.T) {
 		"|":              {Kind: Data, Cells: []Cell{{}, {}}},
 		"a | |":          {Kind: Data, Cells: []Cell{{Text: "a"}, {}, {}}},
 		"a |":            {Kind: Data, Cells: []Cell{{Text: "a"}, {}}},
-		" a  b |c ":      {Kind: Data, Cells: []Cell{{Text: "a  b"}, {Text: "c"}}},
+		" a  b |c ":      {Kind: Data, Cells: []Cell{{Text: "a b"}, {Text: "c"}}},
+		"Café":          {Kind: Data, Cells: []Cell{{Text: "Café"}}},
 		"^TIME | TO":     {Kind: Data, Role: Header, Cells: []Cell{{Text: "TIME"}, {Text: "TO"}}},
 		"= total | 1.50": {Kind: Data, Role: Total, Cells: []Cell{{Text: "total"}, {Text: "1.50"}}},
 		".. a note":      {Kind: Data, Role: Note, Cells: []Cell{{Text: "a note"}}},
@@ -104,6 +105,9 @@ func TestRowErrors(t *testing.T) {
 		{"x | @a%zz y", 1, ErrTarget, 7, "two hex digits"},
 		{"@café x", 1, ErrTarget, 5, "'é' is not allowed"},
 		{"@a\"b x", 1, ErrTarget, 3, `'"' is not allowed`},
+		{"a | 東京", 1, ErrText, 5, "wide"},
+		{"a\x01b", 1, ErrText, 1, "control"},
+		{"a | x​z", 1, ErrText, 5, "zero-width"},
 		{"@" + strings.Repeat("a", MaxTarget+1), 1, ErrTarget, 2, "256 bytes"},
 		{"  ^ λ | :q", 5, ErrCode, 14, "'q' is not a colour letter"}, // columns 5..14, λ one
 	} {

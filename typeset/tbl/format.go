@@ -3,6 +3,8 @@ package tbl
 import (
 	"strconv"
 	"strings"
+
+	"repani.com/typeset/wrap"
 )
 
 // Column is one column of a resolved format.
@@ -42,13 +44,14 @@ type token struct {
 	col int
 }
 
-// tokens splits s, starting at source column col, at spaces and tabs.
+// tokens splits s, starting at source column col, at spaces -- the
+// breaker's breaking spaces, as cells are trimmed.
 func tokens(s string, col int) []token {
 	var out []token
 	start, startCol := -1, 0
 	c := col
 	for i, r := range s {
-		if r == ' ' || r == '\t' {
+		if wrap.IsBreakingSpace(r) {
 			if start >= 0 {
 				out = append(out, token{s[start:i], startCol})
 				start = -1

@@ -10,8 +10,9 @@ language that pica's `.table` blocks and board's `.fmt` documents
 share. It reads FORMAT lines (a column spec) and ROW lines, keeps
 the current format, and lays rows out as lines of placed cells on
 a monospace grid. It imports `repani.com/typeset/tab` for column
-fitting and cell alignment, and `repani.com/typeset/wrap` with
+fitting and cell alignment, `repani.com/typeset/wrap` with
 `repani.com/typeset/wrap/hyphen` for cell line breaking, and
+`repani.com/typeset/raster` for the rule a cell's text keeps, and
 nothing above them. The host -- pica
 or board -- recognises its own directives, hands tbl the spec text
 and the row lines, supplies the measure, and renders what tbl lays
@@ -20,8 +21,12 @@ out.
 # Conventions
 
 .item TEXT is UTF-8. Widths and columns count code points: one code
-point, one column. tbl does not check display width; a host that
-needs single-width text checks it.
+point, one column. A cell's content is taken in NFC with each run
+of breaking spaces (wrap.Fields) made one space, and every code
+point in it must take one column by raster's rule
+(raster.Columns): no control, combining or zero-width code point,
+nothing wide. So a cell is one width on every grid, and clipped,
+numeric and wrapped cells show the same text.
 .item INDEXES in the API count from zero: a grid column, a cell, a
 format column. A stretch of grid columns is start to end, the end
 exclusive.
@@ -29,8 +34,10 @@ exclusive.
 every parse function takes the text and the column at which it
 starts in its source line, and reports absolute columns. The host
 adds the line number.
-.item SPACE means U+0020 and U+0009 wherever tokens or cells are
-trimmed or split.
+.item SPACE means a breaking space as typeset/wrap splits words
+(wrap.IsBreakingSpace: Unicode white space but the no-break
+spaces) wherever tokens or cells are trimmed or split, so a cell's
+words are the words the breaker sets.
 .item No regular expressions: specs and rows are read by a
 hand-written scanner.
 
@@ -258,7 +265,8 @@ kinds: a bad colour code; a token out of order or unknown; widths
 on some columns and not others; a relative format with the wrong
 column count, with a narrowing, or with no full format before it;
 S first, or S with a code or `!`; a second
-`*`; columns that cannot fit the width; a bad or repeated mark; a
+`*`; columns that cannot fit the width; a bad or repeated mark;
+cell text a grid cannot show; a
 bad target; more cells than groups; a note row with no row above;
 a number wider than its N box.
 

@@ -34,6 +34,7 @@ var (
 	ErrCells          = errors.New("tbl: more cells than groups")
 	ErrNote           = errors.New("tbl: note row with no row above")
 	ErrNumber         = errors.New("tbl: a number wider than its box")
+	ErrText           = errors.New("tbl: cell text a grid cannot show")
 )
 
 // errAt returns an Error of kind at col, with detail.
