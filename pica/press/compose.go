@@ -382,29 +382,13 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 			var tl *pica.TableLayout
 			var err error
 			if t.sans {
-				tl, err = blk.Table.LayoutMeasured(blk.TableWidth(width),
+				tl, err = blk.Table.LayoutMeasured(width,
 					pdf.Measure(pdf.Sans), pdf.Measure(pdf.SansBold), runeUnits)
 			} else {
-				tl, err = blk.Table.Layout(blk.TableWidth(width))
+				tl, err = blk.Table.Layout(width)
 			}
 			if err != nil {
 				return nil, err
-			}
-			// Sans documents: numeric cells leave the mono grid and
-			// re-render in the sans face with tabular figures. The
-			// extraction runs over every full-size line; headers,
-			// separators, and "n/a" cells fail SplitNumeric and stay
-			// mono. Note lines stay mono half-size.
-			mark := func(lines []sline) []sline {
-				if !t.sans {
-					return lines
-				}
-				for i := range lines {
-					if lines[i].role == roleBody {
-						lines[i] = extractNums(lines[i], tl.NumCols)
-					}
-				}
-				return lines
 			}
 			// The separator/total rule: one hairline segment per
 			// column interval — the PDF form of the text writer's
@@ -412,18 +396,18 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 			rule := func() sline {
 				return sline{style: styleRule, ruleSegs: tl.Cols}
 			}
-			if len(tl.Header) > 0 {
-				lines := toSlines(tl.Header)
+			if h := tl.Header; h != nil {
+				lines := toSlines(h.Lines)
 				// The header row is the table's labels: bold, and in
 				// sans documents set in the body face as positioned
 				// spans over blank-reserved grid space.
 				for i := range lines {
 					lines[i].style = styleBold
 				}
-				attachHeaderProse(lines, tl)
-				lines = append(lines, halfSlines(tl.HeaderNotes)...)
+				attachProse(lines, h.Prose, pdf.Measure(pdf.SansBold))
+				lines = append(lines, halfSlines(h.Notes)...)
 				lines = append(lines, rule())
-				fb.segs = append(fb.segs, seg{lines: mark(lines)})
+				fb.segs = append(fb.segs, seg{lines: lines})
 				fb.repeat = 1
 			}
 			// Uniform row pitch: when every row note fits a single
@@ -433,31 +417,32 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 			// are right only when notes wrap. Total rows sit under
 			// their rule and stay unpadded.
 			hasNote, fits := false, true
-			for _, n := range tl.RowNotes {
-				if len(n) > 0 {
-					hasNote = true
-				}
-				if len(n) > 1 {
-					fits = false
-				}
+			for _, r := range tl.Rows {
+				hasNote = hasNote || len(r.Notes) > 0
+				fits = fits && len(r.Notes) <= 1
 			}
 			even := hasNote && fits
-			for j, row := range tl.Rows {
-				rowLines := toSlines(row)
-				attachProse(rowLines, tl, j)
+			for _, row := range tl.Rows {
+				rowLines := toSlines(row.Lines)
+				attachProse(rowLines, row.Prose, pdf.Measure(pdf.Sans))
+				if t.sans {
+					// Numbers leave the mono grid and set in the sans
+					// face with tabular figures, anchored on the point.
+					rowLines[0] = liftNums(rowLines[0], row.Nums)
+				}
 				var lines []sline
-				if tl.Totals[j] {
+				if row.Total {
 					for i := range rowLines {
 						rowLines[i].style = styleBold
 					}
 					lines = append(lines, rule())
 				}
 				lines = append(lines, rowLines...)
-				lines = append(lines, halfSlines(tl.RowNotes[j])...)
-				if even && len(tl.RowNotes[j]) == 0 && !tl.Totals[j] {
+				lines = append(lines, halfSlines(row.Notes)...)
+				if even && len(row.Notes) == 0 && !row.Total {
 					lines = append(lines, sline{role: roleHalf})
 				}
-				fb.segs = append(fb.segs, seg{lines: mark(lines)})
+				fb.segs = append(fb.segs, seg{lines: lines})
 			}
 
 		case pica.Pre:
@@ -669,51 +654,27 @@ func halfSlines(lines []string) []sline {
 // size.
 var runeUnits = int(emWidth * 1000)
 
-// attachProse hangs a row's measured P-cell lines (LayoutMeasured
-// only; RowProse is nil otherwise) onto the row's slines as
-// positioned sans spans at natural spacing.
-func attachProse(rowLines []sline, tl *pica.TableLayout, j int) {
-	if j >= len(tl.RowProse) || tl.RowProse[j] == nil {
-		return
-	}
-	m := pdf.Measure(pdf.Sans)
-	for _, pc := range tl.RowProse[j] {
-		for h, ln := range pc.Lines {
-			if h >= len(rowLines) {
-				break
-			}
-			rowLines[h].prose = append(rowLines[h].prose, proseSpan{
-				off:   pc.Box.Start * runeUnits,
-				words: ln.Words,
-				gaps:  spread(ln, 0, m, true),
-			})
-		}
-	}
-}
-
-// attachHeaderProse hangs the measured header labels onto the
-// header slines, honoring each box's alignment: N and R labels
+// attachProse hangs a row's measured cells (LayoutMeasured only;
+// none otherwise) onto its slines as positioned spans at natural
+// spacing under m, each honoring its box's alignment: N and R
 // right-align at the box's end, C centers, L and P sit at the box's
-// start — so a numeric column's label hangs over its numbers.
-func attachHeaderProse(headLines []sline, tl *pica.TableLayout) {
-	if tl.HeaderProse == nil {
-		return
-	}
-	m := pdf.Measure(pdf.SansBold)
-	for _, pc := range tl.HeaderProse {
-		col := pc.Box
+// start -- so a numeric column's header label hangs over its
+// numbers.
+func attachProse(lines []sline, cells []pica.ProseCell, m pdf.Measurer) {
+	for _, pc := range cells {
+		box := pc.Box
 		for h, ln := range pc.Lines {
-			if h >= len(headLines) {
+			if h >= len(lines) {
 				break
 			}
-			off := col.Start * runeUnits
+			off := box.Start * runeUnits
 			switch pc.Align {
 			case 'N', 'R':
-				off = col.End*runeUnits - ln.Width
+				off = box.End*runeUnits - ln.Width
 			case 'C':
-				off = col.Start*runeUnits + ((col.End-col.Start)*runeUnits-ln.Width)/2
+				off = box.Start*runeUnits + ((box.End-box.Start)*runeUnits-ln.Width)/2
 			}
-			headLines[h].prose = append(headLines[h].prose, proseSpan{
+			lines[h].prose = append(lines[h].prose, proseSpan{
 				off:   off,
 				words: ln.Words,
 				gaps:  spread(ln, 0, m, true),
@@ -722,28 +683,21 @@ func attachHeaderProse(headLines []sline, tl *pica.TableLayout) {
 	}
 }
 
-// extractNums lifts a line's numeric N-column cells into spans and
-// blanks them out of the mono text. Trailing trim may have shortened
-// the line into or before a cell; the slice below clamps for that.
-func extractNums(ln sline, cols []pica.NumCol) sline {
+// liftNums lifts a row's numbers out of its first line's mono text
+// into spans anchored on each column's point, blanking their boxes.
+// Trailing trim may have shortened the line into or before a box;
+// the slice below clamps for that.
+func liftNums(ln sline, nums []pica.NumCell) sline {
+	if len(nums) == 0 {
+		return ln
+	}
 	r := []rune(ln.text)
-	for _, c := range cols {
-		if c.Start >= len(r) {
-			continue
-		}
-		end := min(c.End, len(r))
-		raw := strings.TrimSpace(string(r[c.Start:end]))
-		intPart, tail, ok := pica.SplitNumeric(raw)
-		if !ok {
-			continue
-		}
-		for i := c.Start; i < end; i++ {
+	for _, n := range nums {
+		for i := n.Box.Start; i < min(n.Box.End, len(r)); i++ {
 			r[i] = ' '
 		}
-		ln.nums = append(ln.nums, numSpan{sep: c.SepIndex(), intPart: intPart, tail: tail})
+		ln.nums = append(ln.nums, numSpan{sep: n.Sep, intPart: n.Int, tail: n.Tail})
 	}
-	if len(ln.nums) > 0 {
-		ln.text = strings.TrimRight(string(r), " ")
-	}
+	ln.text = strings.TrimRight(string(r), " ")
 	return ln
 }

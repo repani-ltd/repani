@@ -2,17 +2,13 @@ package tbl
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 
-	"repani.com/typeset/tab"
+	"repani.com/typeset/format"
 	"repani.com/typeset/wrap"
 	"repani.com/typeset/wrap/hyphen"
 )
-
-// gap is the blank columns between two columns.
-const gap = 1
 
 // Table is the rows from one full format to the next, each with the
 // resolved format it is under. A host starts a new Table at every
@@ -48,6 +44,15 @@ func (t *Table) Add(fm Format, r Row) error {
 	}
 	t.entries = append(t.entries, entry{fm, r})
 	return nil
+}
+
+// Rows returns the table's rows in order.
+func (t *Table) Rows() []Row {
+	out := make([]Row, len(t.entries))
+	for i, e := range t.entries {
+		out[i] = e.row
+	}
+	return out
 }
 
 func (t *Table) hasData() bool {
@@ -92,40 +97,6 @@ type Placed struct {
 	Target     string
 }
 
-// Fit reports whether f's columns fit a measure: the width is the
-// narrowing when it is less than the measure, else the measure.
-func (f Format) Fit(measure int) error {
-	_, err := fit(f, measure)
-	return err
-}
-
-// span is a column's grid columns, end exclusive.
-type span struct{ start, end int }
-
-// fit resolves f's column widths against measure and returns each
-// column's span.
-func fit(f Format, measure int) ([]span, error) {
-	width := measure
-	if f.Narrow > 0 && f.Narrow < measure {
-		width = f.Narrow
-	}
-	cols := make([]tab.Col, len(f.Cols))
-	for i, c := range f.Cols {
-		cols[i] = tab.Col{Width: c.Width, Auto: c.Auto, Align: 'L'}
-	}
-	fitted, err := tab.Fit(cols, width, gap)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %d columns in a width of %d: %v", ErrFit, len(cols), width, err)
-	}
-	spans := make([]span, len(fitted))
-	at := 0
-	for i, c := range fitted {
-		spans[i] = span{at, at + c.Width}
-		at += c.Width + gap
-	}
-	return spans, nil
-}
-
 // groups returns the format's groups as column ranges: a column that
 // is not S begins one, and each S column after it joins it.
 func groups(f Format) [][2]int {
@@ -144,9 +115,10 @@ func groups(f Format) [][2]int {
 // column, the gaps between them inside it.
 type Box struct{ First, Last int }
 
-// single reports whether b is one column, which alone takes an N
-// column's metrics.
-func (b Box) single() bool { return b.First == b.Last }
+// Single reports whether b is one column: only a single box takes an
+// N column's decimal metrics, and only its number aligns on the
+// column's point.
+func (b Box) Single() bool { return b.First == b.Last }
 
 // Boxes returns the boxes of a row of n cells under f, at most its
 // groups: cell i fills group i, and the last cell of a short row runs
@@ -164,56 +136,33 @@ func (f Format) Boxes(n int) []Box {
 	return out
 }
 
-// Grid fits the table's columns to a measure and gathers the N
-// columns' decimal metrics, over the single boxes of data and total
-// rows under a format where the column is N: the grid every row is
-// laid out on. A host that draws numbers itself -- anchored on the
-// point in a proportional face -- reads its N geometry here.
-func (t *Table) Grid(measure int) (*tab.Grid, error) {
+// Layout lays the table out on a measure -- board's 40, a document's
+// width for pica -- and returns the grid it laid the rows on and the
+// rows. A host that draws numbers itself, anchored on the point in a
+// proportional face, reads its N geometry from the grid.
+func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 	if len(t.entries) == 0 {
-		return nil, errors.New("tbl: a table with no rows has no grid")
+		return nil, nil, errors.New("tbl: a table with no rows")
 	}
-	spans, err := fit(t.entries[0].fm, measure)
+	grid, err := fit(t.entries[0].fm, measure)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	tcols := make([]tab.Col, len(spans))
-	for i, s := range spans {
-		tcols[i] = tab.Col{Width: s.end - s.start, Align: 'L'}
-		for _, e := range t.entries {
-			if e.fm.Cols[i].Align == 'N' {
-				tcols[i].Align = 'N'
-			}
-		}
-	}
-	grid := tab.New(tcols, gap)
+	// The N columns' decimal metrics, over the single boxes of data
+	// and total rows under a format where the column is N.
 	for _, e := range t.entries {
+		for i, c := range e.fm.Cols {
+			grid.num[i] = grid.num[i] || c.Align == 'N'
+		}
 		if e.row.Kind != Data || (e.row.Role != None && e.row.Role != Total) {
 			continue
 		}
-		cells := make([]string, len(spans))
 		for i, b := range e.fm.Boxes(len(e.row.Cells)) {
-			if b.single() && e.fm.Cols[b.First].Align == 'N' {
-				cells[b.First] = e.row.Cells[i].Text
+			if b.Single() && e.fm.Cols[b.First].Align == 'N' {
+				grid.measure(b.First, e.row.Cells[i].Text)
 			}
 		}
-		grid.Measure(cells)
 	}
-	return grid, nil
-}
-
-// Layout lays the table out on a measure: board's 40, a document's
-// width for pica.
-func (t *Table) Layout(measure int) ([]LaidRow, error) {
-	if len(t.entries) == 0 {
-		return nil, nil
-	}
-	grid, err := t.Grid(measure)
-	if err != nil {
-		return nil, err
-	}
-	spans := grid.Spans()
-
 	out := make([]LaidRow, len(t.entries))
 	for k, e := range t.entries {
 		row := e.fm.Row
@@ -225,36 +174,40 @@ func (t *Table) Layout(measure int) ([]LaidRow, error) {
 			lr.BG = Default
 		}
 		if e.row.Kind == Data {
-			if lr.Lines, err = layRow(e.fm, e.row, spans, grid); err != nil {
-				return nil, err
+			if lr.Lines, err = layRow(e.fm, e.row, grid); err != nil {
+				return nil, nil, err
 			}
 		}
 		out[k] = lr
 	}
-	return out, nil
+	return grid, out, nil
 }
 
-// layRow lays one data row out as lines of boxes. A number in an N
-// box wider than the box is an error: cutting it would show another
+// layRow lays one data row out as lines of boxes. A note row's cells
+// are L and wrap whatever their columns are. A number in an N box
+// wider than the box is an error: cutting it would show another
 // number.
-func layRow(f Format, r Row, spans []tab.Span, grid *tab.Grid) ([][]Placed, error) {
+func layRow(f Format, r Row, grid *Grid) ([][]Placed, error) {
 	bs := f.Boxes(len(r.Cells))
 	stacks := make([][]string, len(bs))
 	height := 1
 	for i, b := range bs {
 		col := f.Cols[b.First]
-		w := spans[b.Last].End - spans[b.First].Start
+		if r.Role == Note {
+			col.Align, col.Clip = 'L', false
+		}
+		w := grid.spans[b.Last].End - grid.spans[b.First].Start
 		text := r.Cells[i].Text
-		if _, _, num := tab.SplitNumeric(text); col.Align == 'N' && num && utf8.RuneCountInString(text) > w {
+		if _, _, num := SplitNumeric(text); col.Align == 'N' && num && utf8.RuneCountInString(text) > w {
 			return nil, errAt(r.Cells[i].Col, ErrNumber, "%q in a box of %d", text, w)
 		}
 		switch {
-		case col.Align == 'N' && b.single():
-			stacks[i] = []string{grid.Cell(b.First, text)}
+		case col.Align == 'N' && b.Single():
+			stacks[i] = []string{grid.number(b.First, text)}
 		case col.Align == 'N':
-			stacks[i] = []string{pad(cut(text, w), w, 'R')}
+			stacks[i] = []string{pad(format.Trunc(text, w), w, 'R')}
 		case col.Clip:
-			stacks[i] = []string{pad(cut(text, w), w, col.Align)}
+			stacks[i] = []string{pad(format.Trunc(text, w), w, col.Align)}
 		default:
 			for _, ln := range wrap.Cell(text, w, hyphen.Default) {
 				stacks[i] = append(stacks[i], pad(ln, w, col.Align))
@@ -269,8 +222,8 @@ func layRow(f Format, r Row, spans []tab.Span, grid *tab.Grid) ([][]Placed, erro
 			c := r.Cells[i]
 			code := c.Code.Over(f.Row.Over(f.Cols[b.First].Code))
 			p := Placed{
-				Start:  spans[b.First].Start,
-				End:    spans[b.Last].End,
+				Start:  grid.spans[b.First].Start,
+				End:    grid.spans[b.Last].End,
 				FG:     code.FG,
 				BG:     code.BG,
 				Target: c.Target,
@@ -285,14 +238,6 @@ func layRow(f Format, r Row, spans []tab.Span, grid *tab.Grid) ([][]Placed, erro
 		lines[h] = line
 	}
 	return lines, nil
-}
-
-// cut returns at most w code points of s.
-func cut(s string, w int) string {
-	if utf8.RuneCountInString(s) <= w {
-		return s
-	}
-	return string([]rune(s)[:w])
 }
 
 // pad pads s, at most w code points, to exactly w by its alignment:

@@ -191,27 +191,6 @@ are the same class and harmless (sorting loses no information).
 Recommendation: the removal, as one less concept and a uniform
 §7 boundary. Trigger: ratification.
 
-.term pica tables onto typeset/tbl, one table language with board
-Settled 2026-10-04 (repani-lab/board/DESIGN.t, Authoring): the
-grammar inside pica's `.table` and board's `.fmt` is one, built
-once in a new package, typeset/tbl, above typeset/tab, with a
-hand-written scanner and no regular expressions. Pica keeps
-`.table` and `.end`. What changes for pica: the header is
-explicit, a `^` prefix on its row, and the first-row rule and the
-`-` headerless flag go -- 321 of the 323 tables under ~/repos on
-2026-10-04 take a `^` on their first row, 2 drop their `-`, one
-mechanical substitution; a short row spans (a row with fewer cells
-than columns puts its last cell across the rest, separators
-included; empty cells keep the columns, `a | |`) where pica now
-leaves the missing cells blank -- a sweep on 2026-10-03 found
-seven short data rows, six in research/EU-POSITION.t and one in
-pica-forth's corpus/tables-clip.t, each to be given its empty
-cells or let span; and pica reads S spans, full and relative
-formats, colour codes and `@` cell links, its writers deciding
-what they draw of them. `=` totals and `..` notes stay as they
-are. Order: tbl with its tests, then pica moved onto it under its
-own tests, then board's parser. Trigger: tbl.
-
 # Primitives
 
 .term lz4s: the frame is at its optimum; a dictionary is not a feature

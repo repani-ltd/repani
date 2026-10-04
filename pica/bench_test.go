@@ -1,23 +1,27 @@
 package pica
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The breaker's benchmarks live with it, in typeset/wrap.
 
 func BenchmarkTableLayout(b *testing.B) {
-	tbl, err := NewTable("3L *L 8N 6R!")
+	src := []string{"T", "", ".table 3L *L 8N 6R!", "^Day | Forecast | Temp | Wind"}
+	for range 12 {
+		src = append(src, "Mon | Isolated thunderstorms inland, clearing by evening | 25.5 | NW 15",
+			".. | Forecast confidence is moderate for the afternoon period | |")
+	}
+	src = append(src, "= | Average | (23.25) |", ".end", "", ".width 40")
+	doc, err := Parse(strings.Join(src, "\n") + "\n")
 	if err != nil {
 		b.Fatal(err)
 	}
-	tbl.Header("Day", "Forecast", "Temp", "Wind")
-	for i := 0; i < 12; i++ {
-		tbl.Row("Mon", "Isolated thunderstorms inland, clearing by evening", "25.5", "NW 15")
-		tbl.Note("", "Forecast confidence is moderate for the afternoon period", "", "")
-	}
-	tbl.Total("", "Average", "(23.25)", "")
+	tb := doc.Blocks[0].Table
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		if _, err := tbl.Layout(40); err != nil {
+	for b.Loop() {
+		if _, err := tb.Layout(40); err != nil {
 			b.Fatal(err)
 		}
 	}

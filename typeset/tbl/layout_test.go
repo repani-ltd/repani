@@ -19,7 +19,7 @@ func build(t *testing.T, src string, measure int) []LaidRow {
 	)
 	flush := func() {
 		if tb != nil {
-			laid, err := tb.Layout(measure)
+			_, laid, err := tb.Layout(measure)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -174,14 +174,14 @@ func TestLayoutNumberTooWide(t *testing.T) {
 		var tb Table
 		r, _ := ParseRow(s, 1)
 		tb.Add(fm, r)
-		if _, err := tb.Layout(5); !errors.Is(err, ErrNumber) {
+		if _, _, err := tb.Layout(5); !errors.Is(err, ErrNumber) {
 			t.Errorf("%q in 5N: %v", s, err)
 		}
 	}
 	var tb Table
 	r, _ := ParseRow("Amount", 1)
 	tb.Add(fm, r)
-	if _, err := tb.Layout(5); err != nil {
+	if _, _, err := tb.Layout(5); err != nil {
 		t.Errorf("label: %v", err)
 	}
 }
@@ -273,16 +273,16 @@ func TestTableErrors(t *testing.T) {
 	if err := tb.Add(other, r); err == nil {
 		t.Error("a row of another grid accepted")
 	}
-	if err := fm.Fit(10); err == nil || !errors.Is(err, ErrFit) {
+	if _, err := fit(fm, 10); err == nil || !errors.Is(err, ErrFit) {
 		t.Errorf("5+1+5 in 10: %v", err)
 	}
-	if err := fm.Fit(11); err != nil {
+	if _, err := fit(fm, 11); err != nil {
 		t.Errorf("5+1+5 in 11: %v", err)
 	}
-	if rows, err := new(Table).Layout(40); rows != nil || err != nil {
+	if _, rows, err := new(Table).Layout(40); rows != nil || err == nil {
 		t.Errorf("empty table: %v, %v", rows, err)
 	}
-	if _, err := (&Table{entries: []entry{{fm, Row{}}}}).Layout(9); !errors.Is(err, ErrFit) {
+	if _, _, err := (&Table{entries: []entry{{fm, Row{}}}}).Layout(9); !errors.Is(err, ErrFit) {
 		t.Errorf("layout in 9: %v", err)
 	}
 }

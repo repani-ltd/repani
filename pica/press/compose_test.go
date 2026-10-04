@@ -8,34 +8,20 @@ import (
 	"repani.com/pica/pdf"
 )
 
-func TestExtractNums(t *testing.T) {
-	// Grid: "Alpha      1,234.56 " — N column at [10,20), frac 3,
-	// paren slot. The cell content lifts into a span anchored at
-	// SepIndex and the mono text is blanked behind it.
-	cols := []pica.NumCol{{Span: pica.Span{Start: 10, End: 20}, Frac: 3, Paren: true}}
-
-	ln := extractNums(sline{text: "Alpha       1,234.56"}, cols)
-	if len(ln.nums) != 1 {
-		t.Fatalf("nums = %+v, want one span", ln.nums)
-	}
-	sp := ln.nums[0]
-	if sp.intPart != "1,234" || sp.tail != ".56" || sp.sep != cols[0].SepIndex() {
-		t.Errorf("span = %+v", sp)
+func TestLiftNums(t *testing.T) {
+	// "Alpha      1,234.56 ": the N box at [10,20), its point at 16.
+	// The number lifts into a span anchored there and the mono text is
+	// blanked behind it; a line with no numbers is untouched.
+	num := pica.NumCell{Box: pica.Span{Start: 10, End: 20}, Sep: 16, Int: "1,234", Tail: ".56"}
+	ln := liftNums(sline{text: "Alpha       1,234.56"}, []pica.NumCell{num})
+	if len(ln.nums) != 1 || ln.nums[0] != (numSpan{sep: 16, intPart: "1,234", tail: ".56"}) {
+		t.Errorf("nums = %+v", ln.nums)
 	}
 	if ln.text != "Alpha" {
 		t.Errorf("blanked text = %q, want %q", ln.text, "Alpha")
 	}
-
-	// Non-numeric content stays on the mono grid, untouched.
-	for _, s := range []string{"Client         Amount", "-------------- -----", "Epsilon    n/a"} {
-		if got := extractNums(sline{text: s}, cols); len(got.nums) != 0 || got.text != s {
-			t.Errorf("extractNums(%q) = %+v", s, got)
-		}
-	}
-
-	// A line trimmed short of the cell is left alone.
-	if got := extractNums(sline{text: "Alpha"}, cols); len(got.nums) != 0 || got.text != "Alpha" {
-		t.Errorf("short line = %+v", got)
+	if got := liftNums(sline{text: "Epsilon    n/a"}, nil); got.text != "Epsilon    n/a" || got.nums != nil {
+		t.Errorf("no numbers: %+v", got)
 	}
 }
 

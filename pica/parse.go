@@ -34,7 +34,6 @@ type Block struct {
 	Label  string   // Term: the label (never empty)
 	Attrib string   // Quote: attribution line ("" = none)
 	Table  *Table   // TableBlk
-	Width  int      // TableBlk: fixed width from the spec (0 = document width)
 	Lines  []string // Pre
 	Repeat int      // Pre: leading lines a splitting writer repeats
 	Level  int      // Heading: 1 (section) or 2 (subsection)
@@ -45,17 +44,6 @@ type Block struct {
 	// command line, or the first line of a paragraph); it only
 	// serves error messages.
 	Line int
-}
-
-// TableWidth resolves a table block's layout width against the
-// document width: the spec's fixed width applies only when it is
-// smaller (a wider request cannot be honored on a narrower page).
-// Both writers use this, so text and PDF always agree.
-func (b Block) TableWidth(docWidth int) int {
-	if b.Width > 0 && b.Width < docWidth {
-		return b.Width
-	}
-	return docWidth
 }
 
 // Layout holds the document-global attributes from the layout
@@ -253,7 +241,7 @@ func Parse(src string) (*Doc, error) {
 	for _, b := range p.doc.Blocks {
 		switch b.Kind {
 		case TableBlk:
-			if _, err := b.Table.Layout(b.TableWidth(p.doc.Layout.Width)); err != nil {
+			if _, err := b.Table.Layout(p.doc.Layout.Width); err != nil {
 				return nil, fmt.Errorf("%w (line %d)", err, b.Line)
 			}
 		case Term:
@@ -541,9 +529,9 @@ func collectUntilEnd(lines []string, open int, kind string) ([]string, int, erro
 // with no rows is an error, like an empty .quote. Every refusal wraps
 // ErrBadAttr and the error that names it.
 func parseTableBlock(spec string, specCol int, body []string, atLine int) (Block, error) {
-	t, err := NewTable(spec)
+	t, err := newTable(spec, specCol)
 	if err != nil {
-		return Block{}, fmt.Errorf("%w: %w (line %d)", ErrBadAttr, errAtCol(err, specCol), atLine)
+		return Block{}, fmt.Errorf("%w: %w (line %d)", ErrBadAttr, err, atLine)
 	}
 	for i, line := range body {
 		r, err := tbl.ParseRow(line, 1)
@@ -554,22 +542,10 @@ func parseTableBlock(spec string, specCol int, body []string, atLine int) (Block
 			return Block{}, fmt.Errorf("%w: %w (line %d)", ErrBadAttr, err, atLine+1+i)
 		}
 	}
-	if len(t.rows) == 0 {
+	if len(t.tt.Rows()) == 0 {
 		return Block{}, fmt.Errorf("%w: empty .table (line %d)", ErrBadAttr, atLine)
 	}
-	return Block{Kind: TableBlk, Table: t, Width: t.Narrow()}, nil
-}
-
-// errAtCol moves a tbl error found in a spec parsed from column 1 to
-// the spec's column in its line.
-func errAtCol(err error, col int) error {
-	var e *tbl.Error
-	if errors.As(err, &e) {
-		moved := *e
-		moved.Col += col - 1
-		return &moved
-	}
-	return err
+	return Block{Kind: TableBlk, Table: t}, nil
 }
 
 // commandWord returns the dot command word of a trimmed line

@@ -9,11 +9,10 @@ Package `repani.com/typeset/tbl` parses and lays out the table
 language that pica's `.table` blocks and board's `.fmt` documents
 share. It reads FORMAT lines (a column spec) and ROW lines, keeps
 the current format, and lays rows out as lines of placed cells on
-a monospace grid. It imports `repani.com/typeset/tab` for column
-fitting and cell alignment, `repani.com/typeset/wrap` with
-`repani.com/typeset/wrap/hyphen` for cell line breaking, and
+a monospace grid. It imports `repani.com/typeset/wrap` with
+`repani.com/typeset/wrap/hyphen` for cell line breaking,
 `repani.com/typeset/raster` for the rule a cell's text keeps, and
-nothing above them. The host -- pica
+`repani.com/typeset/format` to cut text, and nothing above them. The host -- pica
 or board -- recognises its own directives, hands tbl the spec text
 and the row lines, supplies the measure, and renders what tbl lays
 out.
@@ -89,8 +88,8 @@ error.
 
 .term align
 L left, R right, C centred (the extra space on the right), N on the
-decimal point as `typeset/tab` aligns it, P prose (laid out as L),
-S span: the column joins the column on its left.
+decimal point (see decimal metrics under Layout), P prose (laid out
+as L), S span: the column joins the column on its left.
 .term "!"
 The column clips instead of wrapping.
 .term code on a column
@@ -126,12 +125,6 @@ relative format with a column count other than zero or the grid's,
 an S in the first column, an S column with a
 code or `!`, a second `*`, a narrowing in a relative format, and a
 token out of order are errors.
-
-`typeset/tab`'s column spec -- width and alignment, `L R C N`, `*`
--- is an exact subset of a full format and means the same columns
-there. tbl keeps it so: a change to the token grammar that made a
-valid tab spec invalid here, or mean other columns, is a change to
-both packages or none.
 
 The resolved format, which every row is laid out by, holds the row
 code (fg and bg, each set or unset), the width, and per column:
@@ -197,17 +190,16 @@ none: formats carry no links.
 `Layout` takes one TABLE -- the rows from a full format to the next
 full format, each with the resolved format it is under -- the
 MEASURE (board 40, pica its document width) and a gap of 1. It
-returns, per row, its kind, role, resolved row colours
-and lines of placed cells. `Grid` returns the grid the rows are
-laid on -- each column's span and each N column's decimal metrics
--- for a host that draws numbers itself, and `Format.Boxes` the
-first and last column of each cell of a row of n cells.
+returns the GRID the rows are laid on -- each column's span and
+each N column's decimal metrics, for a host that draws numbers
+itself -- and, per row, its kind, role, resolved row colours and
+lines of placed cells. `Format.Boxes` gives the first and last
+column of each cell of a row of n cells.
 
 .term fitting
 The width is the narrowing if set and less than the measure, else
-the measure. Columns are fitted with `tab.Fit` against the width
-and the gap: the auto column takes what the others and the gaps
-leave, at least 1; columns that cannot fit are an error. Each
+the measure. The auto column takes what the other columns and the
+gaps leave, at least 1; columns that cannot fit are an error. Each
 format's fitting is its full format's, so every row of a table
 shares one grid.
 .term wrapping
@@ -217,10 +209,11 @@ with hyphenation at the cell penalty, a word wider than the box
 broken at its hyphenation points where one fits and cut where none
 does, every line at most the box's width, empty text one empty
 line. A clip cell is one line, cut to the box's
-width. An N cell is one line, aligned as `tab` aligns it and cut
+width. An N cell is one line, aligned on the column's point and cut
 to the box's width; an N cell whose box is a span or a join is
 aligned as R. A number wider than its N box is an error: cut, it
-would read as another number. Text that is not a number cuts.
+would read as another number. Text that is not a number cuts. A
+note row's cells are L and wrap, whatever their columns.
 .term height
 A data row is as many lines as its tallest cell; a shorter cell's
 missing lines are empty.
@@ -228,10 +221,19 @@ missing lines are empty.
 Each line of a cell is padded to exactly the box's width by its
 alignment, every line on its own.
 .term decimal metrics
-For each N column, the metrics `tab` gathers are measured over the
-table's data and total rows whose cell in that column is a single,
-unjoined, unspanned box under a format where the column is N.
-Header and note rows are aligned with them but do not weigh in.
+A cell is a NUMBER when it has a digit and only digits, `. , + - −
+( ) $ € %`; its point is its last `.`, or its end. Each N column's
+metrics are the widest fraction (the point onwards, a closing paren
+not counted) and whether any number is an accounting negative,
+`(...)`, which reserves a paren slot at the column's right for every
+cell. They are measured over the table's data and total rows whose
+cell in that column is a single, unjoined, unspanned box under a
+format where the column is N; header and note rows are aligned with
+them but do not weigh in. A number is padded on its right so its
+point falls one cell left of the column's widest fraction and paren
+slot, then set right; text that is not a number sets right at the
+units position; a fraction longer than any measured one sets flush
+right.
 .term placed cell
 start, end (grid columns), text (exactly end less start code
 points), fg, bg (resolved, 0 when unset at every level), target.

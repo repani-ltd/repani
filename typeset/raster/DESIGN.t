@@ -214,8 +214,8 @@ and no check can catch that, since a shorter link is valid.
 
 THE PACKAGE STAYS LIGHT. It is all a renderer or a program
 producer imports, so it imports nothing that typesets: a test fails
-if its dependencies reach typeset/tbl, typeset/wrap, typeset/tab,
-pica or board. Compilers that set text on rows -- board's language
+if its dependencies reach typeset/tbl, typeset/wrap, pica or
+board. Compilers that set text on rows -- board's language
 -- import those and raster, never the reverse. Its link-target
 check is its own for the same reason, duplicated on purpose from
 tbl's. `golang.org/x/text` is its one dependency outside the

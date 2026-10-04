@@ -11,6 +11,7 @@ package pica
 
 import (
 	"html"
+	"strconv"
 	"strings"
 
 	"repani.com/typeset/tbl"
@@ -104,7 +105,7 @@ func htmlBlock(w *strings.Builder, b Block) {
 		}
 		w.WriteString("</blockquote>\n")
 	case TableBlk:
-		htmlTable(w, b)
+		htmlTable(w, b.Table)
 	}
 }
 
@@ -118,49 +119,48 @@ func splitLink(s string) (url, title string) {
 // has one, then data rows, total rows (class "total") and note rows
 // (class "note"); every cell but a note's, which sets left as on
 // every page, carries the text-align of its box's first column, and
-// a box over several columns a colspan. A fixed width from the spec
-// becomes max-width in ch.
-func htmlTable(w *strings.Builder, b Block) {
-	t := b.Table
+// a box over several columns a colspan. A narrowing width from the
+// spec becomes max-width in ch.
+func htmlTable(w *strings.Builder, t *Table) {
 	open := "<table>"
-	if b.Width > 0 {
-		open = `<table style="max-width:` + itoa(b.Width) + `ch">`
+	if n := t.Narrow(); n > 0 {
+		open = `<table style="max-width:` + strconv.Itoa(n) + `ch">`
 	}
 	w.WriteString(open + "\n")
-	row := func(i int, tag, class string) {
+	write := func(r tbl.Row, tag, class string) {
 		w.WriteString("<tr" + class + ">")
-		for k, bx := range t.boxes(i) {
+		for k, bx := range t.fm.Boxes(len(r.Cells)) {
 			attrs := ""
 			if bx.Last > bx.First {
-				attrs = ` colspan="` + itoa(bx.Last-bx.First+1) + `"`
+				attrs = ` colspan="` + strconv.Itoa(bx.Last-bx.First+1) + `"`
 			}
 			switch align := t.fm.Cols[bx.First].Align; {
-			case t.rows[i].role == tbl.Note:
+			case r.Role == tbl.Note:
 			case align == 'R' || align == 'N':
 				attrs += ` style="text-align:right"`
 			case align == 'C':
 				attrs += ` style="text-align:center"`
 			}
-			w.WriteString("<" + tag + attrs + ">" + esc(t.rows[i].cells[k]) + "</" + tag + ">")
+			w.WriteString("<" + tag + attrs + ">" + esc(r.Cells[k].Text) + "</" + tag + ">")
 		}
 		w.WriteString("</tr>\n")
 	}
-	first := 0
-	if len(t.rows) > 0 && t.rows[0].role == tbl.Header {
+	rows := t.tt.Rows()
+	if len(rows) > 0 && rows[0].Role == tbl.Header {
 		w.WriteString("<thead>\n")
-		row(0, "th", "")
+		write(rows[0], "th", "")
 		w.WriteString("</thead>\n")
-		first = 1
+		rows = rows[1:]
 	}
 	w.WriteString("<tbody>\n")
-	for i := first; i < len(t.rows); i++ {
-		switch t.rows[i].role {
+	for _, r := range rows {
+		switch r.Role {
 		case tbl.Total:
-			row(i, "td", ` class="total"`)
+			write(r, "td", ` class="total"`)
 		case tbl.Note:
-			row(i, "td", ` class="note"`)
+			write(r, "td", ` class="note"`)
 		default:
-			row(i, "td", "")
+			write(r, "td", "")
 		}
 	}
 	w.WriteString("</tbody>\n</table>\n")
@@ -186,18 +186,4 @@ func emphHTML(s string) string {
 		}
 	}
 	return b.String()
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }

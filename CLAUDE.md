@@ -3,7 +3,7 @@
 One Go module. Top-level directories are either products with
 their own CLAUDE.md (`pica/`, `fact/`, `kiosk/`) or primitive
 packages (`ascon/`, `golay/`, `lz4s/`) or the typesetting family
-(`typeset/`: one directory, one package per member -- `typeset/tab`,
+(`typeset/`: one directory, one package per member --
 `typeset/format`, `typeset/wrap` with its optional hyphenation
 `typeset/wrap/hyphen`, `typeset/tbl`, `typeset/raster`
 -- every member under the primitive rule, so a

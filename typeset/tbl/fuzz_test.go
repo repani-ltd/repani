@@ -91,7 +91,10 @@ func FuzzLayout(f *testing.F) {
 		}
 		var fs Formats
 		fm, _, err := fs.Apply(spec, 1)
-		if err != nil || fm.Fit(measure) != nil {
+		if err != nil {
+			return
+		}
+		if _, err := fit(fm, measure); err != nil {
 			return
 		}
 		r, err := ParseRow(line, 1)
@@ -102,7 +105,7 @@ func FuzzLayout(f *testing.F) {
 		if tb.Add(fm, r) != nil {
 			return
 		}
-		rows, err := tb.Layout(measure)
+		_, rows, err := tb.Layout(measure)
 		if errors.Is(err, ErrNumber) {
 			return
 		}

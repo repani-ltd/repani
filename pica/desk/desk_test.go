@@ -9,7 +9,7 @@ import (
 
 func TestFuncs(t *testing.T) {
 	fm := Funcs()
-	for _, name := range []string{"round", "decimal", "trunc", "pad", "join", "shortTime", "shortDate", "dur", "cells", "table"} {
+	for _, name := range []string{"round", "decimal", "trunc", "pad", "join", "shortTime", "shortDate", "dur", "table"} {
 		if _, ok := fm[name]; !ok {
 			t.Errorf("missing function %q in Funcs", name)
 		}
@@ -164,7 +164,7 @@ func TestVocabulary(t *testing.T) {
 	}
 }
 
-func TestRowsAndCells(t *testing.T) {
+func TestRows(t *testing.T) {
 	rows := []any{map[string]any{"Spot": "Akrotiri", "Pts": 25}, map[string]any{"Spot": "Kourion", "Pts": float64(1)}}
 	got, err := Rows(rows, "Spot", "Pts")
 	if err != nil || len(got) != 2 || got[0][0] != "Akrotiri" || got[0][1] != "25" || got[1][1] != "1" {
@@ -179,23 +179,5 @@ func TestRowsAndCells(t *testing.T) {
 		if bad() == nil {
 			t.Error("Rows accepted bad input")
 		}
-	}
-	ferries := []any{
-		map[string]any{"dep": "06:00", "to": "Lavrio", "vessel": "Marmari", "status": "on time"},
-		map[string]any{"dep": "19:30", "to": "Kythnos", "vessel": "Makedon", "status": "cancelled"},
-	}
-	c, err := cells("6L 8L 8L *L", 34, ferries, "dep", "to", "vessel", "status")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ln := strings.Join(c[1], " "); ln != "19:30  Kythnos  Makedon  cancelled" || len([]rune(ln)) != 34 {
-		t.Errorf("joined row %q", ln)
-	}
-	num, err := cells("6N", 0, []any{map[string]any{"n": "14"}, map[string]any{"n": "2.5"}}, "n")
-	if err != nil || num[0][0] != "  14  " || num[1][0] != "   2.5" {
-		t.Errorf("numeric cells = %q, %v", num, err)
-	}
-	if _, err := cells("6L *L", 0, ferries, "dep", "to"); err == nil {
-		t.Error("an auto column with no width should error")
 	}
 }

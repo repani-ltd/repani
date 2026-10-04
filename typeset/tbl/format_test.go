@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"repani.com/typeset/tab"
 )
 
 func apply(t *testing.T, f *Formats, spec string) (Format, bool) {
@@ -33,26 +31,6 @@ func TestFullFormat(t *testing.T) {
 	}}
 	if !full || !reflect.DeepEqual(fm, want) {
 		t.Fatalf("Apply = %+v, %v\nwant %+v", fm, full, want)
-	}
-}
-
-// Every tab spec is a full format meaning the same columns.
-func TestTabSubset(t *testing.T) {
-	for _, spec := range []string{"6L 8L 8L *N", "5R *C", "3L *L 8N 6R", "40L", "*N 2C"} {
-		tc, err := tab.Parse(spec)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var f Formats
-		fm, full := apply(t, &f, spec)
-		if !full || len(fm.Cols) != len(tc) {
-			t.Fatalf("%q: full %v, %d columns, tab %d", spec, full, len(fm.Cols), len(tc))
-		}
-		for i, c := range fm.Cols {
-			if c.Width != tc[i].Width || c.Auto != tc[i].Auto || c.Align != tc[i].Align || c.Clip || c.Code != (Code{}) {
-				t.Errorf("%q column %d: %+v, tab %+v", spec, i, c, tc[i])
-			}
-		}
 	}
 }
 

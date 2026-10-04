@@ -117,7 +117,7 @@ func RenderBlock(b Block, width int) ([]string, error) {
 		return []string{".link " + b.Text}, nil
 
 	case TableBlk:
-		tl, err := b.Table.Layout(b.TableWidth(width))
+		tl, err := b.Table.Layout(width)
 		if err != nil {
 			return nil, err
 		}

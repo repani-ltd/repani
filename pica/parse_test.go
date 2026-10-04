@@ -302,13 +302,13 @@ func TestParse_TableHeaderless(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tln.HeaderNotes) != 1 || len(tln.Rows) != 1 || len(tln.RowNotes[0]) != 1 {
+	if len(tln.Header.Notes) != 1 || len(tln.Rows) != 1 || len(tln.Rows[0].Notes) != 1 {
 		t.Errorf("note layout = %+v", tln)
 	}
 
 	// Width variant: ".table 30 SPEC", tbl's narrowing.
 	d2 := mustParse(t, "T\n\n.table 30 6L *R\nA | 1\n.end\n")
-	if d2.Blocks[0].Width != 30 {
+	if d2.Blocks[0].Table.Narrow() != 30 {
 		t.Errorf("fixed width lost")
 	}
 }
@@ -341,7 +341,7 @@ func TestParse_TableRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := tl.Rows[0][0]; got != "span across" {
+	if got := tl.Rows[0].Lines[0]; got != "span across" {
 		t.Errorf("short row %q", got)
 	}
 }

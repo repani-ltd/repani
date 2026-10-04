@@ -3,8 +3,8 @@
 // data into copy; the press (repani.com/pica/press) prints it; pica
 // is the language between them. The values are written the house
 // way (repani.com/typeset/format); what this package adds is the
-// template: the vocabulary a template composes with, the helpers
-// that lay rows into columns and emit a .table block, and Render,
+// template: the vocabulary a template composes with, the helper
+// that emits a .table block from rows of data, and Render,
 // which parses the result before returning it, so a template bug is
 // an error with a line number, never an invalid document on air.
 //
@@ -20,12 +20,11 @@ import (
 
 	"repani.com/pica"
 	"repani.com/typeset/format"
-	"repani.com/typeset/tab"
 )
 
 // Funcs returns the template function set: the house formatting
 // (round, decimal, trunc, pad, shortTime, shortDate, dur), join,
-// cells, and table. The numeric helpers accept any numeric value,
+// and table. The numeric helpers accept any numeric value,
 // since JSON binds numbers as float64 and FACT as int.
 func Funcs() template.FuncMap {
 	return template.FuncMap{
@@ -49,7 +48,6 @@ func Funcs() template.FuncMap {
 		"shortTime": format.ShortTime,
 		"shortDate": format.ShortDate,
 		"dur":       format.Duration,
-		"cells":     cells,
 		"table":     table,
 	}
 }
@@ -131,56 +129,6 @@ func Rows(rows any, fields ...string) ([][]string, error) {
 				return nil, fmt.Errorf("row %d has no field %q", i, f)
 			}
 			out[i][j] = fmt.Sprintf("%v", v)
-		}
-	}
-	return out, nil
-}
-
-// cells lays rows into tab stops (repani.com/typeset/tab) and returns
-// each row as its padded, aligned cells -- runes, not a table: the
-// template joins them with a space for a grid, or places them one by
-// one to put its own marks between the columns.
-//
-//	{{range cells "6L 8L 8L *L" 34 .Ferries "dep" "to" "vessel" "status"}}{{join . " "}}
-//	{{end}}
-//
-// spec is tab's column spec; width is the measure the columns fit,
-// or 0 to take exactly the fixed widths (an auto column then needs a
-// width). Every row is measured before any is formatted, so an N
-// column's decimal points align across the whole set; a cell wider
-// than its column is clipped. rows and fields are as for Rows.
-func cells(spec string, width int, rows any, fields ...string) ([][]string, error) {
-	cols, err := tab.Parse(spec)
-	if err != nil {
-		return nil, fmt.Errorf("cells: %w", err)
-	}
-	data, err := Rows(rows, fields...)
-	if err != nil {
-		return nil, fmt.Errorf("cells: %w", err)
-	}
-	if width <= 0 {
-		for _, c := range cols {
-			width += c.Width
-		}
-		width += len(cols) - 1
-	}
-	fitted, err := tab.Fit(cols, width, 1)
-	if err != nil {
-		return nil, fmt.Errorf("cells: %w", err)
-	}
-	g := tab.New(fitted, 1)
-	for _, r := range data {
-		g.Measure(r)
-	}
-	out := make([][]string, len(data))
-	for i, r := range data {
-		out[i] = make([]string, len(fitted))
-		for j := range fitted {
-			var s string
-			if j < len(r) {
-				s = r[j]
-			}
-			out[i][j] = g.Cell(j, s)
 		}
 	}
 	return out, nil

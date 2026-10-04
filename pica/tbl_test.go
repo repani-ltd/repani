@@ -1,101 +1,81 @@
 package pica
 
 import (
-	"slices"
+	"errors"
 	"strings"
 	"testing"
+
+	"repani.com/typeset/tbl"
 )
 
-// render is a test helper: Layout joined to text, failing the test
-// on error.
-func render(t *testing.T, tbl *Table, width int) string {
+// table parses a .table block of spec and rows on a page wide enough
+// for any test table, failing the test on error.
+func table(t *testing.T, spec string, rows ...string) *Table {
 	t.Helper()
-	tl, err := tbl.Layout(width)
+	d, err := Parse("T\n\n.table " + spec + "\n" + strings.Join(rows, "\n") + "\n.end\n\n.width 200\n")
+	if err != nil {
+		t.Fatalf("table %q: %v", spec, err)
+	}
+	return d.Blocks[0].Table
+}
+
+// layout lays tb out at width, failing the test on error.
+func layout(t *testing.T, tb *Table, width int) *TableLayout {
+	t.Helper()
+	tl, err := tb.Layout(width)
 	if err != nil {
 		t.Fatalf("Layout(%d): %v", width, err)
 	}
-	return strings.Join(tl.Lines(), "\n")
+	return tl
 }
 
-func mustTable(t *testing.T, spec string) *Table {
+// render is Layout joined to text.
+func render(t *testing.T, tb *Table, width int) string {
 	t.Helper()
-	tbl, err := NewTable(spec)
-	if err != nil {
-		t.Fatalf("NewTable(%q): %v", spec, err)
-	}
-	return tbl
+	return strings.Join(layout(t, tb, width).Lines(), "\n")
 }
 
 func TestTable_Basic(t *testing.T) {
-	tbl := mustTable(t, "3L 5L 4R")
-	tbl.Header("Day", "Time", "Temp")
-	tbl.Row("Mon", "09:00", "25")
-	tbl.Row("Tue", "14:30", "22")
-
-	got := render(t, tbl, 40)
+	tb := table(t, "3L 5L 4R", "^Day | Time | Temp", "Mon | 09:00 | 25", "Tue | 14:30 | 22")
 	want := strings.Join([]string{
 		"Day Time  Temp",
 		"--- ----- ----",
 		"Mon 09:00   25",
 		"Tue 14:30   22",
 	}, "\n")
-	if got != want {
+	if got := render(t, tb, 40); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
 func TestTable_AutoSpan(t *testing.T) {
-	// 3 + 1 + auto + 1 + 4 = 40 -> auto = 31
-	tbl := mustTable(t, "3L *L 4R")
-	tbl.Header("Day", "Forecast", "Temp")
-	tbl.Row("Mon", "Sunny", "25")
-
-	for ln := range strings.SplitSeq(render(t, tbl, 40), "\n") {
-		if len([]rune(ln)) > 40 {
-			t.Errorf("line exceeds 40 chars: %q", ln)
-		}
-	}
-	// The same table lays out at another width.
-	for ln := range strings.SplitSeq(render(t, tbl, 28), "\n") {
-		if len([]rune(ln)) > 28 {
-			t.Errorf("line exceeds 28 chars: %q", ln)
+	// 3 + 1 + auto + 1 + 4 = 40 -> auto = 31; the same table lays out
+	// at another width.
+	tb := table(t, "3L *L 4R", "^Day | Forecast | Temp", "Mon | Sunny | 25")
+	for _, w := range []int{40, 28} {
+		for ln := range strings.SplitSeq(render(t, tb, w), "\n") {
+			if len([]rune(ln)) > w {
+				t.Errorf("line exceeds %d: %q", w, ln)
+			}
 		}
 	}
 }
 
 func TestTable_CellsWrapByDefault(t *testing.T) {
-	tbl := mustTable(t, "6L *L 4R")
-	tbl.Header("Day", "Conditions", "Temp")
-	tbl.Row("Sat 11", "High cloud thickening late in the day", "30")
-	tbl.Row("Sun 12", "Clear", "29")
-
-	tl, err := tbl.Layout(30)
-	if err != nil {
-		t.Fatal(err)
+	tb := table(t, "6L *L 4R", "^Day | Conditions | Temp",
+		"Sat 11 | High cloud thickening late in the day | 30", "Sun 12 | Clear | 29")
+	tl := layout(t, tb, 30)
+	// Row 0 wraps: several lines, the other columns blank on the
+	// continuations; the short row stays one line; every line fits.
+	if len(tl.Rows[0].Lines) < 2 {
+		t.Fatalf("expected a wrapped row, got %q", tl.Rows[0].Lines)
 	}
-	// Row 0 wraps: multiple lines, continuation cells blank, no
-	// content lost.
-	if len(tl.Rows[0]) < 2 {
-		t.Fatalf("expected wrapped row, got %v", tl.Rows[0])
-	}
-	// Content preservation, checked at the cell level (row lines
-	// interleave other columns' cells): rejoining the wrapped cell
-	// and undoing hyphen breaks recovers the original text.
-	cell := strings.Join(wrapCell("High cloud thickening late in the day", 18), " ")
-	cell = strings.ReplaceAll(cell, "- ", "")
-	if cell != "High cloud thickening late in the day" {
-		t.Errorf("wrapped cell does not rejoin to original: %q", cell)
-	}
-	// Continuation lines leave the other columns blank.
-	cont := tl.Rows[0][1]
-	if !strings.HasPrefix(cont, strings.Repeat(" ", 7)) {
+	if cont := tl.Rows[0].Lines[1]; !strings.HasPrefix(cont, strings.Repeat(" ", 7)) {
 		t.Errorf("continuation does not blank the first column: %q", cont)
 	}
-	// Unwrapped row stays single-line.
-	if len(tl.Rows[1]) != 1 {
-		t.Errorf("short row wrapped: %v", tl.Rows[1])
+	if len(tl.Rows[1].Lines) != 1 {
+		t.Errorf("short row wrapped: %q", tl.Rows[1].Lines)
 	}
-	// Every line fits.
 	for _, ln := range tl.Lines() {
 		if len([]rune(ln)) > 30 {
 			t.Errorf("line exceeds width: %q", ln)
@@ -104,49 +84,28 @@ func TestTable_CellsWrapByDefault(t *testing.T) {
 }
 
 func TestTable_ClipModifier(t *testing.T) {
-	tbl := mustTable(t, "6L! 4R")
-	tbl.Row("This is far too long", "25")
-	got := render(t, tbl, 12)
-	if got != "This i   25" {
+	if got := render(t, table(t, "6L! 4R", "This is far too long | 25"), 12); got != "This i   25" {
 		t.Errorf("got %q", got)
-	}
-	if strings.Contains(got, "\n") {
-		t.Error("clipped cell should not wrap")
 	}
 }
 
 func TestTable_LongWordHardCut(t *testing.T) {
-	tbl := mustTable(t, "5L")
-	tbl.Row("abcdefghij")
-	tl, err := tbl.Layout(5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tl.Rows[0]) != 2 || strings.TrimSpace(tl.Rows[0][0]) != "abcde" || strings.TrimSpace(tl.Rows[0][1]) != "fghij" {
-		t.Errorf("hard cut wrong: %v", tl.Rows[0])
+	tl := layout(t, table(t, "5L", "abcdefghij"), 5)
+	if got := tl.Rows[0].Lines; len(got) != 2 || got[0] != "abcde" || got[1] != "fghij" {
+		t.Errorf("hard cut wrong: %q", got)
 	}
 }
 
 func TestTable_Alignment(t *testing.T) {
-	tbl := mustTable(t, "5L 5R 5C")
-	tbl.Row("L", "R", "C")
-	got := render(t, tbl, 17)
 	// Trailing pad is trimmed.
-	want := "L         R   C"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+	if got := render(t, table(t, "5L 5R 5C", "L | R | C"), 17); got != "L         R   C" {
+		t.Errorf("got %q", got)
 	}
 }
 
 func TestTable_NumericColumn(t *testing.T) {
-	tbl := mustTable(t, "*L 10N")
-	tbl.Header("Client", "Amount")
-	tbl.Row("Alpha", "1,234.56")
-	tbl.Row("Beta", "12.5")
-	tbl.Row("Gamma", "(2.00)")
-	tbl.Row("Delta", "n/a")
-
-	got := render(t, tbl, 20)
+	tb := table(t, "*L 10N", "^Client | Amount", "Alpha | 1,234.56", "Beta | 12.5", "Gamma | (2.00)", "Delta | n/a")
+	got := render(t, tb, 20)
 	want := strings.Join([]string{
 		"Client    Amount",
 		"--------- ----------",
@@ -158,45 +117,72 @@ func TestTable_NumericColumn(t *testing.T) {
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
+}
 
-	// Every decimal point sits in the same rune column.
-	var dots []int
-	for _, ln := range strings.Split(got, "\n")[2:5] {
-		dots = append(dots, strings.LastIndex(ln, "."))
+func TestTable_Numbers(t *testing.T) {
+	// A writer that sets numbers itself gets each single N box's
+	// number split at the point and the column its point occupies --
+	// the cell every formatted line puts it in -- and nothing for a
+	// cell that is not a number or a box that spans.
+	tb := table(t, "*L 10N", "^Client | Amount", "Alpha | 1,234.56", "Gamma | (2.00)", "Delta | n/a", "a cell across both")
+	tl := layout(t, tb, 20)
+	for i, want := range []NumCell{
+		{Box: Span{Start: 10, End: 20}, Sep: 16, Int: "1,234", Tail: ".56"},
+		{Box: Span{Start: 10, End: 20}, Sep: 16, Int: "(2", Tail: ".00)"},
+	} {
+		r := tl.Rows[i]
+		if len(r.Nums) != 1 || r.Nums[0] != want {
+			t.Errorf("row %d: %+v, want %+v", i, r.Nums, want)
+		}
+		if at := strings.LastIndex(r.Lines[0], "."); at != want.Sep {
+			t.Errorf("row %d: point at %d in %q, Sep %d", i, at, r.Lines[0], want.Sep)
+		}
 	}
-	if dots[0] != dots[1] || dots[1] != dots[2] {
-		t.Errorf("decimal points misaligned: %v", dots)
+	if n := tl.Rows[2].Nums; n != nil {
+		t.Errorf("n/a: %+v", n)
+	}
+	// "a cell across both" spans the N column: not a number, and its
+	// text stays in the line, whatever a writer does with numbers.
+	if n := tl.Rows[3].Nums; n != nil {
+		t.Errorf("spanning cell: %+v", n)
+	}
+	tl = layout(t, table(t, "6L 6N", "Q1 | 10.5", "See 2024"), 13)
+	if n := tl.Rows[1].Nums; n != nil {
+		t.Errorf("a short row's digits read as a number: %+v", n)
+	}
+}
+
+func TestTable_NumericColumnIntegers(t *testing.T) {
+	// No fractions, no parens: N degrades to plain right-align.
+	if got := render(t, table(t, "3L 5N", "a | 100", "b | 7"), 9); got != "a     100\nb       7" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestTable_NumericHeaderLongerFraction(t *testing.T) {
+	// A header that reads as a number with a longer fraction than any
+	// data row right-aligns flush rather than panicking on a negative
+	// pad.
+	if got := render(t, table(t, "6N", "^1.50", "2", "(3)"), 6); got != "  1.50\n------\n    2\n   (3)" {
+		t.Errorf("got %q", got)
 	}
 }
 
 func TestTable_NoteRows(t *testing.T) {
-	tbl := mustTable(t, "6L 5N")
-	tbl.Header("Client", "Amt")
-	tbl.Note("", "eur")
-	tbl.Row("Alpha", "12.50")
-	tbl.Note("prime broker", "")
-	tbl.Row("Beta", "3.00")
-
-	tl, err := tbl.Layout(12)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	tb := table(t, "6L 5N", "^Client | Amt", ".. | eur", "Alpha | 12.50", ".. prime broker |", "Beta | 3.00")
+	tl := layout(t, tb, 12)
 	// Half-grid notes: widths and the column gap double, cells
-	// left-align under their columns.
-	if want := []string{"              eur"}; !equalLines(tl.HeaderNotes, want) {
-		t.Errorf("HeaderNotes = %q, want %q", tl.HeaderNotes, want)
+	// left-align in their boxes.
+	if got := tl.Header.Notes; !equalLines(got, []string{"              eur"}) {
+		t.Errorf("header notes %q", got)
 	}
-	if want := []string{"prime broker"}; !equalLines(tl.RowNotes[0], want) {
-		t.Errorf("RowNotes[0] = %q, want %q", tl.RowNotes[0], want)
+	if got := tl.Rows[0].Notes; !equalLines(got, []string{"prime broker"}) {
+		t.Errorf("row notes %q", got)
 	}
-	if tl.RowNotes[1] != nil {
-		t.Errorf("RowNotes[1] = %q, want none", tl.RowNotes[1])
+	if tl.Rows[1].Notes != nil {
+		t.Errorf("row 1 notes %q, want none", tl.Rows[1].Notes)
 	}
-
-	// Plain-text form: notes render as ordinary full-size rows in
-	// document order.
-	got := strings.Join(tl.Lines(), "\n")
+	// Plain text: notes render as ordinary full-size rows in order.
 	want := strings.Join([]string{
 		"Client Amt",
 		"       eur",
@@ -206,7 +192,7 @@ func TestTable_NoteRows(t *testing.T) {
 		"broker",
 		"Beta    3.00",
 	}, "\n")
-	if got != want {
+	if got := strings.Join(tl.Lines(), "\n"); got != want {
 		t.Errorf("Lines():\n%s\nwant:\n%s", got, want)
 	}
 }
@@ -224,13 +210,7 @@ func equalLines(got, want []string) bool {
 }
 
 func TestTable_TotalRows(t *testing.T) {
-	tbl := mustTable(t, "6L 8N")
-	tbl.Header("Client", "Amt")
-	tbl.Row("Alpha", "100.00")
-	tbl.Row("Beta", "25.50")
-	tbl.Total("Total", "125.50")
-
-	got := render(t, tbl, 15)
+	tb := table(t, "6L 8N", "^Client | Amt", "Alpha | 100.00", "Beta | 25.50", "= Total | 125.50")
 	want := strings.Join([]string{
 		"Client   Amt",
 		"------ --------",
@@ -239,193 +219,121 @@ func TestTable_TotalRows(t *testing.T) {
 		"------ --------",
 		"Total    125.50",
 	}, "\n")
-	if got != want {
+	if got := render(t, tb, 15); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
+	tl := layout(t, tb, 15)
+	if tl.Rows[0].Total || tl.Rows[1].Total || !tl.Rows[2].Total {
+		t.Errorf("totals %v %v %v", tl.Rows[0].Total, tl.Rows[1].Total, tl.Rows[2].Total)
+	}
+}
 
-	tl, err := tbl.Layout(15)
+func TestTable_ProseColumn(t *testing.T) {
+	tb := table(t, "4L *P", "^key | meaning", "em | the point size squared, the unit of measure", "box | a rectangle")
+
+	// Mono path: P lays out exactly as L, nothing measured.
+	tlm := layout(t, tb, 20)
+	if tlm.Rows[0].Prose != nil {
+		t.Error("mono Layout must not measure prose cells")
+	}
+	if !strings.Contains(tlm.Rows[0].Lines[0], "the point size") {
+		t.Errorf("mono P cell not laid out as L: %q", tlm.Rows[0].Lines)
+	}
+
+	// Measured path: the formatted rows reserve the cell blank at the
+	// measured height.
+	tl, err := tb.LayoutMeasured(20, Mono, nil, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []bool{false, false, true}; !slices.Equal(tl.Totals, want) {
-		t.Errorf("Totals = %v, want %v", tl.Totals, want)
+	pc := tl.Rows[0].Prose[0]
+	if pc.Box != (Span{Start: 5, End: 20}) || pc.Align != 'P' || len(pc.Lines) == 0 {
+		t.Fatalf("prose cell %+v", pc)
+	}
+	if got := len(tl.Rows[0].Lines); got != len(pc.Lines) {
+		t.Errorf("row height %d, measured lines %d", got, len(pc.Lines))
+	}
+	for _, physical := range tl.Rows[0].Lines {
+		if strings.Contains(physical, "point") {
+			t.Errorf("measured P cell not blanked: %q", physical)
+		}
+	}
+	if !strings.HasPrefix(tl.Rows[0].Lines[0], "em") {
+		t.Errorf("mono cell missing: %q", tl.Rows[0].Lines[0])
 	}
 }
 
 func TestTable_ClippedProseIsOneLine(t *testing.T) {
 	// "!" holds for a measured P cell as for a mono one: one line.
-	tbl := mustTable(t, "3L 8P!")
-	tbl.Row("a", "one two three four five")
-	tl, err := tbl.LayoutMeasured(12, Mono, nil, 1)
+	tl, err := table(t, "3L 8P!", "a | one two three four five").LayoutMeasured(12, Mono, nil, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tl.Rows[0]) != 1 || len(tl.RowProse[0][0].Lines) != 1 {
-		t.Errorf("rows %q, measured lines %d", tl.Rows[0], len(tl.RowProse[0][0].Lines))
-	}
-	if _, err := mustTable(t, "4L").Note().Layout(10); err == nil {
-		t.Error("a note with no cells accepted")
+	if len(tl.Rows[0].Lines) != 1 || len(tl.Rows[0].Prose[0].Lines) != 1 {
+		t.Errorf("rows %q, measured lines %d", tl.Rows[0].Lines, len(tl.Rows[0].Prose[0].Lines))
 	}
 }
 
-func TestTable_ProseColumn(t *testing.T) {
-	tbl := mustTable(t, "4L *P")
-	tbl.Header("key", "meaning")
-	tbl.Row("em", "the point size squared, the unit of measure")
-	tbl.Row("box", "a rectangle")
-
-	// Mono path: P lays out exactly as L.
-	tlm, err := tbl.Layout(20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tlm.Aligns[1] != 'P' || tlm.Cols[1] != (Span{Start: 5, End: 20}) {
-		t.Errorf("P column %c at %+v", tlm.Aligns[1], tlm.Cols[1])
-	}
-	if tlm.RowProse[0] != nil {
-		t.Error("mono Layout must not measure prose cells")
-	}
-	if !strings.Contains(tlm.Rows[0][0], "the point size") {
-		t.Errorf("mono P cell not laid out as L: %q", tlm.Rows[0])
-	}
-
-	// Measured path: a wider measurer than mono (600 units/rune vs
-	// Mono's 1) exercises real measuring; the formatted rows
-	// reserve the cell blank at the measured height.
-	tl, err := tbl.LayoutMeasured(20, Mono, nil, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pc := tl.RowProse[0][0]
-	if pc.Box != (Span{Start: 5, End: 20}) || pc.Align != 'P' {
-		t.Errorf("prose cell %+v", pc)
-	}
-	lines := pc.Lines
-	if len(lines) == 0 {
-		t.Fatal("no measured prose lines")
-	}
-	if got := len(tl.Rows[0]); got != max(1, len(lines)) {
-		t.Errorf("row height %d, measured lines %d", got, len(lines))
-	}
-	for _, physical := range tl.Rows[0] {
-		if strings.Contains(physical, "point") {
-			t.Errorf("measured P cell not blanked: %q", physical)
-		}
-	}
-	// The mono cells still render on the grid.
-	if !strings.HasPrefix(tl.Rows[0][0], "em") {
-		t.Errorf("mono cell missing: %q", tl.Rows[0][0])
-	}
-}
-
-func TestTable_NumColGeometry(t *testing.T) {
-	tbl := mustTable(t, "*L 10N")
-	tbl.Header("Client", "Amount")
-	tbl.Row("Alpha", "1,234.56")
-	tbl.Row("Gamma", "(2.00)")
-
-	tl, err := tbl.Layout(20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tl.NumCols) != 1 {
-		t.Fatalf("NumCols = %+v, want one", tl.NumCols)
-	}
-	c := tl.NumCols[0]
-	want := expectedNumCol()
-	if c != want {
-		t.Errorf("NumCol = %+v, want %+v", c, want)
-	}
-	// SepIndex names the rune cell the decimal points occupy in the
-	// formatted lines.
-	for _, row := range tl.Rows {
-		if i := strings.LastIndex(row[0], "."); i != c.SepIndex() {
-			t.Errorf("decimal at %d in %q, SepIndex = %d", i, row[0], c.SepIndex())
-		}
-	}
-}
-
-// expectedNumCol is the expected geometry for the table above: auto
-// column 9 wide, N column at [10,20), frac ".56" = 3, paren present.
-func expectedNumCol() NumCol {
-	return NumCol{Span: Span{Start: 10, End: 20}, Frac: 3, Paren: true}
-}
-
-func TestSplitNumeric(t *testing.T) {
-	cases := []struct {
-		in, intPart, tail string
-		ok                bool
+func TestTable_LayoutMeasuredHeader(t *testing.T) {
+	tb := table(t, "6L 5N", "^Client name | Amt", "Alpha | 12.50")
+	plain := layout(t, tb, 12)
+	for _, tc := range []struct {
+		name       string
+		mHead      Measurer
+		wantHeight int // header lines
 	}{
-		{"1,234.56", "1,234", ".56", true},
-		{"(2,340.10)", "(2,340", ".10)", true},
-		{"(500)", "(500", ")", true},
-		{"315", "315", "", true},
-		{"n/a", "", "", false},
-		{"Amount", "", "", false},
-		{"", "", "", false},
-	}
-	for _, c := range cases {
-		intPart, tail, ok := SplitNumeric(c.in)
-		if intPart != c.intPart || tail != c.tail || ok != c.ok {
-			t.Errorf("SplitNumeric(%q) = %q, %q, %v; want %q, %q, %v",
-				c.in, intPart, tail, ok, c.intPart, c.tail, c.ok)
+		{"nil header measurer", nil, 0},
+		{"mono header measurer", Mono, 2},
+		{"wide header measurer at ten units per rune", wideMeasurer{}, 2},
+	} {
+		runeUnits := 1
+		if tc.mHead != nil {
+			runeUnits = tc.mHead.Width("x")
 		}
-	}
-}
-
-func TestTable_NumericColumnIntegers(t *testing.T) {
-	// No fractions, no parens: N degrades to plain right-align.
-	tbl := mustTable(t, "3L 5N")
-	tbl.Row("a", "100")
-	tbl.Row("b", "7")
-	got := render(t, tbl, 9)
-	want := "a     100\nb       7"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestTable_NoHeader(t *testing.T) {
-	tbl := mustTable(t, "3L 4R")
-	tbl.Row("Mon", "25")
-	tbl.Row("Tue", "22")
-	got := render(t, tbl, 8)
-	want := "Mon   25\nTue   22"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+		tl, err := tb.LayoutMeasured(12, Mono, tc.mHead, runeUnits)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if tc.mHead == nil {
+			if tl.Header.Prose != nil || !equalLines(tl.Header.Lines, plain.Header.Lines) {
+				t.Errorf("%s: header %+v, want Layout's", tc.name, tl.Header)
+			}
+			continue
+		}
+		h := tl.Header
+		if len(h.Prose) != 2 || len(h.Lines) != tc.wantHeight || len(h.Prose[0].Lines) != tc.wantHeight {
+			t.Errorf("%s: header %d lines, %d cells, first %d lines", tc.name, len(h.Lines), len(h.Prose), len(h.Prose[0].Lines))
+		}
+		for _, ln := range h.Lines {
+			if strings.TrimSpace(ln) != "" {
+				t.Errorf("%s: measured header not blanked: %q", tc.name, ln)
+			}
+		}
+		// Everything else is exactly Layout.
+		if !equalLines(tl.Rows[0].Lines, plain.Rows[0].Lines) {
+			t.Errorf("%s: rows differ from Layout", tc.name)
+		}
 	}
 }
 
 func TestTable_InvalidSpec(t *testing.T) {
-	for _, spec := range []string{
-		"",
-		"3X",       // bad align
-		"abc",      // bad width
-		"3L *L *R", // two auto-span
-	} {
-		t.Run(spec, func(t *testing.T) {
-			if _, err := NewTable(spec); err == nil {
-				t.Errorf("expected error for spec %q", spec)
-			}
-		})
+	for _, spec := range []string{"", "3X", "abc", "3L *L *R", "r 4L", "4L/b"} {
+		if _, err := newTable(spec, 1); err == nil {
+			t.Errorf("spec %q accepted", spec)
+		}
 	}
 	// Fit errors surface at layout time.
-	tbl := mustTable(t, "50L 50L")
-	if _, err := tbl.Layout(40); err == nil {
-		t.Error("expected overflow error at Layout")
+	if _, err := table(t, "50L 50L", "a | b").Layout(40); !errors.Is(err, tbl.ErrFit) {
+		t.Errorf("50L 50L in 40: %v", err)
 	}
 }
 
 func TestTable_RuneAware(t *testing.T) {
 	// "λεμεσός" is 7 runes.
-	tbl := mustTable(t, "7L")
-	tbl.Row("λεμεσός")
-	if got := render(t, tbl, 7); got != "λεμεσός" {
+	if got := render(t, table(t, "7L", "λεμεσός"), 7); got != "λεμεσός" {
 		t.Errorf("got %q", got)
 	}
-	tbl2 := mustTable(t, "4L!")
-	tbl2.Row("λεμεσός")
-	if got := render(t, tbl2, 4); got != "λεμε" {
+	if got := render(t, table(t, "4L!", "λεμεσός"), 4); got != "λεμε" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -433,134 +341,15 @@ func TestTable_RuneAware(t *testing.T) {
 func TestTable_CellsHyphenate(t *testing.T) {
 	// At 17 runes, greedy wrapping needed 3 lines (Isolated /
 	// thunderstorms / inland); Knuth-Plass with hyphenation fits 2.
-	tbl := mustTable(t, "17L")
-	tbl.Row("Isolated thunderstorms inland")
-	tl, err := tbl.Layout(17)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tl.Rows[0]) != 2 {
-		t.Fatalf("cell set in %d lines, want 2 (hyphenated):\n%s",
-			len(tl.Rows[0]), strings.Join(tl.Rows[0], "\n"))
-	}
-	if !strings.Contains(tl.Rows[0][0], "-") {
-		t.Errorf("expected a hyphen break: %q", tl.Rows[0][0])
-	}
-	for _, ln := range tl.Rows[0] {
-		if len([]rune(ln)) > 17 {
-			t.Errorf("line exceeds cell width: %q", ln)
-		}
-	}
-}
-
-func TestTable_NumericHeaderLongerFraction(t *testing.T) {
-	// A header that reads as a number with a longer fraction than
-	// any data row must not panic on a negative pad; it right-aligns
-	// flush like any non-aligned cell.
-	tbl := mustTable(t, "6N")
-	tbl.Header("1.50")
-	tbl.Row("2")
-	tbl.Row("(3)")
-	got := render(t, tbl, 6)
-	want := "  1.50\n------\n    2\n   (3)"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestTable_LayoutMeasuredHeader(t *testing.T) {
-	tbl := mustTable(t, "6L 5N")
-	tbl.Header("Client name", "Amt")
-	tbl.Row("Alpha", "12.50")
-	plain, err := tbl.Layout(12)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []struct {
-		name       string
-		mHead      Measurer
-		wantHeight int // header lines; 0 = same as Layout
-	}{
-		{"nil header measurer", nil, 0},
-		{"mono header measurer", Mono, 2},
-		{"wide header measurer at ten units per rune", wideMeasurer{}, 2},
-	}
-	for _, tc := range tests {
-		runeUnits := 1
-		if tc.mHead != nil {
-			runeUnits = tc.mHead.Width("x")
-		}
-		tl, err := tbl.LayoutMeasured(12, Mono, tc.mHead, runeUnits)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.name, err)
-		}
-		if tc.mHead == nil {
-			if tl.HeaderProse != nil {
-				t.Errorf("%s: HeaderProse = %v, want nil", tc.name, tl.HeaderProse)
-			}
-			if !equalLines(tl.Header, plain.Header) {
-				t.Errorf("%s: Header = %q, want Layout's %q", tc.name, tl.Header, plain.Header)
-			}
-			continue
-		}
-		if len(tl.HeaderProse) != 2 {
-			t.Fatalf("%s: HeaderProse has %d columns, want 2", tc.name, len(tl.HeaderProse))
-		}
-		if got := len(tl.Header); got != tc.wantHeight {
-			t.Errorf("%s: header height %d, want %d", tc.name, got, tc.wantHeight)
-		}
-		if got := len(tl.HeaderProse[0].Lines); got != tc.wantHeight {
-			t.Errorf("%s: measured lines %d, want %d", tc.name, got, tc.wantHeight)
-		}
-		for _, ln := range tl.Header {
-			if strings.TrimSpace(ln) != "" {
-				t.Errorf("%s: measured header not blanked: %q", tc.name, ln)
-			}
-		}
-		// Everything else is exactly Layout.
-		if !equalLines(tl.Rows[0], plain.Rows[0]) || tl.Sep != plain.Sep {
-			t.Errorf("%s: rows/sep differ from Layout", tc.name)
-		}
-	}
-}
-
-func TestTable_RowLines(t *testing.T) {
-	tbl := mustTable(t, "4L 8L").Header("k", "v").
-		Row("a", "one").
-		Row("b", "a long value that wraps twice").
-		Note("note under b").
-		Total("sum", "x")
-	tl, err := tbl.Layout(13)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines, spans := tl.Lines(), tl.RowLines()
-	if len(spans) != 3 {
-		t.Fatalf("spans %v", spans)
-	}
-	// every data row's first line starts with its first cell; the
-	// spans tile the body exactly (total's separator excluded)
-	for i, want := range []string{"a ", "b ", "sum"} {
-		if got := lines[spans[i].Start]; !strings.HasPrefix(got, want) {
-			t.Errorf("row %d starts %q, want prefix %q", i, got, want)
-		}
-	}
-	if spans[1].End-spans[1].Start < 3 { // two wrapped lines + one note
-		t.Errorf("wrapped row span %v", spans[1])
-	}
-	if spans[2].Start != spans[1].End+1 || spans[2].End != len(lines) {
-		t.Errorf("total row span %v, lines %d", spans[2], len(lines))
-	}
-	if lines[spans[1].End] != tl.Sep {
-		t.Error("separator precedes the total row")
+	lines := layout(t, table(t, "17L", "Isolated thunderstorms inland"), 17).Rows[0].Lines
+	if len(lines) != 2 || !strings.Contains(lines[0], "-") {
+		t.Errorf("cell set in %q, want 2 lines, hyphenated", lines)
 	}
 }
 
 func TestTable_NoBreakSpace(t *testing.T) {
-	tbl := mustTable(t, "9L").Row("Open\u00a0sig Page.Row\u00a0body")
-	got := render(t, tbl, 9)
-	if !strings.Contains(got, "Open\u00a0sig") || strings.Contains(got, "Open\n") {
+	got := render(t, table(t, "9L", "Open sig Page.Row body"), 9)
+	if !strings.Contains(got, "Open sig") || strings.Contains(got, "Open\n") {
 		t.Errorf("no-break space broke:\n%s", got)
 	}
 }

@@ -11,9 +11,7 @@ directory is one project; its import path is `repani.com/<dir>/...`.
 - `golay/` -- extended Golay(24,12): corrects 3, detects 4
 - `lz4s/`  -- LZ4 sequence format re-tuned for small texts
 - `typeset/` -- the typesetting family, one package per member:
-             `typeset/tab`, tab stops (fixed columns on a monospace
-             grid, cells aligned left, right, centred or on the
-             decimal point); `typeset/format`, values as the house writes them
+             `typeset/format`, values as the house writes them
              (a number rounded or to places, a string cut or padded
              in runes, a time as HH:MM, a date as "Mon 02", a
              duration in its largest unit);
@@ -21,7 +19,9 @@ directory is one project; its import path is `repani.com/<dir>/...`.
              `typeset/wrap/hyphen`, its optional Knuth-Liang
              hyphenation, English and Greek;
              `typeset/tbl`, the table language pica and board
-             share (`SPEC.t`); `typeset/raster`, rows of forty
+             share, and its monospace grid: columns fitted to a
+             measure, cells aligned left, right, centred or on the
+             decimal point (`SPEC.t`); `typeset/raster`, rows of forty
              columns, each row a record of segments -- stretches
              in one foreground, one background and a link target
              or none -- and a role, plus a row count, applied in

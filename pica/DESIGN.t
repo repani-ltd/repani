@@ -1229,4 +1229,34 @@ span the table instead of wrapping in its first column, and one
 table whose spec had an unused auto column was given four columns
 for its four cells.
 
+# 19. One grid, one row (decided 2026-10-05)
+
+Driver: a review of pica and typeset found the table stack built
+twice over after §18. typeset/tab parsed a second, drifted copy of
+tbl's spec ("+6L" passed one, failed the other) for one consumer,
+desk's cells helper, which no template used; pica kept every row in
+its own builder and in tbl, fitted and measured the grid twice per
+layout, laid notes out twice, and handed the writers flat strings
+that the PDF compositor sliced by column to find numbers -- reading
+a span's digits as a number in an N column it crossed.
+
+.item typeset/tab is gone, and desk's cells with it. Its fitting,
+decimal metrics and number setting are tbl's grid (grid.go): one
+Span, one fit, one pad; cutting is format.Trunc.
+.item tbl.Table.Layout returns the grid it laid the rows on; notes
+are laid L and wrapping, as pica sets them, so pica only re-wraps
+them for the half-size grid.
+.item Pica's Table is the format and tbl's table: no builder (it had
+no caller outside tests, which now build tables by parsing), no
+copy of the rows. The narrowing width is tbl's alone: Block.Width
+and TableWidth are gone, HTML reads Table.Narrow.
+.item TableLayout is a header and rows, each a TableRow -- lines,
+total, measured prose cells, notes at both sizes, and the numbers
+of its single N boxes, split at the point with the column of the
+point -- in place of eight parallel slices. The compositor lifts
+those numbers instead of re-reading columns of text; header and
+row prose share one positioning function.
+
+Verified: every document renders byte for byte as before.
+
 .font sans
