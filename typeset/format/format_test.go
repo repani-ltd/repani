@@ -15,6 +15,11 @@ func TestFormat(t *testing.T) {
 		{ShortDate("2026-04-10"), "Fri 10"}, {ShortDate("2026-04-10T09:00Z"), "Fri 10"}, {ShortDate("soon"), "soon"},
 		{Duration("45s"), "45s"}, {Duration("90s"), "1m"}, {Duration("2h30m"), "2h"}, {Duration("48h"), "2d"},
 		{Duration("1d"), "1d"}, {Duration("later"), "later"},
+		// Negative widths are zero, negative durations keep their unit,
+		// and an offset time without seconds parses.
+		{Trunc("abc", -1), ""}, {Pad("abc", -1), ""},
+		{Duration("-5m"), "-5m"}, {Duration("-2h"), "-2h"}, {Duration("-30s"), "-30s"},
+		{ShortTime("2026-10-04T10:30+03:00"), "10:30"}, {ShortTime("2026-10-04T10:30Z"), "10:30"},
 	} {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)

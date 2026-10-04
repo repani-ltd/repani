@@ -25,8 +25,9 @@ func Round(v float64) string { return strconv.FormatInt(int64(math.Round(v)), 10
 // Decimal formats v with n places: 25.726 → "25.7" for n 1.
 func Decimal(v float64, n int) string { return strconv.FormatFloat(v, 'f', n, 64) }
 
-// Trunc cuts s to n runes.
+// Trunc cuts s to n runes; n below zero is zero.
 func Trunc(s string, n int) string {
+	n = max(n, 0)
 	if len(s) <= n {
 		return s
 	}
@@ -38,20 +39,18 @@ func Trunc(s string, n int) string {
 }
 
 // Pad pads s with spaces on the right to n runes, cutting it if it
-// is longer.
+// is longer; n below zero is zero.
 func Pad(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
-	}
-	return s + strings.Repeat(" ", n-len(r))
+	s = Trunc(s, n)
+	return s + strings.Repeat(" ", max(n, 0)-len([]rune(s)))
 }
 
 // dateTimeLayouts are the ISO 8601 datetime forms the time functions
-// accept (the Z07:00 layout also parses a literal "Z").
+// accept, with or without seconds (the Z07:00 layout also parses a
+// literal "Z").
 var dateTimeLayouts = []string{
 	"2006-01-02T15:04:05Z07:00",
-	"2006-01-02T15:04Z",
+	"2006-01-02T15:04Z07:00",
 }
 
 func parseAny(s string, extra ...string) (time.Time, bool) {
@@ -82,21 +81,25 @@ func ShortDate(s string) string {
 }
 
 // Duration is a Go duration string in its largest whole unit: "45s",
-// "3m", "2h", "5d". Go parses no days, so "1d" comes back as is,
-// which is the same form.
+// "3m", "2h", "5d", and "-3m" for a negative one. Go parses no days,
+// so "1d" comes back as is, which is the same form.
 func Duration(s string) string {
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		return s
 	}
+	sign := ""
+	if d < 0 {
+		sign, d = "-", -d
+	}
 	switch {
 	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
+		return fmt.Sprintf("%s%ds", sign, int(d.Seconds()))
 	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
+		return fmt.Sprintf("%s%dm", sign, int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
+		return fmt.Sprintf("%s%dh", sign, int(d.Hours()))
 	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
+		return fmt.Sprintf("%s%dd", sign, int(d.Hours()/24))
 	}
 }
