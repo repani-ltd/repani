@@ -326,7 +326,8 @@ func renderCmd(args []string) int {
 
 // bindFacts parses, validates, and binds a FACT document into
 // template data. All three stages are loud: a malformed line, a bad
-// value, a dangling ref, or a duplicate key fails the render.
+// value, a dangling ref, or a duplicate key fails the render. Every
+// error names data.fact, once.
 func bindFacts(src []byte) (map[string]any, error) {
 	facts, errs := fact.Parse(src)
 	errs = append(errs, fact.Validate(facts)...)
@@ -337,7 +338,11 @@ func bindFacts(src []byte) (map[string]any, error) {
 		}
 		return nil, errors.New("data.fact: " + strings.Join(msgs, "; "))
 	}
-	return fact.Bind(facts)
+	data, err := fact.Bind(facts)
+	if err != nil {
+		return nil, fmt.Errorf("data.fact: %w", err)
+	}
+	return data, nil
 }
 
 // parseTxtar parses a txtar archive into a template data map. See

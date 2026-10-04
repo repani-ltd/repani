@@ -29,6 +29,14 @@ type TTFont struct {
 	kern *kern // GPOS pair kerning; nil when the font has none
 }
 
+// The font descriptor flags a face sets (PDF 32000-1, table 123),
+// read from its own tables rather than assumed.
+const (
+	flagFixedPitch  = 1 << 0
+	flagNonsymbolic = 1 << 5
+	flagItalic      = 1 << 6
+)
+
 func readU16(b []byte, off int) uint16   { return binary.BigEndian.Uint16(b[off:]) }
 func readI16(b []byte, off int) int16    { return int16(binary.BigEndian.Uint16(b[off:])) }
 func readU32(b []byte, off int) uint32   { return binary.BigEndian.Uint32(b[off:]) }
@@ -89,7 +97,7 @@ func Parse(raw []byte) (font *TTFont, err error) {
 		return tableGet(raw, tables, tag)
 	}
 
-	font = &TTFont{Flags: 33, StemV: 80}
+	font = &TTFont{Flags: flagNonsymbolic, StemV: 80}
 
 	// head
 	head, err := get("head")
@@ -121,8 +129,14 @@ func Parse(raw []byte) (font *TTFont, err error) {
 	}
 
 	// post
-	if post, err := get("post"); err == nil && len(post) >= 8 {
+	if post, err := get("post"); err == nil && len(post) >= 16 {
 		font.ItalicAngle = float64(readI16(post, 4)) + float64(readU16(post, 6))/65536.0
+		if readU32(post, 12) != 0 { // isFixedPitch
+			font.Flags |= flagFixedPitch
+		}
+		if font.ItalicAngle != 0 {
+			font.Flags |= flagItalic
+		}
 	}
 
 	// cmap — parse full character map

@@ -130,7 +130,7 @@ func htmlPage(archive, page string) ([]byte, error) {
 	if factSrc != nil {
 		facts, err = bindFacts(factSrc)
 		if err != nil {
-			return nil, fmt.Errorf("data.fact: %w", err)
+			return nil, err
 		}
 	}
 	if docIsTmpl {

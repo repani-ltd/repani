@@ -19,6 +19,30 @@ func loadMono(t *testing.T) *TTFont {
 	return f
 }
 
+func TestDescriptorFlags(t *testing.T) {
+	// Each face declares what it is: the mono faces fixed-pitch, Fira
+	// Sans proportional, its italic italic; all nonsymbolic.
+	for file, want := range map[string]int{
+		"JuliaMono-Regular.ttf": flagFixedPitch | flagNonsymbolic,
+		"JuliaMono-Bold.ttf":    flagFixedPitch | flagNonsymbolic,
+		"FiraSans-Regular.ttf":  flagNonsymbolic,
+		"FiraSans-Bold.ttf":     flagNonsymbolic,
+		"FiraSans-Italic.ttf":   flagNonsymbolic | flagItalic,
+	} {
+		raw, err := os.ReadFile("../fonts/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.Flags != want {
+			t.Errorf("%s: flags %b, want %b", file, f.Flags, want)
+		}
+	}
+}
+
 func TestParseMono(t *testing.T) {
 	f := loadMono(t)
 	if f.PostScriptName != "JuliaMono-Regular" {
