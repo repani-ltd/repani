@@ -34,93 +34,19 @@ shaped by the TrueType case alone until then.
 
 # Elsewhere
 
-.term raster is due a second design, not a list of fixes
-RASTER.t is dated 2026-09-14 and is not frozen, so the window for
-everything below is open now and shut after. A session on
-2026-09-16 turned up enough interacting questions in both halves
-of the format that they are one decision rather than a queue.
-In the binary:
-.item The width. Forty is fixed in the spec and "a second width
-is a second format", but the record's length field is six bits
-and already admits 63, so a wider board costs no byte. Real
-boards run wider; Milan Centrale's more informative ones are
-near 60. The choice is one fixed number or none at all, the
-width declared by the enclosing format as the row count already
-is.
-.item Canonical bytes are not an update; its own term below.
-.item A blank cell has two byte forms, 0x00 unwritten and 0x20
-filled, so one picture has two encodings, and a blank cell's
-foreground is encoded but immaterial. Normalising both is the
-difference between promising that identical content gives
-identical bytes and promising that identical appearance does.
-.item An unassigned glyph counts as written and extends a row's
-length. Right, and unsaid.
-.item The reader accepts any stream, and the canonical rules
-bind the writer only. Unsaid.
-In the source:
-.item A bare .fill in an alias body, used where a column is
-pending, makes a wrong raster three different ways and never
-errors: after .at 0 10 it paints the whole row, and after .col
-10 or .col 0 the body splits across two rows, leaving a stray
-painted bar. A body carrying .fill owns its row, and the use
-should be refused.
-.item Right-trimming and .fill were both examined and both
-hold. Trailing spaces are the one construct that is potent and
-invisible, the toolchain deletes them (core.whitespace carries
-trailing-space and fix), and a banner of literal spaces cannot
-follow a width that moves. What is worth reopening is .fill's
-four bare positional numbers, the least legible thing in the
-language.
-.item Edge-relative placement, a centred run, is justified only
-if the width stops being fixed, and then only for what an alias
-body cannot express, since a generating tool computes its own
-positions. Aliases do expand at non-zero columns, so the case is
-real.
-.item Scrolling a field too long for its column, which is what
-real boards do instead of truncating, needs nothing from the
-format: the layer above precompiles the window positions and
-sends each as a whole row. That layer does not exist; tessera is
-in the attic.
-Trigger: ratification of the width, which is the decision the
-rest hang from, and which must come before RASTER.t freezes.
-
-.term canonical bytes are not an update: the stale row
-Bytes omits blank rows (RASTER.t, "Rows"), so a raster's
-canonical bytes are correct only against an empty raster. Fold
-them onto a receiver holding an earlier version and every row
-the new version blanked keeps its old content, silently: a
-withdrawn delay notice stays on the board until something else
-writes that row. Measured 2026-09-16 on two sources one row
-apart, where the second's bytes are the first's minus row 1
-rather than the first's plus a clear, so row 1 survives the
-fold. The zero-length record is the only way to clear a row and
-nothing in the tree emits one, so the update model the spec
-states -- a producer sends the rows it owns, whole, and a reader
-replaces them -- has no producer.
-Two resolutions. Either the producer holds its previous raster
-and emits a stream by comparison, so clearing is its
-responsibility and the format is untouched; or the format states
-that an update is taken against a known prior raster, and the
-package grows the call that makes one. Recommendation: the
-first, with a line in RASTER.t saying canonical bytes are a
-snapshot and not an update, since it keeps "nothing above the
-row is defined here" true and costs the format nothing.
-Trigger: before the first raster goes out over quietcasting, or
-before any second consumer folds a stream.
-
 .term quietcasting binding of raster
-Raster's row record (RASTER.t, "Rows": up to 82 bytes, a row
-whole) is the unit the radio carries, unchanged: a slot holds
-whole records, packed first-fit by a scheduler, and a receiver
-folds every slot's records in slot order, a replaced slot
-clearing the rows it no longer carries. On the trial 40-column
-boards a departures screen packs into seven 238-byte slots and
-a weather screen into eight, so a sixteen-slot carousel carries
-two screens. Open: which rows a station carries (a screen is 24
-rows; the row index has room for ten), a row published in two
-slots (a publisher error, or slot order decides), and whether a
-compact per-row body (glyphs then ink runs) is ever wanted; it
-is not now. Tessera, the former binding, is in the attic
+Raster's records (RASTER.t, "Records": a row record whole, and the
+row count) are the unit the radio carries, unchanged: a slot
+holds whole records, packed first-fit by a scheduler, and a
+receiver applies every slot's records in slot order, a station
+sending whole pages (FF 00, rows, FF H) so a receiver holding
+anything is correct. The slot counts measured on 2026-09-14 --
+a departures screen in seven 238-byte slots, a weather screen in
+eight -- were for the first raster's row record and are to be
+measured again for this one. Open: which rows a station carries,
+a row published in two slots (a publisher error, or slot order
+decides), and how a whole page spans slots without a receiver
+showing half of one. Tessera, the former binding, is in the attic
 (~/repos/_attic/tessera, 2026-09-14). Trigger: the first raster
 to go out over quietcasting.
 .term pictograms redrawn from Noto Sans Symbols

@@ -56,9 +56,6 @@ DESIGN.t §10):
   formatting of `repani.com/typeset/format`, `cells` over tab, and
   `table`), and `Render`, which parses its output before returning
   it, so a generator never ships an invalid document.
-- `cell` -- the cell writer: a document set on a raster page
-  (`repani.com/typeset/raster`), flowed into columns across panels,
-  inked through a vocabulary of raster aliases an app may replace.
 - `pdf` -- PDF primitives and the embedded Fira faces.
 - `cmd/pica` -- the CLI, a thin flag surface over all of it.
 

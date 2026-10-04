@@ -962,7 +962,13 @@ import graph: format knows no language, desk knows pica, and a
 writer that wants no templates imports format and tab and nothing
 of pica.
 
-# 15. The cell writer (decided 2026-09-05)
+# 15. The cell writer (decided 2026-09-05, retired 2026-10-04)
+
+Retired with the first raster it wrote to: both are in the attic,
+`~/repos/_attic/pica-cell` and `~/repos/_attic/raster`. The raster
+that replaced it is rows of segments (repani/typeset/raster,
+RASTER.t); a writer setting pica documents on it waits for a
+consumer. The record below is kept as the history of the first.
 
 Driver: publishing pica documents as raster pages (the notice
 board, tessera, the static tree of PUBLISH.t in repani-lab), where

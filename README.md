@@ -16,13 +16,15 @@ directory is one project; its import path is `repani.com/<dir>/...`.
              decimal point); `typeset/format`, values as the house writes them
              (a number rounded or to places, a string cut or padded
              in runes, a time as HH:MM, a date as "Mon 02", a
-             duration in its largest unit)
-             `typeset/raster`, rows of colored text cells, forty
-             wide: cell table, an ink per cell, a row record of up
-             to 82 bytes as the unit of storage and update, an
-             authoring language with aliases, links as bracketed
-             spans, text/ANSI/HTML renderers, a JavaScript reader
-             and the `raster` CLI (`typeset/raster/cmd/raster`)
+             duration in its largest unit);
+             `typeset/wrap`, line breaking: Knuth-Plass with
+             Knuth-Liang hyphenation, English and Greek;
+             `typeset/tbl`, the table language pica and board
+             share (`SPEC.t`); `typeset/raster`, rows of forty
+             columns, each row a record of segments -- stretches
+             in one foreground, one background and a link target
+             or none -- and a role, plus a row count, applied in
+             order to a page (`RASTER.t`; renderers to come)
 - `trudge/` -- trudge1, a simple memory-hard KDF on Ascon-XOF128
              (256 MiB pool, 2^24-step walk; spec in `trudge/SPEC.t`)
 
