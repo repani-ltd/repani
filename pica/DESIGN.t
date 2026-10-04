@@ -1188,4 +1188,45 @@ Verified as §16 was: 255 outputs, one changed -- a corpus table
 cell, `headerless` in four columns, once `head` / `erle` / `ss`, is
 now `head` / `er-` / `less`.
 
+# 18. Tables are tbl's (decided 2026-10-04)
+
+Driver: one table language for pica and board
+(repani.com/typeset/tbl, its SPEC.t). Pica parses a .table with
+tbl's full format and row grammar and lays it out with tbl's
+Layout and Grid; what stays here is what tbl leaves to a host.
+
+.item THE LANGUAGE CHANGES IN THREE PLACES. The header is marked,
+"^", and must be the first row; the "-" headerless marker is gone
+(a table without "^" is headerless). A short row's last cell spans
+the remaining columns, where it once left them blank; a row with
+more cells than columns is an error, where its extras were
+dropped. And the S column joins its left neighbour. The leading
+width is tbl's narrowing, the same rule as before.
+.item WHAT PICA REFUSES, as errors at the row: colours and links
+(a row code, a column code, a ":" or "@" mark) -- pica sets
+neither; blank lines and "---" rule rows inside a table, which it
+once skipped silently; a header after the first row; and, from
+tbl, a note with no row above it.
+.item WHAT STAYS PICA'S: the header rule and the total rule; note
+rows on the half-size grid, re-wrapped in their boxes (a box's
+half-grid span is its full-grid span doubled); prose cells and
+header labels measured in a proportional face, now per box --
+TableLayout's RowProse and HeaderProse are ProseCells, each with
+its box and alignment, and ProseCols is gone; HTML, which now
+writes a colspan for a box over several columns.
+.item Every refusal wraps ErrBadAttr and the error that names it,
+tbl's with the column in its line.
+
+Migrated mechanically: 172 tables in 34 documents gained "^" on
+their header row; the generators that write .table (desk's table
+helper, hosa's eval report, a qcrun test and the templates in
+quietcasting-editors and football_manager) likewise. The
+pica-forth experiment is left as it was: its corpus is the old
+pica's, regenerated from an oracle binary. Verified by rendering
+every document before and after: of 263 outputs, the changes are
+the pica-forth ones and two documents -- gist's one-cell notes now
+span the table instead of wrapping in its first column, and one
+table whose spec had an unused auto column was given four columns
+for its four cells.
+
 .font sans

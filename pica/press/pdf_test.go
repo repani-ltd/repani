@@ -16,7 +16,7 @@ func TestPDFEndToEnd(t *testing.T) {
 		b.WriteString(strings.Repeat("The quick brown fox jumps over the lazy dog and keeps running through the sunlit meadow. ", 3))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(".table 6L *L 4R\nDay | Conditions | Temp\nMon | Sunny with a strengthening westerly breeze | 25\nTue | Cloudy | 22\n.end\n")
+	b.WriteString(".table 6L *L 4R\n^Day | Conditions | Temp\nMon | Sunny with a strengthening westerly breeze | 25\nTue | Cloudy | 22\n.end\n")
 
 	doc, err := pica.Parse(b.String())
 	if err != nil {
@@ -62,7 +62,7 @@ func TestPDF_DerivedSizeFloor(t *testing.T) {
 func TestPDF_Sans(t *testing.T) {
 	src := "The Daily Fable\n\n# Weather\n\n" +
 		strings.Repeat("The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow. ", 6) +
-		"\n\n.table 10L 6R\nCity | Temp\nAthens | 31\nNicosia | 34\n.end\n\n.link https://example.com Example\n\n.width 40\n.cols 2\n.font sans\n"
+		"\n\n.table 10L 6R\n^City | Temp\nAthens | 31\nNicosia | 34\n.end\n\n.link https://example.com Example\n\n.width 40\n.cols 2\n.font sans\n"
 	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)

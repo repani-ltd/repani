@@ -191,11 +191,11 @@ func cells(spec string, width int, rows any, fields ...string) ([][]string, erro
 //
 //	{{table "9L 9L 5L" "Spot | When | Level" .Tides "Spot" "When" "Kind"}}
 //
-// spec passes through verbatim (including a fixed width or the
-// headerless "-" marker); header is the header row, or "" to emit
-// none (pair with a "-" spec). rows must be a slice of objects; each
-// cell is the named field formatted with %v (Rows). A missing field
-// or a non-object row is an error -- never a silently blank cell.
+// spec passes through verbatim (including a narrowing width); header
+// is the header row, which the helper marks "^", or "" to emit none.
+// rows must be a slice of objects; each cell is the named field
+// formatted with %v (Rows). A missing field or a non-object row is an
+// error -- never a silently blank cell.
 func table(spec, header string, rows any, fields ...string) (string, error) {
 	data, err := Rows(rows, fields...)
 	if err != nil {
@@ -206,6 +206,7 @@ func table(spec, header string, rows any, fields ...string) (string, error) {
 	b.WriteString(spec)
 	b.WriteString("\n")
 	if header != "" {
+		b.WriteString("^")
 		b.WriteString(header)
 		b.WriteString("\n")
 	}

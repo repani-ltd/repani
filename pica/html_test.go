@@ -30,13 +30,14 @@ func TestHTML(t *testing.T) {
 		".attrib Who",
 		".end",
 		".table 20 10L 8N",
-		"name | amount",
+		"^name | amount",
 		".. | eur",
 		"a | 1.50",
 		"= total | 1.50",
 		".end",
-		".table - 8L 8L",
+		".table 8L 8L",
 		"only | data",
+		"wide",
 		".end",
 		".width 60",
 	}, "\n") + "\n"
@@ -60,6 +61,7 @@ func TestHTML(t *testing.T) {
 		`<tr class="note"><td></td><td style="text-align:right">eur</td></tr>`,
 		`<tr><td>a</td><td style="text-align:right">1.50</td></tr>`,
 		`<tr class="total"><td>total</td><td style="text-align:right">1.50</td></tr>`,
+		`<tr><td colspan="2">wide</td></tr>`,
 		"<footer>(c) Repani</footer>\n</article>\n",
 	} {
 		if !strings.Contains(out, want) {

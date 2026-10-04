@@ -52,7 +52,7 @@ ordinary GET route that the mux matches like any other.
 # Defaults
 
 .table 64 22L 12R 28P
-  Bound | Default | Why
+  ^Bound | Default | Why
   ReadHeaderTimeout | 5s | A slowloris costs the attacker nothing
   ReadTimeout | 30s | No kiosk request has a body
   WriteTimeout | 30s | Nothing here streams
@@ -69,7 +69,7 @@ carry different bytes at that URL, and exactly one file changes in
 place.
 
 .table 64 10L 30L 22P
-  Policy | Header | For
+  ^Policy | Header | For
   Immutable | public, max-age=31536000, immutable | A content-named file
   Revalidate | no-cache | The manifest; any URL that outlives its bytes
   NoStore | no-store | Errors, health, anything a shared cache must not hold

@@ -34,7 +34,7 @@ Morison would have recognized everything on this page except the machine. The qu
 The table below is a glossary of the words this document keeps using. It is deliberately longer than a column, so somewhere below, the flow will cut it at a row boundary and continue it at the top of the next column. Watch what happens at the cut: the header row travels with the continuation. A reader entering the table mid-stream is never asked to remember what the columns meant.
 
 .table 9L *L
-Term | Meaning
+^Term | Meaning
 em | the point size squared; the unit of horizontal measure
 measure | the width of a line of type, here one column
 slack | the difference between a line's natural and set width
@@ -128,7 +128,7 @@ The ledger and the glossary are both drawn in Fira Mono at the size where the do
 Three of the table's tricks are newer than the rest of this page, and one small table shows them all. A column typed N aligns every cell on the decimal point, and an accounting negative in parentheses hangs its closing paren in a reserved slot so the digits above and below stay in rank. A row opening with two dots hangs a half-size note under the row before it, set at half the leading with twice the character budget. And a row opening with an equals sign closes the table in bold beneath a rule. The heading over this very paragraph is a fourth trick: a subsection, marked with a doubled hash and set at its own scale between the section heads and the body.
 
 .table 12L *N
-Run | Cost
+^Run | Cost
 .. | eur per plate impression
 morning | 1,240.00
 weekend | 2,180.50

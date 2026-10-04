@@ -136,41 +136,43 @@ func groups(f Format) [][2]int {
 	return gs
 }
 
-// box is one cell's place: its first and last column, and whether it
-// is a single column, which alone takes an N column's metrics.
-type box struct {
-	first, last int
-	single      bool
-}
+// Box is where one cell of a row goes: its first and last format
+// column, the gaps between them inside it.
+type Box struct{ First, Last int }
 
-// boxes returns the boxes of a row of n cells under f: cell i fills
-// group i, and the last cell of a short row runs to the last column.
-func boxes(f Format, n int) []box {
+// single reports whether b is one column, which alone takes an N
+// column's metrics.
+func (b Box) single() bool { return b.First == b.Last }
+
+// Boxes returns the boxes of a row of n cells under f, at most its
+// groups: cell i fills group i, and the last cell of a short row runs
+// to the last column.
+func (f Format) Boxes(n int) []Box {
 	gs := groups(f)
-	out := make([]box, n)
+	out := make([]Box, n)
 	for i := range n {
 		first, last := gs[i][0], gs[i][1]
 		if i == n-1 {
 			last = len(f.Cols) - 1
 		}
-		out[i] = box{first, last, first == last}
+		out[i] = Box{first, last}
 	}
 	return out
 }
 
-// Layout lays the table out on a measure: board's 40, a document's
-// width for pica.
-func (t *Table) Layout(measure int) ([]LaidRow, error) {
+// Grid fits the table's columns to a measure and gathers the N
+// columns' decimal metrics, over the single boxes of data and total
+// rows under a format where the column is N: the grid every row is
+// laid out on. A host that draws numbers itself -- anchored on the
+// point in a proportional face -- reads its N geometry here.
+func (t *Table) Grid(measure int) (*tab.Grid, error) {
 	if len(t.entries) == 0 {
-		return nil, nil
+		return nil, errors.New("tbl: a table with no rows has no grid")
 	}
 	spans, err := fit(t.entries[0].fm, measure)
 	if err != nil {
 		return nil, err
 	}
-
-	// The N columns' decimal metrics, over the single boxes of data
-	// and total rows under a format where the column is N.
 	tcols := make([]tab.Col, len(spans))
 	for i, s := range spans {
 		tcols[i] = tab.Col{Width: s.end - s.start, Align: 'L'}
@@ -186,13 +188,27 @@ func (t *Table) Layout(measure int) ([]LaidRow, error) {
 			continue
 		}
 		cells := make([]string, len(spans))
-		for i, b := range boxes(e.fm, len(e.row.Cells)) {
-			if b.single && e.fm.Cols[b.first].Align == 'N' {
-				cells[b.first] = e.row.Cells[i].Text
+		for i, b := range e.fm.Boxes(len(e.row.Cells)) {
+			if b.single() && e.fm.Cols[b.First].Align == 'N' {
+				cells[b.First] = e.row.Cells[i].Text
 			}
 		}
 		grid.Measure(cells)
 	}
+	return grid, nil
+}
+
+// Layout lays the table out on a measure: board's 40, a document's
+// width for pica.
+func (t *Table) Layout(measure int) ([]LaidRow, error) {
+	if len(t.entries) == 0 {
+		return nil, nil
+	}
+	grid, err := t.Grid(measure)
+	if err != nil {
+		return nil, err
+	}
+	spans := grid.Spans()
 
 	out := make([]LaidRow, len(t.entries))
 	for k, e := range t.entries {
@@ -213,17 +229,17 @@ func (t *Table) Layout(measure int) ([]LaidRow, error) {
 }
 
 // layRow lays one data row out as lines of boxes.
-func layRow(f Format, r Row, spans []span, grid *tab.Grid) [][]Placed {
-	bs := boxes(f, len(r.Cells))
+func layRow(f Format, r Row, spans []tab.Span, grid *tab.Grid) [][]Placed {
+	bs := f.Boxes(len(r.Cells))
 	stacks := make([][]string, len(bs))
 	height := 1
 	for i, b := range bs {
-		col := f.Cols[b.first]
-		w := spans[b.last].end - spans[b.first].start
+		col := f.Cols[b.First]
+		w := spans[b.Last].End - spans[b.First].Start
 		text := r.Cells[i].Text
 		switch {
-		case col.Align == 'N' && b.single:
-			stacks[i] = []string{grid.Cell(b.first, text)}
+		case col.Align == 'N' && b.single():
+			stacks[i] = []string{grid.Cell(b.First, text)}
 		case col.Align == 'N':
 			stacks[i] = []string{pad(cut(text, w), w, 'R')}
 		case col.Clip:
@@ -240,10 +256,10 @@ func layRow(f Format, r Row, spans []span, grid *tab.Grid) [][]Placed {
 		line := make([]Placed, len(bs))
 		for i, b := range bs {
 			c := r.Cells[i]
-			code := c.Code.Over(f.Row.Over(f.Cols[b.first].Code))
+			code := c.Code.Over(f.Row.Over(f.Cols[b.First].Code))
 			p := Placed{
-				Start:  spans[b.first].start,
-				End:    spans[b.last].end,
+				Start:  spans[b.First].Start,
+				End:    spans[b.Last].End,
 				FG:     code.FG,
 				BG:     code.BG,
 				Target: c.Target,

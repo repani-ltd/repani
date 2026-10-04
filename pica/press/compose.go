@@ -679,13 +679,13 @@ func attachProse(rowLines []sline, tl *pica.TableLayout, j int) {
 		return
 	}
 	m := pdf.Measure(pdf.Sans)
-	for k, lines := range tl.RowProse[j] {
-		for h, ln := range lines {
+	for _, pc := range tl.RowProse[j] {
+		for h, ln := range pc.Lines {
 			if h >= len(rowLines) {
 				break
 			}
 			rowLines[h].prose = append(rowLines[h].prose, proseSpan{
-				off:   tl.ProseCols[k].Start * runeUnits,
+				off:   pc.Box.Start * runeUnits,
 				words: ln.Words,
 				gaps:  spread(ln, 0, m, true),
 			})
@@ -694,23 +694,22 @@ func attachProse(rowLines []sline, tl *pica.TableLayout, j int) {
 }
 
 // attachHeaderProse hangs the measured header labels onto the
-// header slines, honoring each column's alignment: N and R labels
-// right-align at the column's end, C centers, L and P sit at the
-// column start — so a numeric column's label hangs over its
-// numbers.
+// header slines, honoring each box's alignment: N and R labels
+// right-align at the box's end, C centers, L and P sit at the box's
+// start — so a numeric column's label hangs over its numbers.
 func attachHeaderProse(headLines []sline, tl *pica.TableLayout) {
 	if tl.HeaderProse == nil {
 		return
 	}
 	m := pdf.Measure(pdf.SansBold)
-	for c, lines := range tl.HeaderProse {
-		col := tl.Cols[c]
-		for h, ln := range lines {
+	for _, pc := range tl.HeaderProse {
+		col := pc.Box
+		for h, ln := range pc.Lines {
 			if h >= len(headLines) {
 				break
 			}
 			off := col.Start * runeUnits
-			switch tl.Aligns[c] {
+			switch pc.Align {
 			case 'N', 'R':
 				off = col.End*runeUnits - ln.Width
 			case 'C':

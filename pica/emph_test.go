@@ -107,7 +107,7 @@ func TestEmphasisOnlyInProse(t *testing.T) {
 	// Underscores outside flowing prose are characters: the same
 	// would-be-unclosed pattern parses cleanly in a heading, a
 	// table cell, and a .pre body.
-	src := "Title\n\n# the _open heading\n\n.pre\nlit _open here\n.end\n\n.table 8L 8L\nlit _open | b\n.end\n"
+	src := "Title\n\n# the _open heading\n\n.pre\nlit _open here\n.end\n\n.table 8L 8L\n^lit _open | b\n.end\n"
 	if _, err := Parse(src); err != nil {
 		t.Fatalf("Parse: %v", err)
 	}

@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
+
+	"repani.com/typeset/tbl"
 )
 
 // BlockKind classifies a Doc block.
@@ -366,7 +369,11 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		blk, err := parseTableBlock(rest, body, n)
+		col := 1
+		if at := strings.LastIndex(lines[i], rest); rest != "" && at >= 0 {
+			col = utf8.RuneCountInString(lines[i][:at]) + 1
+		}
+		blk, err := parseTableBlock(rest, col, body, n)
 		if err != nil {
 			return 0, err
 		}
@@ -528,73 +535,41 @@ func collectUntilEnd(lines []string, open int, kind string) ([]string, int, erro
 	return nil, 0, fmt.Errorf("%w: %s opened at line %d", ErrUnterminatedBlock, kind, open+1)
 }
 
-// parseTableBlock builds a TableBlk from a .table spec (with
-// optional leading fixed width, then an optional "-" for a
-// headerless table) and its |-separated rows. Unless "-" is given,
-// the first non-empty row is the header. A table with neither
-// header nor rows is an error, like an empty .quote.
-func parseTableBlock(spec string, body []string, atLine int) (Block, error) {
-	fixed := 0
-	spec = strings.Join(strings.Fields(spec), " ")
-	first, rest, _ := strings.Cut(spec, " ")
-	if w, err := strconv.Atoi(first); err == nil {
-		if w < 1 {
-			return Block{}, fmt.Errorf("%w: .table width %q: want a positive integer (line %d)", ErrBadAttr, first, atLine)
-		}
-		if rest == "" {
-			return Block{}, fmt.Errorf("%w: .table %s: width but no column spec (line %d)", ErrBadAttr, first, atLine)
-		}
-		fixed = w
-		spec = rest
-	}
-	header := true
-	if rest, ok := strings.CutPrefix(spec, "- "); ok {
-		header = false
-		spec = rest
-	}
-	tbl, err := NewTable(spec)
+// parseTableBlock builds a TableBlk from a .table spec -- tbl's full
+// format, starting at column specCol of its line -- and its rows, in
+// tbl's row grammar: "^" a header, "=" a total, ".." a note. A table
+// with no rows is an error, like an empty .quote. Every refusal wraps
+// ErrBadAttr and the error that names it.
+func parseTableBlock(spec string, specCol int, body []string, atLine int) (Block, error) {
+	t, err := NewTable(spec)
 	if err != nil {
-		return Block{}, fmt.Errorf("%w (line %d)", err, atLine)
+		return Block{}, fmt.Errorf("%w: %w (line %d)", ErrBadAttr, errAtCol(err, specCol), atLine)
 	}
-	for _, line := range body {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
+	for i, line := range body {
+		r, err := tbl.ParseRow(line, 1)
+		if err == nil {
+			err = t.add(r)
 		}
-		// A ".." row is a half-size note annotating the row above
-		// (the header, when no data row precedes it); a "=" row is
-		// a total row, bold under a rule. Neither ever becomes the
-		// header itself.
-		if rest, ok := strings.CutPrefix(trimmed, ".."); ok {
-			tbl.Note(splitCells(rest)...)
-			continue
-		}
-		if rest, ok := strings.CutPrefix(trimmed, "="); ok {
-			tbl.Total(splitCells(rest)...)
-			continue
-		}
-		cells := splitCells(trimmed)
-		if header {
-			tbl.Header(cells...)
-			header = false
-		} else {
-			tbl.Row(cells...)
+		if err != nil {
+			return Block{}, fmt.Errorf("%w: %w (line %d)", ErrBadAttr, err, atLine+1+i)
 		}
 	}
-	if tbl.header == nil && len(tbl.rows) == 0 {
+	if len(t.rows) == 0 {
 		return Block{}, fmt.Errorf("%w: empty .table (line %d)", ErrBadAttr, atLine)
 	}
-	return Block{Kind: TableBlk, Table: tbl, Width: fixed}, nil
+	return Block{Kind: TableBlk, Table: t, Width: t.Narrow()}, nil
 }
 
-// splitCells splits a table row by "|" and trims each cell.
-func splitCells(line string) []string {
-	parts := strings.Split(line, "|")
-	out := make([]string, len(parts))
-	for i, p := range parts {
-		out[i] = strings.TrimSpace(p)
+// errAtCol moves a tbl error found in a spec parsed from column 1 to
+// the spec's column in its line.
+func errAtCol(err error, col int) error {
+	var e *tbl.Error
+	if errors.As(err, &e) {
+		moved := *e
+		moved.Col += col - 1
+		return &moved
 	}
-	return out
+	return err
 }
 
 // commandWord returns the dot command word of a trimmed line

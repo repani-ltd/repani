@@ -43,7 +43,7 @@ func TestCompose_EvenRowPitch(t *testing.T) {
 	// All notes fit one half-line: every data row is padded to the
 	// same 3-unit pitch; the total row stays unpadded under its
 	// rule.
-	src := "T\n\n.table 6L 5N\nClient | Amt\nAlpha | 1.00\n.. custody |\nBeta | 2.00\n= Total | 3.00\n.end\n\n.width 30\n"
+	src := "T\n\n.table 6L 5N\n^Client | Amt\nAlpha | 1.00\n.. custody |\nBeta | 2.00\n= Total | 3.00\n.end\n\n.width 30\n"
 	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestCompose_EvenRowPitch(t *testing.T) {
 
 	// A wrapping note switches the table back to variable heights:
 	// no padding anywhere.
-	src = "T\n\n.table 6L 5N\nClient | Amt\nAlpha | 1.00\n.. a very long custody annotation that wraps |\nBeta | 2.00\n.end\n\n.width 30\n"
+	src = "T\n\n.table 6L 5N\n^Client | Amt\nAlpha | 1.00\n.. a very long custody annotation that wraps |\nBeta | 2.00\n.end\n\n.width 30\n"
 	doc, err = pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestCompose_ProseCells(t *testing.T) {
 	// In a sans document a P cell's measured lines attach to the
 	// row's slines as positioned spans at the column's grid offset,
 	// and the mono text reserves the space blank.
-	src := "T\n\n.table 6L *P\nkey | meaning\nem | the point size squared, the unit of horizontal measure\n.end\n\n.width 30\n.font sans\n"
+	src := "T\n\n.table 6L *P\n^key | meaning\nem | the point size squared, the unit of horizontal measure\n.end\n\n.width 30\n.font sans\n"
 	doc, err := pica.Parse(src)
 	if err != nil {
 		t.Fatal(err)

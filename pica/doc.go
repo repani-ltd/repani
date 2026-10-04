@@ -33,16 +33,13 @@ A document is UTF-8 text, structured by line:
 	                 man pages for fifty years, and unbounded
 	                 depth is where document structure rots
 	---              a horizontal rule (3+ dashes, nothing else)
-	.table [W] SPEC  a table block: rows follow, first row is the
-	  a | b | c      header, cells separated by "|"; ends with .end.
-	.end             W (optional) fixes the table's width in runes;
-	                 it applies only when smaller than the document
-	                 width (see Block.TableWidth). A "-" before
-	                 SPEC makes the table headerless: every row is
-	                 data, no separator rule. Rows may be marked:
-	                 "=" opens a total row, ".." a note row -- see
-	                 the Tables section. A table with no rows at
-	                 all (not even a header) is an error
+	.table [W] SPEC  a table block: rows follow, cells separated by
+	  ^a | b | c     "|"; ends with .end. W (optional) narrows the
+	  a | b | c      table to W runes when smaller than the document
+	.end             width (see Block.TableWidth). Rows may be
+	                 marked: "^" the header, which comes first; "="
+	                 a total row; ".." a note row -- see the Tables
+	                 section. A table with no rows is an error
 	.pre [N]         a verbatim block: the writer never refills it,
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a
@@ -217,11 +214,17 @@ monospace layout (the text writer ignores .font entirely).
 
 # Tables
 
-The column spec is space-separated <width><align> tokens:
+Tables are the table language pica shares with board
+(repani.com/typeset/tbl), less what pica does not set: colours,
+links, blank and "---" rows, and formats changed mid-table. The
+column spec is an optional narrowing width, then space-separated
+<width><align>[!] tokens:
 
 	width   integer rune count, or "*" to auto-fill the remainder
 	        (at most one auto column)
-	align   L = left, R = right, C = center, N = numeric: cells
+	align   L = left, R = right, C = center, S = span: the column
+	        joins the one on its left, so cells there fill both,
+	        N = numeric: cells
 	        align on the decimal point and never wrap; accounting
 	        negatives "(1.23)" reserve a trailing paren slot for
 	        the whole column, and non-numeric cells (a header,
@@ -236,28 +239,33 @@ Cells WRAP by default: overflow continues on following lines,
 other cells padded blank, and such a multi-line row is an atomic
 unit for column-splitting writers. Append "!" to a token to clip
 that column instead ("5L! 4R!"). Columns are joined by a single
-space. The header row is the table's labels: the PDF writers set
-it bold — in the body face under .font sans, honoring each
-column's alignment — over a separator rule drawn as one hairline
-segment per column (the text page keeps mono headers and its dash
-row, whose dash runs are the same segments). "|" always
-separates cells (there is no escape for a literal one), and cells
-beyond the spec's columns are dropped.
+space. "|" always separates cells (there is no escape for a
+literal one). A row with more cells than the spec has columns is
+an error; a row with fewer is a SHORT ROW, whose last cell spans
+every remaining column. A cell may not start with ":" or "@",
+the colour and link marks pica does not set.
+
+A row starting with "^" is the HEADER: the table's first row, and
+its labels. The PDF writers set it bold — in the body face under
+.font sans, honoring each cell's alignment — over a separator
+rule drawn as one hairline segment per column (the text page
+keeps mono headers and its dash row, whose dash runs are the same
+segments). A table without one is headerless.
 
 A row starting with "=" is a TOTAL ROW: formatted like a data row
 (its numbers weigh into N-column metrics) but set bold under a
 rule — a dash row in plain text, a hairline in writers whose
-medium draws real rules. There is no escape for a leading literal
-"=".
+medium draws real rules.
 
 A row starting with ".." is a NOTE ROW: an annotation attached to
-the data row above it (to the header when no data row precedes).
-Half-line writers render note cells at half the body size on half
-the leading, left-aligned under their columns with twice the rune
-budget; the plain-text writer renders them as ordinary full-size
-rows. A note never separates from its row at a column split, and
-a note row after the header travels with it when a table's header
-repeats. There is no escape for a leading literal "..".
+the row above it, the header included; a note with no row above
+is an error. Half-line writers render note cells at half the body
+size on half the leading, left-aligned in their boxes with twice
+the rune budget; the plain-text writer renders them as ordinary
+full-size rows. A note never separates from its row at a column
+split, and a note row after the header travels with it when a
+table's header repeats. There is no escape for a leading "^", "="
+or "..".
 
 # Wrapping
 

@@ -12,6 +12,8 @@ package pica
 import (
 	"html"
 	"strings"
+
+	"repani.com/typeset/tbl"
 )
 
 // HTML renders the document as an <article> fragment: <h1> title,
@@ -114,8 +116,9 @@ func splitLink(s string) (url, title string) {
 
 // htmlTable writes a table: the header row in <thead> when the table
 // has one, then data rows, total rows (class "total") and note rows
-// (class "note"); every cell carries its column's text-align. A
-// fixed width from the spec becomes max-width in ch.
+// (class "note"); every cell carries the text-align of its box's
+// first column, and a box over several columns a colspan. A fixed
+// width from the spec becomes max-width in ch.
 func htmlTable(w *strings.Builder, b Block) {
 	t := b.Table
 	open := "<table>"
@@ -123,47 +126,39 @@ func htmlTable(w *strings.Builder, b Block) {
 		open = `<table style="max-width:` + itoa(b.Width) + `ch">`
 	}
 	w.WriteString(open + "\n")
-	align := func(i int) string {
-		if i >= len(t.cols) {
-			return ""
-		}
-		switch t.cols[i].align {
-		case 'R', 'N':
-			return ` style="text-align:right"`
-		case 'C':
-			return ` style="text-align:center"`
-		}
-		return ""
-	}
-	cells := func(tag string, cs []string) {
-		w.WriteString("<tr>")
-		for i, c := range cs {
-			w.WriteString("<" + tag + align(i) + ">" + esc(c) + "</" + tag + ">")
+	row := func(i int, tag, class string) {
+		w.WriteString("<tr" + class + ">")
+		for k, bx := range t.boxes(i) {
+			attrs := ""
+			if bx.Last > bx.First {
+				attrs = ` colspan="` + itoa(bx.Last-bx.First+1) + `"`
+			}
+			switch t.fm.Cols[bx.First].Align {
+			case 'R', 'N':
+				attrs += ` style="text-align:right"`
+			case 'C':
+				attrs += ` style="text-align:center"`
+			}
+			w.WriteString("<" + tag + attrs + ">" + esc(t.rows[i].cells[k]) + "</" + tag + ">")
 		}
 		w.WriteString("</tr>\n")
 	}
-	if t.header != nil {
+	first := 0
+	if len(t.rows) > 0 && t.rows[0].role == tbl.Header {
 		w.WriteString("<thead>\n")
-		cells("th", t.header)
+		row(0, "th", "")
 		w.WriteString("</thead>\n")
+		first = 1
 	}
 	w.WriteString("<tbody>\n")
-	for _, r := range t.rows {
-		switch {
-		case r.total:
-			w.WriteString(`<tr class="total">`)
-			for i, c := range r.cells {
-				w.WriteString("<td" + align(i) + ">" + esc(c) + "</td>")
-			}
-			w.WriteString("</tr>\n")
-		case r.note:
-			w.WriteString(`<tr class="note">`)
-			for i, c := range r.cells {
-				w.WriteString("<td" + align(i) + ">" + esc(c) + "</td>")
-			}
-			w.WriteString("</tr>\n")
+	for i := first; i < len(t.rows); i++ {
+		switch t.rows[i].role {
+		case tbl.Total:
+			row(i, "td", ` class="total"`)
+		case tbl.Note:
+			row(i, "td", ` class="note"`)
 		default:
-			cells("td", r.cells)
+			row(i, "td", "")
 		}
 	}
 	w.WriteString("</tbody>\n</table>\n")

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"repani.com/typeset/tbl"
 )
 
 func mustParse(t *testing.T, src string) *Doc {
@@ -270,7 +272,7 @@ func TestParse_Link(t *testing.T) {
 }
 
 func TestParse_TableHeaderless(t *testing.T) {
-	d := mustParse(t, "T\n\n.table - 6L 3C *R\nAPOEL | 2-1 | AEL\nAEK | 0-0 | Omonoia\n.end\n")
+	d := mustParse(t, "T\n\n.table 6L 3C *R\nAPOEL | 2-1 | AEL\nAEK | 0-0 | Omonoia\n.end\n")
 	out, err := d.Text()
 	if err != nil {
 		t.Fatal(err)
@@ -294,9 +296,8 @@ func TestParse_TableHeaderless(t *testing.T) {
 		t.Error("expected error for ### heading")
 	}
 
-	// Note rows: ".." annotates the row above; before any data row
-	// it annotates the header, and it never becomes the header.
-	dn := mustParse(t, "T\n\n.table 6L 5N\nClient | Amt\n.. | eur\nAlpha | 12.50\n.. broker |\n.end\n")
+	// Note rows: ".." annotates the row above, the header included.
+	dn := mustParse(t, "T\n\n.table 6L 5N\n^Client | Amt\n.. | eur\nAlpha | 12.50\n.. broker |\n.end\n")
 	tln, err := dn.Blocks[0].Table.Layout(12)
 	if err != nil {
 		t.Fatal(err)
@@ -305,10 +306,43 @@ func TestParse_TableHeaderless(t *testing.T) {
 		t.Errorf("note layout = %+v", tln)
 	}
 
-	// Width variant: ".table 30 - SPEC".
-	d2 := mustParse(t, "T\n\n.table 30 - 6L *R\nA | 1\n.end\n")
+	// Width variant: ".table 30 SPEC", tbl's narrowing.
+	d2 := mustParse(t, "T\n\n.table 30 6L *R\nA | 1\n.end\n")
 	if d2.Blocks[0].Width != 30 {
-		t.Errorf("fixed width lost with headerless marker")
+		t.Errorf("fixed width lost")
+	}
+}
+
+func TestParse_TableRows(t *testing.T) {
+	// A header comes first; blank and rule rows, colours and links
+	// are not pica's; a short row's last cell spans.
+	for _, tc := range []struct {
+		src  string
+		want error
+	}{
+		{"a | b\n^h | h", ErrTableHeader},
+		{"a | b\n\nc | d", ErrTableRow},
+		{"a | b\n---", ErrTableRow},
+		{":r a | b", ErrTableColour},
+		{"@https://x.example a | b", ErrTableColour},
+		{"a | b | c", tbl.ErrCells},
+		{".. a note first", tbl.ErrNote},
+	} {
+		_, err := Parse("T\n\n.table 4L 4L\n" + tc.src + "\n.end\n")
+		if !errors.Is(err, tc.want) || !errors.Is(err, ErrBadAttr) {
+			t.Errorf("%q: err = %v, want %v", tc.src, err, tc.want)
+		}
+	}
+	if _, err := Parse("T\n\n.table r 4L 4L\na | b\n.end\n"); !errors.Is(err, ErrTableColour) {
+		t.Errorf("row code: err = %v", err)
+	}
+	d := mustParse(t, "T\n\n.table 4L 4L 4R\n^k | v | n\nspan across\n.end\n")
+	tl, err := d.Blocks[0].Table.Layout(20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tl.Rows[0][0]; got != "span across" {
+		t.Errorf("short row %q", got)
 	}
 }
 
@@ -526,9 +560,9 @@ func TestParse_ErrorPrecision(t *testing.T) {
 		want      error
 		msg       string
 	}{
-		{"width without spec", "T\n\n.table 3\na | b\n.end\n", ErrBadAttr, "no column spec"},
+		{"width without spec", "T\n\n.table 3\na | b\n.end\n", ErrTableRelative, "every column a width"},
 		{".end in trailer", "T\n\nBody.\n\n.width 40\n.end\n", ErrStrayEnd, ".end"},
-		{"empty table", "T\n\n.table 4L\n\n.end\n", ErrBadAttr, "empty .table"},
+		{"empty table", "T\n\n.table 4L\n.end\n", ErrBadAttr, "empty .table"},
 		{"third heading level", "T\n\n### deep\n", ErrBadAttr, "two levels"},
 		{"bad layout value", "T\n\n.cols 9\n", ErrBadAttr, "want 1-6"},
 		{"unterminated reports opener line", "T\n\n\n.quote\nwords\n", ErrUnterminatedBlock, "opened at line 4"},
@@ -545,7 +579,7 @@ func TestParse_ErrorPrecision(t *testing.T) {
 		}
 	}
 	// A header-only table is content, not empty.
-	if _, err := Parse("T\n\n.table 4L\na\n.end\n"); err != nil {
+	if _, err := Parse("T\n\n.table 4L\n^a\n.end\n"); err != nil {
 		t.Errorf("header-only table rejected: %v", err)
 	}
 }
@@ -554,7 +588,7 @@ func TestText_TableNotesAndTotalsOrder(t *testing.T) {
 	// Lines() order through the text writer: header, its notes, the
 	// separator, rows with their notes, and a total row under its
 	// own rule.
-	src := "T\n\n.table 6L 6N\nClient | Amt\n.. | eur\nAlpha | 10.00\n.. prime | \nBeta | 2.50\n= Total | 12.50\n.end\n"
+	src := "T\n\n.table 6L 6N\n^Client | Amt\n.. | eur\nAlpha | 10.00\n.. prime | \nBeta | 2.50\n= Total | 12.50\n.end\n"
 	out, err := mustParse(t, src).Text()
 	if err != nil {
 		t.Fatal(err)
@@ -631,10 +665,16 @@ func TestTabAfterCommandWord(t *testing.T) {
 	}
 }
 
-func TestTableHeaderlessMarkerSpacing(t *testing.T) {
-	for _, src := range []string{"T\n\n.table 40 - 5L\n1\n.end\n", "T\n\n.table 40  -  5L\n1\n.end\n", "T\n\n.table\t- 5L\n1\n.end\n"} {
-		if _, err := Parse(src); err != nil {
-			t.Errorf("Parse(%q): %v", src, err)
+func TestTableSpecColumn(t *testing.T) {
+	// A spec error names its column in the line, wherever the spec
+	// starts; the old headerless "-" is such an error.
+	for src, col := range map[string]string{
+		"T\n\n.table 40 - 5L\n1\n.end\n":   "column 11",
+		"T\n\n.table 40  -  5L\n1\n.end\n": "column 12",
+		"T\n\n.table\t- 5L\n1\n.end\n":     "column 8",
+	} {
+		if _, err := Parse(src); err == nil || !strings.Contains(err.Error(), col) {
+			t.Errorf("Parse(%q): %v, want %s", src, err, col)
 		}
 	}
 }
@@ -643,8 +683,8 @@ func TestTableLayoutErrorAtParse(t *testing.T) {
 	// A table that cannot fit the document width is a parse error
 	// (so pica check rejects it), with the .table line number.
 	_, err := Parse("T\n\n.table 50L 50L\na|b\nc|d\n.end\n")
-	if err == nil || !errors.Is(err, ErrTableOverflow) || !strings.Contains(err.Error(), "line 3") {
-		t.Fatalf("Parse: err=%v, want ErrTableOverflow at line 3", err)
+	if err == nil || !errors.Is(err, tbl.ErrFit) || !strings.Contains(err.Error(), "line 3") {
+		t.Fatalf("Parse: err=%v, want tbl.ErrFit at line 3", err)
 	}
 	// The same table fits once the trailer widens the page.
 	if _, err := Parse("T\n\n.table 50L 50L\na|b\nc|d\n.end\n\n.width 120\n"); err != nil {

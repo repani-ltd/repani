@@ -123,7 +123,7 @@ The datetime type (new in v0.3). A UTC point in time or a calendar date, written
 ## 4.2 Wrappers (two, non-composing)
 
 .table 8L 28L *L
-Wrapper | Meaning | Constraints
+^Wrapper | Meaning | Constraints
 T? | Optional: value may be none | T must be a base type. list(T)? is illegal — the empty list [] is the "none of lists"; two spellings of absence are forbidden
 list(T) | Ordered list, written [v1, v2, ...] | T must be a base type. list(list(T)) is illegal. Empty list [] is valid
 .end
@@ -182,7 +182,7 @@ This boundary was discovered in simulation: call-edge facts emitted as list(ref(
 # 7. Values — Syntax Summary
 
 .table 10L *L
-Type | Example value
+^Type | Example value
 bool | true
 int | 8443, -5
 float | 0.1, 1.5e-3
@@ -379,7 +379,7 @@ Items 1–5: ~100 lines of Go. Item 7: a few hundred lines. Both verified at the
 Tested and rejected (do not re-litigate without new evidence):
 
 .table 24L 16L *L
-Proposal | Verdict | Reason
+^Proposal | Verdict | Reason
 Sections ([server]) | Rejected | A line's meaning would depend on a distant header; grep hits become ambiguous
 External schema | Rejected | Two sources of truth; the annotation-as-domain property does the schema's work inline
 Type inference | Rejected | The annotation is the edit domain, not a classifier

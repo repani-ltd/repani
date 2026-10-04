@@ -189,7 +189,7 @@ fact-like skeleton of events; content is content.
 Draft codes, renumber on merge:
 
 .table 5L 22L *L
-Code | Condition | Example message
+^Code | Condition | Example message
 S001 | Id gap | stream: gap after e000000000046 (next is e000000000048)
 S002 | Id width mismatch | line 12: id "e42" does not match declared width 12
 S003 | Out-of-order event | line 30: e000000000041 after e000000000042 (append order violated)
@@ -233,7 +233,7 @@ Tested against the discussion of 2026-08-17 and rejected (do not
 re-litigate without new evidence):
 
 .table 26L 14L *L
-Proposal | Verdict | Reason
+^Proposal | Verdict | Reason
 Unresolved id operator on disk (ev:@.) | Rejected | Inter-line dependence — the original sin; sugar is CLI input only, disk is always resolved
 Event type as marker kind (put:e41) | Rejected | Sorts by type before id; destroys append-is-canonical
 Stream metadata as singletons in the stream file | Rejected | Sorts after ev:*, breaking pure append; manifest owns metadata

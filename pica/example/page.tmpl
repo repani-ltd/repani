@@ -36,14 +36,14 @@ Sunshine  {{dur .current.sunshine}} since dawn
 # 5-day Forecast
 
 .table 6L *L 4R 4R 5R
-Day | Conditions | Hi | Lo | Rain
+^Day | Conditions | Hi | Lo | Rain
 {{range .daily}}{{shortDate .date}} | {{.summary}} | {{round .hi}} | {{round .lo}} | {{round .rain}}%
 {{end}}.end
 
 # Sea
 
 .table 28 9L 6R *R
-Water | Temp | Waves
+^Water | Temp | Waves
 {{range .sea}}{{.spot}} | {{decimal .temp 1}} C | {{.wave}}
 {{end}}.end
 

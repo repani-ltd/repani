@@ -263,8 +263,8 @@ func TestTable_ProseColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tlm.ProseCols) != 1 || tlm.ProseCols[0] != (Span{Start: 5, End: 20}) {
-		t.Errorf("ProseCols = %+v", tlm.ProseCols)
+	if tlm.Aligns[1] != 'P' || tlm.Cols[1] != (Span{Start: 5, End: 20}) {
+		t.Errorf("P column %c at %+v", tlm.Aligns[1], tlm.Cols[1])
 	}
 	if tlm.RowProse[0] != nil {
 		t.Error("mono Layout must not measure prose cells")
@@ -280,7 +280,11 @@ func TestTable_ProseColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := tl.RowProse[0][0]
+	pc := tl.RowProse[0][0]
+	if pc.Box != (Span{Start: 5, End: 20}) || pc.Align != 'P' {
+		t.Errorf("prose cell %+v", pc)
+	}
+	lines := pc.Lines
 	if len(lines) == 0 {
 		t.Fatal("no measured prose lines")
 	}
@@ -490,7 +494,7 @@ func TestTable_LayoutMeasuredHeader(t *testing.T) {
 		if got := len(tl.Header); got != tc.wantHeight {
 			t.Errorf("%s: header height %d, want %d", tc.name, got, tc.wantHeight)
 		}
-		if got := len(tl.HeaderProse[0]); got != tc.wantHeight {
+		if got := len(tl.HeaderProse[0].Lines); got != tc.wantHeight {
 			t.Errorf("%s: measured lines %d, want %d", tc.name, got, tc.wantHeight)
 		}
 		for _, ln := range tl.Header {

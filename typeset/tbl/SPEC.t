@@ -42,7 +42,7 @@ fg, bg  = d | r | g | y | b | m | c | w
 .end
 
 .table 12L 8R *L
-letter | index | colour
+^letter | index | colour
 d | 0 | the theme's default
 r | 1 | red
 g | 2 | green
@@ -191,7 +191,10 @@ none: formats carry no links.
 full format, each with the resolved format it is under -- the
 MEASURE (board 40, pica its document width) and a gap of 1. It
 returns, per row, its kind, role, resolved row colours
-and lines of placed cells.
+and lines of placed cells. `Grid` returns the grid the rows are
+laid on -- each column's span and each N column's decimal metrics
+-- for a host that draws numbers itself, and `Format.Boxes` the
+first and last column of each cell of a row of n cells.
 
 .term fitting
 The width is the narrowing if set and less than the measure, else

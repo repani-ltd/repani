@@ -54,7 +54,7 @@ func TestTable_DataDriven(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := ".table 9L 9L 5L\n" +
-		"Spot | When | Level\n" +
+		"^Spot | When | Level\n" +
 		"Akrotiri | Sat 14:00 | High\n" +
 		"Kourion | Sun 06:00 | Low\n" +
 		".end"
@@ -62,12 +62,12 @@ func TestTable_DataDriven(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 
-	// Headerless: "-" spec plus empty header.
-	got, err = table("- 9L 5R", "", rows, "Spot", "Kind")
+	// Headerless: an empty header.
+	got, err = table("9L 5R", "", rows, "Spot", "Kind")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(got, "Level") || !strings.HasPrefix(got, ".table - 9L 5R\nAkrotiri") {
+	if strings.Contains(got, "Level") || !strings.HasPrefix(got, ".table 9L 5R\nAkrotiri") {
 		t.Errorf("headerless form wrong:\n%s", got)
 	}
 
