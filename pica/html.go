@@ -93,7 +93,7 @@ func htmlBlock(w *strings.Builder, b Block) {
 		}
 		w.WriteString("</pre>\n")
 	case LinkBlk:
-		url, title := splitLink(b.Text)
+		url, title := b.Text, b.Label
 		if title == "" {
 			title = url
 		}
@@ -107,12 +107,6 @@ func htmlBlock(w *strings.Builder, b Block) {
 	case TableBlk:
 		htmlTable(w, b.Table)
 	}
-}
-
-// splitLink separates a LinkBlk's "URL [TITLE]" text.
-func splitLink(s string) (url, title string) {
-	url, title, _ = strings.Cut(s, " ")
-	return url, strings.TrimSpace(title)
 }
 
 // htmlTable writes a table: the header row in <thead> when the table

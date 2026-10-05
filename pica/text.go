@@ -80,7 +80,7 @@ func renderBlock(b Block, width int) ([]string, error) {
 	case LinkBlk:
 		// Wire metadata: clients do not display it, so it is exempt
 		// from the width budget (truncation would corrupt the URL).
-		return []string{".link " + b.Text}, nil
+		return []string{strings.TrimSpace(".link " + b.Text + " " + b.Label)}, nil
 
 	case TableBlk:
 		tl, err := b.Table.Layout(width)

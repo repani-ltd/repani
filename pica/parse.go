@@ -30,8 +30,8 @@ const (
 // Block is one element of a parsed document.
 type Block struct {
 	Kind   BlockKind
-	Text   string   // Para/Quote/Item/Term: unwrapped prose. Heading: text. LinkBlk: "URL [TITLE]".
-	Label  string   // Term: the label (never empty)
+	Text   string   // Para/Quote/Item/Term: unwrapped prose. Heading: text. LinkBlk: the URL.
+	Label  string   // Term: the label (never empty). LinkBlk: the title ("" = none)
 	Attrib string   // Quote: attribution line ("" = none)
 	Table  *Table   // TableBlk
 	Lines  []string // Pre
@@ -378,7 +378,7 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 			return 0, fmt.Errorf("%w: .link wants URL [TITLE] (line %d)", ErrBadAttr, n)
 		}
 		p.flush()
-		p.add(Block{Kind: LinkBlk, Text: strings.Join(fields, " ")})
+		p.add(Block{Kind: LinkBlk, Text: fields[0], Label: strings.Join(fields[1:], " ")})
 		return i, nil
 	}
 

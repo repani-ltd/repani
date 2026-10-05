@@ -56,7 +56,7 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 				font = pdf.SansBold
 			}
 			ps := t.ps * roleScale(ln.role)
-			if ln.style == styleGray {
+			if ln.href != "" {
 				p.Gray(0.45)
 			}
 			// A run-in label (.term) sets bold at the line's left;
@@ -74,7 +74,7 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			} else {
 				drawEmphWords(p, xw, y, ps, ln)
 			}
-			if ln.style == styleGray {
+			if ln.href != "" {
 				p.Gray(0)
 			}
 			if ln.href != "" {
@@ -91,7 +91,7 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 			// rune grid, so column offsets land under their columns;
 			// heading roles scale up on their taller slots.
 			ps := t.psMono * roleScale(ln.role)
-			if ln.style == styleGray {
+			if ln.href != "" {
 				p.Gray(0.45)
 			}
 			if ln.lead != "" {
@@ -121,7 +121,7 @@ func drawColumn(p *pdf.Page, lines []sline, x, top, colW float64, t typo) {
 					p.Line(x+float64(sg.Start)*adv, uy, x+float64(sg.End)*adv, uy, ps*0.05)
 				}
 			}
-			if ln.style == styleGray {
+			if ln.href != "" {
 				p.Gray(0)
 			}
 			if ln.href != "" {

@@ -22,7 +22,6 @@ type style byte
 const (
 	styleBody style = iota
 	styleBold       // headings
-	styleGray       // link metadata
 	styleRule       // drawn as a hairline, occupies one line slot
 )
 
@@ -39,7 +38,7 @@ type sline struct {
 	gaps   []int    // len(words)-1 advances between them
 	indent int      // proportional: leading offset in em-thousandths
 	style  style
-	href   string   // non-empty: the line is a clickable link target
+	href   string   // non-empty: the line is a link, drawn gray and clickable
 	role   sizeRole // size role: body, half, heading, display
 	// ruleSegs: styleRule drawn as one hairline per column interval
 	// (table rules); empty draws the full column width.
@@ -307,16 +306,15 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 			fb.atomic = true
 
 		case pica.LinkBlk:
-			url, title, _ := strings.Cut(blk.Text, " ")
-			label := title
+			url, label := blk.Text, blk.Label
 			if label == "" {
 				label = url
 			}
 			if t.sans {
 				label = truncMeasured(label, t.units, pdf.Measure(pdf.Sans))
-				fb.segs = []seg{{lines: []sline{{words: []string{label}, style: styleGray, href: url}}}}
+				fb.segs = []seg{{lines: []sline{{words: []string{label}, href: url}}}}
 			} else {
-				fb.segs = []seg{{lines: []sline{{text: format.Trunc(label, width), style: styleGray, href: url}}}}
+				fb.segs = []seg{{lines: []sline{{text: format.Trunc(label, width), href: url}}}}
 			}
 			fb.atomic = true
 

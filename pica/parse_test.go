@@ -252,18 +252,17 @@ func TestParse_Link(t *testing.T) {
 	if len(d.Blocks) != 4 {
 		t.Fatalf("blocks = %+v", d.Blocks)
 	}
-	if d.Blocks[0].Text != "https://x.example" {
-		t.Errorf("untitled link = %q", d.Blocks[0].Text)
-	}
-	if d.Blocks[1].Text != "https://x.example News" {
-		t.Errorf("titled link = %q", d.Blocks[1].Text)
-	}
-	if d.Blocks[2].Text != "https://x.example The morning news, archived" {
-		t.Errorf("phrase-titled link = %q", d.Blocks[2].Text)
-	}
-	// First field wins: a URL-shaped title is still just a title.
-	if d.Blocks[3].Text != "https://a.example https://b.example" {
-		t.Errorf("url-shaped title = %q", d.Blocks[3].Text)
+	// The URL is the first field, the title the rest, "" for none; a
+	// URL-shaped title is still just a title.
+	for i, want := range [][2]string{
+		{"https://x.example", ""},
+		{"https://x.example", "News"},
+		{"https://x.example", "The morning news, archived"},
+		{"https://a.example", "https://b.example"},
+	} {
+		if b := d.Blocks[i]; b.Text != want[0] || b.Label != want[1] {
+			t.Errorf("link %d: url %q title %q, want %q", i, b.Text, b.Label, want)
+		}
 	}
 
 	// The URL is required.
