@@ -584,6 +584,26 @@ func TestJustifySingleRuneInTheHang(t *testing.T) {
 	}
 }
 
+func TestSuffixKeepsTheWordsPoints(t *testing.T) {
+	// A word is hyphenated once: after a break, its suffix breaks at
+	// the word's own points, shifted, not at a fresh hyphenation of
+	// the suffix -- and never two runes or fewer from its start.
+	w := newWord("responsibility", Mono, hyphen.Default, 40)
+	s := w.from(w.points[0])
+	var want []int
+	for _, p := range w.points[1:] {
+		if p-w.points[0] >= 2 {
+			want = append(want, p-w.points[0])
+		}
+	}
+	if !slices.Equal(s.points, want) || s.text != string([]rune(w.text)[w.points[0]:]) {
+		t.Errorf("suffix %q points %v, want %v (word points %v)", s.text, s.points, want, w.points)
+	}
+	if s.width != 14-w.points[0] || len(s.prefix) != len(s.points) {
+		t.Errorf("suffix measured %d wide, %d prefixes", s.width, len(s.prefix))
+	}
+}
+
 func TestSingleRuneOverflows(t *testing.T) {
 	// One rune wider than the measure cannot be broken: it sets
 	// alone, and the words around it keep their lines.

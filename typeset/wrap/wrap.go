@@ -291,16 +291,14 @@ func IsBreakingSpace(r rune) bool {
 // stay within the word's limit, the widest a line can take, so
 // prefix may be shorter than points: a point past it never fits. m
 // is the measurer that owns the token's face (a substituted suffix
-// is measured with it); h is the hyphenator that found the points,
-// or nil; emph marks tokens set in the emphasis face, carried into
-// Line.Emph.
+// is measured with it); emph marks tokens set in the emphasis face,
+// carried into Line.Emph.
 type word struct {
 	text   string
 	width  int
 	points []int
 	prefix []int // the first len(prefix) of points
 	m      Measurer
-	h      Hyphenator
 	limit  int
 	emph   bool
 }
@@ -322,21 +320,44 @@ func words(toks []Token, h Hyphenator, first, width int) []word {
 // newWord measures one word under m, with its hyphenation points
 // from h (none when nil) and the widths the breakers compare.
 func newWord(text string, m Measurer, h Hyphenator, limit int) word {
-	w := word{text: text, width: m.Width(text), m: m, h: h, limit: limit}
+	w := word{text: text, m: m, limit: limit}
 	if h != nil {
 		w.points = h.Hyphenate(text)
 	}
-	if len(w.points) > 0 {
-		r := []rune(text)
-		for _, p := range w.points {
-			pw := m.Width(hyphened(r, p))
-			if pw > limit {
-				break // prefixes only grow: no later one fits a line
-			}
-			w.prefix = append(w.prefix, pw)
+	w.measure()
+	return w
+}
+
+// from is w's suffix from rune cut on, set on a line of its own after
+// a break inside w: the same word, hyphenated once as TeX does -- its
+// points past cut, shifted, but none that would leave fewer than two
+// runes before a hyphen, as Hyphenate leaves none at a word's start.
+func (w word) from(cut int) word {
+	r := []rune(w.text)
+	s := word{text: string(r[cut:]), m: w.m, limit: w.limit, emph: w.emph}
+	for _, p := range w.points {
+		if p-cut >= 2 {
+			s.points = append(s.points, p-cut)
 		}
 	}
-	return w
+	s.measure()
+	return s
+}
+
+// measure sets w's width and the widths of its hyphenated prefixes.
+func (w *word) measure() {
+	w.width, w.prefix = w.m.Width(w.text), nil
+	if len(w.points) == 0 {
+		return
+	}
+	r := []rune(w.text)
+	for _, p := range w.points {
+		pw := w.m.Width(hyphened(r, p))
+		if pw > w.limit {
+			break // prefixes only grow: no later one fits a line
+		}
+		w.prefix = append(w.prefix, pw)
+	}
 }
 
 // hyphened is the line end a break at rune cut of r sets: the prefix
@@ -354,11 +375,10 @@ func hyphened(r []rune, cut int) string {
 // fits or is one rune: each piece ends at the rightmost hyphenation
 // point whose prefix, hyphen included, fits the line and its hang,
 // or failing one is cut at the longest prefix that fits, one rune at
-// the least. Pieces after the first break at w's own points, shifted,
-// not at a fresh hyphenation of the remainder. The work is linear in
-// the pieces' length, however long w is: nothing measures what is
-// left until it may fit.
-func (w word) split(lw, width, hang int) (pieces []string, rest string) {
+// the least. It returns the pieces and the rune where what is left
+// begins. The work is linear in the pieces' length, however long w
+// is: nothing measures what is left until it may fit.
+func (w word) split(lw, width, hang int) (pieces []string, rest int) {
 	r := []rune(w.text)
 	o, pi := 0, 0 // runes consumed; the first point past o
 	for len(r)-o > 1 {
@@ -386,7 +406,7 @@ func (w word) split(lw, width, hang int) (pieces []string, rest string) {
 		pieces = append(pieces, piece)
 		o, lw = cut, width
 	}
-	return pieces, string(r[o:])
+	return pieces, o
 }
 
 // fitRunes is the length of the longest prefix of r no wider than lw
@@ -559,12 +579,10 @@ func (md *model) breakLines(words []word, first, width int) []Line {
 	next := make([]int, n)
 	hyph := make([]int, n)
 	md.dp(words, 0, n, first, width, cost, next, hyph)
-	// replace puts text in words[k] in place of the word there, in its
-	// face and with its flag, and recomputes the break at k.
-	replace := func(k int, text string) {
-		was := words[k]
-		words[k] = newWord(text, was.m, was.h, was.limit)
-		words[k].emph = was.emph
+	// rest puts the suffix of words[k] from rune cut in its place and
+	// recomputes the break at k.
+	rest := func(k, cut int) {
+		words[k] = words[k].from(cut)
 		md.dp(words, k, k+1, first, width, cost, next, hyph)
 	}
 
@@ -582,7 +600,7 @@ func (md *model) breakLines(words []word, first, width int) []Line {
 				lw = first
 			}
 			w := words[i]
-			pieces, rest := w.split(lw, width, md.hang)
+			pieces, cut := w.split(lw, width, md.hang)
 			for _, p := range pieces {
 				ln := Line{Words: []string{p}, Width: w.m.Width(p)}
 				if styled {
@@ -590,7 +608,7 @@ func (md *model) breakLines(words []word, first, width int) []Line {
 				}
 				lines = append(lines, ln)
 			}
-			replace(i, rest)
+			rest(i, cut)
 			continue
 		}
 		ln := Line{Words: make([]string, 0, j-i+1)}
@@ -612,9 +630,8 @@ func (md *model) breakLines(words []word, first, width int) []Line {
 			// The line ends inside words[j], at point hp: set its
 			// prefix, and the suffix takes the word's place.
 			w := words[j]
-			r := []rune(w.text)
-			add(hyphened(r, w.points[hp]), w.prefix[hp], w.emph)
-			replace(j, string(r[w.points[hp]:]))
+			add(hyphened([]rune(w.text), w.points[hp]), w.prefix[hp], w.emph)
+			rest(j, w.points[hp])
 		}
 		ln.Width = natural - md.sp
 		lines = append(lines, ln)
