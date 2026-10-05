@@ -173,7 +173,7 @@ func esc(s string) string { return html.EscapeString(s) }
 // Only flowing prose (Para, Quote, Item) goes through here; every
 // other block's underscores are content.
 func emphHTML(s string) string {
-	segs := EmphSegments(s)
+	segs := emphSegments(s)
 	if len(segs) == 1 && !segs[0].Emph {
 		return esc(s)
 	}

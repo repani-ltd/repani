@@ -83,10 +83,10 @@ func TestTermText(t *testing.T) {
 	}
 	// The run-in rule, at the boundary: a label leaving exactly
 	// half the width runs in; one rune longer stands alone.
-	if first, ok := TermRunIn(strings.Repeat("x", 15), 34); !ok || first != 17 {
+	if first, ok := termRunIn(strings.Repeat("x", 15), 34); !ok || first != 17 {
 		t.Errorf("TermRunIn(15 runes, 34) = %d, %v; want 17, true", first, ok)
 	}
-	if _, ok := TermRunIn(strings.Repeat("x", 16), 34); ok {
+	if _, ok := termRunIn(strings.Repeat("x", 16), 34); ok {
 		t.Error("TermRunIn(16 runes, 34) should stand alone")
 	}
 }

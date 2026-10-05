@@ -53,12 +53,12 @@ func wrapText(para string, first, width int) []string {
 	return wrap.Flatten(WrapLines(para, first, width, Mono))
 }
 
-// emphTokens tokenizes a marked paragraph: EmphSegments strips the
+// emphTokens tokenizes a marked paragraph: emphSegments strips the
 // markers, tokens split at breaking whitespace as wrap.Fields does,
 // and a token any rune of which is emphasized is measured whole
 // with em.
 func emphTokens(para string, m, em Measurer) []wrap.Token {
-	segs := EmphSegments(para)
+	segs := emphSegments(para)
 	var clean []rune
 	var flags []bool
 	for _, sg := range segs {

@@ -26,7 +26,7 @@ func (d *Doc) Text() (string, error) {
 		out = append(out, format.Trunc(bl, width))
 	}
 	for _, b := range d.Blocks {
-		lines, err := RenderBlock(b, width)
+		lines, err := renderBlock(b, width)
 		if err != nil {
 			return "", err
 		}
@@ -46,16 +46,13 @@ func (d *Doc) Text() (string, error) {
 	return strings.Join(out, "\n") + "\n", nil
 }
 
-// RenderBlock lays out one block at the given width as the text
+// renderBlock lays out one block at the given width as the text
 // writer renders it: the fixed-width lines of that block alone, no
 // separator. Exported so a consumer that styles by block kind (a
 // cell-grid renderer) gets byte-identical lines to Text without
 // duplicating its geometry.
-func RenderBlock(b Block, width int) ([]string, error) {
+func renderBlock(b Block, width int) ([]string, error) {
 	switch b.Kind {
-	case Para:
-		return wrapText(b.Text, width, width), nil
-
 	case Heading:
 		marker := "# "
 		if b.Level == 2 {
@@ -63,51 +60,17 @@ func RenderBlock(b Block, width int) ([]string, error) {
 		}
 		return []string{format.Trunc(marker+b.Text, width)}, nil
 
-	case Quote:
-		inner := wrapText(b.Text, width-2*QuoteIndent, width-2*QuoteIndent)
-		out := make([]string, len(inner), len(inner)+1)
-		for i, ln := range inner {
-			out[i] = strings.Repeat(" ", QuoteIndent) + ln
+	case Para, Quote, Item, Term:
+		lp := LayProse(b, width, wrapText)
+		var out []string
+		if lp.Head != "" {
+			out = append(out, lp.Head)
 		}
-		if b.Attrib != "" {
-			out = append(out, AttribLine(b.Attrib, width))
+		for i, ln := range lp.Lines {
+			out = append(out, lp.Prefix[i]+ln)
 		}
-		return out, nil
-
-	case Item:
-		inner := wrapText(b.Text, width-ItemIndent, width-ItemIndent)
-		out := make([]string, len(inner))
-		for i, ln := range inner {
-			if i == 0 {
-				out[i] = Bullet + " " + ln
-			} else {
-				out[i] = strings.Repeat(" ", ItemIndent) + ln
-			}
-		}
-		return out, nil
-
-	case Term:
-		// The label runs in: label, TermGap spaces, then the text,
-		// its turnovers hanging ItemIndent runes like an item's. A
-		// label that leaves too little of the line stands alone on
-		// it and the text starts beneath, every line hanging.
-		hang := strings.Repeat(" ", ItemIndent)
-		first, runIn := TermRunIn(b.Label, width)
-		if !runIn {
-			out := []string{format.Trunc(b.Label, width)}
-			for _, ln := range wrapText(b.Text, width-ItemIndent, width-ItemIndent) {
-				out = append(out, hang+ln)
-			}
-			return out, nil
-		}
-		inner := wrapText(b.Text, first, width-ItemIndent)
-		out := make([]string, len(inner))
-		for i, ln := range inner {
-			if i == 0 {
-				out[i] = b.Label + strings.Repeat(" ", TermGap) + ln
-			} else {
-				out[i] = hang + ln
-			}
+		if lp.Tail != "" {
+			out = append(out, lp.Tail)
 		}
 		return out, nil
 
@@ -138,6 +101,62 @@ func RenderBlock(b Block, width int) ([]string, error) {
 	}
 }
 
+// ProseLayout is a prose block set on a monospace grid: its text's
+// lines, each with the prefix set before it -- a quote's inset, an
+// item's bullet or hang, a term's run-in label or hang -- and the
+// lines around them: Head a term's label on a line of its own, Tail a
+// quote's attribution, each "" when there is none.
+type ProseLayout struct {
+	Head   string
+	Lines  []string
+	Prefix []string // parallel to Lines
+	Tail   string
+}
+
+// LayProse sets a Para, Quote, Item or Term at width, its text broken
+// by set -- the first line on the measure first, the rest on width --
+// in the geometry every writer shares, so the text page and the mono
+// PDF differ only in how set breaks: a quote is inset QuoteIndent on
+// both sides; an item's first line opens with Bullet and a space,
+// its turnovers hang ItemIndent; a term's label runs in, TermGap
+// before the text and its turnovers hanging ItemIndent, unless it
+// leaves too little of the line (termRunIn), when it stands alone
+// and every text line hangs.
+func LayProse(b Block, width int, set func(para string, first, width int) []string) ProseLayout {
+	var lp ProseLayout
+	fill := func(first, rest string, measure0, measure int) {
+		lp.Lines = set(b.Text, measure0, measure)
+		lp.Prefix = make([]string, len(lp.Lines))
+		for i := range lp.Prefix {
+			lp.Prefix[i] = rest
+		}
+		if len(lp.Prefix) > 0 {
+			lp.Prefix[0] = first
+		}
+	}
+	hang := strings.Repeat(" ", ItemIndent)
+	switch b.Kind {
+	case Quote:
+		inset := strings.Repeat(" ", QuoteIndent)
+		fill(inset, inset, width-2*QuoteIndent, width-2*QuoteIndent)
+		if b.Attrib != "" {
+			lp.Tail = attribLine(b.Attrib, width)
+		}
+	case Item:
+		fill(Bullet+" ", hang, width-ItemIndent, width-ItemIndent)
+	case Term:
+		if first, runIn := termRunIn(b.Label, width); runIn {
+			fill(b.Label+strings.Repeat(" ", TermGap), hang, first, width-ItemIndent)
+		} else {
+			lp.Head = format.Trunc(b.Label, width)
+			fill(hang, hang, width-ItemIndent, width-ItemIndent)
+		}
+	default:
+		fill("", "", width, width)
+	}
+	return lp
+}
+
 // Monospace geometry of the structured prose blocks, shared by
 // every writer so the blocks occupy identical line counts: a quote
 // is inset QuoteIndent runes on BOTH sides; an item's first line
@@ -155,22 +174,22 @@ const (
 	TermGap = 2
 )
 
-// TermRunIn decides a .term label's placement at the given width:
+// termRunIn decides a .term label's placement at the given width:
 // first is the measure the text has on the label's line (the width
 // less the label and TermGap), and runIn whether the text runs in
 // there at all. A label that leaves less than half the width to
 // the text stands on its own line, and the text starts beneath it
 // -- troff's .TP rule for an over-long tag. Every writer shares the
 // decision, so their line counts agree.
-func TermRunIn(label string, width int) (first int, runIn bool) {
+func termRunIn(label string, width int) (first int, runIn bool) {
 	first = width - utf8.RuneCountInString(label) - TermGap
 	return first, 2*first >= width
 }
 
-// AttribLine renders a quote attribution right-aligned to the
+// attribLine renders a quote attribution right-aligned to the
 // quote's right margin (width - QuoteIndent): "-- WHO", truncated
 // to the quote measure (width - 2*QuoteIndent) if need be.
-func AttribLine(attrib string, width int) string {
+func attribLine(attrib string, width int) string {
 	s := format.Trunc("-- "+attrib, width-2*QuoteIndent)
 	return strings.Repeat(" ", width-QuoteIndent-utf8.RuneCountInString(s)) + s
 }

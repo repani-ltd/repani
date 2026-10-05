@@ -624,7 +624,7 @@ func TestAttribLine(t *testing.T) {
 		{"", 10, "     -- "},
 	}
 	for _, tc := range tests {
-		if got := AttribLine(tc.attrib, tc.width); got != tc.want {
+		if got := attribLine(tc.attrib, tc.width); got != tc.want {
 			t.Errorf("AttribLine(%q, %d) = %q, want %q", tc.attrib, tc.width, got, tc.want)
 		}
 	}

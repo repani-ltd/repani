@@ -246,15 +246,9 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 		switch blk.Kind {
 		case pica.Para:
 			if t.sans {
-				m := pdf.Measure(pdf.Sans)
-				lines := pica.JustifyLines(blk.Text, t.units, t.units, m, pdf.Measure(pdf.SansItalic))
-				for i, ln := range lines {
-					last := i == len(lines)-1
-					sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, t.units, m, last)}
-					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
-				}
+				fb.segs = sansProse(blk.Text, t.units, t.units, 0, 0)
 			} else {
-				fb.segs = monoProse(blk.Text, pica.JustifyText(blk.Text, width, width), noPrefix)
+				fb.segs = monoBlock(blk, width)
 			}
 
 		case pica.Quote:
@@ -265,12 +259,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				m := pdf.Measure(pdf.Sans)
 				qi := pica.QuoteIndent * m.Space()
 				measure := t.units - 2*qi
-				lines := pica.JustifyLines(blk.Text, measure, measure, m, pdf.Measure(pdf.SansItalic))
-				for i, ln := range lines {
-					last := i == len(lines)-1
-					sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: qi}
-					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
-				}
+				fb.segs = sansProse(blk.Text, measure, measure, qi, qi)
 				if blk.Attrib != "" {
 					ln := wrap.LineOf(wrap.Fields("-- "+blk.Attrib), m)
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true),
@@ -278,12 +267,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				inset := strings.Repeat(" ", pica.QuoteIndent)
-				lines := pica.JustifyText(blk.Text, width-2*pica.QuoteIndent, width-2*pica.QuoteIndent)
-				fb.segs = monoProse(blk.Text, lines, func(int) string { return inset })
-				if blk.Attrib != "" {
-					fb.segs = append(fb.segs, seg{lines: []sline{{text: pica.AttribLine(blk.Attrib, width)}}})
-				}
+				fb.segs = monoBlock(blk, width)
 			}
 
 		case pica.Heading:
@@ -472,28 +456,19 @@ func composeItem(blk pica.Block, t typo, width int) fblock {
 		m := pdf.Measure(pdf.Sans)
 		ii := m.Width(pica.Bullet) + m.Space()
 		measure := t.units - ii
-		lines := pica.JustifyLines(blk.Text, measure, measure, m, pdf.Measure(pdf.SansItalic))
-		for i, ln := range lines {
-			last := i == len(lines)-1
-			sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: ii}
-			if i == 0 {
-				sl.words = append([]string{pica.Bullet}, ln.Words...)
-				sl.gaps = append([]int{m.Space()}, sl.gaps...)
-				sl.indent = 0
-				if sl.emph != nil {
-					sl.emph = append([]bool{false}, sl.emph...)
-				}
+		fb.segs = sansProse(blk.Text, measure, measure, ii, ii)
+		if len(fb.segs) > 0 {
+			// The bullet is the first line's first word, in the hang.
+			sl := &fb.segs[0].lines[0]
+			sl.words = append([]string{pica.Bullet}, sl.words...)
+			sl.gaps = append([]int{m.Space()}, sl.gaps...)
+			sl.indent = 0
+			if sl.emph != nil {
+				sl.emph = append([]bool{false}, sl.emph...)
 			}
-			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 		}
 	} else {
-		lines := pica.JustifyText(blk.Text, width-pica.ItemIndent, width-pica.ItemIndent)
-		fb.segs = append(fb.segs, monoProse(blk.Text, lines, func(i int) string {
-			if i == 0 {
-				return pica.Bullet + " "
-			}
-			return strings.Repeat(" ", pica.ItemIndent)
-		})...)
+		fb.segs = monoBlock(blk, width)
 	}
 	return fb
 }
@@ -501,59 +476,52 @@ func composeItem(blk pica.Block, t typo, width int) fblock {
 // composeTerm renders one .term: the label run in, set in the bold
 // face, then the text, its turnovers hanging pica.ItemIndent; a
 // label that leaves the text less than half the measure stands on
-// its own line with the text beneath. The mono path follows the
-// text writer's geometry cell for cell (pica.TermRunIn,
-// pica.TermGap); the sans path applies the same rule in measured
-// units, the label measured in the face that draws it.
+// its own line with the text beneath. The mono path is the text
+// writer's geometry cell for cell (pica.LayProse); the sans path
+// applies the same rule in measured units, the label measured in the
+// face that draws it.
 func composeTerm(blk pica.Block, t typo, width int) fblock {
 	fb := fblock{tight: blk.Tight}
 	if t.sans {
-		m, mb, mi := pdf.Measure(pdf.Sans), pdf.Measure(pdf.SansBold), pdf.Measure(pdf.SansItalic)
+		m, mb := pdf.Measure(pdf.Sans), pdf.Measure(pdf.SansBold)
 		hang := pica.ItemIndent * m.Space()
 		measure := t.units - hang
 		lead := mb.Width(blk.Label) + pica.TermGap*m.Space()
 		first := t.units - lead
 		if 2*first < t.units {
 			fb.segs = append(fb.segs, seg{lines: []sline{{lead: truncMeasured(blk.Label, t.units, mb)}}})
-			lines := pica.JustifyLines(blk.Text, measure, measure, m, mi)
-			for i, ln := range lines {
-				last := i == len(lines)-1
-				sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: hang}
-				fb.segs = append(fb.segs, seg{lines: []sline{sl}})
-			}
+			fb.segs = append(fb.segs, sansProse(blk.Text, measure, measure, hang, hang)...)
 			return fb
 		}
-		lines := pica.JustifyLines(blk.Text, first, measure, m, mi)
-		for i, ln := range lines {
-			last := i == len(lines)-1
-			sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: hang}
-			if i == 0 {
-				sl.lead, sl.indent, sl.gaps = blk.Label, lead, spread(ln, first, m, last)
-			}
-			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
+		fb.segs = sansProse(blk.Text, first, measure, lead, hang)
+		if len(fb.segs) > 0 {
+			fb.segs[0].lines[0].lead = blk.Label
 		}
 		return fb
 	}
-	hang := strings.Repeat(" ", pica.ItemIndent)
-	first, runIn := pica.TermRunIn(blk.Label, width)
-	if !runIn {
-		label := format.Trunc(blk.Label, width)
-		fb.segs = append(fb.segs, seg{lines: []sline{{text: label, lead: label}}})
-		lines := pica.JustifyText(blk.Text, width-pica.ItemIndent, width-pica.ItemIndent)
-		fb.segs = append(fb.segs, monoProse(blk.Text, lines, func(int) string { return hang })...)
-		return fb
-	}
-	lines := pica.JustifyText(blk.Text, first, width-pica.ItemIndent)
-	fb.segs = monoProse(blk.Text, lines, func(i int) string {
-		if i == 0 {
-			return blk.Label + strings.Repeat(" ", pica.TermGap)
-		}
-		return hang
-	})
-	if len(fb.segs) > 0 {
-		fb.segs[0].lines[0].lead = blk.Label
-	}
+	fb.segs = monoBlock(blk, width)
 	return fb
+}
+
+// monoBlock composes a prose block in monospace: justified, in the
+// geometry the text page shares (pica.LayProse) -- a term's label,
+// on its own line or run in, set in the bold face (sline.lead), a
+// quote's attribution after.
+func monoBlock(blk pica.Block, width int) []seg {
+	lp := pica.LayProse(blk, width, pica.JustifyText)
+	var segs []seg
+	if lp.Head != "" {
+		segs = append(segs, seg{lines: []sline{{text: lp.Head, lead: lp.Head}}})
+	}
+	text := monoProse(blk.Text, lp.Lines, func(i int) string { return lp.Prefix[i] })
+	if blk.Kind == pica.Term && lp.Head == "" && len(text) > 0 {
+		text[0].lines[0].lead = blk.Label
+	}
+	segs = append(segs, text...)
+	if lp.Tail != "" {
+		segs = append(segs, seg{lines: []sline{{text: lp.Tail}}})
+	}
+	return segs
 }
 
 // monoProse composes a prose block's monospace lines, one segment
@@ -592,8 +560,24 @@ func truncMeasured(s string, units int, m pdf.Measurer) string {
 	return string(r)
 }
 
-// noPrefix is monoProse's prefix for lines set flush.
-func noPrefix(int) string { return "" }
+// sansProse composes a prose block's sans lines, one segment each:
+// justified with emphasis in the body face, the first line on the
+// measure first at indent firstIndent and the rest on measure at
+// indent, each line's gaps spread to its measure.
+func sansProse(text string, first, measure, firstIndent, indent int) []seg {
+	m := pdf.Measure(pdf.Sans)
+	lines := pica.JustifyLines(text, first, measure, m, pdf.Measure(pdf.SansItalic))
+	segs := make([]seg, len(lines))
+	for i, ln := range lines {
+		w, in := measure, indent
+		if i == 0 {
+			w, in = first, firstIndent
+		}
+		sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, w, m, i == len(lines)-1), indent: in}
+		segs[i] = seg{lines: []sline{sl}}
+	}
+	return segs
+}
 
 func toSlines(lines []string) []sline {
 	out := make([]sline, len(lines))

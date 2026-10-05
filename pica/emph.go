@@ -78,32 +78,32 @@ func emphUnclosed(s string) int {
 	return marks[len(marks)-1]
 }
 
-// EmphSeg is one run of a prose string as segmented by
-// EmphSegments: its text with the emphasis markers removed, and
+// emphSeg is one run of a prose string as segmented by
+// emphSegments: its text with the emphasis markers removed, and
 // whether the run is emphasized.
-type EmphSeg struct {
+type emphSeg struct {
 	Text string
 	Emph bool
 }
 
-// EmphSegments splits prose into maximal runs of plain and
+// emphSegments splits prose into maximal runs of plain and
 // emphasized text, removing the _ markers. Text with no emphasis
 // returns as one plain segment. An unclosed opener (which Parse
 // rejects, so parsed documents never carry one) is treated as a
 // literal underscore.
-func EmphSegments(s string) []EmphSeg {
+func emphSegments(s string) []emphSeg {
 	runes := []rune(s)
 	marks, open := emphWalk(runes, false)
 	if open {
 		marks = marks[:len(marks)-1]
 	}
 	if len(marks) == 0 {
-		return []EmphSeg{{Text: s}}
+		return []emphSeg{{Text: s}}
 	}
-	var segs []EmphSeg
+	var segs []emphSeg
 	add := func(from, to int, emph bool) {
 		if from < to {
-			segs = append(segs, EmphSeg{Text: string(runes[from:to]), Emph: emph})
+			segs = append(segs, emphSeg{Text: string(runes[from:to]), Emph: emph})
 		}
 	}
 	prev := 0
@@ -114,7 +114,7 @@ func EmphSegments(s string) []EmphSeg {
 	}
 	add(prev, len(runes), false)
 	if segs == nil {
-		segs = []EmphSeg{{}}
+		segs = []emphSeg{{}}
 	}
 	return segs
 }

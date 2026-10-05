@@ -12,26 +12,26 @@ func TestEmphSegments(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
-		want []EmphSeg
+		want []emphSeg
 	}{
-		{"plain", "no markers here", []EmphSeg{{Text: "no markers here"}}},
-		{"single word", "a _b_ c", []EmphSeg{{Text: "a "}, {Text: "b", Emph: true}, {Text: " c"}}},
-		{"multi word", "_two words_ end", []EmphSeg{{Text: "two words", Emph: true}, {Text: " end"}}},
-		{"whole text", "_all_", []EmphSeg{{Text: "all", Emph: true}}},
-		{"trailing comma", "say _word_, then", []EmphSeg{{Text: "say "}, {Text: "word", Emph: true}, {Text: ", then"}}},
-		{"parenthesized", "(_word_)", []EmphSeg{{Text: "("}, {Text: "word", Emph: true}, {Text: ")"}}},
-		{"snake case", "a snake_case_name b", []EmphSeg{{Text: "a snake_case_name b"}}},
-		{"joined name", "in repos/_attic now", []EmphSeg{{Text: "in repos/_attic now"}}},
-		{"dotted name", "see pkg._foo here", []EmphSeg{{Text: "see pkg._foo here"}}},
-		{"dash opener", "so--_word_ works", []EmphSeg{{Text: "so--"}, {Text: "word", Emph: true}, {Text: " works"}}},
-		{"double underscore", "a __ b", []EmphSeg{{Text: "a __ b"}}},
-		{"interior underscore in span", "_a_b_", []EmphSeg{{Text: "a_b", Emph: true}}},
-		{"two spans", "_a_ and _b_", []EmphSeg{{Text: "a", Emph: true}, {Text: " and "}, {Text: "b", Emph: true}}},
+		{"plain", "no markers here", []emphSeg{{Text: "no markers here"}}},
+		{"single word", "a _b_ c", []emphSeg{{Text: "a "}, {Text: "b", Emph: true}, {Text: " c"}}},
+		{"multi word", "_two words_ end", []emphSeg{{Text: "two words", Emph: true}, {Text: " end"}}},
+		{"whole text", "_all_", []emphSeg{{Text: "all", Emph: true}}},
+		{"trailing comma", "say _word_, then", []emphSeg{{Text: "say "}, {Text: "word", Emph: true}, {Text: ", then"}}},
+		{"parenthesized", "(_word_)", []emphSeg{{Text: "("}, {Text: "word", Emph: true}, {Text: ")"}}},
+		{"snake case", "a snake_case_name b", []emphSeg{{Text: "a snake_case_name b"}}},
+		{"joined name", "in repos/_attic now", []emphSeg{{Text: "in repos/_attic now"}}},
+		{"dotted name", "see pkg._foo here", []emphSeg{{Text: "see pkg._foo here"}}},
+		{"dash opener", "so--_word_ works", []emphSeg{{Text: "so--"}, {Text: "word", Emph: true}, {Text: " works"}}},
+		{"double underscore", "a __ b", []emphSeg{{Text: "a __ b"}}},
+		{"interior underscore in span", "_a_b_", []emphSeg{{Text: "a_b", Emph: true}}},
+		{"two spans", "_a_ and _b_", []emphSeg{{Text: "a", Emph: true}, {Text: " and "}, {Text: "b", Emph: true}}},
 		// An unclosed opener is literal here (Parse rejects it first).
-		{"unclosed literal", "we renamed _foo today", []EmphSeg{{Text: "we renamed _foo today"}}},
+		{"unclosed literal", "we renamed _foo today", []emphSeg{{Text: "we renamed _foo today"}}},
 	}
 	for _, c := range cases {
-		if got := EmphSegments(c.in); !reflect.DeepEqual(got, c.want) {
+		if got := emphSegments(c.in); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: EmphSegments(%q) = %v, want %v", c.name, c.in, got, c.want)
 		}
 	}
