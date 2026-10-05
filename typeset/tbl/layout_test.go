@@ -28,7 +28,7 @@ func build(t *testing.T, src string, measure int) []LaidRow {
 	}
 	for n, line := range strings.Split(strings.TrimPrefix(src, "\n"), "\n") {
 		if spec, ok := strings.CutPrefix(line, ".fmt"); ok {
-			f, full, err := fs.Apply(spec, 5)
+			f, full, err := fs.Apply(spec, 1, 5)
 			if err != nil {
 				t.Fatalf("line %d: %v", n+1, err)
 			}
@@ -39,7 +39,7 @@ func build(t *testing.T, src string, measure int) []LaidRow {
 			fm = f
 			continue
 		}
-		r, err := ParseRow(line, 1)
+		r, err := ParseRow(line, 1, 1)
 		if err != nil {
 			t.Fatalf("line %d: %v", n+1, err)
 		}
@@ -169,20 +169,35 @@ func TestLayoutNumberTooWide(t *testing.T) {
 	// A number wider than its N box is an error, never a shorter
 	// number; a label that is not a number clips as before.
 	var fs Formats
-	fm, _, _ := fs.Apply("5N", 1)
+	fm, _, _ := fs.Apply("5N", 1, 1)
 	for _, s := range []string{"1234567", "(12.5)"} {
 		var tb Table
-		r, _ := ParseRow(s, 1)
+		r, _ := ParseRow(s, 1, 1)
 		tb.Add(fm, r)
 		if _, _, err := tb.Layout(5); !errors.Is(err, ErrNumber) {
 			t.Errorf("%q in 5N: %v", s, err)
 		}
 	}
 	var tb Table
-	r, _ := ParseRow("Amount", 1)
+	r, _ := ParseRow("Amount", 1, 1)
 	tb.Add(fm, r)
 	if _, _, err := tb.Layout(5); err != nil {
 		t.Errorf("label: %v", err)
+	}
+	// The error gives the line and column of its cell.
+	r, _ = ParseRow("  1234567", 7, 3)
+	tb.Add(fm, r)
+	var e *Error
+	if _, _, err := tb.Layout(5); !errors.As(err, &e) || e.Line != 7 || e.Col != 5 {
+		t.Errorf("position of the error: %v", err)
+	}
+	// A format that does not fit gives the line and column of its spec.
+	var fs2 Formats
+	wide, _, _ := fs2.Apply("30L 30L", 4, 6)
+	var tw Table
+	tw.Add(wide, Row{Kind: Blank})
+	if _, _, err := tw.Layout(40); !errors.As(err, &e) || !errors.Is(err, ErrFit) || e.Line != 4 || e.Col != 6 {
+		t.Errorf("position of the fit error: %v", err)
 	}
 }
 
@@ -251,25 +266,25 @@ a | b | c
 
 func TestTableErrors(t *testing.T) {
 	var fs Formats
-	fm, _, _ := fs.Apply("5L 5L", 1)
+	fm, _, _ := fs.Apply("5L 5L", 1, 1)
 	var tb Table
-	r, _ := ParseRow("a | b | c", 1)
+	r, _ := ParseRow("a | b | c", 1, 1)
 	if err := tb.Add(fm, r); !errors.Is(err, ErrCells) || err.(*Error).Col != 9 {
 		t.Errorf("three cells in two columns: %v", err)
 	}
-	r, _ = ParseRow(".. note", 1)
+	r, _ = ParseRow(".. note", 1, 1)
 	if err := tb.Add(fm, r); !errors.Is(err, ErrNote) {
 		t.Errorf("note first: %v", err)
 	}
-	r, _ = ParseRow("", 1)
+	r, _ = ParseRow("", 1, 1)
 	if err := tb.Add(fm, r); err != nil {
 		t.Fatal(err)
 	}
-	r, _ = ParseRow(".. note", 1)
+	r, _ = ParseRow(".. note", 1, 1)
 	if err := tb.Add(fm, r); !errors.Is(err, ErrNote) {
 		t.Errorf("note after a blank row only: %v", err)
 	}
-	other, _, _ := fs.Apply("6L 5L", 1)
+	other, _, _ := fs.Apply("6L 5L", 1, 1)
 	if err := tb.Add(other, r); err == nil {
 		t.Error("a row of another grid accepted")
 	}

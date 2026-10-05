@@ -5,16 +5,17 @@ import (
 	"fmt"
 )
 
-// Error is a parse error at a source column, counted from one in code
-// points as SPEC.t's conventions say; the host adds the line. Err is
-// one of the kinds below, wrapped with detail, so errors.Is tells a
-// host which kind it is.
+// Error is an error at a source line and column, both counted from
+// one, the column in code points, as SPEC.t's conventions say: the
+// position of a spec token, a cell or a mark, or of the format whose
+// columns do not fit. Err is one of the kinds below, wrapped with
+// detail, so errors.Is tells a host which kind it is.
 type Error struct {
-	Col int
-	Err error
+	Line, Col int
+	Err       error
 }
 
-func (e *Error) Error() string { return fmt.Sprintf("column %d: %v", e.Col, e.Err) }
+func (e *Error) Error() string { return fmt.Sprintf("line %d, column %d: %v", e.Line, e.Col, e.Err) }
 
 func (e *Error) Unwrap() error { return e.Err }
 
@@ -37,7 +38,18 @@ var (
 	ErrText           = errors.New("tbl: cell text a grid cannot show")
 )
 
-// errAt returns an Error of kind at col, with detail.
-func errAt(col int, kind error, format string, args ...any) *Error {
-	return &Error{Col: col, Err: fmt.Errorf("%w: "+format, append([]any{kind}, args...)...)}
+// errAt returns an Error of kind at line and col, with detail. The
+// scanners below the parse functions, which see one line, pass line
+// 0; the parse function that called them sets it (onLine).
+func errAt(line, col int, kind error, format string, args ...any) *Error {
+	return &Error{Line: line, Col: col, Err: fmt.Errorf("%w: "+format, append([]any{kind}, args...)...)}
+}
+
+// onLine sets the line of err, an *Error from a scanner, and returns
+// it.
+func onLine(err error, line int) error {
+	if e, ok := err.(*Error); ok {
+		e.Line = line
+	}
+	return err
 }

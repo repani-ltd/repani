@@ -7,13 +7,33 @@ import (
 	"testing"
 )
 
+// apply applies spec from line 1, column 1 and drops the format's
+// source position, which TestFormatPosition checks on its own.
 func apply(t *testing.T, f *Formats, spec string) (Format, bool) {
 	t.Helper()
-	fm, full, err := f.Apply(spec, 1)
+	fm, full, err := f.Apply(spec, 1, 1)
 	if err != nil {
 		t.Fatalf("Apply(%q): %v", spec, err)
 	}
+	fm.Line, fm.Col = 0, 0
 	return fm, full
+}
+
+func TestFormatPosition(t *testing.T) {
+	var f Formats
+	fm, _, _ := f.Apply("5L 5R", 3, 6)
+	if fm.Line != 3 || fm.Col != 6 {
+		t.Errorf("full format at %d, %d, want 3, 6", fm.Line, fm.Col)
+	}
+	fm, _, _ = f.Apply("L L", 9, 2)
+	if fm.Line != 9 || fm.Col != 2 {
+		t.Errorf("relative format at %d, %d, want 9, 2", fm.Line, fm.Col)
+	}
+	_, _, err := f.Apply("5L 5Lq", 4, 6)
+	var e *Error
+	if !errors.As(err, &e) || e.Line != 4 || e.Col != 11 {
+		t.Errorf("error at %v, want line 4, column 11", err)
+	}
 }
 
 func fg(c Color) Code    { return Code{FG: c, HasFG: true} }
@@ -117,7 +137,7 @@ func TestFormatErrors(t *testing.T) {
 		if tc.full != "" {
 			apply(t, &f, tc.full)
 		}
-		_, _, err := f.Apply(tc.spec, 1)
+		_, _, err := f.Apply(tc.spec, 1, 1)
 		var e *Error
 		if !errors.As(err, &e) || !errors.Is(err, tc.kind) || e.Col != tc.col || !strings.Contains(err.Error(), tc.msg) {
 			t.Errorf("Apply(%q) after %q = %v, want %v at column %d containing %q", tc.spec, tc.full, err, tc.kind, tc.col, tc.msg)
@@ -129,12 +149,12 @@ func TestFormatErrors(t *testing.T) {
 // reports from there, in code points.
 func TestFormatErrorColumns(t *testing.T) {
 	var f Formats
-	_, _, err := f.Apply("5L λL", 6)
+	_, _, err := f.Apply("5L λL", 1, 6)
 	var e *Error
 	if !errors.As(err, &e) || e.Col != 9 {
 		t.Errorf("error %v, want column 9", err)
 	}
-	_, _, err = f.Apply("5Lλ", 6)
+	_, _, err = f.Apply("5Lλ", 1, 6)
 	if !errors.As(err, &e) || e.Col != 8 {
 		t.Errorf("error %v, want column 8", err)
 	}

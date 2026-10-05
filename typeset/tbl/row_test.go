@@ -9,14 +9,15 @@ import (
 	"repani.com/typeset/raster"
 )
 
-// parse parses line from column 1 and drops the cells' source
-// columns, which TestCellColumns checks on their own.
+// parse parses line from line 1, column 1 and drops the source
+// positions, which TestCellColumns checks on their own.
 func parse(t *testing.T, line string) Row {
 	t.Helper()
-	r, err := ParseRow(line, 1)
+	r, err := ParseRow(line, 1, 1)
 	if err != nil {
 		t.Fatalf("ParseRow(%q): %v", line, err)
 	}
+	r.Line = 0
 	for i := range r.Cells {
 		r.Cells[i].Col = 0
 	}
@@ -24,7 +25,7 @@ func parse(t *testing.T, line string) Row {
 }
 
 func TestCellColumns(t *testing.T) {
-	r, err := ParseRow("^ a |  :r b|@x λ |", 3)
+	r, err := ParseRow("^ a |  :r b|@x λ |", 1, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestRowErrors(t *testing.T) {
 		{"@" + strings.Repeat("a", raster.MaxTarget+1), 1, ErrTarget, 2, "256 bytes"},
 		{"  ^ λ | :q", 5, ErrCode, 14, "'q' is not a colour letter"}, // columns 5..14, λ one
 	} {
-		_, err := ParseRow(tc.line, tc.col)
+		_, err := ParseRow(tc.line, 1, tc.col)
 		if tc.at == 0 {
 			if err != nil {
 				t.Errorf("ParseRow(%q) = %v, want no error", tc.line, err)

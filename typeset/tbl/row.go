@@ -39,11 +39,12 @@ type Cell struct {
 	Col    int
 }
 
-// Row is a parsed row line.
+// Row is a parsed row line, and the source line it was read from.
 type Row struct {
 	Kind  Kind
 	Role  Role
 	Cells []Cell
+	Line  int
 }
 
 // trim trims spaces -- the breaker's breaking spaces, so a cell's
@@ -56,8 +57,14 @@ func trim(s string) (string, int) {
 	return strings.TrimRightFunc(t, wrap.IsBreakingSpace), lead
 }
 
-// ParseRow reads a row line, starting at source column col.
-func ParseRow(line string, col int) (Row, error) {
+// ParseRow reads a row's text, from source line line and column col.
+func ParseRow(text string, line, col int) (Row, error) {
+	r, err := parseRow(text, col)
+	r.Line = line
+	return r, onLine(err, line)
+}
+
+func parseRow(line string, col int) (Row, error) {
 	t, lead := trim(line)
 	switch t {
 	case "":
@@ -110,7 +117,7 @@ func parseCell(s string, col int) (Cell, error) {
 		switch mark[0] {
 		case ':':
 			if seenCode {
-				return Cell{}, errAt(col, ErrMark, "a second : in one cell")
+				return Cell{}, errAt(0, col, ErrMark, "a second : in one cell")
 			}
 			code, err := parseCode(mark[1:], col+1)
 			if err != nil {
@@ -119,7 +126,7 @@ func parseCell(s string, col int) (Cell, error) {
 			c.Code, seenCode = code, true
 		case '@':
 			if seenLink {
-				return Cell{}, errAt(col, ErrMark, "a second @ in one cell")
+				return Cell{}, errAt(0, col, ErrMark, "a second @ in one cell")
 			}
 			if err := checkTarget(mark[1:], col+1); err != nil {
 				return Cell{}, err
@@ -138,7 +145,7 @@ func parseCell(s string, col int) (Cell, error) {
 	// is as wide on a board as in a document.
 	s = strings.Join(wrap.Fields(norm.NFC.String(s)), " ")
 	if _, err := raster.Columns(s); err != nil {
-		return Cell{}, errAt(col, ErrText, "%v", err)
+		return Cell{}, errAt(0, col, ErrText, "%v", err)
 	}
 	c.Text = s
 	return c, nil
@@ -149,10 +156,10 @@ func parseCell(s string, col int) (Cell, error) {
 // column where it goes wrong.
 func checkTarget(t string, col int) error {
 	if t == "" {
-		return errAt(col, ErrTarget, "@ with no target")
+		return errAt(0, col, ErrTarget, "@ with no target")
 	}
 	if at, err := raster.CheckTarget(t); err != nil {
-		return errAt(col+runes(t[:at]), ErrTarget, "%v", err)
+		return errAt(0, col+runes(t[:at]), ErrTarget, "%v", err)
 	}
 	return nil
 }

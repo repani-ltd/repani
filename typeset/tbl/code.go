@@ -72,7 +72,7 @@ func parseCode(s string, col int) (Code, error) {
 	if i < len(s) && s[i] != '/' {
 		fg, ok := colorOf(s[i])
 		if !ok {
-			return Code{}, errAt(col, ErrCode, "%s is not a colour letter (d r g y b m c w)", quote(s, i))
+			return Code{}, errAt(0, col, ErrCode, "%s is not a colour letter (d r g y b m c w)", quote(s, i))
 		}
 		c.FG, c.HasFG = fg, true
 		i++
@@ -80,20 +80,20 @@ func parseCode(s string, col int) (Code, error) {
 	if i < len(s) && s[i] == '/' {
 		i++
 		if i == len(s) {
-			return Code{}, errAt(col+runes(s[:i-1]), ErrCode, "%q has no background after /", s)
+			return Code{}, errAt(0, col+runes(s[:i-1]), ErrCode, "%q has no background after /", s)
 		}
 		bg, ok := colorOf(s[i])
 		if !ok {
-			return Code{}, errAt(col+runes(s[:i]), ErrCode, "%s is not a colour letter (d r g y b m c w)", quote(s, i))
+			return Code{}, errAt(0, col+runes(s[:i]), ErrCode, "%s is not a colour letter (d r g y b m c w)", quote(s, i))
 		}
 		c.BG, c.HasBG = bg, true
 		i++
 	}
 	switch {
 	case !c.HasFG && !c.HasBG:
-		return Code{}, errAt(col, ErrCode, "empty")
+		return Code{}, errAt(0, col, ErrCode, "empty")
 	case i < len(s):
-		return Code{}, errAt(col+runes(s[:i]), ErrCode, "%s after %q", quote(s, i), s[:i])
+		return Code{}, errAt(0, col+runes(s[:i]), ErrCode, "%s after %q", quote(s, i), s[:i])
 	}
 	return c, nil
 }

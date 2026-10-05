@@ -29,10 +29,11 @@ numeric and wrapped cells show the same text.
 .item INDEXES in the API count from zero: a grid column, a cell, a
 format column. A stretch of grid columns is start to end, the end
 exclusive.
-.item SOURCE POSITIONS in errors count from one, in code points:
-every parse function takes the text and the column at which it
-starts in its source line, and reports absolute columns. The host
-adds the line number.
+.item SOURCE POSITIONS in errors count from one, the column in code
+points: every parse function takes the text, its source line and
+the column at which it starts, and reports absolute positions. A
+format and a row keep their line, so an error found when laying
+out carries one too; the host adds nothing.
 .item SPACE means a breaking space as typeset/wrap splits words
 (wrap.IsBreakingSpace: Unicode white space but the no-break
 spaces) wherever tokens or cells are trimmed or split, so a cell's
@@ -262,8 +263,9 @@ their row. A refusal is an error at the row, never a silent drop.
 
 # Errors
 
-Every error names its kind and its source column, from one. The
-kinds: a bad colour code; a token out of order or unknown; widths
+Every error names its kind and its source line and column: the
+token, cell or mark at fault, or for columns that cannot fit, the
+format's spec. The kinds: a bad colour code; a token out of order or unknown; widths
 on some columns and not others; a relative format with the wrong
 column count, with a narrowing, or with no full format before it;
 S first, or S with a code or `!`; a second

@@ -37,10 +37,10 @@ func (t *Table) Add(fm Format, r Row) error {
 	}
 	if r.Kind == Data {
 		if g := len(groups(fm)); len(r.Cells) > g {
-			return errAt(r.Cells[g].Col, ErrCells, "%d cells where the format has %d", len(r.Cells), g)
+			return errAt(r.Line, r.Cells[g].Col, ErrCells, "%d cells where the format has %d", len(r.Cells), g)
 		}
 		if r.Role == Note && !t.hasData() {
-			return errAt(r.Cells[0].Col, ErrNote, "a note annotates the row above it")
+			return errAt(r.Line, r.Cells[0].Col, ErrNote, "a note annotates the row above it")
 		}
 	}
 	t.entries = append(t.entries, entry{fm, r})
@@ -196,7 +196,7 @@ func layRow(f Format, r Row, grid *Grid) ([][]Placed, error) {
 		w := grid.spans[b.Last].End - grid.spans[b.First].Start
 		text := r.Cells[i].Text
 		if _, _, num := SplitNumeric(text); col.Align == 'N' && num && utf8.RuneCountInString(text) > w {
-			return nil, errAt(r.Cells[i].Col, ErrNumber, "%q in a box of %d", text, w)
+			return nil, errAt(r.Line, r.Cells[i].Col, ErrNumber, "%q in a box of %d", text, w)
 		}
 		switch {
 		case col.Align == 'N' && b.Single():

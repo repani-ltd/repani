@@ -18,11 +18,13 @@ type Column struct {
 
 // Format is a resolved format: what every row under it is laid out
 // by. A relative format resolves to its full format with its changes
-// applied, so a Format never refers to another.
+// applied, so a Format never refers to another. Line and Col are where
+// its spec was written, for the error when its columns do not fit.
 type Format struct {
-	Row    Code // the row code
-	Narrow int  // the narrowing width, 0 for none
-	Cols   []Column
+	Row       Code // the row code
+	Narrow    int  // the narrowing width, 0 for none
+	Cols      []Column
+	Line, Col int
 }
 
 // clone returns f with its own Cols.
@@ -78,11 +80,17 @@ type colToken struct {
 	col      int
 }
 
-// Apply reads a format line's spec, starting at source column col,
-// and returns the format it resolves to and whether it is full. A
-// full format becomes the one later relative formats resolve
+// Apply reads a format line's spec, from source line line and column
+// col, and returns the format it resolves to and whether it is full.
+// A full format becomes the one later relative formats resolve
 // against.
-func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
+func (f *Formats) Apply(spec string, line, col int) (Format, bool, error) {
+	fm, full, err := f.apply(spec, col)
+	fm.Line, fm.Col = line, col
+	return fm, full, onLine(err, line)
+}
+
+func (f *Formats) apply(spec string, col int) (Format, bool, error) {
 	var (
 		row               Code
 		narrow, narrowCol int
@@ -94,7 +102,7 @@ func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
 		switch {
 		case b == '/' || (b >= 'a' && b <= 'z'):
 			if i != 0 {
-				return Format{}, false, errAt(t.col, ErrToken, "row code %q must be the first token", t.s)
+				return Format{}, false, errAt(0, t.col, ErrToken, "row code %q must be the first token", t.s)
 			}
 			c, err := parseCode(t.s, t.col)
 			if err != nil {
@@ -103,11 +111,11 @@ func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
 			row = c
 		case isDigits(t.s):
 			if narrow != 0 || len(cols) > 0 {
-				return Format{}, false, errAt(t.col, ErrToken, "narrowing %s must come once, before the columns", t.s)
+				return Format{}, false, errAt(0, t.col, ErrToken, "narrowing %s must come once, before the columns", t.s)
 			}
 			n, err := strconv.Atoi(t.s)
 			if err != nil || n < 1 {
-				return Format{}, false, errAt(t.col, ErrToken, "narrowing %s is not a positive width", t.s)
+				return Format{}, false, errAt(0, t.col, ErrToken, "narrowing %s is not a positive width", t.s)
 			}
 			narrow, narrowCol = n, t.col
 		case b == '*' || (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z'):
@@ -117,7 +125,7 @@ func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
 			}
 			cols = append(cols, ct)
 		default:
-			return Format{}, false, errAt(t.col, ErrToken, "%s does not begin a token", quote(t.s, 0))
+			return Format{}, false, errAt(0, t.col, ErrToken, "%s does not begin a token", quote(t.s, 0))
 		}
 	}
 
@@ -130,7 +138,7 @@ func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
 	if widths > 0 && widths < len(cols) {
 		for _, c := range cols {
 			if c.hasWidth != cols[0].hasWidth {
-				return Format{}, false, errAt(c.col, ErrMixedWidths, "a full format gives every column a width, a relative one none")
+				return Format{}, false, errAt(0, c.col, ErrMixedWidths, "a full format gives every column a width, a relative one none")
 			}
 		}
 	}
@@ -140,9 +148,9 @@ func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
 		}
 		switch {
 		case i == 0:
-			return Format{}, false, errAt(c.col, ErrSpan, "S joins the column on its left, and the first has none")
+			return Format{}, false, errAt(0, c.col, ErrSpan, "S joins the column on its left, and the first has none")
 		case c.code.HasFG || c.code.HasBG || c.clip:
-			return Format{}, false, errAt(c.col, ErrSpan, "S takes the style of the column it joins, so it carries no code or !")
+			return Format{}, false, errAt(0, c.col, ErrSpan, "S takes the style of the column it joins, so it carries no code or !")
 		}
 	}
 
@@ -152,7 +160,7 @@ func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
 		for _, c := range cols {
 			if c.auto {
 				if auto {
-					return Format{}, false, errAt(c.col, ErrAuto, "one column takes the rest")
+					return Format{}, false, errAt(0, c.col, ErrAuto, "one column takes the rest")
 				}
 				auto = true
 			}
@@ -165,11 +173,11 @@ func (f *Formats) Apply(spec string, col int) (Format, bool, error) {
 
 	switch {
 	case f.full == nil:
-		return Format{}, false, errAt(col, ErrNoFull, "a format without widths is relative to a full format, and none came before")
+		return Format{}, false, errAt(0, col, ErrNoFull, "a format without widths is relative to a full format, and none came before")
 	case narrow != 0:
-		return Format{}, false, errAt(narrowCol, ErrNarrowRelative, "the narrowing belongs to the full format")
+		return Format{}, false, errAt(0, narrowCol, ErrNarrowRelative, "the narrowing belongs to the full format")
 	case len(cols) != 0 && len(cols) != len(f.full.Cols):
-		return Format{}, false, errAt(cols[0].col, ErrColumnCount, "%d columns where the full format has %d; list every column or none", len(cols), len(f.full.Cols))
+		return Format{}, false, errAt(0, cols[0].col, ErrColumnCount, "%d columns where the full format has %d; list every column or none", len(cols), len(f.full.Cols))
 	}
 	fm := f.full.clone()
 	fm.Row = row.Over(f.full.Row)
@@ -196,16 +204,16 @@ func parseColumn(t token) (colToken, error) {
 		}
 		n, err := strconv.Atoi(s[:i])
 		if err != nil || n < 1 {
-			return ct, errAt(t.col, ErrToken, "width %s is not a positive width", s[:i])
+			return ct, errAt(0, t.col, ErrToken, "width %s is not a positive width", s[:i])
 		}
 		ct.hasWidth, ct.width = true, n
 	}
 	if i == len(s) || !isAlign(s[i]) {
 		at := t.col + runes(s[:i])
 		if i == len(s) {
-			return ct, errAt(at, ErrToken, "%q has no alignment (L R C N P S)", s)
+			return ct, errAt(0, at, ErrToken, "%q has no alignment (L R C N P S)", s)
 		}
-		return ct, errAt(at, ErrToken, "%s is not an alignment (L R C N P S)", quote(s, i))
+		return ct, errAt(0, at, ErrToken, "%s is not an alignment (L R C N P S)", quote(s, i))
 	}
 	ct.align = s[i]
 	i++
@@ -216,7 +224,7 @@ func parseColumn(t token) (colToken, error) {
 	}
 	if rest != "" {
 		if j := strings.IndexByte(rest, '!'); j >= 0 {
-			return ct, errAt(t.col+runes(s[:i+j]), ErrToken, "! must end the token")
+			return ct, errAt(0, t.col+runes(s[:i+j]), ErrToken, "! must end the token")
 		}
 		c, err := parseCode(rest, t.col+runes(s[:i]))
 		if err != nil {

@@ -242,7 +242,7 @@ func Parse(src string) (*Doc, error) {
 		switch b.Kind {
 		case TableBlk:
 			if _, err := b.Table.Layout(p.doc.Layout.Width); err != nil {
-				return nil, fmt.Errorf("%w (line %d)", err, b.Line)
+				return nil, err
 			}
 		case Term:
 			// A label with nothing beneath it is not an entry.
@@ -527,19 +527,20 @@ func collectUntilEnd(lines []string, open int, kind string) ([]string, int, erro
 // format, starting at column specCol of its line -- and its rows, in
 // tbl's row grammar: "^" a header, "=" a total, ".." a note. A table
 // with no rows is an error, like an empty .quote. Every refusal wraps
-// ErrBadAttr and the error that names it.
+// ErrBadAttr and the error that names it, a *tbl.Error at its line
+// and column.
 func parseTableBlock(spec string, specCol int, body []string, atLine int) (Block, error) {
-	t, err := newTable(spec, specCol)
+	t, err := newTable(spec, atLine, specCol)
 	if err != nil {
-		return Block{}, fmt.Errorf("%w: %w (line %d)", ErrBadAttr, err, atLine)
+		return Block{}, fmt.Errorf("%w: %w", ErrBadAttr, err)
 	}
 	for i, line := range body {
-		r, err := tbl.ParseRow(line, 1)
+		r, err := tbl.ParseRow(line, atLine+1+i, 1)
 		if err == nil {
 			err = t.add(r)
 		}
 		if err != nil {
-			return Block{}, fmt.Errorf("%w: %w (line %d)", ErrBadAttr, err, atLine+1+i)
+			return Block{}, fmt.Errorf("%w: %w", ErrBadAttr, err)
 		}
 	}
 	if len(t.tt.Rows()) == 0 {

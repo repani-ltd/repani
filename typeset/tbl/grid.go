@@ -1,7 +1,6 @@
 package tbl
 
 import (
-	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -129,11 +128,11 @@ func fit(f Format, measure int) (*Grid, error) {
 	}
 	switch {
 	case auto >= 0 && width-fixed < 1:
-		return nil, fmt.Errorf("%w: no room for the * column: %d columns need %d of %d", ErrFit, len(widths), fixed+1, width)
+		return nil, errAt(f.Line, f.Col, ErrFit, "no room for the * column: %d columns need %d of %d", len(widths), fixed+1, width)
 	case auto >= 0:
 		widths[auto] = width - fixed
 	case fixed > width:
-		return nil, fmt.Errorf("%w: %d columns need %d of %d", ErrFit, len(widths), fixed, width)
+		return nil, errAt(f.Line, f.Col, ErrFit, "%d columns need %d of %d", len(widths), fixed, width)
 	}
 	g := &Grid{spans: make([]Span, len(widths)), num: make([]bool, len(widths)),
 		frac: make([]int, len(widths)), paren: make([]bool, len(widths))}

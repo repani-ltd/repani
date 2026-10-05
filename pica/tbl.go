@@ -19,6 +19,7 @@ import (
 )
 
 // The refusals that are pica's own; the language's errors are tbl's.
+// Both come as a *tbl.Error, at the line and column at fault.
 var (
 	ErrTableRelative = errors.New("pica: a .table spec gives every column a width")
 	ErrTableColour   = errors.New("pica: tables set no colours or links")
@@ -34,12 +35,12 @@ type Table struct {
 }
 
 // newTable parses a column spec -- tbl's full format, a leading width
-// narrowing it -- that starts at column col of its line.
-func newTable(spec string, col int) (*Table, error) {
+// narrowing it -- that starts at line line, column col.
+func newTable(spec string, line, col int) (*Table, error) {
 	var fs tbl.Formats
-	fm, _, err := fs.Apply(spec, col)
+	fm, _, err := fs.Apply(spec, line, col)
 	if errors.Is(err, tbl.ErrNoFull) {
-		return nil, fmt.Errorf("%w: %q", ErrTableRelative, spec)
+		return nil, &tbl.Error{Line: line, Col: col, Err: fmt.Errorf("%w: %q", ErrTableRelative, spec)}
 	}
 	if err != nil {
 		return nil, err
@@ -49,7 +50,7 @@ func newTable(spec string, col int) (*Table, error) {
 		coloured = coloured || c.Code.HasFG || c.Code.HasBG
 	}
 	if coloured {
-		return nil, fmt.Errorf("%w: %q", ErrTableColour, spec)
+		return nil, &tbl.Error{Line: line, Col: col, Err: fmt.Errorf("%w: %q", ErrTableColour, spec)}
 	}
 	return &Table{fm: fm}, nil
 }
@@ -63,14 +64,14 @@ func (t *Table) Narrow() int { return t.fm.Narrow }
 // above it).
 func (t *Table) add(r tbl.Row) error {
 	if r.Kind != tbl.Data {
-		return ErrTableRow
+		return &tbl.Error{Line: r.Line, Col: 1, Err: ErrTableRow}
 	}
 	if r.Role == tbl.Header && len(t.tt.Rows()) > 0 {
-		return ErrTableHeader
+		return &tbl.Error{Line: r.Line, Col: r.Cells[0].Col, Err: ErrTableHeader}
 	}
 	for _, c := range r.Cells {
 		if c.Code.HasFG || c.Code.HasBG || c.Target != "" {
-			return fmt.Errorf("%w: column %d", ErrTableColour, c.Col)
+			return &tbl.Error{Line: r.Line, Col: c.Col, Err: ErrTableColour}
 		}
 	}
 	return t.tt.Add(t.fm, r)

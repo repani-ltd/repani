@@ -25,10 +25,10 @@ func FuzzApply(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, full, spec string) {
 		var fs Formats
-		if _, ok, err := fs.Apply(full, 1); err != nil || !ok {
+		if _, ok, err := fs.Apply(full, 1, 1); err != nil || !ok {
 			return
 		}
-		fm, isFull, err := fs.Apply(spec, 1)
+		fm, isFull, err := fs.Apply(spec, 1, 1)
 		if err != nil {
 			checkErr(t, "Apply", spec, err)
 			return
@@ -56,7 +56,7 @@ func FuzzParseRow(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, line string) {
-		r, err := ParseRow(line, 1)
+		r, err := ParseRow(line, 1, 1)
 		if err != nil {
 			checkErr(t, "ParseRow", line, err)
 			return
@@ -90,14 +90,14 @@ func FuzzLayout(f *testing.F) {
 			return
 		}
 		var fs Formats
-		fm, _, err := fs.Apply(spec, 1)
+		fm, _, err := fs.Apply(spec, 1, 1)
 		if err != nil {
 			return
 		}
 		if _, err := fit(fm, measure); err != nil {
 			return
 		}
-		r, err := ParseRow(line, 1)
+		r, err := ParseRow(line, 1, 1)
 		if err != nil {
 			return
 		}
