@@ -1,13 +1,13 @@
 // Line breaking for pica: the breaker itself -- Knuth-Plass -- is
-// repani.com/typeset/wrap, shared with the table language, and pica
-// always hyphenates, with typeset/wrap/hyphen's patterns. This file
-// keeps pica's names for it and adds the one thing that is pica's
-// own: _emphasis_ tokenization.
+// repani.com/typeset/wrap, shared with the table language. What is
+// pica's is the policy -- it always hyphenates, with
+// typeset/wrap/hyphen's patterns, at the prose penalty -- and
+// _emphasis_ tokenization. Every function here sets the first line
+// on its own measure, first, for a paragraph opened by a run-in lead
+// (a .term label); first equals width for any other.
 package pica
 
 import (
-	"unicode/utf8"
-
 	"repani.com/typeset/wrap"
 	"repani.com/typeset/wrap/hyphen"
 )
@@ -23,61 +23,34 @@ type Line = wrap.Line
 // the interword space, is one unit wide.
 var Mono = wrap.Mono
 
-// LineOf assembles a Line from words, measuring the natural width
-// under m (word widths plus one space per gap).
-func LineOf(parts []string, m Measurer) Line { return wrap.LineOf(parts, m) }
-
 // WrapLines wraps ONE paragraph ragged-right under the measurer,
 // with the prose hyphen penalty.
-func WrapLines(para string, width int, m Measurer) []Line {
-	return wrap.Hyphenated(para, width, hyphen.Default, wrap.PenaltyProse, m)
+func WrapLines(para string, first, width int, m Measurer) []Line {
+	return wrap.Hyphenated(para, first, width, hyphen.Default, wrap.PenaltyProse, m)
 }
 
-// WrapLinesRunIn is WrapLines with the first line on the measure
-// first, what a run-in lead (a .term label) leaves of it.
-func WrapLinesRunIn(para string, first, width int, m Measurer) []Line {
-	return wrap.HyphenatedRunIn(para, first, width, hyphen.Default, wrap.PenaltyProse, m)
-}
-
-// JustifyLines chooses justified line breaks under the measurer,
-// returning lines at natural spacing; see wrap.Justify.
-func JustifyLines(para string, width int, m Measurer) []Line {
-	return wrap.Justify(para, width, hyphen.Default, m)
-}
-
-// JustifyParagraph wraps ONE paragraph with the justified breaker
-// under Mono and flushes every non-final line to width.
-func JustifyParagraph(para string, width int) []string {
-	return wrap.JustifyParagraph(para, width, hyphen.Default)
-}
-
-// JustifyParagraphRunIn is JustifyParagraph with the first line on
-// the measure first.
-func JustifyParagraphRunIn(para string, first, width int) []string {
-	return wrap.JustifyParagraphRunIn(para, first, width, hyphen.Default)
-}
-
-// HangHyphen is the width a line-final hyphen protrudes into the
-// right margin under m; see wrap.HangHyphen.
-func HangHyphen(m Measurer) int { return wrap.HangHyphen(m) }
-
-// JustifyLinesEmph is JustifyLines for a paragraph carrying _..._
-// emphasis markers (doc.go, Emphasis): the markers are removed,
+// JustifyLines chooses justified line breaks for a paragraph
+// carrying _..._ emphasis markers (doc.go, Emphasis) and returns
+// lines at natural spacing (wrap.Justify). The markers are removed,
 // each emphasized token is measured with em -- the emphasis face's
 // measurer, so justification stays exact when the renderer switches
 // faces -- and every returned Line carries the parallel Emph flags.
 // Emphasis is whole-token: punctuation attached to an emphasized
 // word sets with it, the classic compositor's rule. Interword
-// spaces, and the hyphen hang, stay on the body measurer m. A
-// paragraph without markers behaves exactly as JustifyLines.
-func JustifyLinesEmph(para string, width int, m, em Measurer) []Line {
-	return wrap.JustifyTokens(emphTokens(para, m, em), width, width, hyphen.Default, m)
+// spaces, and the hyphen hang, stay on the body measurer m.
+func JustifyLines(para string, first, width int, m, em Measurer) []Line {
+	return wrap.Justify(emphTokens(para, m, em), first, width, hyphen.Default, m)
 }
 
-// JustifyLinesEmphRunIn is JustifyLinesEmph with the first line on
-// the measure first (see WrapLinesRunIn).
-func JustifyLinesEmphRunIn(para string, first, width int, m, em Measurer) []Line {
-	return wrap.JustifyTokens(emphTokens(para, m, em), first, width, hyphen.Default, m)
+// JustifyText justifies ONE paragraph in monospace and flushes every
+// line but the last to its measure (wrap.JustifyMono).
+func JustifyText(para string, first, width int) []string {
+	return wrap.JustifyMono(para, first, width, hyphen.Default)
+}
+
+// wrapText is the monospace text of WrapLines.
+func wrapText(para string, first, width int) []string {
+	return wrap.Flatten(WrapLines(para, first, width, Mono))
 }
 
 // emphTokens tokenizes a marked paragraph: EmphSegments strips the
@@ -122,20 +95,4 @@ func emphTokens(para string, m, em Measurer) []wrap.Token {
 	}
 	flush(len(clean))
 	return toks
-}
-
-// wrapParagraph is the monospace text of WrapLines.
-func wrapParagraph(para string, width int) []string {
-	return wrap.Flatten(WrapLines(para, width, Mono))
-}
-
-// wrapParagraphRunIn is wrapParagraph with the first line on the
-// measure first: the monospace text of WrapLinesRunIn.
-func wrapParagraphRunIn(para string, first, width int) []string {
-	return wrap.Flatten(WrapLinesRunIn(para, first, width, Mono))
-}
-
-// runeLen returns the number of runes in a string.
-func runeLen(s string) int {
-	return utf8.RuneCountInString(s)
 }

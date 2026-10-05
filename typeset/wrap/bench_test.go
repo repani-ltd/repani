@@ -18,13 +18,13 @@ const benchPara = "The international meteorological organisation announced that 
 func BenchmarkRagged(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		Hyphenated(benchPara, 40, hyphen.Default, PenaltyProse, Mono)
+		Hyphenated(benchPara, 40, 40, hyphen.Default, PenaltyProse, Mono)
 	}
 }
 
-func BenchmarkJustifyParagraph(b *testing.B) {
+func BenchmarkJustifyMono(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		JustifyParagraph(benchPara, 40, hyphen.Default)
+		JustifyMono(benchPara, 40, 40, hyphen.Default)
 	}
 }

@@ -233,7 +233,7 @@ func TestSpread_DashFinalLineHangsHyphen(t *testing.T) {
 	}
 	ln := pica.Line{Words: words, Width: wsum + 2*m.Space()}
 	units := ln.Width // pretend the line naturally fills the width
-	hang := pica.HangHyphen(m)
+	hang := m.Width("-") * 7 / 10
 	if hang <= 0 {
 		t.Fatal("sans hyphen hang should be positive")
 	}

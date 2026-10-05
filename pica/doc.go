@@ -279,9 +279,9 @@ Measurer: the monospace measurer counts one unit per rune and
 distributes slack as whole spaces; proportional writers supply
 font-metric measurers (thousandths of an em) and spread slack
 continuously across the gaps. Under a proportional measurer,
-justified gaps may also shrink up to a third of a space
-(HangHyphen and the shrink allowance are both zero on the
-monospace grid), and a line-final hyphen hangs 70% of its width
+justified gaps may also shrink up to a third of a space (the hang
+and the shrink allowance are both zero on the monospace grid), and
+a line-final hyphen hangs 70% of its width
 into the right margin so the flush edge stays optically straight.
 A word wider than the measure is hyphenated at the last point that
 fits, and where none fits it is cut at the measure, with no hyphen:
@@ -291,11 +291,11 @@ hyphen (after the last of a run), never before it, and never
 leaving fewer than two letters on either side. Words break at
 spaces; a no-break space (U+00A0, also U+2007 and U+202F) is not a
 break point, so "Open sig" stays on one line.
-WrapLines and JustifyLines are the measured structured
-primitives; JustifyParagraph is the monospace paragraph-level
-convenience for writers holding parsed Para blocks -- exactly
-JustifyLines under Mono, flattened and flushed; all document
-structure goes through Parse. Every primitive hyphenates with every embedded
+WrapLines (ragged) and JustifyLines (justified, emphasis-aware)
+are the measured primitives; JustifyText is the monospace
+paragraph flushed to its measure. Each takes the first line's
+measure apart, for a run-in .term label; all document structure
+goes through Parse. Every primitive hyphenates with every embedded
 pattern set.
 
 Widths count runes, not display cells: double-width (CJK) glyphs

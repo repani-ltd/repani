@@ -11,6 +11,8 @@ import (
 
 	"repani.com/pica"
 	"repani.com/pica/pdf"
+	"repani.com/typeset/format"
+	"repani.com/typeset/wrap"
 )
 
 // ── Styled lines and flow blocks ────────────────────────────────────
@@ -178,50 +180,10 @@ func leadingFor(width int) float64 {
 }
 
 // spread returns the inter-word advances for one composed line in
-// thousandths of an em: natural spaces on ragged and final lines;
-// on justified lines the slack is distributed evenly, leftmost
-// gaps taking the remainder, so the line fills the wrap width
-// exactly -- in integers, keeping the PDF deterministic. Negative
-// slack (the breaker's shrink allowance) compresses gaps the same
-// way. A dash-final justified line targets units plus the hyphen
-// hang, mirroring the breaker, so the hyphen protrudes into the
-// margin and the flush edge stays optically straight.
+// thousandths of an em: wrap.Gaps, which spreads a justified line's
+// slack as the breaker measured it.
 func spread(ln pica.Line, units int, m pdf.Measurer, last bool) []int {
-	k := len(ln.Words) - 1
-	if k <= 0 {
-		return nil
-	}
-	gaps := make([]int, k)
-	sp := m.Space()
-	for i := range gaps {
-		gaps[i] = sp
-	}
-	slack := units - ln.Width
-	if !last && strings.HasSuffix(ln.Words[k], "-") {
-		slack += pica.HangHyphen(m)
-	}
-	if last || slack == 0 {
-		return gaps
-	}
-	if slack < 0 {
-		neg := -slack
-		base, extra := neg/k, neg%k
-		for i := range gaps {
-			gaps[i] -= base
-			if i < extra {
-				gaps[i]--
-			}
-		}
-		return gaps
-	}
-	base, extra := slack/k, slack%k
-	for i := range gaps {
-		gaps[i] += base
-		if i < extra {
-			gaps[i]++
-		}
-	}
-	return gaps
+	return wrap.Gaps(ln, units, m, last)
 }
 
 // seg is an atomic run of lines: a paragraph line, a table row (all
@@ -285,14 +247,14 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 		case pica.Para:
 			if t.sans {
 				m := pdf.Measure(pdf.Sans)
-				lines := pica.JustifyLinesEmph(blk.Text, t.units, m, pdf.Measure(pdf.SansItalic))
+				lines := pica.JustifyLines(blk.Text, t.units, t.units, m, pdf.Measure(pdf.SansItalic))
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, t.units, m, last)}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				fb.segs = monoProse(blk.Text, pica.JustifyParagraph(blk.Text, width), noPrefix)
+				fb.segs = monoProse(blk.Text, pica.JustifyText(blk.Text, width, width), noPrefix)
 			}
 
 		case pica.Quote:
@@ -303,21 +265,21 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				m := pdf.Measure(pdf.Sans)
 				qi := pica.QuoteIndent * m.Space()
 				measure := t.units - 2*qi
-				lines := pica.JustifyLinesEmph(blk.Text, measure, m, pdf.Measure(pdf.SansItalic))
+				lines := pica.JustifyLines(blk.Text, measure, measure, m, pdf.Measure(pdf.SansItalic))
 				for i, ln := range lines {
 					last := i == len(lines)-1
 					sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: qi}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 				if blk.Attrib != "" {
-					ln := pica.LineOf(strings.Fields("-- "+blk.Attrib), m)
+					ln := wrap.LineOf(strings.Fields("-- "+blk.Attrib), m)
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true),
 						indent: qi + max(0, measure-ln.Width)}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
 				inset := strings.Repeat(" ", pica.QuoteIndent)
-				lines := pica.JustifyParagraph(blk.Text, width-2*pica.QuoteIndent)
+				lines := pica.JustifyText(blk.Text, width-2*pica.QuoteIndent, width-2*pica.QuoteIndent)
 				fb.segs = monoProse(blk.Text, lines, func(int) string { return inset })
 				if blk.Attrib != "" {
 					fb.segs = append(fb.segs, seg{lines: []sline{{text: pica.AttribLine(blk.Attrib, width)}}})
@@ -343,12 +305,12 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 			}
 			if t.sans {
 				measure, m := shrink(t.units), pdf.Measure(pdf.SansBold)
-				for _, ln := range pica.WrapLines(blk.Text, measure, m) {
+				for _, ln := range pica.WrapLines(blk.Text, measure, measure, m) {
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true), style: styleBold, role: role}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 			} else {
-				for _, ln := range pica.WrapLines(blk.Text, shrink(width), pica.Mono) {
+				for _, ln := range pica.WrapLines(blk.Text, shrink(width), shrink(width), pica.Mono) {
 					sl := sline{text: strings.Join(ln.Words, " "), style: styleBold, role: role}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
@@ -370,7 +332,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				label = truncMeasured(label, t.units, pdf.Measure(pdf.Sans))
 				fb.segs = []seg{{lines: []sline{{words: []string{label}, style: styleGray, href: url}}}}
 			} else {
-				fb.segs = []seg{{lines: []sline{{text: pica.TruncLine(label, width), style: styleGray, href: url}}}}
+				fb.segs = []seg{{lines: []sline{{text: format.Trunc(label, width), style: styleGray, href: url}}}}
 			}
 			fb.atomic = true
 
@@ -448,7 +410,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 		case pica.Pre:
 			lines := make([]sline, len(blk.Lines))
 			for j, ln := range blk.Lines {
-				lines[j] = sline{text: pica.TruncLine(ln, width)}
+				lines[j] = sline{text: format.Trunc(ln, width)}
 			}
 			if blk.Repeat > 0 && blk.Repeat < len(lines) {
 				// Repeated lead-in becomes its own segment; the rest
@@ -510,7 +472,7 @@ func composeItem(blk pica.Block, t typo, width int) fblock {
 		m := pdf.Measure(pdf.Sans)
 		ii := m.Width(pica.Bullet) + m.Space()
 		measure := t.units - ii
-		lines := pica.JustifyLinesEmph(blk.Text, measure, m, pdf.Measure(pdf.SansItalic))
+		lines := pica.JustifyLines(blk.Text, measure, measure, m, pdf.Measure(pdf.SansItalic))
 		for i, ln := range lines {
 			last := i == len(lines)-1
 			sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: ii}
@@ -525,7 +487,7 @@ func composeItem(blk pica.Block, t typo, width int) fblock {
 			fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 		}
 	} else {
-		lines := pica.JustifyParagraph(blk.Text, width-pica.ItemIndent)
+		lines := pica.JustifyText(blk.Text, width-pica.ItemIndent, width-pica.ItemIndent)
 		fb.segs = append(fb.segs, monoProse(blk.Text, lines, func(i int) string {
 			if i == 0 {
 				return pica.Bullet + " "
@@ -553,7 +515,7 @@ func composeTerm(blk pica.Block, t typo, width int) fblock {
 		first := t.units - lead
 		if 2*first < t.units {
 			fb.segs = append(fb.segs, seg{lines: []sline{{lead: truncMeasured(blk.Label, t.units, mb)}}})
-			lines := pica.JustifyLinesEmph(blk.Text, measure, m, mi)
+			lines := pica.JustifyLines(blk.Text, measure, measure, m, mi)
 			for i, ln := range lines {
 				last := i == len(lines)-1
 				sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: hang}
@@ -561,7 +523,7 @@ func composeTerm(blk pica.Block, t typo, width int) fblock {
 			}
 			return fb
 		}
-		lines := pica.JustifyLinesEmphRunIn(blk.Text, first, measure, m, mi)
+		lines := pica.JustifyLines(blk.Text, first, measure, m, mi)
 		for i, ln := range lines {
 			last := i == len(lines)-1
 			sl := sline{words: ln.Words, emph: ln.Emph, gaps: spread(ln, measure, m, last), indent: hang}
@@ -575,13 +537,13 @@ func composeTerm(blk pica.Block, t typo, width int) fblock {
 	hang := strings.Repeat(" ", pica.ItemIndent)
 	first, runIn := pica.TermRunIn(blk.Label, width)
 	if !runIn {
-		label := pica.TruncLine(blk.Label, width)
+		label := format.Trunc(blk.Label, width)
 		fb.segs = append(fb.segs, seg{lines: []sline{{text: label, lead: label}}})
-		lines := pica.JustifyParagraph(blk.Text, width-pica.ItemIndent)
+		lines := pica.JustifyText(blk.Text, width-pica.ItemIndent, width-pica.ItemIndent)
 		fb.segs = append(fb.segs, monoProse(blk.Text, lines, func(int) string { return hang })...)
 		return fb
 	}
-	lines := pica.JustifyParagraphRunIn(blk.Text, first, width-pica.ItemIndent)
+	lines := pica.JustifyText(blk.Text, first, width-pica.ItemIndent)
 	fb.segs = monoProse(blk.Text, lines, func(i int) string {
 		if i == 0 {
 			return blk.Label + strings.Repeat(" ", pica.TermGap)

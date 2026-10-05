@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestTermBlock(t *testing.T) {
@@ -76,7 +77,7 @@ func TestTermText(t *testing.T) {
 		t.Errorf("Text =\n%s\nwant\n%s", out, want)
 	}
 	for i, ln := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
-		if runeLen(ln) > 34 {
+		if utf8.RuneCountInString(ln) > 34 {
 			t.Errorf("line %d exceeds width: %q", i+1, ln)
 		}
 	}
@@ -94,7 +95,7 @@ func TestTermRunInWrap(t *testing.T) {
 	// The first line sets on what the lead leaves, later lines on
 	// the full measure: no line of either exceeds its measure.
 	para := strings.Repeat("alpha beta gamma delta ", 6)
-	lines := WrapLinesRunIn(para, 10, 30, Mono)
+	lines := WrapLines(para, 10, 30, Mono)
 	if len(lines) < 3 {
 		t.Fatalf("lines = %d", len(lines))
 	}
@@ -106,12 +107,12 @@ func TestTermRunInWrap(t *testing.T) {
 			t.Errorf("line %d width %d > 30", i+2, ln.Width)
 		}
 	}
-	just := JustifyParagraphRunIn(para, 10, 30)
-	if runeLen(just[0]) != 10 {
+	just := JustifyText(para, 10, 30)
+	if utf8.RuneCountInString(just[0]) != 10 {
 		t.Errorf("justified first line %q not flushed to 10", just[0])
 	}
 	for i, ln := range just[1 : len(just)-1] {
-		if runeLen(ln) != 30 {
+		if utf8.RuneCountInString(ln) != 30 {
 			t.Errorf("justified line %d %q not flushed to 30", i+2, ln)
 		}
 	}

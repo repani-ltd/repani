@@ -27,9 +27,9 @@ func FuzzBreakers(f *testing.F) {
 		}
 		want := strings.Join(Fields(para), "")
 		for name, lines := range map[string][]Line{
-			"ragged":  Hyphenated(para, width, h, PenaltyCell, Mono),
-			"justify": Justify(para, width, h, Mono),
-			"wide":    Hyphenated(para, 10*width, h, PenaltyProse, wideMeasurer{}),
+			"ragged":  Hyphenated(para, width, width, h, PenaltyCell, Mono),
+			"justify": Justify(Tokens(para, Mono), width, width, h, Mono),
+			"wide":    Hyphenated(para, 10*width, 10*width, h, PenaltyProse, wideMeasurer{}),
 		} {
 			measure := width
 			var m Measurer = Mono

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"repani.com/typeset/tbl"
 )
@@ -521,11 +522,11 @@ func TestTextQuoteItemByline(t *testing.T) {
 		t.Errorf("no indented quote lines:\n%s", out)
 	}
 	for _, ln := range quote {
-		if runeLen(ln) > 40-QuoteIndent {
+		if utf8.RuneCountInString(ln) > 40-QuoteIndent {
 			t.Errorf("quote line exceeds inset measure: %q", ln)
 		}
 	}
-	if len(attrib) != 1 || runeLen(attrib[0]) != 40-QuoteIndent {
+	if len(attrib) != 1 || utf8.RuneCountInString(attrib[0]) != 40-QuoteIndent {
 		t.Errorf("attrib not right-aligned to width-%d: %q", QuoteIndent, attrib)
 	}
 	if len(items) != 2 {
@@ -633,8 +634,8 @@ func TestItemGeometry(t *testing.T) {
 	// The bullet and its space are exactly the item indent, so the
 	// first line and the turnover lines start the text in the same
 	// column.
-	if runeLen(Bullet+" ") != ItemIndent {
-		t.Errorf("runeLen(Bullet+\" \") = %d, want ItemIndent %d", runeLen(Bullet+" "), ItemIndent)
+	if utf8.RuneCountInString(Bullet+" ") != ItemIndent {
+		t.Errorf("utf8.RuneCountInString(Bullet+\" \") = %d, want ItemIndent %d", utf8.RuneCountInString(Bullet+" "), ItemIndent)
 	}
 }
 

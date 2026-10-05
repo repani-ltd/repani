@@ -1,9 +1,11 @@
 package wrap
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"repani.com/typeset/wrap/hyphen"
 )
@@ -11,8 +13,8 @@ import (
 const testWidth = 40
 
 // ragged is the monospace text of a prose paragraph.
-func ragged(para string, width int) []string {
-	return Flatten(Hyphenated(para, width, hyphen.Default, PenaltyProse, Mono))
+func prose(para string, width int) []string {
+	return Flatten(Hyphenated(para, width, width, hyphen.Default, PenaltyProse, Mono))
 }
 
 func TestHyphenateCompoundHyphen(t *testing.T) {
@@ -32,13 +34,13 @@ func TestHyphenateCompoundHyphen(t *testing.T) {
 		}
 		runes := []rune(tt.compound)
 		found := false
-		for pi, p := range points {
+		for _, p := range points {
 			if runes[p] == '-' {
 				t.Errorf("Hyphenate(%q): point %d breaks before the hyphen", tt.compound, p)
 			}
-			prefix, suffix := word{text: tt.compound, points: points}.hyphenParts(pi)
+			prefix, suffix := hyphened(runes, p), string(runes[p:])
 			if strings.Contains(prefix, "--") {
-				t.Errorf("hyphenParts(%q, %d) doubled the hyphen: %q", tt.compound, pi, prefix)
+				t.Errorf("hyphened(%q, %d) doubled the hyphen: %q", tt.compound, p, prefix)
 			}
 			if prefix == tt.prefix && suffix == tt.suffix {
 				found = true
@@ -62,7 +64,7 @@ func TestHyphenateDoubleHyphenBreaksAfterRun(t *testing.T) {
 	}
 	// At 7 the break after the run fits. (At 5 nothing fits and the
 	// word is cut: a cut is raw, and may head a line with "-".)
-	lines := Hyphenated(w, 7, hyphen.Default, PenaltyProse, Mono)
+	lines := Hyphenated(w, 7, 7, hyphen.Default, PenaltyProse, Mono)
 	if lines[0].Words[0] != "abcd--" {
 		t.Errorf("first line %q, want the break after the run", lines[0].Words)
 	}
@@ -78,17 +80,17 @@ func TestHyphenateDoubleHyphenBreaksAfterRun(t *testing.T) {
 func TestWidthPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {
-			t.Fatal("JustifyParagraph with width 0 did not panic")
+			t.Fatal("JustifyMono with width 0 did not panic")
 		}
 	}()
-	JustifyParagraph("hello", 0, hyphen.Default)
+	JustifyMono("hello", 0, 0, hyphen.Default)
 }
 
 // --- Wrap ---
 
 func TestRaggedFits(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies."
-	for _, ln := range ragged(input, testWidth) {
+	for _, ln := range prose(input, testWidth) {
 		if len([]rune(ln)) > testWidth {
 			t.Errorf("wrapped line exceeds width: %q", ln)
 		}
@@ -117,7 +119,7 @@ func TestCell(t *testing.T) {
 	for _, h := range []Hyphenator{hyphen.Default, nil} {
 		for _, w := range []int{1, 3, 7, 12} {
 			for _, ln := range Cell("Isolated thunderstorms developing inland internationalization", w, h) {
-				if runeLen(ln) > w {
+				if utf8.RuneCountInString(ln) > w {
 					t.Errorf("Cell at width %d: %q overflows", w, ln)
 				}
 			}
@@ -147,7 +149,7 @@ func TestLongHyphenatedWordIsLinear(t *testing.T) {
 	}
 	var b strings.Builder
 	for _, ln := range got {
-		if runeLen(ln) > 6 {
+		if utf8.RuneCountInString(ln) > 6 {
 			t.Fatalf("%q overflows", ln)
 		}
 		b.WriteString(strings.TrimSuffix(ln, "-"))
@@ -206,9 +208,9 @@ func TestJustifyGapCost(t *testing.T) {
 		{10, 2, 100}, // 1 gap, base=10: 1*100 = 100
 	}
 	for _, c := range cases {
-		got := justifyGapCost(c.slack, c.words)
+		got := monoGapCost(c.slack, c.words)
 		if got != c.want {
-			t.Errorf("justifyGapCost(%d, %d) = %v, want %v",
+			t.Errorf("monoGapCost(%d, %d) = %v, want %v",
 				c.slack, c.words, got, c.want)
 		}
 	}
@@ -218,19 +220,19 @@ func TestJustifyGapCost(t *testing.T) {
 
 func TestJustify_FlushLines(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing butterflies"
-	lines := JustifyParagraph(input, testWidth, hyphen.Default)
+	lines := JustifyMono(input, testWidth, testWidth, hyphen.Default)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
 	for i, ln := range lines[:len(lines)-1] {
-		if runeLen(ln) != testWidth {
+		if utf8.RuneCountInString(ln) != testWidth {
 			t.Errorf("line %d: %d runes, want %d: %q",
-				i, runeLen(ln), testWidth, ln)
+				i, utf8.RuneCountInString(ln), testWidth, ln)
 		}
 	}
 	// Last line must not exceed width.
 	last := lines[len(lines)-1]
-	if runeLen(last) > testWidth {
+	if utf8.RuneCountInString(last) > testWidth {
 		t.Errorf("last line exceeds width: %q", last)
 	}
 }
@@ -253,7 +255,7 @@ func maxConsecutiveSpaces(s string) int {
 func TestJustify_MaxGap(t *testing.T) {
 	// With enough words, no justified gap should exceed 3 spaces.
 	input := "The unprecedented international collaboration has fundamentally transformed the interconnected Mediterranean communities over the past several decades of cooperation"
-	lines := JustifyParagraph(input, testWidth, hyphen.Default)
+	lines := JustifyMono(input, testWidth, testWidth, hyphen.Default)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -271,7 +273,7 @@ func TestJustify_PrefersHyphenOverWideGaps(t *testing.T) {
 	// without hyphenation. The algorithm should hyphenate to keep
 	// inter-word gaps narrow.
 	input := "Transformation internationally recognized and comprehensive collaboration"
-	lines := JustifyParagraph(input, testWidth, hyphen.Default)
+	lines := JustifyMono(input, testWidth, testWidth, hyphen.Default)
 	for i, ln := range lines[:len(lines)-1] {
 		gap := maxConsecutiveSpaces(ln)
 		if gap > 3 {
@@ -281,25 +283,31 @@ func TestJustify_PrefersHyphenOverWideGaps(t *testing.T) {
 	}
 }
 
-func TestJustifyLine(t *testing.T) {
-	cases := []struct {
+func TestGaps(t *testing.T) {
+	for _, c := range []struct {
 		line  string
 		width int
-		want  string
+		last  bool
+		want  []int
 	}{
-		// 3 words (6 chars), width 14, 8 total spaces across 2 gaps = 4+4
-		{"aa bb cc", 14, "aa    bb    cc"},
-		// single word unchanged
-		{"hello", 10, "hello"},
-		// already at width
-		{"ab cd ef", 8, "ab cd ef"},
-	}
-	for _, c := range cases {
-		got := JustifyLine(LineOf(strings.Fields(c.line), Mono), c.width)
-		if got != c.want {
-			t.Errorf("JustifyLine(%q, %d) = %q, want %q",
-				c.line, c.width, got, c.want)
+		{"aa bb cc", 14, false, []int{4, 4}},       // slack 6 over 2 gaps, on their 1 each
+		{"aa bb cc dd", 15, false, []int{3, 2, 2}}, // slack 4: the leftmost gap takes the odd one
+		{"aa bb cc", 14, true, []int{1, 1}},        // the last line sets natural
+		{"ab cd ef", 8, false, []int{1, 1}},        // already at its measure
+		{"hello", 10, false, nil},                  // no gaps
+	} {
+		if got := Gaps(LineOf(strings.Fields(c.line), Mono), c.width, Mono, c.last); !slices.Equal(got, c.want) {
+			t.Errorf("Gaps(%q, %d, %v) = %v, want %v", c.line, c.width, c.last, got, c.want)
 		}
+	}
+	// A proportional line within the shrink allowance compresses; a
+	// line ending in "-" counts the hyphen's hang.
+	m := wideMeasurer{}                                                                                    // 10 a rune, 9 a space
+	if got := Gaps(LineOf([]string{"aa", "bb", "cc"}, m), 74, m, false); !slices.Equal(got, []int{7, 7}) { // 78 wide: 4 less
+		t.Errorf("shrink: %v", got)
+	}
+	if got := Gaps(LineOf([]string{"aa", "bb-"}, m), 59, m, false); !slices.Equal(got, []int{16}) {
+		t.Errorf("hang: %v", got)
 	}
 }
 
@@ -328,7 +336,7 @@ func (fakeMeasurer) Space() int { return 5 }
 func TestRagged_MeasuredFits(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow chasing illuminated butterflies"
 	m := fakeMeasurer{}
-	lines := Hyphenated(input, 300, hyphen.Default, PenaltyProse, m)
+	lines := Hyphenated(input, 300, 300, hyphen.Default, PenaltyProse, m)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -357,7 +365,7 @@ func TestJustify_MeasuredSlack(t *testing.T) {
 	input := "The unprecedented international collaboration has fundamentally transformed the interconnected communities over several decades"
 	m := fakeMeasurer{}
 	width := 300
-	lines := Justify(input, width, hyphen.Default, m)
+	lines := Justify(Tokens(input, m), width, width, hyphen.Default, m)
 	if len(lines) < 2 {
 		t.Fatalf("expected multiple lines, got %d", len(lines))
 	}
@@ -367,7 +375,7 @@ func TestJustify_MeasuredSlack(t *testing.T) {
 		// in a hyphen, the hang protrusion.
 		allow := (len(ln.Words) - 1) * (m.Space() / 3)
 		if strings.HasSuffix(ln.Words[len(ln.Words)-1], "-") {
-			allow += HangHyphen(m)
+			allow += hyphenHang(m)
 		}
 		if ln.Width > width+allow {
 			t.Errorf("line %d overfull: %d > %d+%d", i, ln.Width, width, allow)
@@ -389,7 +397,7 @@ func TestJustify_MeasuredSlack(t *testing.T) {
 // the shrink allowance (space/3) is meaningful in integer units.
 type wideMeasurer struct{}
 
-func (wideMeasurer) Width(s string) int { return 10 * runeLen(s) }
+func (wideMeasurer) Width(s string) int { return 10 * utf8.RuneCountInString(s) }
 func (wideMeasurer) Space() int         { return 9 }
 
 func TestJustify_ShrinkAbsorbsWord(t *testing.T) {
@@ -399,7 +407,7 @@ func TestJustify_ShrinkAbsorbsWord(t *testing.T) {
 	// alternative. The optimum is a shrunk five-word first line and
 	// a natural two-word last line.
 	m := wideMeasurer{}
-	lines := Justify("aaaa bbbb cccc dddd eeee ffff gggg", 230, hyphen.Default, m)
+	lines := Justify(Tokens("aaaa bbbb cccc dddd eeee ffff gggg", m), 230, 230, hyphen.Default, m)
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines, got %d: %v", len(lines), lines)
 	}
@@ -417,14 +425,14 @@ func TestJustify_ShrinkAbsorbsWord(t *testing.T) {
 	}
 }
 
-func TestHangHyphen(t *testing.T) {
+func TestHyphenHang(t *testing.T) {
 	// Monospace: a cell cannot protrude fractionally.
-	if got := HangHyphen(Mono); got != 0 {
-		t.Errorf("HangHyphen(Mono) = %d, want 0", got)
+	if got := hyphenHang(Mono); got != 0 {
+		t.Errorf("hyphenHang(Mono) = %d, want 0", got)
 	}
 	// wideMeasurer: hyphen is 10 units, 70% hangs.
-	if got := HangHyphen(wideMeasurer{}); got != 7 {
-		t.Errorf("HangHyphen(wideMeasurer) = %d, want 7", got)
+	if got := hyphenHang(wideMeasurer{}); got != 7 {
+		t.Errorf("hyphenHang(wideMeasurer) = %d, want 7", got)
 	}
 }
 
@@ -436,10 +444,10 @@ func TestTryHyphenAtJustify_HangExtendsTarget(t *testing.T) {
 	// admits the break.
 	m := wideMeasurer{}
 	w := word{text: "abcdef", width: 60, points: []int{3}, prefix: []int{40}}
-	if _, ok := tryHyphenAtJustify(w, 60, 105, 2, 0, m.Space(), HangHyphen(m)); !ok {
+	if _, _, ok := justified(m).hyphen(w, 60, 105, 2, 0); !ok {
 		t.Errorf("hyphen break rejected at width 105: hang should extend the target")
 	}
-	if _, ok := tryHyphenAtJustify(w, 60, 97, 2, 0, m.Space(), HangHyphen(m)); ok {
+	if _, _, ok := justified(m).hyphen(w, 60, 97, 2, 0); ok {
 		t.Errorf("hyphen break accepted at width 97: outside hang+shrink window")
 	}
 }
@@ -448,18 +456,18 @@ func TestJustify_MonoNeverShrinks(t *testing.T) {
 	// The monospace measurer has no sub-character shrink: every
 	// line must fit within width at natural spacing.
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	for _, ln := range Justify(input, testWidth, hyphen.Default, Mono) {
+	for _, ln := range Justify(Tokens(input, Mono), testWidth, testWidth, hyphen.Default, Mono) {
 		if ln.Width > testWidth {
 			t.Errorf("mono line overfull: %d > %d: %v", ln.Width, testWidth, ln.Words)
 		}
 	}
 }
 
-func TestJustify_MonoMatchesJustifyParagraph(t *testing.T) {
+func TestJustify_MonoMatchesJustifyMono(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	lines := Justify(input, testWidth, hyphen.Default, Mono)
+	lines := Justify(Tokens(input, Mono), testWidth, testWidth, hyphen.Default, Mono)
 	flat := Flatten(lines)
-	want := JustifyParagraph(input, testWidth, hyphen.Default)
+	want := JustifyMono(input, testWidth, testWidth, hyphen.Default)
 	if len(flat) != len(want) {
 		t.Fatalf("line count %d != %d", len(flat), len(want))
 	}
@@ -473,7 +481,7 @@ func TestJustify_MonoMatchesJustifyParagraph(t *testing.T) {
 	}
 }
 
-func TestJustifyTokens_MatchesJustify(t *testing.T) {
+func TestJustify_TokensMatchTokens(t *testing.T) {
 	// Unstyled tokens on the body measurer break exactly as the
 	// paragraph does, with no Emph flags.
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
@@ -481,8 +489,8 @@ func TestJustifyTokens_MatchesJustify(t *testing.T) {
 	for _, f := range Fields(input) {
 		toks = append(toks, Token{Text: f, M: fakeMeasurer{}})
 	}
-	got := JustifyTokens(toks, 300, 300, hyphen.Default, fakeMeasurer{})
-	want := Justify(input, 300, hyphen.Default, fakeMeasurer{})
+	got := Justify(toks, 300, 300, hyphen.Default, fakeMeasurer{})
+	want := Justify(Tokens(input, fakeMeasurer{}), 300, 300, hyphen.Default, fakeMeasurer{})
 	if len(got) != len(want) {
 		t.Fatalf("line count %d != %d", len(got), len(want))
 	}
@@ -495,8 +503,8 @@ func TestJustifyTokens_MatchesJustify(t *testing.T) {
 
 func TestRaggedVsJustify_Differ(t *testing.T) {
 	input := "The quick brown fox jumps over the lazy dog and then runs swiftly across the sunlit meadow"
-	r := strings.Join(ragged(input, testWidth), "\n")
-	justified := strings.Join(JustifyParagraph(input, testWidth, hyphen.Default), "\n")
+	r := strings.Join(prose(input, testWidth), "\n")
+	justified := strings.Join(JustifyMono(input, testWidth, testWidth, hyphen.Default), "\n")
 	if r == justified {
 		t.Error("ragged and justified output should differ")
 	}
@@ -508,8 +516,8 @@ func TestOverlongWordHyphenates(t *testing.T) {
 	const word = "internationalization" // 20 runes
 	const width = 12
 	for name, lines := range map[string][]Line{
-		"ragged":  Hyphenated(word, width, hyphen.Default, PenaltyProse, Mono),
-		"justify": Justify(word, width, hyphen.Default, Mono),
+		"ragged":  Hyphenated(word, width, width, hyphen.Default, PenaltyProse, Mono),
+		"justify": Justify(Tokens(word, Mono), width, width, hyphen.Default, Mono),
 	} {
 		if len(lines) < 2 {
 			t.Errorf("%s: %q at width %d stayed on one line", name, word, width)
@@ -532,8 +540,8 @@ func TestOverlongWordWithoutPointsIsCut(t *testing.T) {
 	// both breakers, with no hyphen added.
 	const word = "aaaaaaaaaaaaaaaaaaaa" // no valid Liang points
 	for name, lines := range map[string][]Line{
-		"ragged":  Hyphenated(word, 12, hyphen.Default, PenaltyProse, Mono),
-		"justify": Justify(word, 12, hyphen.Default, Mono),
+		"ragged":  Hyphenated(word, 12, 12, hyphen.Default, PenaltyProse, Mono),
+		"justify": Justify(Tokens(word, Mono), 12, 12, hyphen.Default, Mono),
 	} {
 		if got := strings.Join(Flatten(lines), "|"); got != "aaaaaaaaaaaa|aaaaaaaa" {
 			t.Errorf("%s: %q", name, got)
@@ -545,7 +553,7 @@ func TestJustifyKeepsAFittingFirstWord(t *testing.T) {
 	// "responsibility" fits 17: the justified breaker once split it
 	// anyway, costing its suffix at a cost not yet computed.
 	p := "responsibility character typesetting hyphenation he government is my me justification by"
-	if got := JustifyParagraph(p, 17, hyphen.Default)[0]; strings.TrimSpace(got) != "responsibility" {
+	if got := JustifyMono(p, 17, 17, hyphen.Default)[0]; strings.TrimSpace(got) != "responsibility" {
 		t.Errorf("first line %q", got)
 	}
 }
@@ -570,7 +578,7 @@ func (wideW) Space() int { return 250 }
 func TestJustifySingleRuneInTheHang(t *testing.T) {
 	// W is wider than 950 but within the hang: it sets alone, and the
 	// lines before it keep their words.
-	got := Flatten(Justify("aa bb W cc dd", 950, nil, wideW{}))
+	got := Flatten(Justify(Tokens("aa bb W cc dd", wideW{}), 950, 950, nil, wideW{}))
 	if strings.Join(got, "|") != "aa bb|W|cc dd" {
 		t.Errorf("got %q", got)
 	}

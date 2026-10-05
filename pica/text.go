@@ -7,6 +7,9 @@ package pica
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
+
+	"repani.com/typeset/format"
 )
 
 // Text renders the document at its own Layout.Width: the title
@@ -18,9 +21,9 @@ import (
 // source.
 func (d *Doc) Text() (string, error) {
 	width := d.Layout.Width
-	out := []string{TruncLine(d.Title, width)}
+	out := []string{format.Trunc(d.Title, width)}
 	if bl := d.Byline(); bl != "" {
-		out = append(out, TruncLine(bl, width))
+		out = append(out, format.Trunc(bl, width))
 	}
 	for _, b := range d.Blocks {
 		lines, err := RenderBlock(b, width)
@@ -38,7 +41,7 @@ func (d *Doc) Text() (string, error) {
 	// The rights notice closes the page: the text medium has no
 	// per-page footer, so the honest rendering is a final line.
 	if d.Rights != "" {
-		out = append(out, "", TruncLine(d.Rights, width))
+		out = append(out, "", format.Trunc(d.Rights, width))
 	}
 	return strings.Join(out, "\n") + "\n", nil
 }
@@ -51,17 +54,17 @@ func (d *Doc) Text() (string, error) {
 func RenderBlock(b Block, width int) ([]string, error) {
 	switch b.Kind {
 	case Para:
-		return wrapParagraph(b.Text, width), nil
+		return wrapText(b.Text, width, width), nil
 
 	case Heading:
 		marker := "# "
 		if b.Level == 2 {
 			marker = "## "
 		}
-		return []string{TruncLine(marker+b.Text, width)}, nil
+		return []string{format.Trunc(marker+b.Text, width)}, nil
 
 	case Quote:
-		inner := wrapParagraph(b.Text, width-2*QuoteIndent)
+		inner := wrapText(b.Text, width-2*QuoteIndent, width-2*QuoteIndent)
 		out := make([]string, len(inner), len(inner)+1)
 		for i, ln := range inner {
 			out[i] = strings.Repeat(" ", QuoteIndent) + ln
@@ -72,7 +75,7 @@ func RenderBlock(b Block, width int) ([]string, error) {
 		return out, nil
 
 	case Item:
-		inner := wrapParagraph(b.Text, width-ItemIndent)
+		inner := wrapText(b.Text, width-ItemIndent, width-ItemIndent)
 		out := make([]string, len(inner))
 		for i, ln := range inner {
 			if i == 0 {
@@ -91,13 +94,13 @@ func RenderBlock(b Block, width int) ([]string, error) {
 		hang := strings.Repeat(" ", ItemIndent)
 		first, runIn := TermRunIn(b.Label, width)
 		if !runIn {
-			out := []string{TruncLine(b.Label, width)}
-			for _, ln := range wrapParagraph(b.Text, width-ItemIndent) {
+			out := []string{format.Trunc(b.Label, width)}
+			for _, ln := range wrapText(b.Text, width-ItemIndent, width-ItemIndent) {
 				out = append(out, hang+ln)
 			}
 			return out, nil
 		}
-		inner := wrapParagraphRunIn(b.Text, first, width-ItemIndent)
+		inner := wrapText(b.Text, first, width-ItemIndent)
 		out := make([]string, len(inner))
 		for i, ln := range inner {
 			if i == 0 {
@@ -126,7 +129,7 @@ func RenderBlock(b Block, width int) ([]string, error) {
 	case Pre:
 		out := make([]string, len(b.Lines))
 		for i, ln := range b.Lines {
-			out[i] = TruncLine(ln, width)
+			out[i] = format.Trunc(ln, width)
 		}
 		return out, nil
 
@@ -160,7 +163,7 @@ const (
 // -- troff's .TP rule for an over-long tag. Every writer shares the
 // decision, so their line counts agree.
 func TermRunIn(label string, width int) (first int, runIn bool) {
-	first = width - runeLen(label) - TermGap
+	first = width - utf8.RuneCountInString(label) - TermGap
 	return first, 2*first >= width
 }
 
@@ -168,19 +171,6 @@ func TermRunIn(label string, width int) (first int, runIn bool) {
 // quote's right margin (width - QuoteIndent): "-- WHO", truncated
 // to the quote measure (width - 2*QuoteIndent) if need be.
 func AttribLine(attrib string, width int) string {
-	s := TruncLine("-- "+attrib, width-2*QuoteIndent)
-	return strings.Repeat(" ", width-QuoteIndent-runeLen(s)) + s
-}
-
-// TruncLine hard-cuts a line to width runes. Byte length bounds rune
-// length, so most lines return without allocating.
-func TruncLine(s string, width int) string {
-	if len(s) <= width {
-		return s
-	}
-	r := []rune(s)
-	if len(r) <= width {
-		return s
-	}
-	return string(r[:width])
+	s := format.Trunc("-- "+attrib, width-2*QuoteIndent)
+	return strings.Repeat(" ", width-QuoteIndent-utf8.RuneCountInString(s)) + s
 }

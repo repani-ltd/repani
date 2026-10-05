@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestEmphSegments(t *testing.T) {
@@ -142,7 +143,7 @@ func TestJustifyLinesEmphFlags(t *testing.T) {
 	// wide measurer stand-ins: emphasis face wider than body, so a
 	// width mismatch between faces is visible in Line.Width.
 	body, em := Mono, doubleMeasurer{}
-	lines := JustifyLinesEmph("aa _bb_ cc", 20, body, em)
+	lines := JustifyLines("aa _bb_ cc", 20, 20, body, em)
 	if len(lines) != 1 {
 		t.Fatalf("lines = %v", lines)
 	}
@@ -158,7 +159,7 @@ func TestJustifyLinesEmphFlags(t *testing.T) {
 		t.Errorf("width = %d, want 10 (emphasized token must be measured with the emphasis face)", ln.Width)
 	}
 	// No markers: identical to JustifyLines, and Emph stays nil.
-	plain := JustifyLinesEmph("aa bb cc", 20, body, em)
+	plain := JustifyLines("aa bb cc", 20, 20, body, em)
 	if plain[0].Emph != nil {
 		t.Errorf("plain paragraph grew Emph flags: %v", plain[0].Emph)
 	}
@@ -172,13 +173,13 @@ func TestJustifyLinesEmphFlags(t *testing.T) {
 // measured a token.
 type doubleMeasurer struct{}
 
-func (doubleMeasurer) Width(s string) int { return 2 * runeLen(s) }
+func (doubleMeasurer) Width(s string) int { return 2 * utf8.RuneCountInString(s) }
 func (doubleMeasurer) Space() int         { return 1 }
 
 func TestJustifyLinesEmphHyphenKeepsFlag(t *testing.T) {
 	// An emphasized word split at a hyphenation point keeps its
 	// flag on both fragments.
-	lines := JustifyLinesEmph("filler _hyphenation_ x", 10, Mono, Mono)
+	lines := JustifyLines("filler _hyphenation_ x", 10, 10, Mono, Mono)
 	var frags int
 	for _, ln := range lines {
 		for i, w := range ln.Words {

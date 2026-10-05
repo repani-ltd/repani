@@ -3,6 +3,7 @@ package pica
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"repani.com/typeset/wrap"
 	"repani.com/typeset/wrap/hyphen"
@@ -15,7 +16,7 @@ import (
 // units a rune, nine a space.
 type wideMeasurer struct{}
 
-func (wideMeasurer) Width(s string) int { return 10 * runeLen(s) }
+func (wideMeasurer) Width(s string) int { return 10 * utf8.RuneCountInString(s) }
 func (wideMeasurer) Space() int         { return 9 }
 
 func TestSpecEmbedsLanguageReference(t *testing.T) {
@@ -42,8 +43,8 @@ func TestWrapLinesIsWrapRagged(t *testing.T) {
 	// Pica's names are the shared breaker's: a paragraph breaks the
 	// same through either.
 	const p = "Isolated thunderstorms developing inland during the afternoons"
-	got := strings.Join(wrapParagraph(p, 20), "|")
-	want := strings.Join(wrap.Flatten(wrap.Hyphenated(p, 20, hyphen.Default, wrap.PenaltyProse, wrap.Mono)), "|")
+	got := strings.Join(wrapText(p, 20, 20), "|")
+	want := strings.Join(wrap.Flatten(wrap.Hyphenated(p, 20, 20, hyphen.Default, wrap.PenaltyProse, wrap.Mono)), "|")
 	if got != want {
 		t.Errorf("wrapParagraph = %q, wrap.Hyphenated = %q", got, want)
 	}

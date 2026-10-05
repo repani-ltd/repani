@@ -358,7 +358,7 @@ func halfNote(boxes []tbl.Placed, cells []string) []string {
 // wrapCellMeasured wraps prose cell content under a real measurer
 // at the given measure, with the cell-tuned hyphen penalty.
 func wrapCellMeasured(s string, measure int, m Measurer) []Line {
-	return wrap.Hyphenated(s, measure, hyphen.Default, wrap.PenaltyCell, m)
+	return wrap.Hyphenated(s, measure, measure, hyphen.Default, wrap.PenaltyCell, m)
 }
 
 // wrapCell wraps a cell's text to width: wrap.Cell, the breaker the
