@@ -162,8 +162,8 @@ func (p *Page) StrokeGray(level float64) {
 	fmt.Fprintf(&p.buf, "%s G\n", ff(level))
 }
 
-// Bytes finalizes and returns the content stream.
-func (p *Page) Bytes() []byte {
+// content finalizes and returns the content stream.
+func (p *Page) content() []byte {
 	return []byte(p.buf.String())
 }
 

@@ -254,7 +254,7 @@ func Parse(src string) (*Doc, error) {
 			// Emphasis lives only in flowing prose, and every span
 			// must close inside its block: an unclosed opener is
 			// rejected here, so writers only ever see balanced text.
-			if emphUnclosed(b.Text) >= 0 {
+			if emphUnclosed(b.Text) {
 				return nil, fmt.Errorf("%w (line %d)", ErrUnclosedEmph, b.Line)
 			}
 		}

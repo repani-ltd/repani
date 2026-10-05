@@ -1,6 +1,6 @@
 // Command pica renders pica source documents (see the pica
-// package for the language) to text pages, N-column PDFs, and
-// report PDFs.
+// package for the language) to text pages, N-column PDFs, report
+// PDFs and HTML.
 //
 // One generation stage, then a writer:
 //
@@ -8,6 +8,7 @@
 //	pica text   [file|-]            source doc -> fixed-width text page
 //	pica pdf    [file|-]            source doc -> N-column PDF
 //	pica report [file|-]            source doc -> single-column report PDF
+//	pica html   [file|-]            source doc -> HTML article (-txtar: a page)
 //
 // Two oracles, so learning the language never requires the source:
 //
@@ -230,12 +231,12 @@ func writeOutput(cmd, path string, data []byte) int {
 	return 0
 }
 
-// loadDoc is the shared prologue of the subcommands that consume a
-// source document: parse args against fs plus the single optional
-// input positional, read it, parse it. Callers define their own
-// flags on fs first. A nil doc means the error has been reported
-// under "pica <cmd>:" and rc is the exit code.
-func loadDoc(cmd string, fs *flag.FlagSet, args []string) (doc *pica.Doc, rc int) {
+// loadSource is the shared prologue of the subcommands that read one
+// input: parse args against fs plus the single optional input
+// positional, and read it. Callers define their own flags on fs
+// first. A non-zero rc is the exit code of an error already reported
+// under "pica <cmd>:".
+func loadSource(cmd string, fs *flag.FlagSet, args []string) (src []byte, rc int) {
 	pos, err := parseMixed(fs, args)
 	if err != nil {
 		return nil, flagExit(err)
@@ -244,12 +245,22 @@ func loadDoc(cmd string, fs *flag.FlagSet, args []string) (doc *pica.Doc, rc int
 		fmt.Fprintf(stderr, "pica %s: at most one input file (default stdin)\n", cmd)
 		return nil, 2
 	}
-	src, err := readInput(pos)
-	if err != nil {
+	if src, err = readInput(pos); err != nil {
 		fmt.Fprintf(stderr, "pica %s: %v\n", cmd, err)
 		return nil, 1
 	}
-	doc, err = pica.Parse(string(src))
+	return src, 0
+}
+
+// loadDoc is loadSource for the subcommands that consume a source
+// document: it also parses it. A nil doc means the error has been
+// reported and rc is the exit code.
+func loadDoc(cmd string, fs *flag.FlagSet, args []string) (doc *pica.Doc, rc int) {
+	src, rc := loadSource(cmd, fs, args)
+	if rc != 0 {
+		return nil, rc
+	}
+	doc, err := pica.Parse(string(src))
 	if err != nil {
 		fmt.Fprintf(stderr, "pica %s: %v\n", cmd, err)
 		return nil, 1
@@ -266,12 +277,7 @@ func textCmd(args []string) int {
 	if doc == nil {
 		return rc
 	}
-	page, err := doc.Text()
-	if err != nil {
-		fmt.Fprintf(stderr, "pica text: %v\n", err)
-		return 1
-	}
-	return writeOutput("text", *out, []byte(page))
+	return writeOutput("text", *out, []byte(doc.Text()))
 }
 
 // ── render ──────────────────────────────────────────────────────────

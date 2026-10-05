@@ -47,7 +47,7 @@ func TestComposeTermMono(t *testing.T) {
 	// half-line units), plus the run's half-line spacer after the
 	// first entry, since the second turns over -- the item-run
 	// policy, which the text page does not have.
-	text, _ := doc.Text()
+	text := doc.Text()
 	if got, want := blocks[0].height()+blocks[1].height(), 2*3+1; got != want {
 		t.Errorf("composed height %d units, want %d (text page:\n%s)", got, want, text)
 	}

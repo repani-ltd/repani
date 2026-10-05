@@ -196,10 +196,7 @@ LCRA 100550Z 29012KT 9999 FEW020 SCT250 27/19 Q1008 NOSIG
 .width 32
 `
 	d := mustParse(t, src)
-	out, err := d.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := d.Text()
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 
 	if lines[0] != "Weather Limassol" {
@@ -235,10 +232,7 @@ LCRA 100550Z 29012KT 9999 FEW020 SCT250 27/19 Q1008 NOSIG
 
 func TestText_TightPreservesAdjacency(t *testing.T) {
 	d := mustParse(t, "T\n\nLabel:\n.pre\nKey   Value\n.end\n")
-	out, err := d.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := d.Text()
 	if !strings.Contains(out, "Label:\nKey   Value") {
 		t.Errorf("tight blocks separated:\n%s", out)
 	}
@@ -273,10 +267,7 @@ func TestParse_Link(t *testing.T) {
 
 func TestParse_TableHeaderless(t *testing.T) {
 	d := mustParse(t, "T\n\n.table 6L 3C *R\nAPOEL | 2-1 | AEL\nAEK | 0-0 | Omonoia\n.end\n")
-	out, err := d.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := d.Text()
 	if strings.Contains(out, "---") {
 		t.Errorf("headerless table grew a separator:\n%s", out)
 	}
@@ -398,10 +389,7 @@ func TestRemInvisible(t *testing.T) {
 	if len(d.Blocks) != 1 || d.Blocks[0].Text != "alpha beta gamma delta" {
 		t.Fatalf("comment split the paragraph: %+v", d.Blocks)
 	}
-	out, err := d.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := d.Text()
 	if strings.Contains(out, "hidden") || strings.Contains(out, "trailing") {
 		t.Errorf("comment leaked into output:\n%s", out)
 	}
@@ -450,10 +438,7 @@ func TestRightsMeta(t *testing.T) {
 	if _, err := Parse("T\n\nprose\n\n.rights late\n"); !errors.Is(err, ErrMetaAfterContent) {
 		t.Errorf(".rights after content err = %v", err)
 	}
-	out, err := d.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := d.Text()
 	if !strings.HasSuffix(out, "\n© 2026 Pica Custody Ltd\n") {
 		t.Errorf("text page does not close with the rights line:\n%s", out)
 	}
@@ -497,10 +482,7 @@ func TestTextQuoteItemByline(t *testing.T) {
 		".quote\nThe quick brown fox jumps over the lazy dog again and again and again.\n.attrib Aesop\n.end\n\n" +
 		".item first item that runs long enough to wrap onto a second line for sure\n.item second\n\n.width 40\n"
 	d := mustParse(t, src)
-	out, err := d.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := d.Text()
 	lines := strings.Split(out, "\n")
 	if lines[1] != "by A. Writer -- Today" {
 		t.Errorf("byline = %q", lines[1])
@@ -589,10 +571,7 @@ func TestText_TableNotesAndTotalsOrder(t *testing.T) {
 	// separator, rows with their notes, and a total row under its
 	// own rule.
 	src := "T\n\n.table 6L 6N\n^Client | Amt\n.. | eur\nAlpha | 10.00\n.. prime | \nBeta | 2.50\n= Total | 12.50\n.end\n"
-	out, err := mustParse(t, src).Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := mustParse(t, src).Text()
 	want := strings.Join([]string{
 		"T",
 		"",

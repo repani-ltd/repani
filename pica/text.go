@@ -19,17 +19,14 @@ import (
 // truncated, .link lines re-emitted for the wire. Blocks are
 // separated by one blank line unless they were contiguous in the
 // source.
-func (d *Doc) Text() (string, error) {
+func (d *Doc) Text() string {
 	width := d.Layout.Width
 	out := []string{format.Trunc(d.Title, width)}
 	if bl := d.Byline(); bl != "" {
 		out = append(out, format.Trunc(bl, width))
 	}
 	for _, b := range d.Blocks {
-		lines, err := renderBlock(b, width)
-		if err != nil {
-			return "", err
-		}
+		lines := renderBlock(b, width)
 		if len(lines) == 0 {
 			continue
 		}
@@ -43,22 +40,21 @@ func (d *Doc) Text() (string, error) {
 	if d.Rights != "" {
 		out = append(out, "", format.Trunc(d.Rights, width))
 	}
-	return strings.Join(out, "\n") + "\n", nil
+	return strings.Join(out, "\n") + "\n"
 }
 
 // renderBlock lays out one block at the given width as the text
 // writer renders it: the fixed-width lines of that block alone, no
-// separator. Exported so a consumer that styles by block kind (a
-// cell-grid renderer) gets byte-identical lines to Text without
-// duplicating its geometry.
-func renderBlock(b Block, width int) ([]string, error) {
+// separator. A table lays out at width because Parse laid it out at
+// the same width.
+func renderBlock(b Block, width int) []string {
 	switch b.Kind {
 	case Heading:
 		marker := "# "
 		if b.Level == 2 {
 			marker = "## "
 		}
-		return []string{format.Trunc(marker+b.Text, width)}, nil
+		return []string{format.Trunc(marker+b.Text, width)}
 
 	case Para, Quote, Item, Term:
 		lp := LayProse(b, width, wrapText)
@@ -72,29 +68,29 @@ func renderBlock(b Block, width int) ([]string, error) {
 		if lp.Tail != "" {
 			out = append(out, lp.Tail)
 		}
-		return out, nil
+		return out
 
 	case RuleBlk:
-		return []string{"---"}, nil
+		return []string{"---"}
 
 	case LinkBlk:
 		// Wire metadata: clients do not display it, so it is exempt
 		// from the width budget (truncation would corrupt the URL).
-		return []string{strings.TrimSpace(".link " + b.Text + " " + b.Label)}, nil
+		return []string{strings.TrimSpace(".link " + b.Text + " " + b.Label)}
 
 	case TableBlk:
 		tl, err := b.Table.Layout(width)
 		if err != nil {
-			return nil, err
+			panic(fmt.Sprintf("pica: a table Parse laid out at %d does not lay out: %v", width, err))
 		}
-		return tl.Lines(), nil
+		return tl.Lines()
 
 	case Pre:
 		out := make([]string, len(b.Lines))
 		for i, ln := range b.Lines {
 			out[i] = format.Trunc(ln, width)
 		}
-		return out, nil
+		return out
 
 	default:
 		panic(fmt.Sprintf("pica: unknown block kind %d", b.Kind))

@@ -60,10 +60,7 @@ func TestTermText(t *testing.T) {
 		".width 34",
 	}, "\n") + "\n"
 	d := mustParse(t, src)
-	out, err := d.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := d.Text()
 	want := strings.Join([]string{
 		"T",
 		"",

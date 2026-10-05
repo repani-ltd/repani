@@ -66,16 +66,12 @@ func emphWalk(runes []rune, open bool) (marks []int, still bool) {
 	return marks, open
 }
 
-// emphUnclosed returns the rune index of an unclosed emphasis
-// opener in s, or -1 when every span closes. Parse runs it over
-// every prose block, so writers only ever see balanced text.
-func emphUnclosed(s string) int {
-	runes := []rune(s)
-	marks, open := emphWalk(runes, false)
-	if !open {
-		return -1
-	}
-	return marks[len(marks)-1]
+// emphUnclosed reports whether s leaves an emphasis span open. Parse
+// runs it over every prose block, so writers only ever see balanced
+// text.
+func emphUnclosed(s string) bool {
+	_, open := emphWalk([]rune(s), false)
+	return open
 }
 
 // emphSeg is one run of a prose string as segmented by

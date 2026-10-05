@@ -38,14 +38,14 @@ func TestEmphSegments(t *testing.T) {
 }
 
 func TestEmphUnclosed(t *testing.T) {
-	if i := emphUnclosed("all _closed_ here"); i >= 0 {
-		t.Errorf("closed text reported unclosed at %d", i)
+	if emphUnclosed("all _closed_ here") {
+		t.Error("closed text reported unclosed")
 	}
-	if i := emphUnclosed("an _open span"); i != 3 {
-		t.Errorf("unclosed opener index = %d, want 3", i)
+	if !emphUnclosed("an _open span") {
+		t.Error("an open span reported closed")
 	}
 	// A second potential opener is not a closer: still unclosed.
-	if i := emphUnclosed("we renamed _foo to _bar"); i < 0 {
+	if !emphUnclosed("we renamed _foo to _bar") {
 		t.Error("two openers with no closer reported closed")
 	}
 }
@@ -112,10 +112,7 @@ func TestTextWriterKeepsUnderscores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := doc.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := doc.Text()
 	if !strings.Contains(out, "_the word_") {
 		t.Errorf("text output lost the markers:\n%s", out)
 	}

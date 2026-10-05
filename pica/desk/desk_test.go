@@ -130,12 +130,8 @@ func TestTable_EndToEndThroughLanguage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := pica.Parse("T\n\n" + blk + "\n")
-	if err != nil {
+	if _, err := pica.Parse("T\n\n" + blk + "\n"); err != nil {
 		t.Fatalf("helper emitted unparseable block: %v", err)
-	}
-	if _, err := doc.Text(); err != nil {
-		t.Fatal(err)
 	}
 }
 

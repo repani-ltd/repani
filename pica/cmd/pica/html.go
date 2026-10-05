@@ -37,20 +37,12 @@ func htmlCmd(args []string) int {
 	out := fs.String("o", "", "output file (default stdout)")
 	archive := fs.Bool("txtar", false, "input is a txtar archive; assemble the page named by -page")
 	page := fs.String("page", "", "with -txtar: the member NAME.t to render (required)")
-	pos, err := parseMixed(fs, args)
-	if err != nil {
-		return flagExit(err)
-	}
-	if len(pos) > 1 {
-		fmt.Fprintln(stderr, "pica html: at most one input file (default stdin)")
-		return 2
-	}
-	src, err := readInput(pos)
-	if err != nil {
-		fmt.Fprintf(stderr, "pica html: %v\n", err)
-		return 1
+	src, rc := loadSource("html", fs, args)
+	if rc != 0 {
+		return rc
 	}
 	var result []byte
+	var err error
 	if *archive {
 		if *page == "" {
 			fmt.Fprintln(stderr, "pica html: -txtar needs -page NAME")

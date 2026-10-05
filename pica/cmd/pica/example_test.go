@@ -35,10 +35,7 @@ func TestOfficialExamples(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := doc.Text()
-			if err != nil {
-				t.Fatal(err)
-			}
+			page := doc.Text()
 			want, err := os.ReadFile(c.golden)
 			if err != nil {
 				t.Fatal(err)
@@ -95,10 +92,7 @@ func renderExample(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := doc.Text()
-	if err != nil {
-		t.Fatal(err)
-	}
+	page := doc.Text()
 	return page
 }
 

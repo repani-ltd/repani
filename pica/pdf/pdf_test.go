@@ -152,7 +152,7 @@ func TestAstralMeasuredAsDrawn(t *testing.T) {
 	var p Page
 	p.SetFont(Regular, 10)
 	p.Text(72, 700, "\U0001F600")
-	if s := string(p.Bytes()); !strings.Contains(s, "<FFFD>") {
+	if s := string(p.content()); !strings.Contains(s, "<FFFD>") {
 		t.Errorf("astral rune not drawn as U+FFFD:\n%s", s)
 	}
 }
@@ -213,7 +213,7 @@ func TestCompressedStreamInflates(t *testing.T) {
 	}
 	var got []byte
 	for _, s := range streams(t, out) {
-		if bytes.Equal(s, p.Bytes()) {
+		if bytes.Equal(s, p.content()) {
 			got = s
 		}
 	}
@@ -300,7 +300,7 @@ func TestKernedTJOutput(t *testing.T) {
 	var p Page
 	p.SetFont(Sans, 10)
 	p.Text(72, 700, "AVID")
-	s := string(p.Bytes())
+	s := string(p.content())
 	if !strings.Contains(s, "<0041> 45 <005600490044>") {
 		t.Errorf("Text did not emit the AV kern adjustment:\n%s", s)
 	}
@@ -309,7 +309,7 @@ func TestKernedTJOutput(t *testing.T) {
 	var p2 Page
 	p2.SetFont(Sans, 10)
 	p2.Words(72, 700, []string{"AV", "id"}, []int{300})
-	s2 := string(p2.Bytes())
+	s2 := string(p2.content())
 	if !strings.Contains(s2, "<0041> 45 <0056>") {
 		t.Errorf("Words did not kern inside a word:\n%s", s2)
 	}
@@ -320,7 +320,7 @@ func TestKernedTJOutput(t *testing.T) {
 	var p3 Page
 	p3.SetFont(Regular, 10)
 	p3.Text(72, 700, "AVID")
-	if s3 := string(p3.Bytes()); !strings.Contains(s3, "[ <0041005600490044> ] TJ") {
+	if s3 := string(p3.content()); !strings.Contains(s3, "[ <0041005600490044> ] TJ") {
 		t.Errorf("mono Text should be one unsplit run:\n%s", s3)
 	}
 }
@@ -329,7 +329,7 @@ func TestWordsTJ(t *testing.T) {
 	var p Page
 	p.SetFont(Sans, 10)
 	p.Words(72, 700, []string{"Hi", "yo"}, []int{300})
-	s := string(p.Bytes())
+	s := string(p.content())
 	if !strings.Contains(s, "] TJ") {
 		t.Errorf("Words did not emit a TJ array:\n%s", s)
 	}
@@ -340,7 +340,7 @@ func TestWordsTJ(t *testing.T) {
 	var p2 Page
 	p2.SetFont(Sans, 10)
 	p2.Words(72, 700, []string{"solo"}, nil)
-	if s2 := string(p2.Bytes()); !strings.Contains(s2, "TJ") {
+	if s2 := string(p2.content()); !strings.Contains(s2, "TJ") {
 		t.Errorf("single-word Words did not draw:\n%s", s2)
 	}
 }
