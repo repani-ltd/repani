@@ -4,7 +4,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"text/template"
 
 	"repani.com/pica"
 	"repani.com/pica/desk"
@@ -61,9 +60,9 @@ func TestOfficialExamples(t *testing.T) {
 	}
 }
 
-// renderExample runs the example through the same pipeline as
-// `pica render -txtar | pica text` and returns the page text.
-func renderExample(t *testing.T) string {
+// exampleDoc runs the example through the same pipeline as
+// `pica render -txtar` and parses the document.
+func exampleDoc(t *testing.T) *pica.Doc {
 	t.Helper()
 	tmplBytes, err := os.ReadFile("../../example/page.tmpl")
 	if err != nil {
@@ -77,24 +76,20 @@ func renderExample(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl, err := template.New("page").
-		Option("missingkey=zero").
-		Funcs(desk.Funcs()).
-		Parse(string(tmplBytes))
+	src, err := desk.Render("page", string(tmplBytes), data, desk.Blank)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buf strings.Builder
-	if err := tmpl.Execute(&buf, data); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := pica.Parse(buf.String())
+	doc, err := pica.Parse(string(src))
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := doc.Text()
-	return page
+	return doc
 }
+
+// renderExample is the example's page text: `pica render -txtar |
+// pica text`.
+func renderExample(t *testing.T) string { return exampleDoc(t).Text() }
 
 // TestExampleGolden keeps the showcase honest: if the language,
 // wrapping, or table rendering changes, this fails until
@@ -132,30 +127,7 @@ func TestExampleGolden(t *testing.T) {
 // TestExamplePDF renders the same source under the default presentation and checks
 // determinism.
 func TestExamplePDF(t *testing.T) {
-	tmplBytes, err := os.ReadFile("../../example/page.tmpl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dataBytes, err := os.ReadFile("../../example/content.txtar")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := parseTxtar(dataBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tmpl, err := template.New("page").Option("missingkey=zero").Funcs(desk.Funcs()).Parse(string(tmplBytes))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var buf strings.Builder
-	if err := tmpl.Execute(&buf, data); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := pica.Parse(buf.String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	doc := exampleDoc(t)
 	a, err := press.PDF(doc, false)
 	if err != nil {
 		t.Fatal(err)

@@ -4,10 +4,11 @@
 //
 //	NAME.t      the document selected by -page NAME; rendered by the
 //	            writer and handed to the template as .Article
-//	NAME.t.tmpl the same, but first executed as a text/template
-//	            over data.fact (the language and functions of pica
-//	            render), so prose states each fact once; a page has
-//	            one of NAME.t and NAME.t.tmpl, never both
+//	NAME.t.tmpl the same, but first expanded over data.fact by
+//	            desk.Render, as pica render expands a template, but a
+//	            missing key an error (desk.Refuse), so prose states
+//	            each fact once and never a fact it does not have; a
+//	            page has one of NAME.t and NAME.t.tmpl, never both
 //	page.tmpl   the Go html/template executed for the page
 //	data.fact   typed values under their keys (optional)
 //	*.html      raw trusted fragments under their stem (.mark for
@@ -26,7 +27,6 @@ import (
 	"fmt"
 	"html/template"
 	"strings"
-	texttemplate "text/template"
 
 	"repani.com/pica"
 	"repani.com/pica/desk"
@@ -126,20 +126,14 @@ func htmlPage(archive, page string) ([]byte, error) {
 		}
 	}
 	if docIsTmpl {
-		// pica render, inline: desk's functions over the facts,
-		// emitting pica source. One difference from desk.Render:
-		// a missing key is an error here, not missingkey=zero's
-		// rendered placeholder -- a page that states a fact the
-		// data does not hold must not ship.
-		t, err := texttemplate.New(page + ".t.tmpl").Option("missingkey=error").Funcs(desk.Funcs()).Parse(docSrc)
+		// The page's copy is expanded as pica render expands any
+		// template, but a missing key is an error: a page that states
+		// a fact the data does not hold must not ship.
+		src, err := desk.Render(page+".t.tmpl", docSrc, facts, desk.Refuse)
 		if err != nil {
-			return nil, fmt.Errorf("%s.t.tmpl: %w", page, err)
+			return nil, err
 		}
-		var b strings.Builder
-		if err := t.Execute(&b, facts); err != nil {
-			return nil, fmt.Errorf("%s.t.tmpl: %w", page, err)
-		}
-		docSrc = b.String()
+		docSrc = string(src)
 	}
 	doc, err := pica.Parse(docSrc)
 	if err != nil {

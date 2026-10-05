@@ -1293,9 +1293,16 @@ desk tables let data choose a row's role.
 Left as they are, with reasons: the two last-line rules (ragged: a
 line shorter than half the measure; justified: an orphan under five
 characters) and the monospace gap cost (whole spaces, not a
-continuous spread) are each behaviour, not duplication. The desk's
-render (missing keys render empty) and pica html's (missing keys
-are errors) differ on a rule that is the owner's to settle.
+continuous spread) are each behaviour, not duplication.
+
+Template expansion is one function, desk.Render. pica html had grown
+its own copy for the repani.com site, whose pages are text/templates
+over data.fact inside one archive, built in one command so the
+archive a visitor fetches reproduces the pages; its one difference,
+a missing key an error so a page never states a fact the data does
+not hold, is now Render's parameter: desk.Refuse for html,
+desk.Blank for pica render, whose feed templates test optional keys
+with "if". Both site pages render byte for byte as served.
 
 Verified at each step by rendering every document: byte for byte,
 but for the PDFs once every stream became compressed.

@@ -19,7 +19,7 @@ func TestFuncs(t *testing.T) {
 // TestRender_Valid: the desk's helpers resolve and the result
 // is the generated source, newline terminated.
 func TestRender_Valid(t *testing.T) {
-	src, err := Render("bulletin", "Weather\n\nTemp {{round .t}} degrees.", map[string]any{"t": 21.6})
+	src, err := Render("bulletin", "Weather\n\nTemp {{round .t}} degrees.", map[string]any{"t": 21.6}, Blank)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestRender_Valid(t *testing.T) {
 // generates an invalid document is an error carrying the pica
 // parse position, never a result.
 func TestRender_InvalidDoc(t *testing.T) {
-	src, err := Render("b", "T\n\n.bogus {{.x}}", map[string]any{"x": 1})
+	src, err := Render("b", "T\n\n.bogus {{.x}}", map[string]any{"x": 1}, Blank)
 	if src != nil || err == nil {
 		t.Fatalf("Render = %q, %v; want nil, parse error", src, err)
 	}
@@ -139,20 +139,24 @@ func TestTable_EndToEndThroughLanguage(t *testing.T) {
 // missing keys, execution errors, rows and cells.
 func TestVocabulary(t *testing.T) {
 	src, err := Render("t", "T\n\nTemp {{round .Temp}}, wind {{decimal .Wind 1}}, at {{shortTime .Time}} on {{shortDate .Date}}, {{pad .Spot 8}}| {{trunc .Spot 3}} {{dur .Wait}}",
-		map[string]any{"Temp": 25.7, "Wind": 12.345, "Time": "14:30:25", "Date": "2026-04-10", "Spot": "Kourion", "Wait": "90s"})
+		map[string]any{"Temp": 25.7, "Wind": 12.345, "Time": "14:30:25", "Date": "2026-04-10", "Spot": "Kourion", "Wait": "90s"}, Blank)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := "T\n\nTemp 26, wind 12.3, at 14:30 on Fri 10, Kourion | Kou 1m\n"; string(src) != want {
 		t.Fatalf("Render = %q, want %q", src, want)
 	}
-	if src, err := Render("t", "T\n\nvalue {{.absent}} here.", map[string]any{}); err != nil || !strings.Contains(string(src), "value <no value> here.") {
-		t.Fatalf("missing key: %q, %v", src, err)
+	// A missing key: blank under Blank, an error under Refuse.
+	if src, err := Render("t", "T\n\nvalue {{.absent}} here.", map[string]any{}, Blank); err != nil || !strings.Contains(string(src), "value <no value> here.") {
+		t.Fatalf("missing key, Blank: %q, %v", src, err)
 	}
-	if _, err := Render("t", "T\n\n{{round .s}}", map[string]any{"s": "not a number"}); err == nil {
+	if _, err := Render("t", "T\n\nvalue {{.absent}} here.", map[string]any{}, Refuse); err == nil || !strings.Contains(err.Error(), "absent") {
+		t.Fatalf("missing key, Refuse: %v", err)
+	}
+	if _, err := Render("t", "T\n\n{{round .s}}", map[string]any{"s": "not a number"}, Blank); err == nil {
 		t.Fatal("Render accepted a helper type error")
 	}
-	if _, err := Render("broken.tmpl", "T {{if}}", nil); err == nil || !strings.Contains(err.Error(), "broken.tmpl") {
+	if _, err := Render("broken.tmpl", "T {{if}}", nil, Blank); err == nil || !strings.Contains(err.Error(), "broken.tmpl") {
 		t.Fatalf("template parse error = %v", err)
 	}
 	if got, _ := Funcs()["round"].(func(any) (string, error))(int64(8)); got != "8" {

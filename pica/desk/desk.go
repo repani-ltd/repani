@@ -74,16 +74,35 @@ func toFloat(v any) (float64, error) {
 	}
 }
 
-// Render executes the template src over data with Funcs and returns
-// the generated pica source, newline terminated, parsed before it
-// is returned: an invalid document is an error labelled "name:
-// rendered document:", since the parse position indexes the output,
-// not the template. Missing keys render as Go's zero ("<no value>"
-// over map data); a template that must not ship a missing fact
-// tests with "if".
-func Render(name, src string, data any) ([]byte, error) {
+// Missing is what a template does with a key its map data does not
+// hold.
+type Missing int
+
+const (
+	// Blank renders the key as Go's zero value -- "<no value>" over
+	// map data; a template that must not ship a missing fact tests it
+	// with "if". pica render's rule: a feed's optional fields.
+	Blank Missing = iota
+	// Refuse makes it an error: copy that states a fact must find it
+	// in the data. pica html's rule for a page's NAME.t.tmpl, which
+	// states every fact it names.
+	Refuse
+)
+
+// Render executes the template src over data with Funcs, a missing
+// key as missing says, and returns the generated pica source,
+// newline terminated, parsed before it is returned: an invalid
+// document is an error labelled "name: rendered document:", since
+// the parse position indexes the output, not the template. It is the
+// one expansion of pica copy; every command that turns a template
+// into a document calls it.
+func Render(name, src string, data any, missing Missing) ([]byte, error) {
+	opt := "missingkey=zero"
+	if missing == Refuse {
+		opt = "missingkey=error"
+	}
 	tmpl, err := template.New(name).
-		Option("missingkey=zero").
+		Option(opt).
 		Funcs(Funcs()).
 		Parse(src)
 	if err != nil {

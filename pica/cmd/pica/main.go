@@ -322,7 +322,7 @@ func renderCmd(args []string) int {
 		return 1
 	}
 
-	src, err := desk.Render(tmplPath, string(tmplBytes), data)
+	src, err := desk.Render(tmplPath, string(tmplBytes), data, desk.Blank)
 	if err != nil {
 		fmt.Fprintf(stderr, "pica render: %v\n", err)
 		return 1
