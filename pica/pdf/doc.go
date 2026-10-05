@@ -20,7 +20,7 @@ Usage:
 	p.SetFont(pdf.Regular, 8)
 	p.Text(72, 770, "Hello, page one")
 
-	doc := &pdf.Doc{Title: "demo", Compress: true}
+	doc := &pdf.Doc{Title: "demo"}
 	doc.Add(&p)
 	os.WriteFile("out.pdf", doc.Bytes(), 0o644)
 

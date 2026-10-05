@@ -29,7 +29,7 @@ func buildTwoPageDoc(t *testing.T) []byte {
 	p2.SetFont(Regular, 8)
 	p2.Text(72, 780, "page two")
 
-	doc := &Doc{Title: "test", Creator: "pdf_test", Compress: true}
+	doc := &Doc{Title: "test", Creator: "pdf_test"}
 	doc.Add(&p1)
 	doc.Add(&p2)
 	return doc.Bytes()
@@ -57,7 +57,7 @@ func TestDocStructure(t *testing.T) {
 			t.Errorf("missing embedded font %s", ps)
 		}
 	}
-	if got := strings.Count(s, "/Adobe-Identity-UCS"); got != 2 {
+	if got := strings.Count(inflated(t, out), "/Adobe-Identity-UCS"); got != 2 {
 		t.Errorf("ToUnicode CMaps = %d, want 2", got)
 	}
 	// The trailer's startxref must point at the xref table.
@@ -157,38 +157,68 @@ func TestAstralMeasuredAsDrawn(t *testing.T) {
 	}
 }
 
-// A compressed content stream inflates back to the page content.
+// streams returns every stream of a PDF inflated, in order: each is
+// Flate-compressed, its /Length the line before "stream".
+func streams(t *testing.T, out []byte) [][]byte {
+	t.Helper()
+	var all [][]byte
+	marker := []byte("/Filter /FlateDecode\n/Length ")
+	for i := bytes.Index(out, marker); i >= 0; {
+		rest := out[i+len(marker):]
+		var n int
+		if _, err := fmt.Sscanf(string(rest), "%d", &n); err != nil {
+			t.Fatalf("parse /Length: %v", err)
+		}
+		start := bytes.Index(rest, []byte(">>\nstream\n")) + len(">>\nstream\n")
+		r, err := zlib.NewReader(bytes.NewReader(rest[start : start+n]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, body)
+		next := bytes.Index(rest[start+n:], marker)
+		if next < 0 {
+			break
+		}
+		i += len(marker) + start + n + next
+	}
+	return all
+}
+
+// inflated is a PDF with every stream inflated after it, for tests
+// that look for text a stream holds.
+func inflated(t *testing.T, out []byte) string {
+	var b strings.Builder
+	b.Write(out)
+	for _, s := range streams(t, out) {
+		b.Write(s)
+	}
+	return b.String()
+}
+
+// Every stream is compressed, and the page's inflates back to its
+// content.
 func TestCompressedStreamInflates(t *testing.T) {
 	var p Page
 	p.SetFont(Regular, 8)
 	p.Text(72, 700, "inflate me")
-	doc := &Doc{Compress: true}
+	doc := &Doc{}
 	doc.Add(&p)
 	out := doc.Bytes()
-
-	// The page stream is the object with /Filter [ /FlateDecode ]
-	// (font streams use the bare name form).
-	marker := []byte("/Filter [ /FlateDecode ]\n>>\nstream\n")
-	i := bytes.Index(out, marker)
-	if i < 0 {
-		t.Fatal("no compressed content stream")
+	if n := bytes.Count(out, []byte("stream\n")) / 2; n != len(streams(t, out)) {
+		t.Errorf("%d streams, %d of them compressed", n, len(streams(t, out)))
 	}
-	hdr := out[bytes.LastIndex(out[:i], []byte(" 0 obj\n")):i]
-	var n int
-	if _, err := fmt.Sscanf(string(hdr[bytes.Index(hdr, []byte("/Length ")):]), "/Length %d", &n); err != nil {
-		t.Fatalf("parse /Length: %v", err)
+	var got []byte
+	for _, s := range streams(t, out) {
+		if bytes.Equal(s, p.Bytes()) {
+			got = s
+		}
 	}
-	body := out[i+len(marker) : i+len(marker)+n]
-	r, err := zlib.NewReader(bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, p.Bytes()) {
-		t.Errorf("inflated stream differs from page content:\n%s", got)
+	if got == nil {
+		t.Fatal("no stream inflates to the page content")
 	}
 	for _, op := range []string{"BT\n", "/R 8 Tf\n", "72 700 Td\n", "] TJ\n", "ET\n"} {
 		if !bytes.Contains(got, []byte(op)) {
@@ -319,7 +349,7 @@ func TestInfoStringsEscaped(t *testing.T) {
 	var p Page
 	p.SetFont(Regular, 8)
 	p.Text(72, 700, "body")
-	doc := &Doc{Title: `a(b)c\d`, Creator: "pica\nv1", Compress: false}
+	doc := &Doc{Title: `a(b)c\d`, Creator: "pica\nv1"}
 	doc.Add(&p)
 	s := string(doc.Bytes())
 	if !strings.Contains(s, `/Title (a\(b\)c\\d)`) {
@@ -371,7 +401,7 @@ func TestFormXObject(t *testing.T) {
 	d := &Doc{Title: "form"}
 	d.AddForm("Mark", 64, 70, "0 0 m 64 70 l S\n")
 	d.Add(&p)
-	out := string(d.Bytes())
+	out := inflated(t, d.Bytes())
 	for _, want := range []string{
 		"/Subtype /Form", "/BBox [ 0 0 64 70 ]", "/XObject << /Mark ",
 		"q 0.5 0 0 0.5 400 700 cm /Mark Do Q", "0 0 m 64 70 l S",

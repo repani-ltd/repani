@@ -117,7 +117,6 @@ type Doc struct {
 	Producer string    // converting application
 	Created  time.Time // CreationDate; the zero value omits it
 	PageSize PageSize
-	Compress bool
 
 	pages []pageData
 	used  map[Font]map[rune]bool
@@ -207,7 +206,7 @@ func (d *Doc) Bytes() []byte {
 	// 3. Form XObjects, then the resources shared by all pages.
 	formIDs := make([]int, len(d.forms))
 	for i, f := range d.forms {
-		formIDs[i] = b.add(pdfForm(b.next(), f, d.Compress))
+		formIDs[i] = b.add(pdfForm(b.next(), f))
 	}
 	resourcesID := b.add(pdfResources(b.next(), embedded, fontType0IDs, d.forms, formIDs))
 
@@ -219,7 +218,7 @@ func (d *Doc) Bytes() []byte {
 	// 5. Page/stream pairs, plus link annotations per page.
 	kids := make([]int, len(d.pages))
 	for i, pg := range d.pages {
-		streamID := b.add(pdfStream(b.next(), pg.content, d.Compress))
+		streamID := b.add(pdfStream(b.next(), pg.content))
 		annotIDs := make([]int, len(pg.annots))
 		for j, a := range pg.annots {
 			annotIDs[j] = b.add(pdfLinkAnnot(b.next(), a))
@@ -296,11 +295,15 @@ func (o *obj) bytes() []byte {
 	return o.buf.Bytes()
 }
 
-// stream closes the dictionary and attaches body as the object's
-// stream. The caller must have set /Length to len(body).
+// stream closes the dictionary with body as the object's stream,
+// Flate-compressed: every stream of the document is, and its /Filter
+// and /Length are set here.
 func (o *obj) stream(body []byte) []byte {
+	z := zlibCompress(body)
+	o.field("Filter", "/FlateDecode")
+	o.field("Length", strconv.Itoa(len(z)))
 	o.buf.WriteString(">>\nstream\n")
-	o.buf.Write(body)
+	o.buf.Write(z)
 	o.buf.WriteString("\nendstream\nendobj\n")
 	return o.buf.Bytes()
 }
@@ -422,17 +425,8 @@ func literalString(s string) string {
 	return buf.String()
 }
 
-func pdfStream(id int, content string, compress bool) []byte {
-	body := []byte(content)
-	if compress {
-		body = zlibCompress(body)
-	}
-	o := newObj(id)
-	o.field("Length", strconv.Itoa(len(body)))
-	if compress {
-		o.field("Filter", "[ /FlateDecode ]")
-	}
-	return o.stream(body)
+func pdfStream(id int, content string) []byte {
+	return newObj(id).stream([]byte(content))
 }
 
 func pdfKids(ids []int) string {
@@ -480,18 +474,12 @@ func pdfResources(id int, fonts []Font, fontIDs []int, forms []form, formIDs []i
 
 // pdfForm builds a Form XObject: the drawing's content stream in its
 // own w x h bounding box.
-func pdfForm(id int, f form, compress bool) []byte {
+func pdfForm(id int, f form) []byte {
 	o := newObj(id)
 	o.field("Type", "/XObject")
 	o.field("Subtype", "/Form")
 	o.field("BBox", fmt.Sprintf("[ 0 0 %s %s ]", ff(f.w), ff(f.h)))
-	body := []byte(f.content)
-	if compress {
-		body = zlibCompress(body)
-		o.field("Filter", "/FlateDecode")
-	}
-	o.field("Length", strconv.Itoa(len(body)))
-	return o.stream(body)
+	return o.stream([]byte(f.content))
 }
 
 // subsetName returns the BaseFont/FontName of an embedded subset:
@@ -595,20 +583,13 @@ func pdfFontDescriptor(id int, font *ttf.TTFont, name string, fontFileID int) []
 }
 
 func pdfFontFile(id int, data []byte) []byte {
-	compressed := zlibCompress(data)
 	o := newObj(id)
-	o.field("Length", strconv.Itoa(len(compressed)))
 	o.field("Length1", strconv.Itoa(len(data)))
-	o.field("Filter", "/FlateDecode")
-	return o.stream(compressed)
+	return o.stream(data)
 }
 
 func pdfCIDToGIDMap(id int, data []byte) []byte {
-	compressed := zlibCompress(data)
-	o := newObj(id)
-	o.field("Length", strconv.Itoa(len(compressed)))
-	o.field("Filter", "/FlateDecode")
-	return o.stream(compressed)
+	return newObj(id).stream(data)
 }
 
 // zlibCompress compresses data at BestSpeed (content streams and
@@ -693,8 +674,5 @@ end`)
 }
 
 func pdfToUnicode(id int, used map[rune]bool) []byte {
-	cmap := buildToUnicodeCMap(used)
-	o := newObj(id)
-	o.field("Length", strconv.Itoa(len(cmap)))
-	return o.stream([]byte(cmap))
+	return newObj(id).stream([]byte(buildToUnicodeCMap(used)))
 }

@@ -184,7 +184,6 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 		Producer: "Repani Limited",
 		Created:  infoDate(doc.Date),
 		PageSize: size,
-		Compress: true,
 	}
 	if pres.mark {
 		pdoc.AddForm(markName, markW, markH, markStream)

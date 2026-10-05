@@ -21,7 +21,7 @@ func BenchmarkPDFRender(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		doc := &Doc{Title: "bench", Creator: "pdf_test", Compress: true}
+		doc := &Doc{Title: "bench", Creator: "pdf_test"}
 		for j := range pages {
 			doc.Add(&pages[j])
 		}
