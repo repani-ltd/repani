@@ -78,12 +78,18 @@ func TestHyphenateDoubleHyphenBreaksAfterRun(t *testing.T) {
 // --- Width utilities ---
 
 func TestWidthPanics(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("JustifyMono with width 0 did not panic")
-		}
-	}()
-	JustifyMono("hello", 0, 0, hyphen.Default)
+	// A measure of zero, and a first line wider than the rest, are a
+	// caller's mistakes.
+	for _, c := range [][2]int{{0, 0}, {5, 0}, {12, 10}} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("measures %d, %d did not panic", c[0], c[1])
+				}
+			}()
+			Hyphenated("hello", c[0], c[1], nil, 0, Mono)
+		}()
+	}
 }
 
 // --- Wrap ---

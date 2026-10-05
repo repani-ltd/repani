@@ -123,10 +123,13 @@ func Tokens(para string, m Measurer) []Token {
 }
 
 // checkWidth guards the layout entry points: a non-positive width is
-// a programmer error, not an input condition.
-func checkWidth(width int) {
-	if width <= 0 {
-		panic(fmt.Sprintf("wrap: width must be positive, got %d", width))
+// a programmer error, not an input condition. So is a first line
+// wider than the rest: a run-in lead only takes room from it, and the
+// breaker relies on that when it sets a split word's remainder on
+// the first line's measure.
+func checkWidth(first, width int) {
+	if first <= 0 || width <= 0 || first > width {
+		panic(fmt.Sprintf("wrap: measures must be positive, the first no wider than the rest: got %d and %d", first, width))
 	}
 }
 
@@ -145,7 +148,7 @@ const (
 // import no patterns. Proportional writers consume the Lines
 // directly; Flatten gives monospace text.
 func Ragged(para string, width int, m Measurer) []Line {
-	checkWidth(width)
+	checkWidth(width, width)
 	return ragged(m, 0).breakLines(words(Tokens(para, m), nil, width, width), width, width)
 }
 
@@ -158,8 +161,7 @@ func Ragged(para string, width int, m Measurer) []Line {
 // is what the lead leaves of the line, the lead the caller's to
 // place. Both measures must be positive.
 func Hyphenated(para string, first, width int, h Hyphenator, penalty float64, m Measurer) []Line {
-	checkWidth(first)
-	checkWidth(width)
+	checkWidth(first, width)
 	return ragged(m, penalty).breakLines(words(Tokens(para, m), h, first, width), first, width)
 }
 
@@ -187,8 +189,7 @@ func Cell(s string, width int, h Hyphenator) []string {
 // amount. Interword spaces, and the hyphen's hang, are the body
 // measurer m's.
 func Justify(toks []Token, first, width int, h Hyphenator, m Measurer) []Line {
-	checkWidth(first)
-	checkWidth(width)
+	checkWidth(first, width)
 	return justified(m).breakLines(words(toks, h, first, width), first, width)
 }
 

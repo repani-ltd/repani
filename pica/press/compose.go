@@ -272,7 +272,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
 				}
 				if blk.Attrib != "" {
-					ln := wrap.LineOf(strings.Fields("-- "+blk.Attrib), m)
+					ln := wrap.LineOf(wrap.Fields("-- "+blk.Attrib), m)
 					sl := sline{words: ln.Words, gaps: spread(ln, measure, m, true),
 						indent: qi + max(0, measure-ln.Width)}
 					fb.segs = append(fb.segs, seg{lines: []sline{sl}})
