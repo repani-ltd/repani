@@ -1259,4 +1259,45 @@ row prose share one positioning function.
 
 Verified: every document renders byte for byte as before.
 
+# 20. One breaker, one geometry (decided 2026-10-05)
+
+Driver: the same review, on the breaker and the writers.
+
+.item THE BREAKER is one dynamic program under a cost model
+(typeset/wrap): ragged and justified differ in a line's cost, the
+last line's, the hyphen penalty, the hang, the shrink and whether a
+fitting word is tried for a hyphen -- no longer in two copies of the
+search. Its entry points are Ragged (no hyphenation, the light
+path), Hyphenated and Justify, each with the first line's measure
+apart, JustifyMono, Cell, and Gaps, which spreads a justified line's
+slack for every writer (the PDF compositor's spread was a copy).
+HyphenatedRunIn, JustifyTokens, JustifyParagraph and its run-in
+twin, JustifyLine and HangHyphen are gone; pica keeps WrapLines,
+JustifyLines (emphasis-aware) and JustifyText, its policy and
+nothing else.
+.item A word is hyphenated once: a suffix after a break keeps the
+word's points, shifted (none two runes or fewer from its start),
+as §17 already said and the code did not.
+.item THE GEOMETRY of quotes, items and terms on a monospace grid
+is LayProse, once, the breaker its parameter: ragged for the text
+page, justified for the mono PDF. The sans PDF's prose loop is one
+function.
+.item Fixed on the way: the justified breaker split a line's first
+word that fit; a number wider than its N box printed cut, now an
+error; clipped and wrapped cells disagreed on spaces, and a cell
+could hold text no grid can set, now refused; the mono PDF read
+emphasis line by line and lost it at a hyphen; a spanning cell's
+digits were read as a number; a long sans .term label overflowed;
+desk tables let data choose a row's role.
+
+Left as they are, with reasons: the two last-line rules (ragged: a
+line shorter than half the measure; justified: an orphan under five
+characters) and the monospace gap cost (whole spaces, not a
+continuous spread) are each behaviour, not duplication. The desk's
+render (missing keys render empty) and pica html's (missing keys
+are errors) differ on a rule that is the owner's to settle.
+
+Verified at each step by rendering every document: byte for byte,
+but for the PDFs once every stream became compressed.
+
 .font sans
