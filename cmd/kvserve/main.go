@@ -105,7 +105,7 @@ func serveFlags() (*flag.FlagSet, *opts) {
 	fs.Uint64Var(&o.quotas.MaxVaults, "max-vaults", d.MaxVaults, "hard cap on number of registered vaults (0 = unlimited)")
 	fs.Uint64Var(&o.quotas.MaxVaultBytes, "max-vault-bytes", d.MaxVaultBytes, "hard cap on the bytes one vault may hold")
 	fs.Uint64Var(&o.quotas.MaxEntries, "max-entries", d.MaxEntries, "hard cap on the entries one vault may hold")
-	fs.StringVar(&o.registerKeyFile, "register-key-file", "", "path to the register-gate secret (Crockford base32); REQUIRED")
+	fs.StringVar(&o.registerKeyFile, "register-key-file", "", "path to the register-gate secrets (Crockford base32, one per line, # comments); REQUIRED")
 	return fs, o
 }
 

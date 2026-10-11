@@ -31,10 +31,16 @@
     K_c2s = XOF("kv/c2s0/" || AuthKey, 16)       client -> server
     K_s2c = XOF("kv/s2c0/" || AuthKey, 16)       server -> client
 
-  The server also holds one operator secret, the 16-byte RegisterKey,
-  distributed out of band to anyone authorised to create a vault:
+  The server also holds one or more operator secrets, each a 16-byte
+  RegisterKey, distributed out of band to anyone authorised to create
+  a vault:
 
     K_reg = XOF("kv/reg0/" || RegisterKey, 16)   registration gate
+
+  A REGISTER that opens under any one K_reg passes the gate. Holding
+  several lets an operator give each application its own RegisterKey
+  and revoke one without touching the others; nothing on the wire
+  says which key a client holds.
 
   A compromise of AuthKey (e.g. a leaky server) permits frame forgery
   against that one vault but never decryption: entry contents stay

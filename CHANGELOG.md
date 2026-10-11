@@ -17,6 +17,11 @@ are unchanged.
   entry values themselves stay untyped by design.
 
 ### Server
+- The register-key file holds one or more RegisterKeys, one per line,
+  with blank and `#` comment lines ignored; a REGISTER under any of
+  them passes the gate. An application (iou is the first) gets its
+  own key, revocable by deleting its line. A file with no key, or a
+  line that is not one, is a startup error. The wire is unchanged.
 - Quotas are sized for a host that can honour them. `DefaultQuotas`
   drops to 10,000 entries and 8 MiB per vault across 1,000 vaults
   (was 1,000,000, 1 GiB and 10,000 — a 10 TiB ceiling on a 916 MiB

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -132,6 +133,46 @@ func TestRegister_GateAcceptsAndRejects(t *testing.T) {
 	h2 := newHarness(t, srv, rk2, wrong)
 	if _, pre := h2.register(); pre != wire.ErrBadAuth {
 		t.Fatalf("wrong register key: pre=0x%02x, want BAD_AUTH", pre)
+	}
+}
+
+func TestRegister_KeyFileHoldsSeveralKeys(t *testing.T) {
+	second := vault.RegisterKey{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}
+	path := filepath.Join(t.TempDir(), "register.key")
+	file := "# operator\n" + vault.EncodeRegisterKey(testRegKey) + "\n\n  # iou\n" +
+		vault.EncodeRegisterKey(second) + "\n"
+	if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := NewWithOptions(Options{RegisterKeyFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []vault.RegisterKey{testRegKey, second} {
+		rk, _ := vault.NewRandomRootKey()
+		if resp, pre := newHarness(t, srv, rk, k).register(); pre != 0 || resp.Status != wire.StatusOK {
+			t.Fatalf("register under %v: pre=0x%02x status=%d", k, pre, resp.Status)
+		}
+	}
+	rk, _ := vault.NewRandomRootKey()
+	if _, pre := newHarness(t, srv, rk, vault.RegisterKey{0xFF}).register(); pre != wire.ErrBadAuth {
+		t.Fatalf("unlisted register key: pre=0x%02x, want BAD_AUTH", pre)
+	}
+}
+
+func TestRegister_KeyFileErrors(t *testing.T) {
+	for name, file := range map[string]string{
+		"empty":        "",
+		"only comment": "# iou\n\n",
+		"bad line":     vault.EncodeRegisterKey(testRegKey) + "\nnot-a-key\n",
+	} {
+		path := filepath.Join(t.TempDir(), "register.key")
+		if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := NewWithOptions(Options{RegisterKeyFile: path}); err == nil {
+			t.Errorf("%s: NewWithOptions accepted the file", name)
+		}
 	}
 }
 

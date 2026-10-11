@@ -33,6 +33,12 @@
 # There is no permissionless registration. Read the current secret with:
 #   ssh HOST sudo cat /opt/kvserve/register.key
 #
+# The file may hold several secrets, one per line, each labelled by a
+# "#" comment line above it (e.g. "# iou"); a REGISTER under any of
+# them is accepted. To give an application its own, append a line from
+# `kvserve gen-register-key` and restart; to revoke one, delete its
+# line and restart. Existing vaults keep syncing either way.
+#
 # What this script does NOT do:
 #   - DNS (kv.limasoul.com must resolve to HOST before running).
 #   - Install or configure Caddy — that's qc-go's deploy's job.

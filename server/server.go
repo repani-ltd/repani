@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,6 +100,12 @@ func DefaultQuotas() Quotas {
 // is disabled: every REGISTER frame is rejected with BAD_AUTH, and
 // vaults can only be created by a co-resident owner via EnsureVault.
 // There is never permissionless registration.
+//
+// RegisterKeyFile holds one or more RegisterKeys, one per line; blank
+// lines and lines starting with "#" are ignored, so each key can carry
+// a label comment naming who holds it. A REGISTER sealed under any of
+// them is accepted, and revoking one (deleting its line, then
+// restarting) leaves the others and every existing vault untouched.
 type Options struct {
 	DataDir         string
 	Quotas          Quotas
@@ -119,8 +126,7 @@ type Server struct {
 	dataDir string
 	quotas  Quotas
 	clock   func() int64
-	regOK   bool             // false = registration disabled
-	regKey  vault.ChannelKey // K_reg = XOF("kv/reg0/" || RegisterKey)
+	regKeys []vault.ChannelKey // K_reg per RegisterKey; none = registration disabled
 	onPush  func(vault.VaultID)
 	mux     *http.ServeMux // the protocol routes, built once
 
@@ -144,19 +150,16 @@ func NewWithOptions(opt Options) (*Server, error) {
 	if opt.RegisterKey != nil && opt.RegisterKeyFile != "" {
 		return nil, errors.New("server: RegisterKey and RegisterKeyFile are mutually exclusive")
 	}
-	regOK := true
-	var regKey vault.RegisterKey
+	var regKeys []vault.ChannelKey // none = registration disabled
 	switch {
 	case opt.RegisterKey != nil:
-		regKey = *opt.RegisterKey
+		regKeys = []vault.ChannelKey{vault.DeriveRegKey(*opt.RegisterKey)}
 	case opt.RegisterKeyFile != "":
-		loaded, err := loadRegisterKey(opt.RegisterKeyFile)
+		loaded, err := loadRegisterKeys(opt.RegisterKeyFile)
 		if err != nil {
 			return nil, err
 		}
-		regKey = loaded
-	default:
-		regOK = false // registration disabled
+		regKeys = loaded
 	}
 
 	if opt.DataDir != "" {
@@ -176,15 +179,11 @@ func NewWithOptions(opt Options) (*Server, error) {
 		dataDir: opt.DataDir,
 		quotas:  q,
 		clock:   clk,
-		regOK:   regOK,
+		regKeys: regKeys,
 		onPush:  opt.OnPush,
 		vaults:  make(map[vault.VaultID]*vaultState),
 	}
 	s.mux = s.routes()
-	if regOK {
-		s.regKey = vault.DeriveRegKey(regKey)
-	}
-	regKey = vault.RegisterKey{} // scrub
 	if opt.DataDir != "" {
 		if err := s.loadPersistedVaults(); err != nil {
 			return nil, err
@@ -193,19 +192,33 @@ func NewWithOptions(opt Options) (*Server, error) {
 	return s, nil
 }
 
-func loadRegisterKey(path string) (vault.RegisterKey, error) {
+// loadRegisterKeys reads a register-key file (see Options) and returns
+// the K_reg of each key in it, in file order. A file with no key is an
+// error: registration is disabled by not configuring a file, never by
+// an empty one.
+func loadRegisterKeys(path string) ([]vault.ChannelKey, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return vault.RegisterKey{}, fmt.Errorf("server: register-key-file %s: %w", path, err)
+		return nil, fmt.Errorf("server: register-key-file %s: %w", path, err)
 	}
-	rk, err := vault.DecodeRegisterKey(string(b))
-	if err != nil {
-		return vault.RegisterKey{}, fmt.Errorf("server: register-key-file %s: %w", path, err)
+	defer clear(b)
+	var keys []vault.ChannelKey
+	for i, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		rk, err := vault.DecodeRegisterKey(line)
+		if err != nil {
+			return nil, fmt.Errorf("server: register-key-file %s:%d: %w", path, i+1, err)
+		}
+		keys = append(keys, vault.DeriveRegKey(rk))
+		clear(rk[:])
 	}
-	for i := range b {
-		b[i] = 0
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("server: register-key-file %s: no register key", path)
 	}
-	return rk, nil
+	return keys, nil
 }
 
 func (s *Server) loadPersistedVaults() error {
@@ -298,12 +311,16 @@ func (s *Server) HandleFrame(req []byte) ([]byte, error) {
 }
 
 func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, sealed []byte) ([]byte, error) {
-	if !s.regOK {
-		return []byte{wire.ErrBadAuth}, nil // registration disabled
+	var payload []byte
+	opened := false // no keys = registration disabled
+	for _, k := range s.regKeys {
+		if p, err := wire.OpenFrame(k, wire.KindRegister, vid, nonce, sealed); err == nil {
+			payload, opened = p, true
+			break
+		}
 	}
-	payload, err := wire.OpenFrame(s.regKey, wire.KindRegister, vid, nonce, sealed)
-	if err != nil {
-		return []byte{wire.ErrBadAuth}, nil // gate: wrong RegisterKey
+	if !opened {
+		return []byte{wire.ErrBadAuth}, nil // gate: no RegisterKey opens it
 	}
 	if len(payload) != vault.AuthKeySize {
 		return []byte{wire.ErrBadFrame}, nil
@@ -324,7 +341,7 @@ func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, 
 		s.mu.Unlock()
 		return s.sealResp(vid, vault.DeriveS2C(ak), nonce, wire.StatusQuota, nil)
 	}
-	st, err = s.createVaultLocked(vid, ak)
+	st, err := s.createVaultLocked(vid, ak)
 	s.mu.Unlock()
 	if err != nil {
 		log.Printf("server: create vault %x: %v", vid[:], err)
