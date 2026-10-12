@@ -1,7 +1,7 @@
 // Package client provides the ASCON-KV v1 client: Put/Get/Delete on a
 // local encrypted store, plus a paged sync against a server. Every frame
 // it sends is a single AEAD seal; reconciliation is PROBE / PULL / PUSH
-// as defined in PROTOCOL.txt.
+// as defined in PROTOCOL.t.
 package client
 
 import (
@@ -19,10 +19,10 @@ import (
 	"repani.com/kv/wire"
 )
 
-// fmtRaw is the value-encoding tag for a verbatim value (CLIENT.txt).
+// fmtRaw is the value-encoding tag for a verbatim value (CLIENT.t).
 const fmtRaw = 0x00
 
-// WrapValue prepends the CLIENT.txt format tag to a value, producing
+// WrapValue prepends the CLIENT.t format tag to a value, producing
 // the bytes stored inside an entry. Exported for owners that seal
 // entries directly (vault.Seal) rather than through a Client.
 func WrapValue(fmtTag byte, value []byte) []byte {
@@ -168,8 +168,8 @@ func (c *Client) Put(key, value []byte) error {
 	return c.PutFmt(key, value, fmtRaw)
 }
 
-// PutFmt writes (key, value) under an explicit format tag (CLIENT.txt:
-// 0x00 is raw; 0x01..0xFF name application encodings). The tag is
+// PutFmt writes (key, value) under an explicit format tag (CLIENT.t:
+// only 0x00, raw, is assigned). The tag is
 // stored inside the entry ciphertext and surfaces on reads as
 // LiveEntry.Fmt.
 func (c *Client) PutFmt(key, value []byte, fmtTag byte) error {
@@ -283,7 +283,7 @@ func (c *Client) List() ([]string, error) {
 }
 
 // LiveEntry is a live (key, value) pair. Fmt is the value's format tag
-// (CLIENT.txt); Value is the payload with the tag already stripped; Ts
+// (CLIENT.t); Value is the payload with the tag already stripped; Ts
 // is the winning entry's ts_ms.
 type LiveEntry struct {
 	Key   []byte

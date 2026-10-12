@@ -1,6 +1,6 @@
 // Package vault defines the crypto-aware types and derivations used by
 // ASCON-KV v1: key material, vault identifier, entry encoding, the
-// whole-set hash, and hedged nonces. See PROTOCOL.txt.
+// whole-set hash, and hedged nonces. See PROTOCOL.t.
 package vault
 
 import (
@@ -49,7 +49,7 @@ type VaultID [VaultIDSize]byte
 // EntryID is the content address of an entry.
 type EntryID [EntryIDSize]byte
 
-// Domain separators, 8 bytes each (PROTOCOL.txt §Keys, §Nonces).
+// Domain separators, 8 bytes each (PROTOCOL.t §Keys, §Nonces).
 var (
 	domAEAD = []byte("kv/aead/")
 	domVID  = []byte("kv/vid1/")

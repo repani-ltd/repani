@@ -1,6 +1,6 @@
 // Package store provides the client- and server-side entry set used
 // by ASCON-KV. A Store is an unordered set keyed by EntryID that also
-// exposes a canonical-order view and a set hash; see PROTOCOL.txt.
+// exposes a canonical-order view and a set hash; see PROTOCOL.t.
 package store
 
 import "repani.com/kv/vault"

@@ -14,7 +14,7 @@ import (
 //	XOF(dom || context || u64(unixNano) || random16, 16)
 //
 // The random bytes provide uniqueness; the timestamp is a hedge against
-// an RNG that repeats (a fork or early boot) — see PROTOCOL.txt §Nonces.
+// an RNG that repeats (a fork or early boot) — see PROTOCOL.t §Nonces.
 func hedgedNonce(dom, context []byte) ([NonceSize]byte, error) {
 	var r [16]byte
 	if _, err := rand.Read(r[:]); err != nil {

@@ -12,9 +12,7 @@ import (
 
 // ExportCSV writes the current live key/value state to w as a CSV
 // with header "Key,Value". The rows are sorted by key for stable
-// output. Tombstoned (deleted) keys are omitted. This format is the
-// intentional common subset with quietcasting's qvlt — a qvlt import
-// reads exactly this shape.
+// output. Tombstoned (deleted) keys are omitted.
 //
 // Values are written verbatim. Binary or non-UTF-8 values will not
 // round-trip cleanly through CSV; such vaults should prefer a
@@ -45,8 +43,7 @@ func (c *Client) ExportCSV(w io.Writer) error {
 
 // ImportCSV reads CSV from r and writes each row into the vault.
 // The header is inspected case-insensitively for "Key" and "Value"
-// columns; extra columns (e.g., the User/Bucket/Uid that qvlt
-// exports) are ignored. Rows with an empty key or an empty value are
+// columns; extra columns are ignored. Rows with an empty key or an empty value are
 // skipped — an empty value is a protocol-level tombstone and must
 // not be created silently by an import.
 //

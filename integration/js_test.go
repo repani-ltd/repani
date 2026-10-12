@@ -90,7 +90,7 @@ func jsVectors(t *testing.T) map[string]any {
 		e.Ct = aead.Seal(nil, nonce[:], pt, ad)
 		return e
 	}
-	// Values follow CLIENT.txt (fmt 0x00 || payload); e3 is a
+	// Values follow CLIENT.t (fmt 0x00 || payload); e3 is a
 	// tombstone for alpha with a ts tie against e2.
 	e1 := mkEntry(1000, 0xA1, []byte("alpha"), append([]byte{0x00}, "first"...))
 	e2 := mkEntry(2000, 0xA2, []byte("beta"), append([]byte{0x00}, "second"...))

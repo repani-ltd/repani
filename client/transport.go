@@ -21,7 +21,7 @@ var ErrNoBaseURL = errors.New("client: transport has no base URL")
 // HTTPTransport POSTs each sealed frame to <Base>/v1/sync and returns
 // the response bytes, capped at wire.MaxFrameBytes. It is the
 // canonical Transport for HTTP servers; a server mounted under a
-// path prefix (e.g. Quietcasting's /kv) is reached by including the
+// path prefix (e.g. an almanac station's /kv) is reached by including the
 // prefix in Base.
 type HTTPTransport struct {
 	Base    string        // server base URL; a trailing slash is tolerated

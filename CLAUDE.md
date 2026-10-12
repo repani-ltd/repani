@@ -1,7 +1,11 @@
 # kv
 
 ASCON-KV: append-only key-value vault store with client, server, and wire
-protocol. See PROTOCOL.txt and CLIENT.txt for the protocol and client specs.
+protocol. The documents are pica (`pica check FILE.t`): PROTOCOL.t the
+wire, normative and versioned by the frame's `ver` byte; CLIENT.t the
+conventions above it; DESIGN.t the reasons, decisions, known gaps and
+designs not yet built. History is git's: no changelog, and no history
+in comments.
 
 The Ascon primitives (XOF128, AEAD128) come from the public module
 `repani.com` (`repani.com/ascon`, checkout `../../repani`);
@@ -23,12 +27,7 @@ depended on it, and that tool silently stopped building for a month.
 Conversely, nothing in kv is a general primitive: vault types,
 client, server and wire are ASCON-KV protocol surface and stay here;
 primitives (ascon, golay, lz4s) live in the public module. `store`
-included (assessed 2026-08-19): its item identity (`Entry.ID`, a
-domain-separated XOF), order (canonical `(TsMs, EntryID)`), set hash
-and on-disk record are all PROTOCOL.txt definitions, so it is the
-protocol's entry set with durability, not a generic log. Extracting a
-generic `logset` primitive only makes sense when a second protocol
-needs one -- two consumers shape the interface, one does not.
+included: see DESIGN.t, "The store is protocol, not a primitive".
 
 ## Testing
 

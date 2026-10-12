@@ -1,18 +1,14 @@
 // kv.js -- ASCON-KV v1 protocol client in a single JavaScript file.
 //
-// A faithful JS implementation of the layers defined by PROTOCOL.txt
-// and CLIENT.txt, mirroring the Go packages ascon, vault, wire, store,
+// A faithful JS implementation of the layers defined by PROTOCOL.t
+// and CLIENT.t, mirroring the Go packages ascon, vault, wire, store,
 // and client. ES module; runs in browsers and Node (needs BigInt,
 // DataView, and globalThis.crypto.getRandomValues).
 //
 // The full client protocol is implemented: REGISTER, and PROBE / PULL
-// / PUSH reconciliation with the reference client's fast-path push and
-// windowed walk, plus local Put/Delete writes and the merged live
-// view. One deliberate difference from the Go client: registration is
-// reactive when no register key is installed -- a keyless client syncs
-// optimistically against an already-registered vault instead of
-// failing, and only errors if the server answers UNKNOWN_VAULT
-// (PROTOCOL.txt blesses REGISTER-on-UNKNOWN_VAULT as the recovery).
+// / PUSH reconciliation with the reference sync of CLIENT.t (the same
+// loop as the Go client), plus local Put/Delete writes and the merged
+// live view.
 //
 // All integers on the wire are little-endian. Byte parameters and
 // results are Uint8Array unless stated otherwise; ts_ms values are
@@ -220,7 +216,7 @@ function concatBytes(...parts) {
 }
 
 // derive16 computes XOF(dom || material, 16). dom is the 8-char ASCII
-// domain separator from PROTOCOL.txt.
+// domain separator from PROTOCOL.t.
 function derive16(dom, material) {
   return xof(concatBytes(te.encode(dom), material), 16);
 }
@@ -241,7 +237,7 @@ function hedgedNonce(dom, context) {
   // Fill the low nanosecond bits from a sub-millisecond monotonic clock so
   // the timestamp advances within a single millisecond. Date.now() alone
   // has ms granularity, which would defeat the RNG-failure hedge that
-  // PROTOCOL.txt §Nonces relies on for entry nonces (a collision there
+  // PROTOCOL.t §Nonces relies on for entry nonces (a collision there
   // leaks the XOR of two secret values). random16 stays the primary guard.
   const frac = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
   const subNs = BigInt(Math.floor((frac - Math.floor(frac)) * 1e6)); // 0..999999
@@ -750,7 +746,7 @@ export class IDBStore {
 }
 
 // ---------------------------------------------------------------------
-// Value encoding (CLIENT.txt): value = fmt(1) || payload; a tombstone
+// Value encoding (CLIENT.t): value = fmt(1) || payload; a tombstone
 // is the protocol's empty value with no fmt byte.
 
 export const FMT_RAW = 0x00;
@@ -950,7 +946,7 @@ export class Client {
   // encoded. The stored value is fmt(1)||value.
   async put(key, value) { return this.putFmt(key, value, FMT_RAW); }
 
-  // putFmt writes (key, value) under an explicit CLIENT.txt format tag.
+  // putFmt writes (key, value) under an explicit CLIENT.t format tag.
   async putFmt(key, value, fmtTag) {
     if (typeof key === "string") key = te.encode(key);
     if (typeof value === "string") value = te.encode(value);
@@ -1289,7 +1285,7 @@ export class Client {
   }
 
   // all returns every live pair as [{key, value, fmt, ts}], sorted by
-  // key. fmt is the CLIENT.txt format tag; value has the tag
+  // key. fmt is the CLIENT.t format tag; value has the tag
   // stripped; ts is the winning entry's ts_ms as BigInt.
   async all() {
     const out = [];
@@ -1303,9 +1299,9 @@ export class Client {
 
 // ---------------------------------------------------------------------
 // Transport (client/transport.go): POST each sealed frame to
-// <base>/v1/sync. Returns an async (frame) -> Uint8Array. Clients MUST
-// set a request timeout and cap each response body (PROTOCOL.txt
-// §Transport); opts.timeoutMs defaults to 60s.
+// <base>/v1/sync. Returns an async (frame) -> Uint8Array. A client
+// sets a request timeout and refuses a body over MAX_FRAME_BYTES
+// (PROTOCOL.t §HTTP); opts.timeoutMs defaults to 60s.
 
 export function httpTransport(base, opts = {}) {
   const url = base.replace(/\/+$/, "") + "/v1/sync";

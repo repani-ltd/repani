@@ -7,11 +7,7 @@
 //	kvserve help
 //
 // The serving verb is optional: flags alone serve, and so does an
-// explicit "serve". qcweb, the sibling daemon on the same host,
-// requires the verb in its unit file, and kvserve used to reject it,
-// so a unit copied between the two died at ExecStart with exit 2 --
-// visible only in the journal, and now (with Restart=always and a
-// start limit) ending in a service systemd gives up on.
+// explicit "serve", so a unit file names the verb or not.
 //
 // kvserve speaks plain HTTP on a loopback address; TLS belongs to a
 // fronting reverse proxy (see deploy/). Every frame is sealed, so
@@ -148,9 +144,8 @@ func runServe(args []string) {
 
 	// kiosk owns the lifecycle: bind before serving, signals installed
 	// before the listener exists, READY=1 to the service manager, then
-	// drain and close the vault stores in that order. Close is the
-	// call this daemon never used to make -- it releases every vault's
-	// advisory lock, which is what lets the next process take them
+	// drain and close the vault stores in that order. Close releases
+	// every vault's advisory lock, so the next process takes them
 	// without waiting.
 	if err := kiosk.Serve(context.Background(), kiosk.Config{
 		Addr:          o.addr,

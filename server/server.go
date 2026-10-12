@@ -1,6 +1,6 @@
 // Package server implements the ASCON-KV v1 server: a blind relay that
 // holds a content-addressed set of entries per VaultID and serves the
-// paged sync protocol defined in PROTOCOL.txt. It opens every frame
+// paged sync protocol defined in PROTOCOL.t. It opens every frame
 // under a channel key, never under AEAD_Key, so it never sees plaintext.
 package server
 
@@ -37,55 +37,10 @@ type Quotas struct {
 // the former without hanging on the latter.
 const logLockWait = 5 * time.Second
 
-// A note on s.mu, which is one mutex for the whole server and guards
-// the vaults map.
-//
-// Creating a vault holds it across filesystem work: handleRegister
-// takes s.mu, and createVaultLocked then does MkdirAll, a synced
-// writeAuthKey (two fsyncs) and OpenLogStore, which can itself wait
-// logLockWait for the advisory lock. Every other request needs the
-// same mutex for a map lookup, so during that window the whole server
-// is parked -- not just that vault, and not just registrations.
-//
-// This is deliberate rather than overlooked. The existence check and
-// the map insert must be atomic: without that, two REGISTERs for the
-// same new vault both find nothing, both build a store, and they race
-// for one advisory lock on one file. Holding the mutex across the
-// whole sequence is the cheapest way to close that race, and it buys
-// correctness with latency.
-//
-// The trade is recorded, not fixed, because the price is currently
-// zero: registrations are rare, and the pathological case needs one
-// to arrive during a restart overlap. Clean shutdown made even that
-// unlikely -- kvserve now calls Close, which releases every advisory
-// lock before the next process starts, so the overlap that
-// logLockWait exists for should not happen at all. If registration
-// ever becomes frequent, the fix is to reserve the map slot with a
-// placeholder whose own mutex is held, release s.mu, and do the disk
-// work under the placeholder: only that vault's clients would wait.
-
-// DefaultQuotas are limits a small host can actually honour. Paging
-// decouples vault size from the frame size, so MaxVaultBytes is a
-// storage cap, not a transport one -- but note what "storage" means
-// here: LogStore wraps a MemStore, so every accepted byte is RESIDENT
-// for as long as the server runs, and these numbers are a memory
-// budget before they are a disk one.
-//
-// The previous values (1,000,000 entries, 1 GiB per vault, 10,000
-// vaults) promised a 10 TiB ceiling on a 916 MiB host: not a limit at
-// all, just a number no operator could reach before the machine died.
-// These bound one vault to 8 MiB, which is 128 entries at
-// vault.MaxEntryBytes or a few thousand ordinary ones, and that same
-// figure is the blast radius of a leaked pairing key -- PROTOCOL.txt
-// notes such a holder can fill a vault with junk the clients discard
-// and the server counts, recoverable only by rotating to a fresh
-// RootKey.
-//
-// A deployment with more memory raises them; kvserve takes all three
-// as flags. What these still cannot express is a bound on the
-// POPULATION: 1,000 full vaults is 8 GiB whatever one vault is capped
-// at, because no quota here is global. That gap wants a total-bytes
-// limit checked across vaults, and is recorded as such.
+// DefaultQuotas are limits a small host can honour. Every accepted
+// byte stays in memory (LogStore wraps a MemStore), so they are a
+// memory budget first; a larger host raises them through kvserve's
+// flags. DESIGN.t, Quotas, has the sizing and the gap they leave.
 func DefaultQuotas() Quotas {
 	return Quotas{
 		MaxEntries:    10_000,
@@ -614,9 +569,7 @@ const SyncPath = "/v1/sync"
 
 // routes builds the server's route table. The path and method live in
 // the pattern, so http.ServeMux answers a wrong method with 405 and a
-// correct Allow header -- which the hand-written checks this replaced
-// did not do (every non-POST request to any path got a bare 405, and
-// the path check below it was unreachable for them).
+// correct Allow header.
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+SyncPath, s.serveSync)

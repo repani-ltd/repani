@@ -14,7 +14,7 @@ const EntryHeaderSize = 8 + NonceSize + 2
 // MaxEntryBytes caps a whole marshaled entry (header + ciphertext) so
 // it always fits a single frame. ct_len is 2 bytes, so a ciphertext
 // cannot exceed 65535 regardless; this cap is the tighter, enforced
-// bound. See PROTOCOL.txt §Entries.
+// bound. See PROTOCOL.t §Entries.
 const MaxEntryBytes = 64 * 1024
 
 // maxCt is the largest ciphertext a 2-byte ct_len can frame.

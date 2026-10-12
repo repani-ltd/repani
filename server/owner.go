@@ -120,7 +120,8 @@ func (s *Server) AddEntries(vid vault.VaultID, entries []vault.Entry) error {
 // -- but note the flag is SERVER POLICY, not cryptography: a published
 // RootKey hands every reader AEAD_Key and AuthKey, i.e. full write and
 // forge capability at the crypto layer, and this flag on this server
-// is the only thing refusing those writes (PROTOCOL.txt Notes 5). It
+// is the only thing refusing those writes (DESIGN.t, Publishing a
+// RootKey). It
 // is not persisted: an embedder re-asserts it right after EnsureVault
 // on every start, and before then the vault does not exist, so no
 // unguarded window opens.

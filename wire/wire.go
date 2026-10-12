@@ -1,5 +1,5 @@
 // Package wire encodes the ASCON-KV v1 frame: a single Ascon-AEAD128
-// envelope carrying every message in both directions. See PROTOCOL.txt
+// envelope carrying every message in both directions. See PROTOCOL.t
 // §Frame and §Payloads. All integers are little-endian.
 package wire
 
@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 
-	"repani.com/kv/vault"
 	"repani.com/ascon"
+	"repani.com/kv/vault"
 )
 
 // Version is the frame version byte.
