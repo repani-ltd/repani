@@ -213,6 +213,15 @@ general log, and it stays in kv. A general log set is worth
 extracting only when a second protocol needs one: two consumers
 shape an interface, one does not.
 
+# Dependencies
+
+Beyond the standard library and this module's ascon and kiosk, kv
+admits two packages of the Go project, each for one job:
+golang.org/x/term, for the CLI's table width on a terminal, and
+golang.org/x/sys/windows, for the entry log's lock on Windows (flock
+covers Unix). kv.js's tests drive Chrome through this module's
+chrometest.
+
 # Known gaps
 
 .item No real deletion. A tombstone hides a key; no operation removes

@@ -42,7 +42,7 @@ const usage = `usage: kvserve [serve] [flags]     serve the sync endpoint
 The serving verb is optional: "kvserve --addr ..." and
 "kvserve serve --addr ..." are the same command.
 
-The protocol kvserve speaks is PROTOCOL.t (repani-private/kv, a pica
+The protocol kvserve speaks is PROTOCOL.t (repani/kv, a pica
 document).
 
 flags:

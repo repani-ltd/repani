@@ -194,7 +194,7 @@ Environment:
   KV_LOCK_WAIT      wait for a concurrent kv holding the local entry-log
                     lock (Go duration, default 5s; 0 fails immediately)
 
-Specification (repani-private/kv, pica documents):
+Specification (repani/kv, pica documents):
   PROTOCOL.t        the wire protocol kv speaks
   CLIENT.t          the client conventions: values, key blobs, the sync loop
 `)
