@@ -20,11 +20,10 @@ func benchVault(b *testing.B, n int) (a, c *Client) {
 	}
 	rk, _ := vault.NewRandomRootKey()
 	dev := func() *Client {
-		d, err := New(rk, store.NewMemStore(), &inProc{srv})
+		d, err := New(rk, store.NewMemStore(), &inProc{srv}, Options{RegisterKey: &testRegKey})
 		if err != nil {
 			b.Fatal(err)
 		}
-		d.SetRegisterKey(&testRegKey)
 		return d
 	}
 	a, c = dev(), dev()

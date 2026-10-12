@@ -32,11 +32,10 @@ func newServer(t *testing.T) (*server.Server, *httptest.Server) {
 // and server, wired with the register key.
 func device(t *testing.T, rk vault.RootKey, url string) *client.Client {
 	t.Helper()
-	c, err := client.New(rk, store.NewMemStore(), &client.HTTPTransport{Base: url})
+	c, err := client.New(rk, store.NewMemStore(), &client.HTTPTransport{Base: url}, client.Options{RegisterKey: &testRegKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.SetRegisterKey(&testRegKey)
 	return c
 }
 
@@ -234,11 +233,10 @@ func TestE2E_Recovery(t *testing.T) {
 	_ = srv
 	_, ts2 := newServer(t)
 	defer ts2.Close()
-	a3, err := client.New(rk, cloneStore(t, a.Store()), &client.HTTPTransport{Base: ts2.URL})
+	a3, err := client.New(rk, cloneStore(t, a.Store()), &client.HTTPTransport{Base: ts2.URL}, client.Options{RegisterKey: &testRegKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	a3.SetRegisterKey(&testRegKey)
 	mustSync(t, a3) // registers on srv2 and pushes everything
 
 	reader := device(t, rk, ts2.URL)

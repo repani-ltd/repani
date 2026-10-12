@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"repani.com/kv/wire"
 )
@@ -23,21 +22,16 @@ var ErrNoBaseURL = errors.New("client: transport has no base URL")
 // canonical Transport for HTTP servers; a server mounted under a
 // path prefix (e.g. an almanac station's /kv) is reached by including the
 // prefix in Base.
+// A request is bounded by ctx and by Client's own Timeout.
 type HTTPTransport struct {
-	Base    string        // server base URL; a trailing slash is tolerated
-	Timeout time.Duration // per-request cap on top of ctx; 0 = ctx only
-	Client  *http.Client  // nil = http.DefaultClient
+	Base   string       // server base URL; a trailing slash is tolerated
+	Client *http.Client // nil = http.DefaultClient
 }
 
 // Do implements Transport.
 func (t *HTTPTransport) Do(ctx context.Context, frame []byte) ([]byte, error) {
 	if t.Base == "" {
 		return nil, ErrNoBaseURL
-	}
-	if t.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, t.Timeout)
-		defer cancel()
 	}
 	url := strings.TrimRight(t.Base, "/") + wire.SyncPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(frame))

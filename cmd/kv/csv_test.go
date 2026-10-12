@@ -26,11 +26,10 @@ func testClient(t *testing.T) *client.Client {
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	rk, _ := vault.NewRandomRootKey()
-	c, err := client.New(rk, store.NewMemStore(), &client.HTTPTransport{Base: ts.URL})
+	c, err := client.New(rk, store.NewMemStore(), &client.HTTPTransport{Base: ts.URL}, client.Options{RegisterKey: &testRegKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.SetRegisterKey(&testRegKey)
 	return c
 }
 

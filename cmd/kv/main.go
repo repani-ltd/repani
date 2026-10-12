@@ -318,31 +318,31 @@ func openClient() *client.Client {
 		}
 		fatal("open log: %v", err)
 	}
-	url := serverURL()
-	c, err := client.New(rk, ls, &client.HTTPTransport{Base: url, Timeout: httpTimeout()})
-	if err != nil {
-		fatal("client init: %v", err)
-	}
-	// Optimistically assume the vault is already registered: in steady
-	// state the first PROBE/PUSH just works. If the server does not know
-	// the vault it replies UNKNOWN_VAULT, and Sync self-heals by clearing
-	// this belief and registering — costing one extra round trip once per
-	// fresh device, and no persisted "registered" file to keep in step.
-	c.SetRegistered(true)
-	// If a register key was saved at init/pair time, pass it along
-	// so the first REGISTER to a gated server succeeds.
-	if rk := loadRegisterKey(); rk != nil {
-		c.SetRegisterKey(rk)
+	opts := client.Options{
+		// Optimistically assume the vault is already registered: in
+		// steady state the first PROBE/PUSH just works. If the server
+		// does not know the vault it replies UNKNOWN_VAULT, and Sync
+		// registers -- one extra round trip once per fresh device, and
+		// no persisted "registered" file to keep in step.
+		Registered: true,
+		// A register key saved at init/pair time lets that REGISTER
+		// through a gated server.
+		RegisterKey: loadRegisterKey(),
 	}
 	if verbose {
-		c.SetTracer(func(s string) { fmt.Fprintln(os.Stderr, s) })
+		opts.Trace = func(s string) { fmt.Fprintln(os.Stderr, s) }
 	}
 	if w := os.Getenv("KV_SYNC_WINDOW"); w != "" {
 		d, err := time.ParseDuration(w)
 		if err != nil {
 			fatal("KV_SYNC_WINDOW: %v", err)
 		}
-		c.SetSyncWindow(d)
+		opts.SyncWindow = d
+	}
+	transport := &client.HTTPTransport{Base: serverURL(), Client: &http.Client{Timeout: httpTimeout()}}
+	c, err := client.New(rk, ls, transport, opts)
+	if err != nil {
+		fatal("client init: %v", err)
 	}
 	return c
 }

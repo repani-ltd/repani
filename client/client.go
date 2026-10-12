@@ -59,21 +59,36 @@ type Client struct {
 	store   store.Store
 	tran    Transport
 
-	nowMs func() uint64
-
-	trace func(string) // optional sync-traffic tracer (nil = off)
+	nowMs    func() uint64
+	regChan  *vault.ChannelKey // K_reg; nil when the client holds no RegisterKey
+	windowMs uint64            // reconcile look-back window
+	trace    func(string)      // nil = off
 
 	mu         sync.Mutex
 	lastTs     uint64
-	registered bool
-	hasReg     bool
-	regChan    vault.ChannelKey // K_reg, valid iff hasReg
-	recent     []vault.Entry    // entries written since the last sync (fast-path push)
-	windowMs   uint64           // reconcile look-back window
+	registered bool          // belief that the server holds the vault
+	recent     []vault.Entry // entries written since the last sync (fast-path push)
 
 	viewMu sync.Mutex
 	view   map[string]keyValue // the merged view, by key (foldLocked)
 	folded int                 // how many of the store's entries view has taken
+}
+
+// Options configure a Client. The zero value holds no RegisterKey,
+// registers before its first sync only if it holds one, uses the
+// default window, and traces nothing.
+type Options struct {
+	// RegisterKey seals a REGISTER. Without one, a client syncs only
+	// with a vault that already exists on the server.
+	RegisterKey *vault.RegisterKey
+	// Registered says the server is known to hold the vault, sparing
+	// the first REGISTER; Sync registers anyway on UNKNOWN_VAULT.
+	Registered bool
+	// SyncWindow is the reconcile look-back (CLIENT.t); 0 is 10 minutes.
+	SyncWindow time.Duration
+	// Trace receives one line per piece of sync traffic
+	// (REGISTER/PROBE/PULL/PUSH) and a closing STATS line.
+	Trace func(string)
 }
 
 // defaultSyncWindowMs is the reconcile look-back: on a plain sync a
@@ -82,34 +97,34 @@ type Client struct {
 const defaultSyncWindowMs = 10 * 60 * 1000
 
 // New returns a Client backed by the given store and transport.
-func New(rk vault.RootKey, s store.Store, t Transport) (*Client, error) {
+func New(rk vault.RootKey, s store.Store, t Transport, opts Options) (*Client, error) {
 	aead, err := rk.AEAD()
 	if err != nil {
 		return nil, err
 	}
 	ak := vault.DeriveAuthKey(rk)
-	return &Client{
-		aead:     aead,
-		authKey:  ak,
-		vid:      vault.DeriveVaultID(rk),
-		c2s:      vault.DeriveC2S(ak),
-		s2c:      vault.DeriveS2C(ak),
-		store:    s,
-		tran:     t,
-		windowMs: defaultSyncWindowMs,
-		view:     make(map[string]keyValue),
-		nowMs:    func() uint64 { return uint64(time.Now().UnixMilli()) },
-	}, nil
-}
-
-// SetSyncWindow overrides the reconcile look-back window (the CLI wires
-// this to KV_SYNC_WINDOW).
-func (c *Client) SetSyncWindow(d time.Duration) {
-	c.mu.Lock()
-	if d > 0 {
-		c.windowMs = uint64(d.Milliseconds())
+	c := &Client{
+		aead:       aead,
+		authKey:    ak,
+		vid:        vault.DeriveVaultID(rk),
+		c2s:        vault.DeriveC2S(ak),
+		s2c:        vault.DeriveS2C(ak),
+		store:      s,
+		tran:       t,
+		nowMs:      func() uint64 { return uint64(time.Now().UnixMilli()) },
+		windowMs:   defaultSyncWindowMs,
+		trace:      opts.Trace,
+		registered: opts.Registered,
+		view:       make(map[string]keyValue),
 	}
-	c.mu.Unlock()
+	if opts.RegisterKey != nil {
+		k := vault.DeriveRegKey(*opts.RegisterKey)
+		c.regChan = &k
+	}
+	if opts.SyncWindow > 0 {
+		c.windowMs = uint64(opts.SyncWindow.Milliseconds())
+	}
+	return c, nil
 }
 
 // VaultID returns the public vault handle.
@@ -117,34 +132,6 @@ func (c *Client) VaultID() vault.VaultID { return c.vid }
 
 // Store returns the backing store (read-only inspection).
 func (c *Client) Store() store.Store { return c.store }
-
-// SetRegistered sets the client's belief that the server already knows
-// this vault. A caller sets it true to skip a REGISTER and go straight to
-// PROBE/PUSH; Sync clears it on an UNKNOWN_VAULT reply and registers.
-func (c *Client) SetRegistered(v bool) {
-	c.mu.Lock()
-	c.registered = v
-	c.mu.Unlock()
-}
-
-// SetRegisterKey installs the register-gate secret used to seal a
-// REGISTER frame. Pass nil to clear.
-func (c *Client) SetRegisterKey(rk *vault.RegisterKey) {
-	c.mu.Lock()
-	if rk == nil {
-		c.hasReg = false
-		c.regChan = vault.ChannelKey{}
-	} else {
-		c.hasReg = true
-		c.regChan = vault.DeriveRegKey(*rk)
-	}
-	c.mu.Unlock()
-}
-
-// SetTracer installs a callback invoked with a one-line message for each
-// piece of sync traffic (REGISTER/PROBE/PULL/PUSH) and a closing stats
-// summary. Pass nil to disable. Used by the CLI's verbose mode.
-func (c *Client) SetTracer(t func(string)) { c.trace = t }
 
 func (c *Client) tracef(format string, args ...any) {
 	if c.trace != nil {
@@ -396,7 +383,7 @@ func (c *Client) round(ctx context.Context, round int, recent []vault.Entry, st 
 	c.mu.Lock()
 	registered := c.registered
 	c.mu.Unlock()
-	if !registered && c.hasRegisterKey() {
+	if !registered && c.regChan != nil {
 		if err := c.register(ctx, st); err != nil {
 			return false, err
 		}
@@ -440,37 +427,26 @@ func (c *Client) reconcileAnchor(round int) (uint64, vault.EntryID) {
 	return 0, vault.EntryID{}
 }
 
-// hasRegisterKey reports whether a register key is installed.
-func (c *Client) hasRegisterKey() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.hasReg
-}
-
 // unknownVault handles a pre-channel UNKNOWN_VAULT: with a register
-// key installed the next round re-registers; without one the sync
-// cannot proceed.
+// key the next round re-registers; without one the sync cannot
+// proceed.
 func (c *Client) unknownVault() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.hasReg {
+	if c.regChan == nil {
 		return ErrNoRegisterKey
 	}
+	c.mu.Lock()
 	c.registered = false
+	c.mu.Unlock()
 	return nil
 }
 
 // register establishes the channel by adopting the client's AuthKey on
 // the server, sealed under K_reg.
 func (c *Client) register(ctx context.Context, st *syncStats) error {
-	c.mu.Lock()
-	hasReg := c.hasReg
-	regChan := c.regChan
-	c.mu.Unlock()
-	if !hasReg {
+	if c.regChan == nil {
 		return ErrNoRegisterKey
 	}
-	resp, err := c.roundtrip(ctx, "register", wire.KindRegister, regChan, c.authKey[:], st)
+	resp, err := c.roundtrip(ctx, "register", wire.KindRegister, *c.regChan, c.authKey[:], st)
 	if errors.Is(err, wire.ErrBadAuth) {
 		return errors.New("client: registration rejected — wrong register key")
 	}
@@ -481,7 +457,9 @@ func (c *Client) register(ctx context.Context, st *syncStats) error {
 		return fmt.Errorf("client: register status %s", resp.Status)
 	}
 	c.tracef("REGISTER -> ok")
-	c.SetRegistered(true)
+	c.mu.Lock()
+	c.registered = true
+	c.mu.Unlock()
 	return nil
 }
 

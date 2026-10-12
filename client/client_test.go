@@ -49,11 +49,10 @@ func (t *maul) Do(_ context.Context, req []byte) ([]byte, error) {
 
 func newClient(t *testing.T, srv *server.Server, rk vault.RootKey) *Client {
 	t.Helper()
-	c, err := New(rk, store.NewMemStore(), &inProc{srv})
+	c, err := New(rk, store.NewMemStore(), &inProc{srv}, Options{RegisterKey: &testRegKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.SetRegisterKey(&testRegKey)
 	return c
 }
 
@@ -155,11 +154,10 @@ func TestSync_RejectsForgedResponse(t *testing.T) {
 		out[len(out)-1] ^= 1 // flip a tag byte
 		return out
 	}}
-	c, err := New(rk, store.NewMemStore(), tran)
+	c, err := New(rk, store.NewMemStore(), tran, Options{RegisterKey: &testRegKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.SetRegisterKey(&testRegKey)
 	if err := c.Sync(context.Background()); err == nil {
 		t.Fatal("expected sync to fail on a forged response")
 	}
@@ -168,12 +166,14 @@ func TestSync_RejectsForgedResponse(t *testing.T) {
 func TestSync_GatedWrongKeyRejected(t *testing.T) {
 	srv := newTestServer(t)
 	rk, _ := vault.NewRandomRootKey()
-	c := newClient(t, srv, rk)
 	var wrong vault.RegisterKey
 	for i := range wrong {
 		wrong[i] = 0xEE
 	}
-	c.SetRegisterKey(&wrong)
+	c, err := New(rk, store.NewMemStore(), &inProc{srv}, Options{RegisterKey: &wrong})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := c.Sync(context.Background()); err == nil {
 		t.Fatal("expected registration to fail with wrong register key")
 	}
@@ -232,11 +232,10 @@ func TestSync_PullLoopProtection(t *testing.T) {
 		reg:   vault.DeriveRegKey(testRegKey),
 		fixed: fixed,
 	}
-	c, err := New(rk, store.NewMemStore(), srv)
+	c, err := New(rk, store.NewMemStore(), srv, Options{RegisterKey: &testRegKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.SetRegisterKey(&testRegKey)
 
 	err = c.Sync(context.Background())
 	if err == nil {
@@ -275,12 +274,12 @@ func TestReconcileAnchor(t *testing.T) {
 func syncCounted(t *testing.T, c *Client) (roundTrips, pushed, pulled int) {
 	t.Helper()
 	var stats string
-	c.SetTracer(func(s string) {
+	c.trace = func(s string) {
 		if strings.HasPrefix(s, "STATS:") {
 			stats = s
 		}
-	})
-	defer c.SetTracer(nil)
+	}
+	defer func() { c.trace = nil }()
 	err := c.Sync(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -388,11 +387,10 @@ func TestSync_FailedSyncKeepsFastPath(t *testing.T) {
 	srv := newTestServer(t)
 	rk, _ := vault.NewRandomRootKey()
 	tr := &flaky{inProc: inProc{srv}}
-	c, err := New(rk, store.NewMemStore(), tr)
+	c, err := New(rk, store.NewMemStore(), tr, Options{RegisterKey: &testRegKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.SetRegisterKey(&testRegKey)
 	if err := c.Sync(context.Background()); err != nil { // register
 		t.Fatal(err)
 	}
@@ -441,11 +439,10 @@ func (tryLater) Do(context.Context, []byte) ([]byte, error) { return wire.ErrTry
 // caller as that wire.PreChannel, named by the step that drew it.
 func TestSync_PreChannelIsAnError(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
-	c, err := New(rk, store.NewMemStore(), tryLater{})
+	c, err := New(rk, store.NewMemStore(), tryLater{}, Options{Registered: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.SetRegistered(true)
 	err = c.Sync(context.Background())
 	if !errors.Is(err, wire.ErrTryLater) {
 		t.Fatalf("sync error %v, want TRY_LATER", err)
@@ -507,7 +504,7 @@ func TestView_MatchesFullReplay(t *testing.T) {
 		entries[i], entries[j] = entries[j], entries[i]
 	}
 	s := store.NewMemStore()
-	c, err := New(rk, s, tryLater{})
+	c, err := New(rk, s, tryLater{}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

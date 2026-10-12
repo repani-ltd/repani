@@ -13,7 +13,7 @@ import (
 // plain Put keeps the raw tag.
 func TestPutFmtRoundTrip(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
-	c, err := New(rk, store.NewMemStore(), nil)
+	c, err := New(rk, store.NewMemStore(), nil, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
