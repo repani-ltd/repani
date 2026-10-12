@@ -21,7 +21,7 @@ var testRegKey = vault.RegisterKey{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
 
 func newServer(t *testing.T) (*server.Server, *httptest.Server) {
 	t.Helper()
-	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
+	srv, err := server.New(server.Options{RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}

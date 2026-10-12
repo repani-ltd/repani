@@ -14,7 +14,7 @@ import (
 // rk whose vault has been created via EnsureVault.
 func ownerServer(t *testing.T, dataDir string) (*Server, vault.RootKey, *harness) {
 	t.Helper()
-	srv, err := NewWithOptions(Options{DataDir: dataDir})
+	srv, err := New(Options{DataDir: dataDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestEnsureVault_IdempotentAndMismatch(t *testing.T) {
 
 func TestOnPush(t *testing.T) {
 	var fired []vault.VaultID
-	srv, err := NewWithOptions(Options{OnPush: func(vid vault.VaultID) { fired = append(fired, vid) }})
+	srv, err := New(Options{OnPush: func(vid vault.VaultID) { fired = append(fired, vid) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestEntriesAndAddEntries(t *testing.T) {
 	q := DefaultQuotas()
 	q.TSSkewMs = 60_000
 	q.MaxEntries = 2
-	srv, err := NewWithOptions(Options{Quotas: q, Clock: func() int64 { return now }})
+	srv, err := New(Options{Quotas: q, Clock: func() int64 { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestDropVault(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, vid.String())); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("vault directory after drop: %v, want ErrNotExist", err)
 	}
-	srv2, err := NewWithOptions(Options{DataDir: dir})
+	srv2, err := New(Options{DataDir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestDropVaultDir(t *testing.T) {
 	}
 
 	// Unlike a drop, nothing comes back: re-registering starts empty.
-	srv2, err := NewWithOptions(Options{DataDir: dir})
+	srv2, err := New(Options{DataDir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}

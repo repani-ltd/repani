@@ -19,7 +19,7 @@ var testRegKey = vault.RegisterKey{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
 // testClient is a client of a fresh vault on a fresh in-process server.
 func testClient(t *testing.T) *client.Client {
 	t.Helper()
-	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
+	srv, err := server.New(server.Options{RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}

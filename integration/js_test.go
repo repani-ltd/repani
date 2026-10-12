@@ -189,7 +189,7 @@ func TestJSClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
+	srv, err := server.New(server.Options{RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,11 +303,11 @@ func TestJSClient(t *testing.T) {
 // sync), its error kinds, close, subscribe, and the cached view. The
 // quota server, holding two entries per vault, is mounted under /q.
 func TestJSClientBehaviour(t *testing.T) {
-	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
+	srv, err := server.New(server.Options{RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	qsrv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey, Quotas: server.Quotas{MaxEntries: 2}})
+	qsrv, err := server.New(server.Options{RegisterKeys: []vault.RegisterKey{testRegKey}, Quotas: server.Quotas{MaxEntries: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}

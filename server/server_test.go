@@ -1,7 +1,6 @@
 package server
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -97,7 +96,7 @@ func (h *harness) push(entries []vault.Entry) (wire.Resp, wire.PreChannel) {
 
 func mustNew(t *testing.T, dataDir string) *Server {
 	t.Helper()
-	srv, err := NewWithOptions(Options{DataDir: dataDir, RegisterKey: &testRegKey})
+	srv, err := New(Options{DataDir: dataDir, RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,15 +135,9 @@ func TestRegister_GateAcceptsAndRejects(t *testing.T) {
 	}
 }
 
-func TestRegister_KeyFileHoldsSeveralKeys(t *testing.T) {
+func TestRegister_SeveralKeys(t *testing.T) {
 	second := vault.RegisterKey{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}
-	path := filepath.Join(t.TempDir(), "register.key")
-	file := "# operator\n" + vault.EncodeRegisterKey(testRegKey) + "\n\n  # iou\n" +
-		vault.EncodeRegisterKey(second) + "\n"
-	if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	srv, err := NewWithOptions(Options{RegisterKeyFile: path})
+	srv, err := New(Options{RegisterKeys: []vault.RegisterKey{testRegKey, second}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,22 +150,6 @@ func TestRegister_KeyFileHoldsSeveralKeys(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
 	if _, pre := newHarness(t, srv, rk, vault.RegisterKey{0xFF}).register(); pre != wire.ErrBadAuth {
 		t.Fatalf("unlisted register key: pre=%v, want BAD_AUTH", pre)
-	}
-}
-
-func TestRegister_KeyFileErrors(t *testing.T) {
-	for name, file := range map[string]string{
-		"empty":        "",
-		"only comment": "# iou\n\n",
-		"bad line":     vault.EncodeRegisterKey(testRegKey) + "\nnot-a-key\n",
-	} {
-		path := filepath.Join(t.TempDir(), "register.key")
-		if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := NewWithOptions(Options{RegisterKeyFile: path}); err == nil {
-			t.Errorf("%s: NewWithOptions accepted the file", name)
-		}
 	}
 }
 
@@ -256,7 +233,7 @@ func TestQuota_SkewAndMaxEntries(t *testing.T) {
 	q := DefaultQuotas()
 	q.TSSkewMs = 60_000
 	q.MaxEntries = 2
-	srv, err := NewWithOptions(Options{Quotas: q, Clock: func() int64 { return now }, RegisterKey: &testRegKey})
+	srv, err := New(Options{Quotas: q, Clock: func() int64 { return now }, RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +263,7 @@ func TestQuota_SkewAndMaxEntries(t *testing.T) {
 // TestQuota_ZeroFieldTakesDefault: a Quotas that sets one limit keeps
 // the defaults of the others, so an ordinary push is accepted.
 func TestQuota_ZeroFieldTakesDefault(t *testing.T) {
-	srv, err := NewWithOptions(Options{Quotas: Quotas{MaxVaults: 5}, RegisterKey: &testRegKey})
+	srv, err := New(Options{Quotas: Quotas{MaxVaults: 5}, RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}

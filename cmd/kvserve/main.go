@@ -115,22 +115,51 @@ func serveFlags() (*flag.FlagSet, *opts) {
 	return fs, o
 }
 
+// readRegisterKeys reads the register-key file: one RegisterKey blob
+// per line, blank lines and lines starting with "#" ignored, so each
+// key can carry a label naming who holds it. Revoking one is deleting
+// its line and restarting; the others and every vault are untouched.
+// A file with no key is an error: registration is disabled by not
+// serving, never by an empty file.
+func readRegisterKeys(path string) ([]vault.RegisterKey, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("register-key-file %s: %w", path, err)
+	}
+	var keys []vault.RegisterKey
+	for i, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		rk, err := vault.DecodeRegisterKey(line)
+		if err != nil {
+			return nil, fmt.Errorf("register-key-file %s:%d: %w", path, i+1, err)
+		}
+		keys = append(keys, rk)
+	}
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("register-key-file %s: no register key", path)
+	}
+	return keys, nil
+}
+
 func runServe(args []string) {
 	fs, o := serveFlags()
 	_ = fs.Parse(args) // ExitOnError
 	if o.registerKeyFile == "" {
 		log.Fatal("kvserve: --register-key-file is required (generate one with `kvserve gen-register-key`)")
 	}
-	srv, err := server.NewWithOptions(server.Options{
-		DataDir:         o.data,
-		Quotas:          o.quotas,
-		RegisterKeyFile: o.registerKeyFile,
-	})
+	keys, err := readRegisterKeys(o.registerKeyFile)
 	if err != nil {
 		log.Fatalf("kvserve: %v", err)
 	}
-	log.Printf("kvserve: REGISTER gated by %s, data=%s, quotas: %d vaults x %d bytes / %d entries",
-		o.registerKeyFile, o.data, o.quotas.MaxVaults, o.quotas.MaxVaultBytes, o.quotas.MaxEntries)
+	srv, err := server.New(server.Options{DataDir: o.data, Quotas: o.quotas, RegisterKeys: keys})
+	if err != nil {
+		log.Fatalf("kvserve: %v", err)
+	}
+	log.Printf("kvserve: REGISTER gated by %d keys in %s, data=%s, quotas: %d vaults x %d bytes / %d entries",
+		len(keys), o.registerKeyFile, o.data, o.quotas.MaxVaults, o.quotas.MaxVaultBytes, o.quotas.MaxEntries)
 
 	// The protocol routes under "/", liveness beside them. The kv
 	// server declares its own method and path, so a wrong method gets

@@ -14,7 +14,7 @@ import (
 // synced, against an in-process server with room to grow.
 func benchVault(b *testing.B, n int) (a, c *Client) {
 	b.Helper()
-	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey, Quotas: server.Quotas{MaxEntries: 1 << 30, MaxVaultBytes: 1 << 40}})
+	srv, err := server.New(server.Options{RegisterKeys: []vault.RegisterKey{testRegKey}, Quotas: server.Quotas{MaxEntries: 1 << 30, MaxVaultBytes: 1 << 40}})
 	if err != nil {
 		b.Fatal(err)
 	}

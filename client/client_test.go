@@ -19,7 +19,7 @@ var testRegKey = vault.RegisterKey{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
 
 func newTestServer(t *testing.T) *server.Server {
 	t.Helper()
-	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
+	srv, err := server.New(server.Options{RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func syncCounted(t *testing.T, c *Client) (roundTrips, pushed, pulled int) {
 func TestSync_DeltaWindow_MovesOnlyRecent(t *testing.T) {
 	q := server.DefaultQuotas()
 	q.TSSkewMs = 40 * 24 * 60 * 60 * 1000 // 40 days, so old entries are accepted
-	srv, err := server.NewWithOptions(server.Options{Quotas: q, RegisterKey: &testRegKey})
+	srv, err := server.New(server.Options{Quotas: q, RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}

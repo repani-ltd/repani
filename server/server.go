@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -63,23 +62,18 @@ func DefaultQuotas() Quotas {
 	}
 }
 
-// Options configure a Server. At most one of RegisterKey or
-// RegisterKeyFile may be set. If neither is set, in-band registration
-// is disabled: every REGISTER frame is rejected with BAD_AUTH, and
-// vaults can only be created by a co-resident owner via EnsureVault.
-// There is never permissionless registration.
+// Options configure a Server.
 //
-// RegisterKeyFile holds one or more RegisterKeys, one per line; blank
-// lines and lines starting with "#" are ignored, so each key can carry
-// a label comment naming who holds it. A REGISTER sealed under any of
-// them is accepted, and revoking one (deleting its line, then
-// restarting) leaves the others and every existing vault untouched.
+// A REGISTER sealed under any of RegisterKeys is accepted, so each
+// application can hold its own key and lose it alone. With none,
+// in-band registration is disabled: every REGISTER frame is rejected
+// with BAD_AUTH, and vaults can only be created by a co-resident owner
+// via EnsureVault. There is never permissionless registration.
 type Options struct {
-	DataDir         string
-	Quotas          Quotas
-	Clock           func() int64
-	RegisterKey     *vault.RegisterKey
-	RegisterKeyFile string
+	DataDir      string
+	Quotas       Quotas
+	Clock        func() int64
+	RegisterKeys []vault.RegisterKey
 
 	// OnPush, if non-nil, is called after a PUSH frame's entries have
 	// been validated and persisted, once per PUSH that added at least
@@ -89,7 +83,7 @@ type Options struct {
 	OnPush func(vid vault.VaultID)
 }
 
-// Server is a vault-aware HTTP handler. Use NewWithOptions.
+// Server is a vault-aware HTTP handler. Use New.
 type Server struct {
 	dataDir string
 	quotas  Quotas
@@ -113,23 +107,12 @@ type vaultState struct {
 	noPush  bool // refuse wire PUSH; owner AddEntries still writes
 }
 
-// NewWithOptions constructs a Server.
-func NewWithOptions(opt Options) (*Server, error) {
-	if opt.RegisterKey != nil && opt.RegisterKeyFile != "" {
-		return nil, errors.New("server: RegisterKey and RegisterKeyFile are mutually exclusive")
-	}
+// New constructs a Server.
+func New(opt Options) (*Server, error) {
 	var regKeys []vault.ChannelKey // none = registration disabled
-	switch {
-	case opt.RegisterKey != nil:
-		regKeys = []vault.ChannelKey{vault.DeriveRegKey(*opt.RegisterKey)}
-	case opt.RegisterKeyFile != "":
-		loaded, err := loadRegisterKeys(opt.RegisterKeyFile)
-		if err != nil {
-			return nil, err
-		}
-		regKeys = loaded
+	for _, rk := range opt.RegisterKeys {
+		regKeys = append(regKeys, vault.DeriveRegKey(rk))
 	}
-
 	if opt.DataDir != "" {
 		if err := os.MkdirAll(opt.DataDir, 0o700); err != nil {
 			return nil, err
@@ -154,33 +137,6 @@ func NewWithOptions(opt Options) (*Server, error) {
 		}
 	}
 	return s, nil
-}
-
-// loadRegisterKeys reads a register-key file (see Options) and returns
-// the K_reg of each key in it, in file order. A file with no key is an
-// error: registration is disabled by not configuring a file, never by
-// an empty one.
-func loadRegisterKeys(path string) ([]vault.ChannelKey, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("server: register-key-file %s: %w", path, err)
-	}
-	var keys []vault.ChannelKey
-	for i, line := range strings.Split(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		rk, err := vault.DecodeRegisterKey(line)
-		if err != nil {
-			return nil, fmt.Errorf("server: register-key-file %s:%d: %w", path, i+1, err)
-		}
-		keys = append(keys, vault.DeriveRegKey(rk))
-	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("server: register-key-file %s: no register key", path)
-	}
-	return keys, nil
 }
 
 func (s *Server) loadPersistedVaults() error {
@@ -234,7 +190,7 @@ func newVaultState(s store.Store, ak vault.AuthKey, dir string) *vaultState {
 
 // Close releases every vault's backing store, including the advisory
 // file locks its log holds. The server must not be used afterwards; it
-// is the clean-shutdown counterpart to NewWithOptions.
+// is the clean-shutdown counterpart to New.
 func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
