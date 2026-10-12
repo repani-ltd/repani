@@ -39,7 +39,7 @@ func (t *HTTPTransport) Do(ctx context.Context, frame []byte) ([]byte, error) {
 		ctx, cancel = context.WithTimeout(ctx, t.Timeout)
 		defer cancel()
 	}
-	url := strings.TrimRight(t.Base, "/") + "/v1/sync"
+	url := strings.TrimRight(t.Base, "/") + wire.SyncPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(frame))
 	if err != nil {
 		return nil, err

@@ -541,18 +541,12 @@ func readAuthKey(dir string) (vault.AuthKey, error) {
 
 // --- HTTP ---
 
-// SyncPath is the one route the protocol defines, relative to
-// whatever prefix a deployment mounts the server under: a station may
-// serve it at /kv/v1/sync, a bare kvserve at /v1/sync. The client
-// builds the same path in client.HTTPTransport.
-const SyncPath = "/v1/sync"
-
-// routes builds the server's route table. The path and method live in
-// the pattern, so http.ServeMux answers a wrong method with 405 and a
-// correct Allow header.
+// routes builds the server's route table: wire.SyncPath alone. The
+// path and method live in the pattern, so http.ServeMux answers a
+// wrong method with 405 and a correct Allow header.
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST "+SyncPath, s.serveSync)
+	mux.HandleFunc("POST "+wire.SyncPath, s.serveSync)
 	return mux
 }
 

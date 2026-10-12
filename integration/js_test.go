@@ -194,7 +194,7 @@ func TestJSClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, origin := jsSite(t, func(mux *http.ServeMux) {
-		mux.Handle("POST "+server.SyncPath, srv)
+		mux.Handle("POST "+wire.SyncPath, srv)
 		mux.HandleFunc("GET /vectors.json", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(vectors)
@@ -312,8 +312,8 @@ func TestJSClientBehaviour(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, origin := jsSite(t, func(mux *http.ServeMux) {
-		mux.Handle("POST "+server.SyncPath, srv)
-		mux.Handle("POST /q"+server.SyncPath, http.StripPrefix("/q", qsrv))
+		mux.Handle("POST "+wire.SyncPath, srv)
+		mux.Handle("POST /q"+wire.SyncPath, http.StripPrefix("/q", qsrv))
 	})
 	q := url.Values{"url": {origin}, "quota": {origin + "/q"}, "reg": {vault.EncodeRegisterKey(testRegKey)}}
 	jsFails(t, "client", p.Eval(fmt.Sprintf(`import(%s).then((m) => m.fails)`, chrometest.JS("/client_test.js?"+q.Encode()))))

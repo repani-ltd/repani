@@ -99,6 +99,11 @@ func (p PreChannel) Reply() []byte { return []byte{byte(p)} }
 // CursorSize is a canonical position: ts_ms(8) || entry_id(16).
 const CursorSize = 8 + vault.EntryIDSize
 
+// SyncPath is the one HTTP route (PROTOCOL.t, HTTP), relative to the
+// server's base URL, which may carry a prefix: a bare kvserve serves
+// /v1/sync, an almanac station /kv/v1/sync.
+const SyncPath = "/v1/sync"
+
 // PageBytes bounds a PULL page and a PUSH batch, so frames stay near
 // this size. MaxFrameBytes is the transport body cap, comfortably above
 // one page plus framing and one max-size entry.
