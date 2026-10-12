@@ -427,7 +427,7 @@ func TestRegisterKey_RejectsPaddingBits(t *testing.T) {
 	enc := EncodeRegisterKey(rk) // all zeros
 	// Flip a low bit of the last char — violates the 2-bit padding
 	// invariant (low 2 bits of the last 10-bit accumulator must be 0).
-	mangled := enc[:25] + string(crockford[1])
+	mangled := enc[:25] + "1"
 	if _, err := DecodeRegisterKey(mangled); err == nil {
 		t.Fatal("decode should reject non-zero padding bits")
 	}
