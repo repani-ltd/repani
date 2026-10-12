@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"repani.com/kv/internal/durable"
 	"repani.com/kv/vault"
 )
 
@@ -117,7 +118,7 @@ func (ls *LogStore) init(dir string) error {
 		if err := ls.f.Sync(); err != nil {
 			return err
 		}
-		fsyncDir(dir) // make the new file's directory entry durable
+		durable.SyncDir(dir) // make the new file's directory entry durable
 		return nil
 	}
 	if fi.Size() < int64(len(logMagic)) {
@@ -267,17 +268,6 @@ func (ls *LogStore) Add(entries ...vault.Entry) (int, error) {
 func (ls *LogStore) rollback(off int64) {
 	_ = ls.f.Truncate(off)
 	_, _ = ls.f.Seek(off, io.SeekStart)
-}
-
-// fsyncDir flushes a directory entry to disk so a freshly created file
-// survives a crash. Best-effort: some filesystems reject a directory
-// fsync, and the durability it adds is a backstop, not a correctness
-// requirement.
-func fsyncDir(dir string) {
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
 }
 
 func (ls *LogStore) Has(id vault.EntryID) bool { return ls.mem.Has(id) }

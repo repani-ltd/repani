@@ -53,6 +53,7 @@ import (
 	"golang.org/x/term"
 	"repani.com/kiosk"
 	"repani.com/kv/client"
+	"repani.com/kv/internal/durable"
 	"repani.com/kv/store"
 	"repani.com/kv/vault"
 )
@@ -515,47 +516,12 @@ func runSetRegisterKey(args []string) {
 	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
 		fatal("mkdir: %v", err)
 	}
-	if err := writeKeyAtomic(registerKeyPath(), []byte(vault.EncodeRegisterKey(rk)+"\n")); err != nil {
+	// Replacing a key may overwrite one; first-time writes go through
+	// writeKeyExclusive, which refuses to replace anything.
+	if err := durable.WriteFile(registerKeyPath(), []byte(vault.EncodeRegisterKey(rk)+"\n"), 0o600); err != nil {
 		fatal("write register.key: %v", err)
 	}
 	fmt.Fprintln(os.Stderr, "register key saved to "+registerKeyPath())
-}
-
-// writeKeyAtomic replaces path via a same-directory temp file, fsync,
-// and rename, so a kill mid-write cannot leave path half-written. Used
-// where an existing key may be overwritten; first-time writes go
-// through writeKeyExclusive, which refuses to replace anything.
-func writeKeyAtomic(path string, data []byte) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	// OpenFile applies 0600 only when creating; force it in case a
-	// stale tmp file with looser perms was lying around.
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	if d, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
-	return nil
 }
 
 // runBackup prints a single Crockford base32 blob containing this

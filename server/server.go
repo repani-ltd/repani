@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"repani.com/kv/internal/durable"
 	"repani.com/kv/store"
 	"repani.com/kv/vault"
 	"repani.com/kv/wire"
@@ -463,7 +464,7 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultS
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := writeAuthKey(dir, ak); err != nil {
+	if err := durable.WriteFile(authKeyPath(dir), ak[:], 0o600); err != nil {
 		return nil, err
 	}
 	ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"), logLockWait)
@@ -520,46 +521,13 @@ func RemoveVault(dataDir string, vid vault.VaultID) error {
 	if err != nil {
 		return err
 	}
-	if d, err := os.Open(dataDir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
+	durable.SyncDir(dataDir)
 	return nil
 }
 
 // --- per-vault auth.key persistence ---
 
 func authKeyPath(dir string) string { return filepath.Join(dir, "auth.key") }
-
-func writeAuthKey(dir string, ak vault.AuthKey) error {
-	path := authKeyPath(dir)
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(ak[:]); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	// Flush the rename (and the new file's directory entry) so a crash
-	// cannot leave auth.key partially written or absent.
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
-	return nil
-}
 
 func readAuthKey(dir string) (vault.AuthKey, error) {
 	b, err := os.ReadFile(authKeyPath(dir))
