@@ -16,7 +16,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -196,27 +195,17 @@ func runDropVault(args []string) {
 	if fs.NArg() != 1 {
 		log.Fatal("kvserve: drop-vault: want one VAULTID (32 hex digits)")
 	}
-	vid, err := parseVaultID(fs.Arg(0))
+	vid, err := vault.ParseVaultID(fs.Arg(0))
 	if err != nil {
 		log.Fatalf("kvserve: drop-vault: %v", err)
 	}
 	switch err := server.RemoveVault(*data, vid); {
 	case errors.Is(err, server.ErrVaultInUse):
-		log.Fatalf("kvserve: drop-vault: %x is being served; stop kvserve first", vid[:])
+		log.Fatalf("kvserve: drop-vault: %s is being served; stop kvserve first", vid)
 	case errors.Is(err, server.ErrUnknownVault):
-		log.Fatalf("kvserve: drop-vault: no vault %x in %s", vid[:], *data)
+		log.Fatalf("kvserve: drop-vault: no vault %s in %s", vid, *data)
 	case err != nil:
 		log.Fatalf("kvserve: drop-vault: %v", err)
 	}
-	fmt.Printf("dropped %x\n", vid[:])
-}
-
-func parseVaultID(s string) (vault.VaultID, error) {
-	var vid vault.VaultID
-	b, err := hex.DecodeString(s)
-	if err != nil || len(b) != len(vid) {
-		return vid, fmt.Errorf("vault id %q: want %d hex digits", s, 2*len(vid))
-	}
-	copy(vid[:], b)
-	return vid, nil
+	fmt.Printf("dropped %s\n", vid)
 }

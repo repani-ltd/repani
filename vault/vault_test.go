@@ -35,6 +35,22 @@ func TestDeriveVaultID_DiffersFromAEAD(t *testing.T) {
 	}
 }
 
+func TestVaultID_StringParse(t *testing.T) {
+	vid := VaultID{0x0a, 0xff, 1}
+	s := vid.String()
+	if s != "0aff0100000000000000000000000000" {
+		t.Fatalf("String %q", s)
+	}
+	if got, err := ParseVaultID(s); err != nil || got != vid {
+		t.Fatalf("ParseVaultID(%q) = %v, %v", s, got, err)
+	}
+	for _, bad := range []string{"", "0aff", s + "00", "zz" + s[2:]} {
+		if _, err := ParseVaultID(bad); err == nil {
+			t.Errorf("ParseVaultID(%q) accepted", bad)
+		}
+	}
+}
+
 func TestDeriveAuthKey_IndependentOfAEAD(t *testing.T) {
 	rk, _ := NewRandomRootKey()
 	ak := DeriveAuthKey(rk)

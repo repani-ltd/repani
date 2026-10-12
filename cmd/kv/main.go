@@ -36,7 +36,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -482,8 +481,7 @@ func vaultIDOf(blob string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	id := vault.DeriveVaultID(rk)
-	return hex.EncodeToString(id[:]), nil
+	return vault.DeriveVaultID(rk).String(), nil
 }
 
 func runPairBlob(_ []string) {

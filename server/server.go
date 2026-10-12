@@ -7,7 +7,6 @@ package server
 import (
 	"cmp"
 	"crypto/subtle"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -193,12 +192,10 @@ func (s *Server) loadPersistedVaults() error {
 		if !d.IsDir() {
 			continue
 		}
-		vidBytes, err := hex.DecodeString(d.Name())
-		if err != nil || len(vidBytes) != vault.VaultIDSize {
+		vid, err := vault.ParseVaultID(d.Name())
+		if err != nil {
 			continue
 		}
-		var vid vault.VaultID
-		copy(vid[:], vidBytes)
 		dir := filepath.Join(s.dataDir, d.Name())
 		ak, err := readAuthKey(dir)
 		if err != nil {
@@ -307,7 +304,7 @@ func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, 
 	st, err := s.createVaultLocked(vid, ak)
 	s.mu.Unlock()
 	if err != nil {
-		log.Printf("server: create vault %x: %v", vid[:], err)
+		log.Printf("server: create vault %s: %v", vid, err)
 		return wire.ErrTryLater.Reply(), nil
 	}
 	return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
@@ -460,7 +457,7 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultS
 		s.vaults[vid] = st
 		return st, nil
 	}
-	dir := filepath.Join(s.dataDir, hex.EncodeToString(vid[:]))
+	dir := filepath.Join(s.dataDir, vid.String())
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -490,7 +487,7 @@ var ErrVaultInUse = errors.New("server: vault is held by a running server")
 // Removal is not revocation: any device still holding the RootKey and
 // a RegisterKey re-registers the vault and pushes its copy back.
 func RemoveVault(dataDir string, vid vault.VaultID) error {
-	dir := filepath.Join(dataDir, hex.EncodeToString(vid[:]))
+	dir := filepath.Join(dataDir, vid.String())
 	if _, err := os.Stat(dir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrUnknownVault

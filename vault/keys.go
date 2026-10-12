@@ -5,7 +5,9 @@ package vault
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 
 	"repani.com/ascon"
 )
@@ -45,6 +47,21 @@ type RegisterKey [RegisterKeySize]byte
 
 // VaultID is the public routing handle.
 type VaultID [VaultIDSize]byte
+
+// String is the VaultID in lower-case hex: how a server names the
+// vault's directory, and what an operator types to find it.
+func (v VaultID) String() string { return hex.EncodeToString(v[:]) }
+
+// ParseVaultID parses the form String returns.
+func ParseVaultID(s string) (VaultID, error) {
+	var v VaultID
+	b, err := hex.DecodeString(s)
+	if err != nil || len(b) != VaultIDSize {
+		return VaultID{}, fmt.Errorf("vault: vault id %q: want %d hex digits", s, 2*VaultIDSize)
+	}
+	copy(v[:], b)
+	return v, nil
+}
 
 // EntryID is the content address of an entry.
 type EntryID [EntryIDSize]byte
