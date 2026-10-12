@@ -23,6 +23,10 @@ import (
 // fmtRaw is the value-encoding tag for a verbatim value (CLIENT.t).
 const fmtRaw = 0x00
 
+// FmtRow is the value-encoding tag for a ROW v1 row (CLIENT.t,
+// repani.com/row): PutFmt(key, row.Encode(...), FmtRow).
+const FmtRow = 0x01
+
 // WrapValue prepends the CLIENT.t format tag to a value, producing
 // the bytes stored inside an entry. Exported for owners that seal
 // entries directly (vault.Seal) rather than through a Client.
@@ -159,7 +163,7 @@ func (c *Client) Put(key, value []byte) error {
 }
 
 // PutFmt writes (key, value) under an explicit format tag (CLIENT.t:
-// only 0x00, raw, is assigned). The tag is
+// 0x00 raw and 0x01 FmtRow are assigned). The tag is
 // stored inside the entry ciphertext and surfaces on reads as
 // LiveEntry.Fmt.
 func (c *Client) PutFmt(key, value []byte, fmtTag byte) error {

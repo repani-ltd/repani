@@ -765,6 +765,9 @@ export class IDBStore {
 // is the protocol's empty value with no fmt byte.
 
 export const FMT_RAW = 0x00;
+// FMT_ROW tags a ROW v1 row (repani.com/row's row.js):
+// putFmt(key, encode(items), FMT_ROW).
+export const FMT_ROW = 0x01;
 
 export function wrapValue(fmtTag, value) {
   const out = new Uint8Array(1 + value.length);

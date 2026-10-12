@@ -19,6 +19,9 @@ value = fmt(1) || payload
 .end
 
 .item `fmt` 0x00 is raw: the payload is the value, byte for byte.
+.item `fmt` 0x01 is ROW v1 (repani.com/row, ROW.t): the payload is
+one row. A reader that cannot decode it as a row treats the value as
+opaque.
 .item No other `fmt` is assigned. A reader that meets one treats the
 value as opaque and does not decode it.
 .item A tombstone is the protocol's empty value, with no `fmt` byte.

@@ -133,12 +133,24 @@ other with BAD_VERSION. A version, once defined, does not change.
 # Values
 
 A value carries one format byte so that a client can tell later
-encodings from raw bytes without a protocol change. Only raw is
-assigned. Reservations for formats nobody uses (a typed document
-format, compression) were taken out: a code point is assigned when
-its first consumer arrives. Compression in particular would be a
-security decision, not a format one: compressed plaintext leaks
-through ciphertext length, and the server sees every length.
+encodings from raw bytes without a protocol change. Raw (0x00) and
+ROW (0x01) are assigned. Reservations for formats nobody uses were
+taken out: a code point is assigned when its first consumer arrives.
+ROW was assigned on 2026-10-12, when it was frozen, ahead of the
+first app that writes it, by Pavlos's decision: the web apps are its
+consumers and it was made for them.
+
+Compression is a security decision, not a format one: compressed
+plaintext leaks through ciphertext length, and the server sees every
+length. ROW compresses strings of 242 bytes and more with lz4s,
+whenever that is shorter, so a ROW value's length says something
+about how repetitive its long strings are, not only how long they
+are. Each string is compressed alone, never with its neighbours or
+with other entries, so the leak stays inside one string: it matters
+only when attacker-chosen text and a secret share one long string
+and the attacker sees the lengths of many such writes (CRIME). An
+app that puts outside input and secrets in one long string keeps
+them in separate positions, or writes that value raw.
 
 # Registration and rotation
 
