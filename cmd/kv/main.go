@@ -281,25 +281,24 @@ func fetchVersion(base string) (string, error) {
 	return strings.TrimSpace(string(body)), nil
 }
 
-func httpTimeout() time.Duration {
-	if v := os.Getenv("KV_HTTP_TIMEOUT"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err == nil {
-			return d
-		}
+// envDuration is the Go duration in the environment variable name, or
+// def when it is unset. A value that does not parse is fatal: silently
+// running with the default would hide the mistake.
+func envDuration(name string, def time.Duration) time.Duration {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
 	}
-	return defaultHTTPTimeout
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		fatal("%s: %v", name, err)
+	}
+	return d
 }
 
-func lockWait() time.Duration {
-	if v := os.Getenv("KV_LOCK_WAIT"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err == nil {
-			return d
-		}
-	}
-	return defaultLockWait
-}
+func httpTimeout() time.Duration { return envDuration("KV_HTTP_TIMEOUT", defaultHTTPTimeout) }
+
+func lockWait() time.Duration { return envDuration("KV_LOCK_WAIT", defaultLockWait) }
 
 // --- client open ---
 
@@ -328,16 +327,10 @@ func openClient() *client.Client {
 		// A register key saved at init/pair time lets that REGISTER
 		// through a gated server.
 		RegisterKey: loadRegisterKey(),
+		SyncWindow:  envDuration("KV_SYNC_WINDOW", 0), // 0: the client's default
 	}
 	if verbose {
 		opts.Trace = func(s string) { fmt.Fprintln(os.Stderr, s) }
-	}
-	if w := os.Getenv("KV_SYNC_WINDOW"); w != "" {
-		d, err := time.ParseDuration(w)
-		if err != nil {
-			fatal("KV_SYNC_WINDOW: %v", err)
-		}
-		opts.SyncWindow = d
 	}
 	transport := &client.HTTPTransport{Base: serverURL(), Client: &http.Client{Timeout: httpTimeout()}}
 	c, err := client.New(rk, ls, transport, opts)
