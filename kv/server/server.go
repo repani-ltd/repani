@@ -1,0 +1,536 @@
+// Package server implements the ASCON-KV v1 server: a blind relay that
+// holds a content-addressed set of entries per VaultID and serves the
+// paged sync protocol defined in PROTOCOL.t. It opens every frame
+// under a channel key, never under AEAD_Key, so it never sees plaintext.
+package server
+
+import (
+	"cmp"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"repani.com/kv/internal/durable"
+	"repani.com/kv/store"
+	"repani.com/kv/vault"
+	"repani.com/kv/wire"
+)
+
+// Quotas configure a server's limits. A zero field takes its
+// DefaultQuotas value.
+type Quotas struct {
+	MaxEntries    uint64
+	MaxVaultBytes uint64
+	MaxVaults     uint64
+	TSSkewMs      int64
+}
+
+// withDefaults returns q with each zero field set to its default.
+func (q Quotas) withDefaults() Quotas {
+	d := DefaultQuotas()
+	return Quotas{
+		MaxEntries:    cmp.Or(q.MaxEntries, d.MaxEntries),
+		MaxVaultBytes: cmp.Or(q.MaxVaultBytes, d.MaxVaultBytes),
+		MaxVaults:     cmp.Or(q.MaxVaults, d.MaxVaults),
+		TSSkewMs:      cmp.Or(q.TSSkewMs, d.TSSkewMs),
+	}
+}
+
+// logLockWait bounds how long a vault open waits for the entry-log
+// lock. Contention here means another server is going down (a restart
+// overlap) or a misconfigured second server; waiting briefly smooths
+// the former without hanging on the latter.
+const logLockWait = 5 * time.Second
+
+// DefaultQuotas are limits a small host can honour. Every accepted
+// byte stays in memory (LogStore wraps a MemStore), so they are a
+// memory budget first; a larger host raises them through kvserve's
+// flags. DESIGN.t, Quotas, has the sizing and the gap they leave.
+func DefaultQuotas() Quotas {
+	return Quotas{
+		MaxEntries:    10_000,
+		MaxVaultBytes: 8 << 20, // 8 MiB
+		MaxVaults:     1_000,
+		TSSkewMs:      24 * 60 * 60 * 1000,
+	}
+}
+
+// Options configure a Server.
+//
+// A REGISTER sealed under any of RegisterKeys is accepted, so each
+// application can hold its own key and lose it alone. With none,
+// in-band registration is disabled: every REGISTER frame is rejected
+// with BAD_AUTH, and vaults can only be created by a co-resident owner
+// via EnsureVault. There is never permissionless registration.
+type Options struct {
+	DataDir      string
+	Quotas       Quotas
+	Clock        func() int64
+	RegisterKeys []vault.RegisterKey
+
+	// OnPush, if non-nil, is called after a PUSH frame's entries have
+	// been validated and persisted, once per PUSH that added at least
+	// one new entry. It runs outside the vault locks, on the goroutine
+	// serving the frame, so it must not block for long. Entries added
+	// via AddEntries do NOT fire it.
+	OnPush func(vid vault.VaultID)
+}
+
+// Server is a vault-aware HTTP handler. Use New.
+type Server struct {
+	dataDir string
+	quotas  Quotas
+	clock   func() int64
+	regKeys []vault.ChannelKey // K_reg per RegisterKey; none = registration disabled
+	onPush  func(vault.VaultID)
+	mux     *http.ServeMux // the protocol routes, built once
+
+	mu     sync.Mutex
+	vaults map[vault.VaultID]*vaultState
+}
+
+type vaultState struct {
+	mu      sync.Mutex
+	s       store.Store
+	authKey vault.AuthKey
+	c2s     vault.ChannelKey
+	s2c     vault.ChannelKey
+	bytes   uint64
+	dir     string
+	noPush  bool // refuse wire PUSH; owner AddEntries still writes
+}
+
+// New constructs a Server.
+func New(opt Options) (*Server, error) {
+	var regKeys []vault.ChannelKey // none = registration disabled
+	for _, rk := range opt.RegisterKeys {
+		regKeys = append(regKeys, vault.DeriveRegKey(rk))
+	}
+	if opt.DataDir != "" {
+		if err := os.MkdirAll(opt.DataDir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	clk := opt.Clock
+	if clk == nil {
+		clk = func() int64 { return time.Now().UnixMilli() }
+	}
+	s := &Server{
+		dataDir: opt.DataDir,
+		quotas:  opt.Quotas.withDefaults(),
+		clock:   clk,
+		regKeys: regKeys,
+		onPush:  opt.OnPush,
+		vaults:  make(map[vault.VaultID]*vaultState),
+	}
+	s.mux = s.routes()
+	if opt.DataDir != "" {
+		if err := s.loadPersistedVaults(); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+func (s *Server) loadPersistedVaults() error {
+	dirs, err := os.ReadDir(s.dataDir)
+	if err != nil {
+		return err
+	}
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		vid, err := vault.ParseVaultID(d.Name())
+		if err != nil {
+			continue
+		}
+		dir := filepath.Join(s.dataDir, d.Name())
+		ak, err := readAuthKey(dir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue // crashed registration; unreachable until re-register
+			}
+			// A single damaged vault must not take the whole server
+			// offline; skip it loudly and serve the rest. It stays
+			// reachable via re-registration under the same RootKey.
+			log.Printf("server: skipping vault %s: bad auth.key: %v", d.Name(), err)
+			continue
+		}
+		ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"), logLockWait)
+		if err != nil {
+			log.Printf("server: skipping vault %s: %v", d.Name(), err)
+			continue
+		}
+		st := newVaultState(ls, ak, dir)
+		for _, e := range ls.Sorted() {
+			st.bytes += uint64(e.Size())
+		}
+		s.vaults[vid] = st
+	}
+	return nil
+}
+
+func newVaultState(s store.Store, ak vault.AuthKey, dir string) *vaultState {
+	return &vaultState{
+		s:       s,
+		authKey: ak,
+		c2s:     vault.DeriveC2S(ak),
+		s2c:     vault.DeriveS2C(ak),
+		dir:     dir,
+	}
+}
+
+// Close releases every vault's backing store, including the advisory
+// file locks its log holds. The server must not be used afterwards; it
+// is the clean-shutdown counterpart to New.
+func (s *Server) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var firstErr error
+	for _, st := range s.vaults {
+		if c, ok := st.s.(io.Closer); ok {
+			if err := c.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
+// HandleFrame processes one request frame and returns a response: either
+// a sealed RESP frame, or a single pre-channel error byte. A non-nil
+// error is an I/O problem that prevents any response.
+func (s *Server) HandleFrame(req []byte) ([]byte, error) {
+	h, sealed, err := wire.ParseHeader(req)
+	if err != nil {
+		if errors.Is(err, wire.ErrVersion) {
+			return wire.ErrBadVersion.Reply(), nil
+		}
+		return wire.ErrBadFrame.Reply(), nil
+	}
+	switch h.Kind {
+	case wire.KindRegister:
+		return s.handleRegister(h, sealed)
+	case wire.KindSync:
+		return s.handleSync(h, sealed)
+	default:
+		return wire.ErrBadKind.Reply(), nil
+	}
+}
+
+func (s *Server) handleRegister(h wire.Header, sealed []byte) ([]byte, error) {
+	vid, nonce := h.VaultID, h.Nonce
+	var payload []byte
+	opened := false // no keys = registration disabled
+	for _, k := range s.regKeys {
+		if p, err := wire.OpenFrame(k, h, sealed); err == nil {
+			payload, opened = p, true
+			break
+		}
+	}
+	if !opened {
+		return wire.ErrBadAuth.Reply(), nil // gate: no RegisterKey opens it
+	}
+	if len(payload) != vault.AuthKeySize {
+		return wire.ErrBadFrame.Reply(), nil
+	}
+	var ak vault.AuthKey
+	copy(ak[:], payload)
+
+	s.mu.Lock()
+	st, exists := s.vaults[vid]
+	if exists {
+		s.mu.Unlock()
+		if subtle.ConstantTimeCompare(st.authKey[:], ak[:]) != 1 {
+			return wire.ErrBadAuth.Reply(), nil // rebind attempt
+		}
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
+	}
+	if uint64(len(s.vaults)) >= s.quotas.MaxVaults {
+		s.mu.Unlock()
+		return s.sealResp(vid, vault.DeriveS2C(ak), nonce, wire.StatusQuota, nil)
+	}
+	st, err := s.createVaultLocked(vid, ak)
+	s.mu.Unlock()
+	if err != nil {
+		log.Printf("server: create vault %s: %v", vid, err)
+		return wire.ErrTryLater.Reply(), nil
+	}
+	return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
+}
+
+func (s *Server) handleSync(h wire.Header, sealed []byte) ([]byte, error) {
+	vid, nonce := h.VaultID, h.Nonce
+	s.mu.Lock()
+	st, ok := s.vaults[vid]
+	s.mu.Unlock()
+	if !ok {
+		return wire.ErrUnknownVault.Reply(), nil
+	}
+	payload, err := wire.OpenFrame(st.c2s, h, sealed)
+	if err != nil {
+		return wire.ErrBadAuth.Reply(), nil
+	}
+	req, err := wire.ParseSync(payload)
+	if err != nil {
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
+	}
+
+	// The op runs under the vault lock; OnPush fires after it is
+	// released so the hook can safely call back into the server.
+	resp, pushedNew, err := func() ([]byte, bool, error) {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+
+		status := wire.StatusOK
+		var page []vault.Entry
+		pushed := 0
+
+		switch req.Op {
+		case wire.OpProbe:
+			if st.s.SetHash() != req.SetHash {
+				status = wire.StatusDiffer
+			}
+		case wire.OpPull:
+			page = st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
+		case wire.OpPush:
+			newEntries, verr := s.validateNew(st, req.Entries, true)
+			if verr == nil && st.noPush && len(newEntries) > 0 {
+				// A no-push vault accepts nothing new over the wire: its
+				// published credential grants read and nothing else. A
+				// dedup no-op (re-pushing entries the vault already
+				// holds) still acks OK, so a read-only client's
+				// pull-then-push walk converges instead of erroring.
+				verr = ErrQuota
+			}
+			if verr != nil {
+				status = wire.StatusBadRequest
+				if errors.Is(verr, ErrQuota) {
+					status = wire.StatusQuota
+				}
+				break
+			}
+			var err error
+			pushed, err = addValidatedLocked(st, newEntries)
+			if err != nil {
+				return nil, false, err
+			}
+		default:
+			status = wire.StatusBadRequest
+		}
+
+		resp, err := s.sealResp(vid, st.s2c, nonce, status, page)
+		return resp, pushed > 0, err
+	}()
+	if err == nil && pushedNew && s.onPush != nil {
+		s.onPush(vid)
+	}
+	return resp, err
+}
+
+// addValidatedLocked adds entries that already passed validateNew,
+// updating the vault's byte accounting. st.mu held. Returns the
+// number actually added. Shared by the PUSH path and AddEntries so
+// quota accounting cannot diverge between them.
+//
+// validateNew guarantees entries are new and mutually distinct, so
+// the whole batch lands as one durable unit (one fsync on a
+// log-backed store) and its byte total is exactly the sum of sizes.
+func addValidatedLocked(st *vaultState, entries []vault.Entry) (int, error) {
+	added, err := st.s.Add(entries...)
+	if err != nil {
+		return added, err
+	}
+	for _, e := range entries[:added] {
+		st.bytes += uint64(e.Size())
+	}
+	return added, nil
+}
+
+// validateNew enforces quota -- and, when checkSkew is set, timestamp
+// skew -- on the entries the server does not already hold; re-pushing
+// an accepted entry is a no-op and not re-judged. The wire PUSH path
+// checks skew; the owner API does not (an owner legitimately writes
+// entries carrying preserved historical timestamps). Returns the new
+// entries, or ErrQuota or errSkew.
+func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew bool) ([]vault.Entry, error) {
+	now := s.clock()
+	skew := s.quotas.TSSkewMs
+	newEntries := make([]vault.Entry, 0, len(pushes))
+	var newBytes uint64
+	seen := make(map[vault.EntryID]bool, len(pushes))
+	for _, e := range pushes {
+		id := e.ID()
+		// The in-page dedup keeps newEntries mutually distinct, which
+		// addValidatedLocked's byte accounting relies on (and stops a
+		// duplicated push entry counting twice against the quota).
+		if seen[id] || st.s.Has(id) {
+			continue
+		}
+		seen[id] = true
+		if checkSkew {
+			d := int64(e.TsMs) - now
+			if d < -skew || d > skew {
+				return nil, errSkew
+			}
+		}
+		newEntries = append(newEntries, e)
+		newBytes += uint64(e.Size())
+	}
+	if uint64(st.s.Len())+uint64(len(newEntries)) > s.quotas.MaxEntries {
+		return nil, ErrQuota
+	}
+	if st.bytes+newBytes > s.quotas.MaxVaultBytes {
+		return nil, ErrQuota
+	}
+	return newEntries, nil
+}
+
+// errSkew rejects a pushed entry whose ts_ms is too far from the
+// server's clock (TSSkewMs).
+var errSkew = errors.New("server: entry timestamp outside the allowed skew")
+
+// sealResp builds a RESP frame under s2c, echoing reqNonce.
+func (s *Server) sealResp(vid vault.VaultID, s2c vault.ChannelKey, reqNonce [vault.NonceSize]byte, status wire.Status, entries []vault.Entry) ([]byte, error) {
+	respNonce, err := vault.FrameNonce(vid)
+	if err != nil {
+		return nil, err
+	}
+	payload := wire.Resp{Status: status, ReqNonce: reqNonce, Entries: entries}.Marshal()
+	return wire.SealFrame(wire.Header{Kind: wire.KindResp, VaultID: vid, Nonce: respNonce}, s2c, payload)
+}
+
+// createVaultLocked constructs and persists a new vaultState. s.mu held.
+func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultState, error) {
+	if s.dataDir == "" {
+		st := newVaultState(store.NewMemStore(), ak, "")
+		s.vaults[vid] = st
+		return st, nil
+	}
+	dir := filepath.Join(s.dataDir, vid.String())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := durable.WriteFile(authKeyPath(dir), ak[:], 0o600); err != nil {
+		return nil, err
+	}
+	ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"), logLockWait)
+	if err != nil {
+		return nil, err
+	}
+	st := newVaultState(ls, ak, dir)
+	s.vaults[vid] = st
+	return st, nil
+}
+
+// ErrVaultInUse reports a vault whose entry log a running server holds.
+var ErrVaultInUse = errors.New("server: vault is held by a running server")
+
+// DropVaultDir is DropVault for a server that is not running: it
+// deletes vid's directory under dataDir, auth.key and entry log, for
+// good. It takes the entry log's lock first, so it refuses with
+// ErrVaultInUse while a server is serving the vault: a server keeps
+// every vault's log open from start to stop, and deleting the files
+// under it changes nothing it serves until it restarts. Returns
+// ErrUnknownVault if dataDir has no such vault.
+func DropVaultDir(dataDir string, vid vault.VaultID) error {
+	dir := filepath.Join(dataDir, vid.String())
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrUnknownVault
+		}
+		return err
+	}
+	logPath := filepath.Join(dir, "entries.log")
+	var held io.Closer
+	if _, err := os.Stat(logPath); err == nil {
+		ls, err := store.OpenLogStore(logPath, 0)
+		if errors.Is(err, store.ErrLocked) {
+			return ErrVaultInUse
+		}
+		if err != nil {
+			return err
+		}
+		held = ls
+	}
+	err := removeVaultDir(dataDir, dir)
+	if held != nil {
+		_ = held.Close()
+	}
+	return err
+}
+
+// removeVaultDir deletes a vault's directory under dataDir. auth.key
+// goes first: a crash part-way leaves a directory the next start skips
+// rather than adopts.
+func removeVaultDir(dataDir, dir string) error {
+	err := os.Remove(authKeyPath(dir))
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		err = os.RemoveAll(dir)
+	}
+	if err != nil {
+		return err
+	}
+	durable.SyncDir(dataDir)
+	return nil
+}
+
+// --- per-vault auth.key persistence ---
+
+func authKeyPath(dir string) string { return filepath.Join(dir, "auth.key") }
+
+func readAuthKey(dir string) (vault.AuthKey, error) {
+	b, err := os.ReadFile(authKeyPath(dir))
+	if err != nil {
+		return vault.AuthKey{}, err
+	}
+	if len(b) != vault.AuthKeySize {
+		return vault.AuthKey{}, fmt.Errorf("server: auth.key is %d bytes, want %d", len(b), vault.AuthKeySize)
+	}
+	var ak vault.AuthKey
+	copy(ak[:], b)
+	return ak, nil
+}
+
+// --- HTTP ---
+
+// routes builds the server's route table: wire.SyncPath alone. The
+// path and method live in the pattern, so http.ServeMux answers a
+// wrong method with 405 and a correct Allow header.
+func (s *Server) routes() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST "+wire.SyncPath, s.serveSync)
+	return mux
+}
+
+// ServeHTTP serves the protocol routes, so a Server can be mounted
+// anywhere an http.Handler goes.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
+}
+
+// serveSync exchanges one sealed frame.
+func (s *Server) serveSync(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, wire.MaxFrameBytes))
+	if err != nil {
+		log.Printf("server: read body: %v", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	resp, err := s.HandleFrame(body)
+	if err != nil {
+		log.Printf("server: handle frame: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = w.Write(resp)
+}

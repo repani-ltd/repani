@@ -1,0 +1,47 @@
+// Package store provides the client- and server-side entry set used
+// by ASCON-KV. A Store is an unordered set keyed by EntryID that also
+// exposes a canonical-order view and a set hash; see PROTOCOL.t.
+package store
+
+import "repani.com/kv/vault"
+
+// Store is the contract both the client and the server depend on.
+// Implementations must be safe for concurrent use.
+type Store interface {
+	// Add inserts entries, skipping any already present (in the store
+	// or earlier in the call), and returns the number added. Durable
+	// implementations commit the call as one unit -- one write, one
+	// fsync -- so bulk ingest (sync pull pages, CSV import, wire PUSH)
+	// does not pay a disk flush per entry.
+	Add(entries ...vault.Entry) (added int, err error)
+
+	// Has reports whether the store contains the given id.
+	Has(id vault.EntryID) bool
+
+	// Len returns the number of distinct entries.
+	Len() int
+
+	// Sorted returns a snapshot of the entries in canonical order
+	// (TsMs asc, EntryID asc). The returned slice is safe for the
+	// caller to read but must not be mutated.
+	Sorted() []vault.Entry
+
+	// SetHash returns the 16-byte fingerprint of the whole entry set
+	// (vault.SetHash), used as the sync equality probe.
+	SetHash() [16]byte
+
+	// EntriesAfter returns whole entries in canonical order strictly
+	// after the cursor (afterTs, afterID), up to budget bytes but always
+	// at least one if any remain. Powers the paged PULL.
+	EntriesAfter(afterTs uint64, afterID vault.EntryID, budget int) []vault.Entry
+
+	// Appended returns the entries added after the first n, in the
+	// order they were added. A store only grows, so a reader that has
+	// taken n entries takes exactly the new ones with Appended(n).
+	// The slice must not be mutated.
+	Appended(n int) []vault.Entry
+
+	// Newest returns the last entry in canonical order, and false when
+	// the store is empty.
+	Newest() (vault.Entry, bool)
+}
