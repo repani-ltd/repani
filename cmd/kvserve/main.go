@@ -43,6 +43,9 @@ const usage = `usage: kvserve [serve] [flags]     serve the sync endpoint
 The serving verb is optional: "kvserve --addr ..." and
 "kvserve serve --addr ..." are the same command.
 
+The protocol kvserve speaks is PROTOCOL.t (repani-private/kv, a pica
+document).
+
 flags:
 `
 
@@ -106,7 +109,7 @@ func serveFlags() (*flag.FlagSet, *opts) {
 	fs.DurationVar(&o.writeTimeout, "write-timeout", 60*time.Second, "per-request write timeout")
 	fs.DurationVar(&o.idleTimeout, "idle-timeout", 120*time.Second, "keep-alive idle timeout")
 	fs.DurationVar(&o.shutdownGrace, "shutdown-grace", 30*time.Second, "graceful shutdown deadline")
-	fs.Uint64Var(&o.quotas.MaxVaults, "max-vaults", d.MaxVaults, "hard cap on number of registered vaults (0 = unlimited)")
+	fs.Uint64Var(&o.quotas.MaxVaults, "max-vaults", d.MaxVaults, "hard cap on number of registered vaults")
 	fs.Uint64Var(&o.quotas.MaxVaultBytes, "max-vault-bytes", d.MaxVaultBytes, "hard cap on the bytes one vault may hold")
 	fs.Uint64Var(&o.quotas.MaxEntries, "max-entries", d.MaxEntries, "hard cap on the entries one vault may hold")
 	fs.StringVar(&o.registerKeyFile, "register-key-file", "", "path to the register-gate secrets (Crockford base32, one per line, # comments); REQUIRED")

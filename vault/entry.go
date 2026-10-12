@@ -140,13 +140,11 @@ func Seal(aead *ascon.AEAD, tsMs uint64, key, value []byte) (Entry, error) {
 
 	ctLen := len(pt) + ascon.AEADTagSize
 	if ctLen > maxCt || EntryHeaderSize+ctLen > MaxEntryBytes {
-		zero(pt)
 		return Entry{}, ErrEntryTooLarge
 	}
 
 	nonce, err := EntryNonce()
 	if err != nil {
-		zero(pt)
 		return Entry{}, err
 	}
 
@@ -156,8 +154,6 @@ func Seal(aead *ascon.AEAD, tsMs uint64, key, value []byte) (Entry, error) {
 	binary.LittleEndian.PutUint16(ad[8+NonceSize:EntryHeaderSize], uint16(ctLen))
 
 	ct := aead.Seal(nil, nonce[:], pt, ad)
-	zero(pt) // scrub the plaintext key/value copy
-
 	return Entry{TsMs: tsMs, Nonce: nonce, Ct: ct}, nil
 }
 

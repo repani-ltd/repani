@@ -193,6 +193,10 @@ Environment:
   KV_SYNC_WINDOW    reconcile look-back window (Go duration, default 10m)
   KV_LOCK_WAIT      wait for a concurrent kv holding the local entry-log
                     lock (Go duration, default 5s; 0 fails immediately)
+
+Specification (repani-private/kv, pica documents):
+  PROTOCOL.t        the wire protocol kv speaks
+  CLIENT.t          the client conventions: values, key blobs, the sync loop
 `)
 }
 
@@ -219,13 +223,9 @@ func loadRootKey() vault.RootKey {
 		fatal("read %s: %v (have you run `kv init` or `kv pair`?)", vaultKeyPath(), err)
 	}
 	if len(b) != vault.RootKeySize {
-		zero(b)
 		fatal("vault.key is %d bytes, expected %d", len(b), vault.RootKeySize)
 	}
-	var rk vault.RootKey
-	copy(rk[:], b)
-	zero(b)
-	return rk
+	return vault.RootKey(b)
 }
 
 func serverURL() string { return os.Getenv("KV_SERVER") }
@@ -361,7 +361,6 @@ func loadRegisterKey() *vault.RegisterKey {
 		}
 		fatal("read %s: %v", registerKeyPath(), err)
 	}
-	defer zero(b)
 	rk, err := vault.DecodeRegisterKey(string(b))
 	if err != nil {
 		fatal("register.key: %v", err)
@@ -376,9 +375,7 @@ func saveRegisterKey(b32 string) error {
 	if err != nil {
 		return fmt.Errorf("register key: %w", err)
 	}
-	out := []byte(vault.EncodeRegisterKey(rk) + "\n")
-	defer zero(out)
-	return writeKeyExclusive(registerKeyPath(), out)
+	return writeKeyExclusive(registerKeyPath(), []byte(vault.EncodeRegisterKey(rk)+"\n"))
 }
 
 // --- commands ---
@@ -518,9 +515,7 @@ func runSetRegisterKey(args []string) {
 	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
 		fatal("mkdir: %v", err)
 	}
-	out := []byte(vault.EncodeRegisterKey(rk) + "\n")
-	defer zero(out)
-	if err := writeKeyAtomic(registerKeyPath(), out); err != nil {
+	if err := writeKeyAtomic(registerKeyPath(), []byte(vault.EncodeRegisterKey(rk)+"\n")); err != nil {
 		fatal("write register.key: %v", err)
 	}
 	fmt.Fprintln(os.Stderr, "register key saved to "+registerKeyPath())
@@ -589,10 +584,6 @@ func runBackup(args []string) {
 	rk := loadRootKey()
 	regKey := loadRegisterKey() // may be nil
 	blob := vault.EncodeBackup(rk, regKey)
-	// Best-effort scrub.
-	for i := range rk {
-		rk[i] = 0
-	}
 
 	if regKey == nil {
 		fmt.Fprintln(os.Stderr,
@@ -634,10 +625,6 @@ func runRestore(args []string) {
 	}
 	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
 		fatal("write vault.key: %v", err)
-	}
-	// Best-effort scrub of the in-memory RootKey.
-	for i := range rk {
-		rk[i] = 0
 	}
 	if regKey != nil {
 		if err := writeKeyExclusive(
@@ -1071,12 +1058,6 @@ func writeKeyExclusive(path string, data []byte) error {
 		return err
 	}
 	return f.Sync()
-}
-
-func zero(b []byte) {
-	for i := range b {
-		b[i] = 0
-	}
 }
 
 func fatal(f string, args ...any) {

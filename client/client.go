@@ -50,7 +50,6 @@ type Transport interface {
 
 // Client is the writer + reader + syncer for one vault.
 type Client struct {
-	rk      vault.RootKey
 	aead    *ascon.AEAD
 	authKey vault.AuthKey
 	vid     vault.VaultID
@@ -86,7 +85,6 @@ func New(rk vault.RootKey, s store.Store, t Transport) (*Client, error) {
 	}
 	ak := vault.DeriveAuthKey(rk)
 	return &Client{
-		rk:       rk,
 		aead:     aead,
 		authKey:  ak,
 		vid:      vault.DeriveVaultID(rk),

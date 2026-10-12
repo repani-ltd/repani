@@ -84,14 +84,13 @@ func NewRegisterKey() (RegisterKey, error) {
 	return rk, nil
 }
 
-// derive16 computes XOF(dom || material, 16) and scrubs its scratch.
+// derive16 computes XOF(dom || material, 16).
 func derive16(dom, material []byte) [16]byte {
 	buf := make([]byte, 0, len(dom)+len(material))
 	buf = append(buf, dom...)
 	buf = append(buf, material...)
 	var out [16]byte
 	ascon.XOF(buf, out[:])
-	zero(buf)
 	return out
 }
 
@@ -119,14 +118,5 @@ func DeriveRegKey(rk RegisterKey) ChannelKey { return derive16(domReg, rk[:]) }
 // AEAD returns a ready-to-use Ascon-AEAD128 cipher for rk's AEAD_Key.
 func (rk RootKey) AEAD() (*ascon.AEAD, error) {
 	k := DeriveAEADKey(rk)
-	a, err := ascon.NewAEAD(k[:])
-	k = AEADKey{} // best-effort scrub of the intermediate
-	return a, err
-}
-
-// zero wipes a byte slice. Best-effort.
-func zero(b []byte) {
-	for i := range b {
-		b[i] = 0
-	}
+	return ascon.NewAEAD(k[:])
 }

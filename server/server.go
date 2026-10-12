@@ -5,6 +5,7 @@
 package server
 
 import (
+	"cmp"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
@@ -23,12 +24,24 @@ import (
 	"repani.com/kv/wire"
 )
 
-// Quotas configure per-vault limits.
+// Quotas configure a server's limits. A zero field takes its
+// DefaultQuotas value.
 type Quotas struct {
 	MaxEntries    uint64
 	MaxVaultBytes uint64
-	MaxVaults     uint64 // 0 = unlimited
+	MaxVaults     uint64
 	TSSkewMs      int64
+}
+
+// withDefaults returns q with each zero field set to its default.
+func (q Quotas) withDefaults() Quotas {
+	d := DefaultQuotas()
+	return Quotas{
+		MaxEntries:    cmp.Or(q.MaxEntries, d.MaxEntries),
+		MaxVaultBytes: cmp.Or(q.MaxVaultBytes, d.MaxVaultBytes),
+		MaxVaults:     cmp.Or(q.MaxVaults, d.MaxVaults),
+		TSSkewMs:      cmp.Or(q.TSSkewMs, d.TSSkewMs),
+	}
 }
 
 // logLockWait bounds how long a vault open waits for the entry-log
@@ -122,17 +135,13 @@ func NewWithOptions(opt Options) (*Server, error) {
 			return nil, err
 		}
 	}
-	q := opt.Quotas
-	if q == (Quotas{}) {
-		q = DefaultQuotas()
-	}
 	clk := opt.Clock
 	if clk == nil {
 		clk = func() int64 { return time.Now().UnixMilli() }
 	}
 	s := &Server{
 		dataDir: opt.DataDir,
-		quotas:  q,
+		quotas:  opt.Quotas.withDefaults(),
 		clock:   clk,
 		regKeys: regKeys,
 		onPush:  opt.OnPush,
@@ -156,7 +165,6 @@ func loadRegisterKeys(path string) ([]vault.ChannelKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("server: register-key-file %s: %w", path, err)
 	}
-	defer clear(b)
 	var keys []vault.ChannelKey
 	for i, line := range strings.Split(string(b), "\n") {
 		line = strings.TrimSpace(line)
@@ -168,7 +176,6 @@ func loadRegisterKeys(path string) ([]vault.ChannelKey, error) {
 			return nil, fmt.Errorf("server: register-key-file %s:%d: %w", path, i+1, err)
 		}
 		keys = append(keys, vault.DeriveRegKey(rk))
-		clear(rk[:])
 	}
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("server: register-key-file %s: no register key", path)
@@ -292,7 +299,7 @@ func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, 
 		}
 		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
 	}
-	if s.quotas.MaxVaults != 0 && uint64(len(s.vaults)) >= s.quotas.MaxVaults {
+	if uint64(len(s.vaults)) >= s.quotas.MaxVaults {
 		s.mu.Unlock()
 		return s.sealResp(vid, vault.DeriveS2C(ak), nonce, wire.StatusQuota, nil)
 	}

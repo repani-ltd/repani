@@ -283,6 +283,26 @@ func TestQuota_SkewAndMaxEntries(t *testing.T) {
 	}
 }
 
+// TestQuota_ZeroFieldTakesDefault: a Quotas that sets one limit keeps
+// the defaults of the others, so an ordinary push is accepted.
+func TestQuota_ZeroFieldTakesDefault(t *testing.T) {
+	srv, err := NewWithOptions(Options{Quotas: Quotas{MaxVaults: 5}, RegisterKey: &testRegKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rk, _ := vault.NewRandomRootKey()
+	h := newHarness(t, srv, rk, testRegKey)
+	h.register()
+	if resp, _ := h.push([]vault.Entry{mkEntry(t, rk, nowMs(), "k", "v")}); resp.Status != wire.StatusOK {
+		t.Fatalf("push status %s, want ok", wire.StatusText(resp.Status))
+	}
+	want := DefaultQuotas()
+	want.MaxVaults = 5
+	if srv.quotas != want {
+		t.Errorf("quotas %+v, want %+v", srv.quotas, want)
+	}
+}
+
 func TestPersistence_ReloadsVaultAndEntries(t *testing.T) {
 	dir := t.TempDir()
 	rk, _ := vault.NewRandomRootKey()
