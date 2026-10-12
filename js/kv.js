@@ -540,6 +540,12 @@ export function preChannelText(b) {
 // id}] strictly after the cursor in canonical order, accumulating
 // until the next entry would exceed budget bytes but always at least
 // one if any remain.
+//
+// Optional: addMany(entries) -> number added, the batched add a pull
+// uses for each page (one commit per page instead of per entry);
+// onRemote, a property the client sets to a () -> void the store calls
+// when entries arrive from outside this client (another tab on the
+// same IndexedDB database); close().
 
 function idHex(id) {
   let s = "";
@@ -599,21 +605,29 @@ export class MemStore {
 // marshaled entry bytes keyed by entry id, mirrored into a MemStore
 // that serves every read. This is the same split as the Go LogStore
 // (durable log + in-memory index): IndexedDB provides durability,
-// memory provides the canonical view. add() resolves only on the
-// write transaction's completion, so the client's page-commit
-// guarantee ("committed to the log before the cursor advances")
-// holds across a killed tab, like the Go log's fsync.
+// memory provides the canonical view. An add resolves only once its
+// write transaction completes, and only then enters memory, so the
+// client's page-commit guarantee ("committed to the log before the
+// cursor advances") holds across a killed tab, like the Go log's
+// fsync, and a failed write (storage full) leaves the view as it was.
 //
 // Open one database per vault -- name it by VaultID (e.g. "kv-" +
 // hex of the id) so credentials never share a namespace. Adds are
 // content-addressed and idempotent, so concurrent tabs on the same
-// database cannot corrupt it, but each tab's in-memory view only
-// sees its own session's entries until its next sync or reload.
+// database cannot corrupt it; each committed add is announced on a
+// BroadcastChannel named for the database, so every tab's view takes
+// in another's entries at once (onRemote tells its client). A tab
+// deleting the database (IDBStore.destroy) closes it in every other
+// tab, whose later writes fail with kind "closed".
 export class IDBStore {
   // Internal; use IDBStore.open(name).
-  constructor(db, mem) {
+  constructor(db, mem, name) {
     this.db = db;
     this.mem = mem;
+    this.name = name;
+    this.closed = false;
+    this.chan = null;
+    this.onRemote = null;
   }
 
   // open opens (creating if needed) the named database and loads
@@ -627,11 +641,19 @@ export class IDBStore {
         }
       };
       req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      req.onerror = () => reject(new SyncError("local", "open " + name + ": " + (req.error && req.error.message), req.error));
+      req.onblocked = () => reject(new SyncError("local", "open " + name + ": blocked by another tab"));
     });
-    // Yield to a future schema upgrade from another context.
-    db.onversionchange = () => db.close();
     const mem = new MemStore();
+    const s = new IDBStore(db, mem, name);
+    // Yield to a deletion or upgrade from another context.
+    db.onversionchange = () => s.close();
+    // Listen before the scan, so an entry another tab commits during
+    // it arrives one way or the other (MemStore.add is idempotent).
+    if (typeof BroadcastChannel !== "undefined") {
+      s.chan = new BroadcastChannel("kv-idb:" + name);
+      s.chan.onmessage = (ev) => s.fromRemote(ev.data);
+    }
     await new Promise((resolve, reject) => {
       const tx = db.transaction("entries", "readonly");
       const cur = tx.objectStore("entries").openCursor();
@@ -649,27 +671,68 @@ export class IDBStore {
         c.continue();
       };
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(new SyncError("local", "load " + name + ": " + (tx.error && tx.error.message), tx.error));
     });
-    return new IDBStore(db, mem);
+    return s;
   }
 
-  // add inserts the entry in memory and, if new, persists it before
-  // resolving. One transaction per entry keeps the commit guarantee
-  // simple; if a large first sync ever needs it, the refinement is an
-  // addMany() batching one transaction per pulled page.
-  async add(entry) {
-    const id = entryID(entry);
-    if (!this.mem.add(entry, id)) return false;
-    const bytes = marshalEntry(entry);
-    await new Promise((resolve, reject) => {
-      const tx = this.db.transaction("entries", "readwrite");
-      tx.objectStore("entries").put(bytes, idHex(id));
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
+  // destroy deletes the named database. Close every store open on it
+  // in this context first; one open in another tab closes itself.
+  static destroy(name) {
+    return new Promise((resolve) => {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = req.onerror = req.onblocked = () => resolve();
     });
-    return true;
+  }
+
+  // fromRemote takes in entries another tab committed.
+  fromRemote(list) {
+    if (this.closed || !Array.isArray(list)) return;
+    let n = 0;
+    for (const b of list) {
+      try {
+        if (this.mem.add(unmarshalEntry(new Uint8Array(b)).entry)) n++;
+      } catch {}
+    }
+    if (n > 0 && this.onRemote) this.onRemote();
+  }
+
+  async add(entry) { return (await this.addMany([entry])) === 1; }
+
+  // addMany persists the entries it does not hold in one transaction,
+  // then adds them to memory and tells other tabs. Returns the number
+  // added.
+  async addMany(entries) {
+    if (this.closed) throw new SyncError("closed", "store " + this.name + " closed");
+    const fresh = [];
+    const here = new Set();
+    for (const entry of entries) {
+      const id = entryID(entry);
+      const h = idHex(id);
+      if (this.mem.has(h) || here.has(h)) continue;
+      here.add(h);
+      fresh.push({ entry, id, h, bytes: marshalEntry(entry) });
+    }
+    if (fresh.length === 0) return 0;
+    await new Promise((resolve, reject) => {
+      const fail = (err) => reject(new SyncError("local", "write " + this.name + ": " + ((err && err.message) || "transaction aborted"), err));
+      let tx;
+      try {
+        tx = this.db.transaction("entries", "readwrite");
+        const os = tx.objectStore("entries");
+        for (const f of fresh) os.put(f.bytes, f.h);
+      } catch (e) {
+        fail(e);
+        return;
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => fail(tx.error);
+      tx.onabort = () => fail(tx.error);
+    });
+    let n = 0;
+    for (const f of fresh) if (this.mem.add(f.entry, f.id)) n++;
+    if (this.chan && !this.closed) this.chan.postMessage(fresh.map((f) => f.bytes));
+    return n;
   }
 
   has(h) { return this.mem.has(h); }
@@ -678,7 +741,12 @@ export class IDBStore {
   setHash() { return this.mem.setHash(); }
   entriesAfter(afterTs, afterID, budget) { return this.mem.entriesAfter(afterTs, afterID, budget); }
 
-  close() { this.db.close(); }
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.chan) this.chan.close();
+    this.db.close();
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -715,12 +783,85 @@ const MAX_ROUNDS = 64;
 
 const ZERO_ID = new Uint8Array(ENTRY_ID_SIZE);
 
-function preChannelError(stage, pre) {
-  return new Error("kv: " + stage + ": server returned " + preChannelText(pre));
+// SyncError is every error a Client method raises, its kind saying
+// what a caller can do about it:
+//
+//   offline   the server could not be reached or asked to come back
+//             later (network, timeout, HTTP 5xx, TRY_LATER, a walk
+//             that did not converge under concurrent writers): retry,
+//             nothing is lost -- local writes stay in the store and go
+//             out on a later sync.
+//   auth      the server does not accept this client: wrong
+//             RegisterKey, an unregistered vault with no RegisterKey,
+//             or a BAD_AUTH. Retrying will not help until a key
+//             changes.
+//   rejected  the server refused entries: QUOTA (the vault, or the
+//             server's vault count, is full) or BAD_REQUEST on a push
+//             (an entry's ts_ms is outside the server's skew window,
+//             i.e. this device's clock is wrong). Every later sync is
+//             refused the same way until the cause is fixed.
+//   protocol  the server misbehaved: a frame that does not open, a
+//             cursor that does not advance, an unexpected status.
+//   local     this device's store failed (e.g. browser storage full).
+//   closed    the client or its store was closed.
+//
+// transient is true for offline alone.
+export class SyncError extends Error {
+  constructor(kind, message, cause) {
+    super("kv: " + message, cause === undefined ? undefined : { cause });
+    this.name = "SyncError";
+    this.kind = kind;
+  }
+  get transient() { return this.kind === "offline"; }
 }
 
+function preChannelError(stage, pre) {
+  const kind = pre === ERR_TRY_LATER ? "offline" : pre === ERR_BAD_AUTH ? "auth" : "protocol";
+  return new SyncError(kind, stage + ": server returned " + preChannelText(pre));
+}
+
+// pushStatusError maps a non-OK PUSH status: QUOTA and BAD_REQUEST are
+// the server refusing this client's entries, anything else a protocol
+// fault.
+function pushStatusError(status) {
+  const kind = status === STATUS_QUOTA || status === STATUS_BAD_REQUEST ? "rejected" : "protocol";
+  return new SyncError(kind, "push status " + statusText(status));
+}
+
+// asSyncError passes a SyncError through and wraps anything else as
+// the given kind.
+function asSyncError(e, kind) {
+  if (e instanceof SyncError) return e;
+  return new SyncError(kind, (e && e.message) || String(e), e);
+}
+
+const noop = () => {};
+
+// Client is one vault on one device. Its methods are safe to call in
+// any order and at any time from concurrent async code:
+//
+//   - Writes (put, putFmt, delete) are applied to the store one at a
+//     time, in call order, each resolving once committed.
+//   - sync() runs one reconciliation at a time. A call made while one
+//     is running gets the next one, shared by every call made
+//     meanwhile, so its promise covers every write issued before the
+//     call -- awaited or not. A failed sync loses nothing: its
+//     just-written entries stay queued for the next one's fast path,
+//     and every entry stays in the store for the walk.
+//   - Reads (get, list, all) fold only entries not seen before into a
+//     cached view, so a read after a sync costs the new entries, not
+//     the vault.
+//   - subscribe(fn) calls fn(source) when the view may have changed:
+//     "local" (this client wrote), "sync" (a sync stored new entries),
+//     "tab" (another tab on the same IndexedDB database did).
+//   - close() waits for the running sync and pending writes, then
+//     closes the store; every later call fails with kind "closed".
+//
+// Every failure of the server, the network or the store is a
+// SyncError (above); a bad argument (an empty key, a value too large)
+// is a plain Error, thrown before anything is written.
 export class Client {
-  // rootKey: Uint8Array(32). store: see the Store contract above.
+  // rootKey: Uint8Array(20). store: see the Store contract above.
   // transport: async (frameBytes) -> responseBytes.
   // opts.syncWindowMs overrides the reconcile look-back window.
   constructor(rootKey, store, transport, opts = {}) {
@@ -740,9 +881,48 @@ export class Client {
     this.regChan = null; // K_reg, valid iff hasReg
     this.recent = []; // entries written since the last sync (fast-path push)
     this.lastTs = 0n;
+    this.writes = Promise.resolve(); // the write queue's tail
+    this.running = null; // the sync under way
+    this.queued = null; // the next sync, shared by calls made during it
+    this.closed = false;
+    this.listeners = new Set();
+    this.view = new Map(); // key hex -> {key, value, fmt, ts, id, tomb}
+    this.seen = new Set(); // ids (hex) already folded into view
+    store.onRemote = () => this.changed("tab");
   }
 
   tracef(msg) { if (this.trace) this.trace(msg); }
+
+  // subscribe registers fn(source) to hear of changes (see above) and
+  // returns the function that unregisters it.
+  subscribe(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  changed(source) {
+    for (const fn of this.listeners) {
+      try {
+        fn(source);
+      } catch (e) {
+        if (typeof console !== "undefined") console.warn("kv: subscriber:", e);
+      }
+    }
+  }
+
+  checkOpen() {
+    if (this.closed) throw new SyncError("closed", "client closed");
+  }
+
+  // close waits for the sync under way and every pending write, then
+  // closes the store. Idempotent.
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    await Promise.allSettled([this.running, this.queued, this.writes]);
+    this.listeners.clear();
+    if (this.store.close) this.store.close();
+  }
 
   // setRegisterKey installs the register-gate secret used to seal a
   // REGISTER frame. Pass null to clear.
@@ -775,20 +955,31 @@ export class Client {
     if (typeof key === "string") key = te.encode(key);
     if (typeof value === "string") value = te.encode(value);
     if (value.length === 0) throw new Error("kv: empty value is a tombstone; use delete()");
+    this.checkOpen();
     await this.record(sealEntry(this.aeadKey, this.nextTs(), key, wrapValue(fmtTag, value)));
   }
 
   // delete writes a tombstone (an empty value, with no fmt tag).
   async delete(key) {
     if (typeof key === "string") key = te.encode(key);
+    this.checkOpen();
     await this.record(sealEntry(this.aeadKey, this.nextTs(), key, null));
   }
 
-  // record adds a locally-created entry to the store and remembers it
-  // for the next sync's fast-path push.
-  async record(e) {
-    await this.store.add(e);
-    this.recent.push(e);
+  // record queues a locally-created entry: it is added to the store
+  // after every earlier write, then remembered for the next sync's
+  // fast-path push. The entry is sealed (and timestamped) before it
+  // queues, so store order follows call order. A failed write rejects
+  // its own call and does not hold up the ones behind it.
+  record(e) {
+    const w = this.writes.then(async () => {
+      if (await this.store.add(e)) {
+        this.recent.push(e);
+        this.changed("local");
+      }
+    });
+    this.writes = w.catch(noop);
+    return w.catch((err) => { throw asSyncError(err, "local"); });
   }
 
   // --- sync ---
@@ -798,10 +989,28 @@ export class Client {
   // entries written since the last sync and PROBE; otherwise walk a
   // suffix window (PULL then dedup-tolerant PUSH), widening from a
   // recent window to a full walk across rounds until a PROBE matches.
-  // Returns {roundTrips, reqBytes, respBytes, pushed, pushedBytes,
-  // pulled, pulledBytes}.
-  async sync() {
-    const st = { roundTrips: 0, reqBytes: 0, respBytes: 0, pushed: 0, pushedBytes: 0, pulled: 0, pulledBytes: 0 };
+  // Resolves to {roundTrips, reqBytes, respBytes, pushed, pushedBytes,
+  // pulled, pulledBytes, added}, added counting the pulled entries that
+  // were new here. One runs at a time; see the Client comment for what
+  // a call's promise covers.
+  sync() {
+    if (this.closed) return Promise.reject(new SyncError("closed", "client closed"));
+    if (!this.running) {
+      this.running = this.syncOnce().finally(() => { this.running = null; });
+      return this.running;
+    }
+    this.queued ??= this.running.then(noop, noop).then(() => {
+      this.queued = null;
+      return this.sync();
+    });
+    return this.queued;
+  }
+
+  async syncOnce() {
+    // Every write issued before this sync is in the store before it
+    // reads the store.
+    await this.writes;
+    const st = { roundTrips: 0, reqBytes: 0, respBytes: 0, pushed: 0, pushedBytes: 0, pulled: 0, pulledBytes: 0, added: 0 };
     const recent = this.recent;
     this.recent = [];
     try {
@@ -833,16 +1042,22 @@ export class Client {
         // Loop back to PROBE to confirm convergence (and catch entries
         // a concurrent writer added mid-walk).
       }
-      throw new Error("kv: sync did not converge within round budget");
+      throw new SyncError("offline", "sync did not converge within round budget");
+    } catch (e) {
+      // Nothing written is lost: the fast path gets this sync's entries
+      // back, ahead of any written since, for the next attempt.
+      this.recent = recent.concat(this.recent);
+      throw asSyncError(e, "local");
     } finally {
       this.lastStats = st;
+      if (st.added > 0) this.changed("sync");
     }
   }
 
   // unknownVault handles a pre-channel UNKNOWN_VAULT: re-register on
   // the next round when a register key is available, otherwise fail.
   unknownVault() {
-    if (!this.hasReg) throw new Error("kv: vault not registered on server and no register key installed");
+    if (!this.hasReg) throw new SyncError("auth", "vault not registered on server and no register key installed");
     this.registered = false;
   }
 
@@ -850,9 +1065,10 @@ export class Client {
   // on the server, sealed under K_reg.
   async register(st) {
     const { pre, resp } = await this.roundtrip(KIND_REGISTER, this.regChan, this.authKey, st);
-    if (pre === ERR_BAD_AUTH) throw new Error("kv: registration rejected - wrong register key");
+    if (pre === ERR_BAD_AUTH) throw new SyncError("auth", "registration rejected - wrong register key");
     if (pre !== 0) throw preChannelError("register", pre);
-    if (resp.status !== STATUS_OK) throw new Error("kv: register status " + statusText(resp.status));
+    if (resp.status === STATUS_QUOTA) throw new SyncError("rejected", "register status " + statusText(resp.status));
+    if (resp.status !== STATUS_OK) throw new SyncError("protocol", "register status " + statusText(resp.status));
     this.tracef("REGISTER -> ok");
     this.registered = true;
   }
@@ -884,7 +1100,7 @@ export class Client {
         this.tracef("PROBE -> differ");
         return { inSync: false, pre: 0 };
       default:
-        throw new Error("kv: probe status " + statusText(resp.status));
+        throw new SyncError("protocol", "probe status " + statusText(resp.status));
     }
   }
 
@@ -896,16 +1112,16 @@ export class Client {
   async pullFrom(anchorTs, anchorID, st) {
     let curTs = anchorTs, curID = anchorID;
     for (let page = 0; ; page++) {
-      if (page >= MAX_PULL_PAGES) throw new Error("kv: pull exceeded page budget (misbehaving server)");
+      if (page >= MAX_PULL_PAGES) throw new SyncError("protocol", "pull exceeded page budget (misbehaving server)");
       const payload = marshalSync({ op: OP_PULL, curTs, curID });
       const { pre, resp } = await this.roundtrip(KIND_SYNC, this.c2s, payload, st);
       if (pre !== 0) return pre;
-      if (resp.status !== STATUS_OK) throw new Error("kv: pull status " + statusText(resp.status));
+      if (resp.status !== STATUS_OK) throw new SyncError("protocol", "pull status " + statusText(resp.status));
       if (resp.entries.length === 0) return 0;
       const last = resp.entries[resp.entries.length - 1];
       const lastID = entryID(last);
       if (!posAfter(last.tsMs, lastID, curTs, curID)) {
-        throw new Error("kv: server pull did not advance the cursor");
+        throw new SyncError("protocol", "server pull did not advance the cursor");
       }
       let bytesIn = 0;
       for (const e of resp.entries) {
@@ -913,10 +1129,15 @@ export class Client {
         // never holds an oversized entry, so a larger one is a hostile
         // or corrupt relay.
         if (entrySize(e) > MAX_ENTRY_BYTES) {
-          throw new Error("kv: pulled entry exceeds MAX_ENTRY_BYTES");
+          throw new SyncError("protocol", "pulled entry exceeds MAX_ENTRY_BYTES");
         }
         bytesIn += entrySize(e);
-        await this.store.add(e);
+      }
+      // The whole page commits before the cursor moves past it.
+      if (this.store.addMany) {
+        st.added += await this.store.addMany(resp.entries);
+      } else {
+        for (const e of resp.entries) if (await this.store.add(e)) st.added++;
       }
       st.pulled += resp.entries.length;
       st.pulledBytes += bytesIn;
@@ -967,7 +1188,7 @@ export class Client {
     const payload = marshalSync({ op: OP_PUSH, entries: batch });
     const { pre, resp } = await this.roundtrip(KIND_SYNC, this.c2s, payload, st);
     if (pre !== 0) return pre;
-    if (resp.status !== STATUS_OK) throw new Error("kv: push status " + statusText(resp.status));
+    if (resp.status !== STATUS_OK) throw pushStatusError(resp.status);
     let bytesOut = 0;
     for (const e of batch) bytesOut += entrySize(e);
     st.pushed += batch.length;
@@ -979,40 +1200,59 @@ export class Client {
   // roundtrip seals a request frame under sealKey, sends it, and opens
   // the response under K_s2c, verifying the echoed request nonce
   // (anti-stitch). Returns {pre, resp}: a 1-byte response is an
-  // unauthenticated pre-channel error surfaced in pre (resp null).
+  // unauthenticated pre-channel error surfaced in pre (resp null). A
+  // transport that throws anything but a SyncError is taken to have
+  // failed to reach the server.
   async roundtrip(kind, sealKey, payload, st) {
     const nonce = frameNonce(this.vaultID);
     const frame = sealFrame(kind, this.vaultID, nonce, sealKey, payload);
-    const respBytes = await this.transport(frame);
+    let respBytes;
+    try {
+      respBytes = await this.transport(frame);
+    } catch (e) {
+      throw asSyncError(e, "offline");
+    }
     st.roundTrips++;
     st.reqBytes += frame.length;
     st.respBytes += respBytes.length;
     if (respBytes.length === 1) {
       return { pre: respBytes[0], resp: null };
     }
-    const h = parseFrameHeader(respBytes);
-    if (h.kind !== KIND_RESP || bytesCompare(h.vaultID, this.vaultID) !== 0) {
-      throw new Error("kv: unexpected response frame");
+    let resp;
+    try {
+      const h = parseFrameHeader(respBytes);
+      if (h.kind !== KIND_RESP || bytesCompare(h.vaultID, this.vaultID) !== 0) {
+        throw new Error("unexpected response frame");
+      }
+      const rpayload = openFrame(this.s2c, KIND_RESP, h.vaultID, h.nonce, h.sealed);
+      if (rpayload === null) throw new Error("response did not open");
+      resp = parseResp(rpayload);
+    } catch (e) {
+      throw asSyncError(e, "protocol");
     }
-    const rpayload = openFrame(this.s2c, KIND_RESP, h.vaultID, h.nonce, h.sealed);
-    if (rpayload === null) throw new Error("kv: response did not open");
-    const resp = parseResp(rpayload);
     if (bytesCompare(resp.reqNonce, nonce) !== 0) {
-      throw new Error("kv: response nonce does not match request");
+      throw new SyncError("protocol", "response nonce does not match request");
     }
     return { pre: 0, resp };
   }
 
   // --- reads (last-writer-wins merge, client/client.go §replay) ---
 
-  // replay decrypts every entry in canonical order; later entries
-  // override earlier ones. Entries that fail to open are silently
-  // skipped (they stay in the store so the set still matches the
-  // server's). Returns Map(latin1 key -> {key, value, fmt, ts,
-  // tomb}); ts is the winning entry's ts_ms as BigInt.
+  // replay returns the merged view: Map(key hex -> {key, value, fmt,
+  // ts, id, tomb}), ts the winning entry's ts_ms as BigInt. Callers
+  // must not mutate it. It folds in only the entries it has not seen,
+  // each replacing its key's winner when it comes later in canonical
+  // order -- the same result as decrypting the whole set in order,
+  // since last-writer-wins depends only on each key's latest entry.
+  // An entry that fails to open is skipped (it stays in the store so
+  // the set still matches the server's) and never tried again.
   async replay() {
-    const out = new Map();
-    for (const { entry } of await this.store.sortedPairs()) {
+    const pairs = await this.store.sortedPairs();
+    if (pairs.length === this.seen.size) return this.view; // a store only grows
+    for (const { entry, id } of pairs) {
+      const h = idHex(id);
+      if (this.seen.has(h)) continue;
+      this.seen.add(h);
       let kva;
       try {
         kva = openEntry(this.aeadKey, entry);
@@ -1020,10 +1260,13 @@ export class Client {
         continue;
       }
       if (kva === null) continue;
+      const k = idHex(kva.key);
+      const cur = this.view.get(k);
+      if (cur && !posAfter(entry.tsMs, id, cur.ts, cur.id)) continue;
       const { fmt, value, tomb } = parseValue(kva.value);
-      out.set(idHex(kva.key), { key: kva.key, value, fmt, ts: entry.tsMs, tomb });
+      this.view.set(k, { key: kva.key, value, fmt, ts: entry.tsMs, id, tomb });
     }
-    return out;
+    return this.view;
   }
 
   // get returns {value, fmt, ts} for key (Uint8Array or string), or
@@ -1068,24 +1311,41 @@ export function httpTransport(base, opts = {}) {
   const url = base.replace(/\/+$/, "") + "/v1/sync";
   const timeoutMs = opts.timeoutMs || 60000;
   const fetchFn = opts.fetch || globalThis.fetch;
+  // Errors are SyncErrors: no answer (network, timeout) and the
+  // statuses that mean "not now" (408, 429, 5xx -- a proxy whose
+  // backend is restarting answers 502) are offline; any other HTTP
+  // status, or an oversized body, is a protocol fault.
   return async (frame) => {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     try {
-      const resp = await fetchFn(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: frame,
-        signal: ctl.signal,
-      });
-      if (!resp.ok) throw new Error("kv: server returned HTTP " + resp.status);
+      let resp;
+      try {
+        resp = await fetchFn(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: frame,
+          signal: ctl.signal,
+        });
+      } catch (e) {
+        throw new SyncError("offline", ctl.signal.aborted ? "request timed out" : "server unreachable: " + (e && e.message), e);
+      }
+      if (!resp.ok) {
+        const s = resp.status;
+        throw new SyncError(s === 408 || s === 429 || s >= 500 ? "offline" : "protocol", "server returned HTTP " + s);
+      }
       // Reject an over-cap body by its declared length before buffering it.
       const clen = resp.headers.get("content-length");
       if (clen !== null && Number(clen) > MAX_FRAME_BYTES) {
-        throw new Error("kv: response exceeds frame cap");
+        throw new SyncError("protocol", "response exceeds frame cap");
       }
-      const body = new Uint8Array(await resp.arrayBuffer());
-      if (body.length > MAX_FRAME_BYTES) throw new Error("kv: response exceeds frame cap");
+      let body;
+      try {
+        body = new Uint8Array(await resp.arrayBuffer());
+      } catch (e) {
+        throw new SyncError("offline", "response cut short: " + (e && e.message), e);
+      }
+      if (body.length > MAX_FRAME_BYTES) throw new SyncError("protocol", "response exceeds frame cap");
       return body;
     } finally {
       clearTimeout(timer);

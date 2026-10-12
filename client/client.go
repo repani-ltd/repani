@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"repani.com/ascon"
 	"repani.com/kv/store"
 	"repani.com/kv/vault"
 	"repani.com/kv/wire"
-	"repani.com/ascon"
 )
 
 // fmtRaw is the value-encoding tag for a verbatim value (CLIENT.txt).
@@ -337,7 +337,10 @@ var ErrNoRegisterKey = errors.New("client: no register key; cannot register with
 //
 // Windowing is client-local: the server only ever sees the cursor the
 // client chooses to send.
-func (c *Client) Sync(ctx context.Context) error {
+//
+// A failed Sync loses nothing: the entries it was to fast-push go back
+// ahead of any written since, for the next Sync's fast path.
+func (c *Client) Sync(ctx context.Context) (err error) {
 	const maxRounds = 64
 	st := &SyncStats{}
 	defer c.reportStats(st)
@@ -346,6 +349,13 @@ func (c *Client) Sync(ctx context.Context) error {
 	recent := c.recent
 	c.recent = nil
 	c.mu.Unlock()
+	defer func() {
+		if err != nil && len(recent) > 0 {
+			c.mu.Lock()
+			c.recent = append(recent, c.recent...)
+			c.mu.Unlock()
+		}
+	}()
 
 	for round := range maxRounds {
 		c.mu.Lock()

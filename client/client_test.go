@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -338,6 +339,51 @@ func TestSync_FastPathLocalWrite(t *testing.T) {
 	s := c.LastSyncStats()
 	if s.Pushed != 1 || s.Pulled != 0 {
 		t.Fatalf("fast path: pushed=%d pulled=%d, want 1 pushed / 0 pulled", s.Pushed, s.Pulled)
+	}
+}
+
+// flaky is inProc that fails while down is set.
+type flaky struct {
+	inProc
+	down bool
+}
+
+func (f *flaky) Do(ctx context.Context, req []byte) ([]byte, error) {
+	if f.down {
+		return nil, errors.New("connection refused")
+	}
+	return f.inProc.Do(ctx, req)
+}
+
+// TestSync_FailedSyncKeepsFastPath: a write whose sync fails goes out
+// on the next sync's fast path, not only by a window walk.
+func TestSync_FailedSyncKeepsFastPath(t *testing.T) {
+	srv := newTestServer(t)
+	rk, _ := vault.NewRandomRootKey()
+	tr := &flaky{inProc: inProc{srv}}
+	c, err := New(rk, store.NewMemStore(), tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetRegisterKey(&testRegKey)
+	if err := c.Sync(context.Background()); err != nil { // register
+		t.Fatal(err)
+	}
+	if err := c.Put([]byte("k"), []byte("v")); err != nil {
+		t.Fatal(err)
+	}
+	tr.down = true
+	if err := c.Sync(context.Background()); err == nil {
+		t.Fatal("sync with the transport down succeeded")
+	}
+	tr.down = false
+	if err := c.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The fast path is PUSH then a matching PROBE; a walk would take
+	// PROBE, PULL, PUSH, PROBE.
+	if s := c.LastSyncStats(); s.RoundTrips != 2 || s.Pushed != 1 {
+		t.Fatalf("retry: %d round trips, pushed=%d; want the fast path's 2 and 1", s.RoundTrips, s.Pushed)
 	}
 }
 

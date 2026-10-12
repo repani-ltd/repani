@@ -57,6 +57,10 @@ are unchanged.
   `RegisterKey` nor `RegisterKeyFile` disables in-band registration —
   every REGISTER frame is rejected with `BAD_AUTH`. Vaults are then
   created only by the owner via `EnsureVault`.
+- `kvserve drop-vault --data DIR VAULTID` deletes a vault for good,
+  log included, refusing while a server holds it
+  (`server.RemoveVault`); `deploy/drop-vault.sh` runs it on the host
+  from a blob that never leaves the machine.
 - Owner API for a co-resident process (`server/owner.go`):
   `EnsureVault`, `DropVault` (removes `auth.key`, archives the entry
   log), `Entries` (canonical snapshot), and `AddEntries` (same
@@ -76,6 +80,32 @@ are unchanged.
 - `ErrNoRegisterKey` is a sentinel (was an inline error), so
   embedders can `errors.Is` the "vault not created by the owner
   yet" condition.
+- A failed `Sync` keeps the entries it was to fast-push for the next
+  one; it used to drop them to the window walk.
+- `kv vault-id <blob|->` prints a pairing or backup blob's VaultID,
+  computed locally (no KV_HOME, no server).
+
+### kv.js
+- `Client` is safe under concurrent async use: writes apply one at a
+  time in call order; `sync()` runs one at a time, and a call during
+  one shares the next, so its promise covers every write issued
+  before it, awaited or not; a failed sync keeps its just-written
+  entries for the next fast path. Embedders no longer write this
+  themselves (iou did).
+- Every failure of the server, network or store is a `SyncError`
+  with a `kind` -- offline (transient: retry), auth, rejected (QUOTA,
+  or BAD_REQUEST from a wrong clock), protocol, local, closed -- so a
+  caller knows whether retrying can help. `httpTransport` maps HTTP
+  408/429/5xx and no answer to offline.
+- Reads fold only unseen entries into a cached view instead of
+  decrypting the whole vault per read.
+- `subscribe(fn)` hears changes (local, sync, tab); `close()` waits
+  for the running sync and pending writes.
+- `IDBStore` commits before an entry enters memory (a failed write
+  leaves the view unchanged), commits a pulled page in one
+  transaction (`addMany`), shares committed entries with other tabs
+  on a BroadcastChannel, closes itself when another tab deletes the
+  database, and gains `IDBStore.destroy(name)`.
 
 ### Store
 - `LogStore.Rewrite` atomically replaces the log's contents via a

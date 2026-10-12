@@ -11,7 +11,10 @@ carries no replace or require for it.
 ## Exported surface has consumers outside this module
 
 `../almanac` imports `kv/vault`, `kv/client`, `kv/server` and `kv/js`
-(it is an ASCON-KV application: pages are vault items). Before
+(it is an ASCON-KV application: pages are vault items), and
+`../webapp` serves and stages `js/kv.js` to every web app (iou), whose
+`vaults.js` builds on its Client contract -- after changing kv.js,
+run webapp's and iou's browser tests too (see their CLAUDE.md). Before
 removing or changing any exported identifier, grep every module in
 `~/repos` -- including `~/repos/_attic` -- for its users; "unused in
 this module" is not "dead". The cautionary case: `store.LogStore.Rewrite`

@@ -8,15 +8,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"repani.com/ascon"
+	"repani.com/kv/server"
 	"repani.com/kv/vault"
 	"repani.com/kv/wire"
-	"repani.com/ascon"
 )
 
 // jsVectors builds the cross-implementation vector set consumed by
@@ -292,4 +294,35 @@ func TestJSClient(t *testing.T) {
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("js harness failed: %v\nstderr:\n%s", err, stderr)
 	}
+}
+
+// TestJSClientBehaviour runs js/client_test.mjs: what kv.js's Client
+// promises under concurrent async use (one sync at a time, covering
+// every earlier write; writes in call order; nothing lost on a failed
+// sync), its error kinds, close, subscribe, and the cached view.
+func TestJSClientBehaviour(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not found in PATH; skipping JS client test")
+	}
+	_, ts := newServer(t)
+	defer ts.Close()
+	q := server.DefaultQuotas()
+	q.MaxEntries = 2
+	qsrv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey, Quotas: q})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qts := httptest.NewServer(qsrv)
+	defer qts.Close()
+
+	script := filepath.Join("..", "js", "client_test.mjs")
+	cmd := exec.Command(node, script, ts.URL, qts.URL, vault.EncodeRegisterKey(testRegKey))
+	timer := time.AfterFunc(60*time.Second, func() { _ = cmd.Process.Kill() })
+	defer timer.Stop()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	t.Logf("%s", out)
 }
