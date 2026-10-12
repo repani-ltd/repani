@@ -11,7 +11,9 @@ Every row is a sequence of items to the end of its bytes. An item is a
 tag byte and a payload:
 
 	tag      type          payload
-	0-242    short string  that many bytes of UTF-8 (the tag is the length)
+	0-241    short string  that many bytes of UTF-8 (the tag is the length)
+	242      compressed    varint string length (242 and up), varint stream
+	         string        length, then the lz4s.Compress stream of the UTF-8
 	243      none          nothing (an optional position left empty)
 	244      false         nothing
 	245      true          nothing
@@ -23,12 +25,19 @@ tag byte and a payload:
 	251      time          varint: ms since midnight, 0-86399999
 	252      duration      zigzag varint: ms, within ±(2^53-1)
 	253      bytes         varint length, then bytes
-	254      long string   varint length (243 and up), then UTF-8
+	254      long string   varint length (242 and up), then UTF-8
 	255      list          varint count, then that many items, never a list
 
 A varint is unsigned LEB128 in its shortest form, at most 8 bytes;
 zigzag stores 0, -1, 1, -2 as 0, 1, 2, 3. The type set is closed: no
 tag is spare.
+
+A string has one form: short when it has at most 241 bytes; else
+compressed when that item is shorter than the long one, that is when
+the stream's length varint plus the stream is shorter than the
+string; else long. The stream is exactly lz4s.Compress of the string
+(repani.com/lz4s), never another stream that decompresses to it. The
+encoder chooses; the text notation is the same for all three.
 
 # Text notation
 
@@ -58,8 +67,9 @@ Example, an iou expense as a row:
 	R004  a decimal scale above 15
 	R005  a float that is NaN, infinite or -0
 	R006  a string that is not valid UTF-8
-	R007  a long string that could have been a short one
+	R007  a string not in its one form (short, else compressed if shorter, else long)
 	R008  a list inside a list
+	R009  a compressed string whose stream is not lz4s.Compress of its string
 	T001  text that is no row
 	T002  a row spelt other than canonically (the message gives the spelling)
 
@@ -74,7 +84,8 @@ time.Time (UTC on decode), TimeOfDay, Duration (milliseconds;
 time.Duration accepted), []byte and []any. row.js (embedded as JS)
 exports encode, decode, format and parse over: null, boolean, string,
 number (an int), Decimal, Float, Day, Date (a datetime), TimeOfDay,
-Duration, Uint8Array and Array. Both pass the same frozen vectors.
+Duration, Uint8Array and Array; it imports ./lz4s.js, so serve
+lz4s.JS() beside it. Both pass the same frozen vectors.
 
 # CLI
 

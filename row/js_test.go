@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"repani.com/chrometest"
+	"repani.com/lz4s"
 )
 
 // TestJS runs row.js against the same frozen vectors in headless
@@ -17,6 +18,10 @@ func TestJS(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/row.js", http.FileServerFS(JS))
+	mux.HandleFunc("/lz4s.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Write([]byte(lz4s.JS()))
+	})
 	mux.HandleFunc("/vectors.json", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "testdata/vectors.json")
 	})

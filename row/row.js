@@ -1,6 +1,7 @@
 // row.js -- ROW v1 typed rows (ROW.t), the JavaScript twin of
 // repani.com/row. ES module; runs in browsers and any engine with
-// BigInt and TextDecoder.
+// BigInt and TextDecoder. It imports ./lz4s.js, for compressed
+// strings: serve lz4s.JS() (repani.com/lz4s) beside it.
 //
 //   encode(items) -> Uint8Array     decode(bytes) -> items
 //   format(items) -> string         parse(line) -> items
@@ -17,6 +18,8 @@
 // A float is always a Float, so a number is never ambiguous. Every
 // failure is a RowError with ROW.t's code and the offset of the item at
 // fault (bytes for binary, string index for text).
+
+import { compress, decompress } from "./lz4s.js";
 
 export class RowError extends Error {
   constructor(code, offset, message) {
@@ -48,15 +51,16 @@ export class Duration {
   constructor(ms) { this.ms = ms; }
 }
 
-const MAX_SHORT = 242;
-const [NONE, FALSE, TRUE, INT, DEC, FLT, DATE, DT, TIME, DUR, BYTES, LSTR, LIST] =
-  Array.from({ length: 13 }, (_, i) => MAX_SHORT + 1 + i);
+const MAX_SHORT = 241;
+const [CSTR, NONE, FALSE, TRUE, INT, DEC, FLT, DATE, DT, TIME, DUR, BYTES, LSTR, LIST] =
+  Array.from({ length: 14 }, (_, i) => MAX_SHORT + 1 + i);
 const MAX_INT = Number.MAX_SAFE_INTEGER; // 2^53-1
 const MAX_SCALE = 15;
 const MIN_DAY = -719162, MAX_DAY = 2932896;
 const MIN_DT = -62135596800000, MAX_DT = 253402300799999;
 const MAX_TIME = 86399999;
 const MAX_VARINT = 8;
+const MAX_EXPAND = 255; // bytes an lz4s stream yields at most per byte
 
 const K = { STR: 0, NONE: 1, FALSE: 2, TRUE: 3, INT: 4, DEC: 5, FLT: 6, DATE: 7, DT: 8, TIME: 9, DUR: 10, BYTES: 11, LIST: 12 };
 
@@ -187,6 +191,11 @@ function pushUvarint(out, u) {
     out.push(b | 0x80);
   }
 }
+// smaller says whether a string of n bytes whose lz4s stream is c
+// bytes is written compressed: when that item is the shorter, the tag
+// and the length being common to both (ROW.t 3).
+const smaller = (c, n) => { const v = []; pushUvarint(v, c); return v.length + c < n; };
+
 const zigzag = (n) => (n >= 0 ? BigInt(n) * 2n : -BigInt(n) * 2n - 1n);
 const unzigzag = (u) => (u & 1n ? -((u + 1n) >> 1n) : u >> 1n);
 
@@ -194,8 +203,20 @@ function append(out, v) {
   switch (v.k) {
     case K.STR: {
       const b = te.encode(v.s);
-      if (b.length <= MAX_SHORT) out.push(b.length);
-      else { out.push(LSTR); pushUvarint(out, b.length); }
+      if (b.length <= MAX_SHORT) {
+        out.push(b.length);
+      } else {
+        const c = compress(b);
+        if (smaller(c.length, b.length)) {
+          out.push(CSTR);
+          pushUvarint(out, b.length);
+          pushUvarint(out, c.length);
+          for (const x of c) out.push(x);
+          return;
+        }
+        out.push(LSTR);
+        pushUvarint(out, b.length);
+      }
       for (const x of b) out.push(x);
       return;
     }
@@ -330,7 +351,30 @@ function item(d, inList) {
     case LSTR: {
       const n = length(d, start, "string length");
       if (n <= MAX_SHORT) throw err("R007", start, `a long string of ${n} bytes could be a short one`);
-      return str(d, start, n);
+      const bytes = d.b.subarray(d.pos, d.pos + n);
+      const v = str(d, start, n);
+      if (smaller(compress(bytes).length, n)) throw err("R007", start, `a long string of ${n} bytes could be a compressed one`);
+      return v;
+    }
+    case CSTR: {
+      const u = uvarint(d, start);
+      if (u > BigInt(MAX_INT)) throw err("R003", start, `string length ${u} is outside 2^53-1`);
+      const c = length(d, start, "stream length");
+      const stream = d.b.subarray(d.pos, d.pos + c);
+      d.pos += c;
+      const n = Number(u);
+      if (n <= MAX_SHORT) throw err("R007", start, `a compressed string of ${n} bytes could be a short one`);
+      // A stream yields at most MAX_EXPAND bytes for each of its own,
+      // so a longer claim is refused before anything is allocated.
+      if (n > MAX_EXPAND * c) throw err("R009", start, `a stream of ${c} bytes cannot make ${n}`);
+      const text = decompress(stream, n);
+      if (text === null) throw err("R009", start, `the stream does not decompress to ${n} bytes`);
+      let s;
+      try { s = td.decode(text); } catch { throw err("R006", start, "string is not valid UTF-8"); }
+      const again = compress(text);
+      if (again.length !== c || again.some((x, i) => x !== stream[i])) throw err("R009", start, "the stream is not lz4s.Compress of its string");
+      if (!smaller(c, n)) throw err("R007", start, `a compressed string of ${n} bytes could be a long one`);
+      return { k: K.STR, s };
     }
   }
   // LIST

@@ -155,7 +155,7 @@ func fmtAny(v any) string {
 // comment, whole, with every section and no source furniture.
 func TestSpec(t *testing.T) {
 	s := Spec()
-	for _, want := range []string{"# Items", "# Text notation", "# Errors", "# Go and JavaScript", "# CLI", "R008", "T002", "ROW.t"} {
+	for _, want := range []string{"# Items", "# Text notation", "# Errors", "# Go and JavaScript", "# CLI", "R008", "R009", "T002", "ROW.t"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("Spec() missing %q", want)
 		}
@@ -167,7 +167,7 @@ func TestSpec(t *testing.T) {
 
 // FuzzDecode: bytes that decode are the one encoding of their row.
 func FuzzDecode(f *testing.F) {
-	for _, s := range []string{"", "0378", "f3f4f5", "f7029c01", "ff0203626f6ef602", "f9fcc302", "fe8c02"} {
+	for _, s := range []string{"", "0378", "f3f4f5", "f7029c01", "ff0203626f6ef602", "f9fcc302", "fe8c02", "f2f201041f6100e0", "f2ac02051f6100ff1b"} {
 		b, _ := hex.DecodeString(s)
 		f.Add(b)
 	}

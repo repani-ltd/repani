@@ -2,9 +2,10 @@ ROW — Typed Rows v1
 .by Pavlos Christoforou
 .date 2026-10-12
 .rights All rights reserved © repani.com
-.rem Normative. Draft until ratified; on ratification v1 is frozen
-.rem permanently: the type set is closed and no tag is spare. A
-.rem successor is a new format, never a revision of this one.
+.rem Normative. FROZEN 2026-10-12, ratified by Pavlos Christoforou:
+.rem v1 is permanent. The type set is closed and no tag is spare;
+.rem the lz4s compressor it names is fixed with it. A successor is a
+.rem new format, never a revision of this one.
 
 A row is a short sequence of typed values, encoded as bytes. Each
 value, an item, starts with one byte that says what it is. There are
@@ -29,8 +30,8 @@ holds, as iou's record grammar does for its text lines.
 independently belong in separate entries: an ASCON-KV value merges
 as a whole (last writer wins), so two records inside one value lose
 one device's edit, where two entries keep both.
-.item CLOSED. Thirteen types and short strings fill the 256 tags
-exactly. No type will be added; a need the set does not meet is a
+.item CLOSED. Thirteen types, short strings and compressed strings
+fill the 256 tags exactly. No type will be added; a need the set does not meet is a
 new format.
 .item SAME IN EVERY LANGUAGE. Every number decodes exactly to a
 native number in Go and in JavaScript.
@@ -62,7 +63,8 @@ exactly. Wider values (hashes, 64-bit identifiers) are bytes.
 
 .table 76 10L 14L *L
 ^tag | type | payload
-0-242 | short string | that many bytes of UTF-8 (the tag is the length)
+0-241 | short string | that many bytes of UTF-8 (the tag is the length)
+242 | compressed string | varint string length, varint stream length, then the lz4s stream of the UTF-8
 243 | none | nothing
 244 | false | nothing
 245 | true | nothing
@@ -82,9 +84,21 @@ exactly. Wider values (hashes, 64-bit identifiers) are bytes.
 
 .term string
 UTF-8 text, never normalised: the bytes written are the bytes read.
-A string of 0 to 242 bytes is a short string, its tag its length; a
-longer one is a long string (254). A long string shorter than 243
-bytes, or either kind holding invalid UTF-8, is an error.
+A string has three forms and exactly one of them is right for it:
+.item short (tags 0-241) when it has 0 to 241 bytes, its tag its
+length;
+.item otherwise compressed (242) when that item is the shorter: when
+c, the length of lz4s.Compress of its bytes, plus the length of c's
+varint is less than n, the string's length in bytes;
+.item otherwise long (254).
+
+The stream of a compressed string is exactly lz4s.Compress of the
+string (the canonical stream of the repani.com/lz4s primitive),
+never another stream that decompresses to it, so a decoder checks
+it by compressing the string again. A string in any other form, or
+holding invalid UTF-8, is an error. The form is the encoder's
+choice, not the writer's: the text notation is the same for all
+three.
 .term none
 No value: an optional position left empty. A row cannot skip a
 position, so an absent value is written as none.
@@ -134,9 +148,14 @@ R003 | an integer is outside its range (2.2, or its type's)
 R004 | a decimal's scale is above 15
 R005 | a float is NaN, an infinity or -0
 R006 | a string is not valid UTF-8
-R007 | a long string could have been a short one
+R007 | a string is not in its one form (section 3)
 R008 | a list holds a list
+R009 | a compressed string's stream is not lz4s.Compress of its string
 .end
+
+A compressed string's stream yields at most 255 bytes for each of its
+own, so a decoder refuses (R009) a string length above 255 times the
+stream length before it allocates anything.
 
 So one row has one encoding: an encoder that writes these rules
 produces the bytes, and two equal rows are equal bytes.
@@ -199,7 +218,9 @@ true                        f5
 []                          ff 00
 .end
 
-A long string of 300 bytes begins fe ac 02. The iou record "x
+A string of 300 bytes that does not compress begins fe ac 02; 300
+a's are the compressed string f2 ac 02 05 1f 61 00 ff 1b (one literal
+a, then a 299-byte match at distance 1). The iou record "x
 2026-10-08 EUR 90.00 at 8FVC9G8F+6X by pavlos ben > pavlos:1 ben:1
 | taxi" as a row, 62 bytes against the 75 of its text:
 
@@ -233,12 +254,17 @@ notation; a bad row is reported with its R code and byte offset.
 
 One in Go (repani.com/row) and one in JavaScript (row.js, embedded
 in the package for serving), each with encode, decode, the text
-notation and every error of sections 4 and 5. Both are tested
-against one set of frozen vectors: every example of section 6, each
-error code, and the range edges -- the first and last date and
-datetime, 0 and 86399999 for time, the integers -(2^53-1) and
-2^53-1, scale 15, the shortest long string (243 bytes). A changed
-vector is a changed format.
+notation and every error of sections 4 and 5. Both use lz4s in their
+own language (repani.com/lz4s, and its lz4s.js, whose compress is
+held byte for byte to Go's by the lz4s fixture). Both are tested
+against one set of frozen vectors, written by an independent encoder
+with its own lz4s compressor: every example of section 6, each error
+code, and the edges -- the first and last date and datetime, 0 and
+86399999 for time, the integers -(2^53-1) and 2^53-1, scale 15, the
+longest short string (241 bytes), the shortest long and compressed
+strings (242 bytes), and a pair at the compression boundary: a string
+that compression would shorten by nothing (long) and one it shortens
+by one byte (compressed). A changed vector is a changed format.
 
 # Appendix A. Decisions
 
@@ -271,16 +297,35 @@ fixed forever, is that wider integers are bytes.
 .item 2026-10-12. Millisecond precision for datetime, time and
 duration. Microseconds would carry year-9999 datetimes past 2^53,
 and ASCON-KV's own timestamps are milliseconds.
-.item 2026-10-12. Short strings take every tag below 243. With the
+.item 2026-10-12. Short strings take every tag below 242. With the
 type set closed, a spare range would never be used; given to
-strings, it saves two bytes on every string of 128 to 242 bytes
+strings, it saves two bytes on every string of 128 to 241 bytes
 (one tag byte instead of a tag and a two-byte length).
+.item 2026-10-12. Strings of 242 bytes and more are compressed with
+lz4s whenever that makes them shorter; tag 242 was taken from the
+short strings for it. Long text (notes, descriptions, pasted
+messages) is where a row's bytes go, and ASCON-KV does not compress
+values. Compression is a form of string, not a type: the value and
+its text spelling are the same either way, so no program meets two
+kinds of string. The form is fixed by rule, not chosen by the
+writer, and the stream must be lz4s.Compress's own: a writer's
+choice, or any stream that decompresses correctly, would give one
+string many encodings. The cost is that the lz4s compressor (greedy,
+one parse rule, documented as canonical) is part of this format for
+good, which its primitive package's append-only rule already
+promises; that row.js carries a compressor; and that a decoder
+compresses every long or compressed string once more to check its
+form. lz4s rather than a bulk compressor because it is ours, small,
+already in Go and JavaScript, and tuned for texts of a few bytes to
+a few KiB.
 .item 2026-10-12. Not CBOR. CBOR's first byte also says the type,
 and it has a deterministic profile, but ROW would have to define
 and police a subset of it (no maps, no floats of other widths, no
 indefinite lengths), its dates and decimals cost two to three tag
 bytes more, and nothing outside our own programs reads these
 values: in ASCON-KV they are encrypted.
+.item 2026-10-12. Frozen. Ratified with the compressed string in
+place; from here ROW v1 does not change.
 
 # Appendix B. Naming
 

@@ -1,12 +1,15 @@
 package row
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"strconv"
 	"time"
 	"unicode/utf8"
+
+	"repani.com/lz4s"
 )
 
 // Decimal is the exact number Mantissa x 10^-Scale. The scale is part
@@ -55,12 +58,15 @@ func errf(code string, off int, format string, a ...any) *Error {
 	return &Error{Code: code, Offset: off, Msg: fmt.Sprintf(format, a...)}
 }
 
-// The tags (ROW.t 2.3); 0 to maxShort are short strings, and the
-// thirteen types take the rest, 243 to 255.
-const maxShort = 242
+// The tags (ROW.t 2.3); 0 to maxShort are short strings, 242 a
+// compressed string, and the thirteen types take the rest, 243 to 255.
+const (
+	maxShort      = 241
+	tagCompressed = 242
+)
 
 const (
-	tagNone = maxShort + 1 + iota
+	tagNone = tagCompressed + 1 + iota
 	tagFalse
 	tagTrue
 	tagInt
@@ -85,6 +91,7 @@ const (
 	maxDatetime = 253402300799999
 	maxTime     = 86399999
 	maxVarint   = 8
+	maxExpand   = 255 // bytes an lz4s stream yields at most per byte
 )
 
 type kind uint8
@@ -277,6 +284,11 @@ func (v val) append(b []byte) []byte {
 		if len(v.s) <= maxShort {
 			return append(append(b, byte(len(v.s))), v.s...)
 		}
+		if c := lz4s.Compress([]byte(v.s)); smaller(len(c), len(v.s)) {
+			b = binary.AppendUvarint(append(b, tagCompressed), uint64(len(v.s)))
+			b = binary.AppendUvarint(b, uint64(len(c)))
+			return append(b, c...)
+		}
 		b = binary.AppendUvarint(append(b, tagLongString), uint64(len(v.s)))
 		return append(b, v.s...)
 	case kNone:
@@ -308,6 +320,13 @@ func (v val) append(b []byte) []byte {
 		b = it.append(b)
 	}
 	return b
+}
+
+// smaller says whether a string of n bytes whose lz4s stream is c
+// bytes is written compressed: when that item is the shorter, the
+// tag and the length being common to both (ROW.t 3).
+func smaller(c, n int) bool {
+	return len(binary.AppendUvarint(nil, uint64(c)))+c < n
 }
 
 func zigzag(n int64) uint64   { return uint64(n<<1) ^ uint64(n>>63) }
@@ -484,7 +503,47 @@ func (d *decoder) item(inList bool) (val, error) {
 		if n <= maxShort {
 			return val{}, errf("R007", start, "a long string of %d bytes could be a short one", n)
 		}
-		return d.str(start, n)
+		v, err := d.str(start, n)
+		if err == nil && smaller(len(lz4s.Compress([]byte(v.s))), n) {
+			err = errf("R007", start, "a long string of %d bytes could be a compressed one", n)
+		}
+		return v, err
+	case tag == tagCompressed:
+		u, err := d.uvarint(start)
+		if err != nil {
+			return val{}, err
+		}
+		if u > maxInt {
+			return val{}, errf("R003", start, "string length %d is outside 2^53-1", u)
+		}
+		c, err := d.length(start, "stream length")
+		if err != nil {
+			return val{}, err
+		}
+		stream := d.b[d.pos : d.pos+c]
+		d.pos += c
+		if u <= maxShort {
+			return val{}, errf("R007", start, "a compressed string of %d bytes could be a short one", u)
+		}
+		// A stream yields at most maxExpand bytes for each of its own,
+		// so a longer claim is refused before anything is allocated.
+		if u > maxExpand*uint64(c) {
+			return val{}, errf("R009", start, "a stream of %d bytes cannot make %d", c, u)
+		}
+		text, ok := lz4s.Decompress(stream, int(u))
+		if !ok {
+			return val{}, errf("R009", start, "the stream does not decompress to %d bytes", u)
+		}
+		if !utf8.Valid(text) {
+			return val{}, errf("R006", start, "string is not valid UTF-8")
+		}
+		if !bytes.Equal(lz4s.Compress(text), stream) {
+			return val{}, errf("R009", start, "the stream is not lz4s.Compress of its string")
+		}
+		if !smaller(c, int(u)) {
+			return val{}, errf("R007", start, "a compressed string of %d bytes could be a long one", u)
+		}
+		return val{k: kString, s: string(text)}, nil
 	}
 	// tagList
 	if inList {
