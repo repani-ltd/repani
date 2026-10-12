@@ -1,7 +1,7 @@
 # repani (module repani.com)
 
 One Go module. Top-level directories are either products with
-their own CLAUDE.md (`pica/`, `fact/`, `kiosk/`) or primitive
+their own CLAUDE.md (`pica/`, `fact/`, `kiosk/`, `chrometest/`) or primitive
 packages (`ascon/`, `golay/`, `lz4s/`) or the typesetting family
 (`typeset/`: one directory, one package per member --
 `typeset/format`, `typeset/wrap` with its optional hyphenation
@@ -36,10 +36,11 @@ are the contract.
 - Install the post-commit hook once per clone with
   `cp fact/docs/post-commit .git/hooks/`; it rebuilds `~/bin/fact`
   and `~/bin/pica` after commits touching Go source.
-- Tools explain themselves: every published CLI ships `TOOL spec`
-  (the reference, embedded in the binary) and `TOOL check|validate`
-  (errors on a file). The full rule: "Tools explain themselves" in
-  `~/repos/CLAUDE.md`.
+- Tools explain themselves: a CLI whose format people or agents
+  write by hand ships `TOOL spec` (the reference, embedded in the
+  binary) and `TOOL check|validate` (errors on a file); any other
+  CLI ships `help` and `version`. The full rule: "Tools explain
+  themselves" in `~/repos/CLAUDE.md`.
 - Documentation in pica: `pica spec`, `pica check FILE.t` (see
   `~/repos/CLAUDE.md`).
 - Build and test the whole module: `go build ./... && go test ./...`.
