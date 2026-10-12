@@ -34,11 +34,6 @@ import (
 // bumped to reject a stale-format log rather than mis-parse it.
 var logMagic = []byte("ASCONKVA")
 
-// MaxRecordBytes caps the per-record length accepted during replay. A
-// record is one marshaled entry, and vault.UnmarshalEntry rejects any
-// entry larger than MaxEntryBytes, so this is exactly that bound.
-const MaxRecordBytes = vault.MaxEntryBytes
-
 // ErrBadMagic reports a file that is not an ASCON-KV log.
 var ErrBadMagic = errors.New("logstore: bad or missing magic header")
 
@@ -171,7 +166,7 @@ func (ls *LogStore) replay() error {
 			return err
 		}
 		recLen := binary.LittleEndian.Uint32(hdr[:])
-		if recLen == 0 || recLen > MaxRecordBytes {
+		if recLen == 0 || recLen > vault.MaxEntryBytes { // a record is one entry
 			return ls.truncateTo(offset) // zero-filled or wild length: torn tail
 		}
 		if cap(buf) < int(recLen) {

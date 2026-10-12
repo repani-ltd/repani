@@ -19,7 +19,7 @@ type Store interface {
 	Has(id vault.EntryID) bool
 
 	// Len returns the number of distinct entries.
-	Len() uint32
+	Len() int
 
 	// Sorted returns a snapshot of the entries in canonical order
 	// (TsMs asc, EntryID asc). The returned slice is safe for the

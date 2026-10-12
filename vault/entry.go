@@ -12,13 +12,9 @@ import (
 const EntryHeaderSize = 8 + NonceSize + 2
 
 // MaxEntryBytes caps a whole marshaled entry (header + ciphertext) so
-// it always fits a single frame. ct_len is 2 bytes, so a ciphertext
-// cannot exceed 65535 regardless; this cap is the tighter, enforced
-// bound. See PROTOCOL.t §Entries.
+// it always fits a single frame. It is tighter than the 2-byte ct_len,
+// so it is the one bound enforced. See PROTOCOL.t §Entries.
 const MaxEntryBytes = 64 * 1024
-
-// maxCt is the largest ciphertext a 2-byte ct_len can frame.
-const maxCt = 0xFFFF
 
 // Errors surfaced by entry handling.
 var (
@@ -139,7 +135,7 @@ func Seal(aead *ascon.AEAD, tsMs uint64, key, value []byte) (Entry, error) {
 	copy(pt[1+len(key)+2:], value)
 
 	ctLen := len(pt) + ascon.AEADTagSize
-	if ctLen > maxCt || EntryHeaderSize+ctLen > MaxEntryBytes {
+	if EntryHeaderSize+ctLen > MaxEntryBytes {
 		return Entry{}, ErrEntryTooLarge
 	}
 

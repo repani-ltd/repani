@@ -2,43 +2,34 @@ package vault
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
-	"sort"
+	"slices"
 
 	"repani.com/ascon"
 )
 
 // SortCanonical sorts entries in place by (TsMs asc, EntryID asc),
-// precomputing IDs once so comparisons are O(1). This order drives the
-// last-writer-wins merge and the paged sync cursor.
+// hashing each entry's id once. This order drives the last-writer-wins
+// merge and the paged sync cursor.
 func SortCanonical(entries []Entry) {
-	if len(entries) < 2 {
-		return
+	type pair struct {
+		e  Entry
+		id EntryID
 	}
-	ids := make([]EntryID, len(entries))
-	for i := range entries {
-		ids[i] = entries[i].ID()
+	ps := make([]pair, len(entries))
+	for i, e := range entries {
+		ps[i] = pair{e, e.ID()}
 	}
-	sort.Sort(&canonicalSort{entries: entries, ids: ids})
-}
-
-type canonicalSort struct {
-	entries []Entry
-	ids     []EntryID
-}
-
-func (s *canonicalSort) Len() int { return len(s.entries) }
-
-func (s *canonicalSort) Less(i, j int) bool {
-	if s.entries[i].TsMs != s.entries[j].TsMs {
-		return s.entries[i].TsMs < s.entries[j].TsMs
+	slices.SortFunc(ps, func(a, b pair) int {
+		if c := cmp.Compare(a.e.TsMs, b.e.TsMs); c != 0 {
+			return c
+		}
+		return bytes.Compare(a.id[:], b.id[:])
+	})
+	for i, p := range ps {
+		entries[i] = p.e
 	}
-	return bytes.Compare(s.ids[i][:], s.ids[j][:]) < 0
-}
-
-func (s *canonicalSort) Swap(i, j int) {
-	s.entries[i], s.entries[j] = s.entries[j], s.entries[i]
-	s.ids[i], s.ids[j] = s.ids[j], s.ids[i]
 }
 
 // SetHash returns the 16-byte fingerprint of an entire entry set:

@@ -35,18 +35,19 @@ func testKeys(t *testing.T) (vault.VaultID, vault.ChannelKey, [16]byte) {
 func TestFrame_SealOpenRoundTrip(t *testing.T) {
 	vid, k, nonce := testKeys(t)
 	payload := []byte("hello payload")
-	frame, err := SealFrame(KindSync, vid, nonce, k, payload)
+	want := Header{Kind: KindSync, VaultID: vid, Nonce: nonce}
+	frame, err := SealFrame(want, k, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	kind, gotVid, gotNonce, sealed, err := ParseHeader(frame)
+	h, sealed, err := ParseHeader(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kind != KindSync || gotVid != vid || gotNonce != nonce {
+	if h != want {
 		t.Fatal("header round-trip mismatch")
 	}
-	got, err := OpenFrame(k, kind, gotVid, gotNonce, sealed)
+	got, err := OpenFrame(k, h, sealed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +58,11 @@ func TestFrame_SealOpenRoundTrip(t *testing.T) {
 
 func TestFrame_WrongKeyFails(t *testing.T) {
 	vid, k, nonce := testKeys(t)
-	frame, _ := SealFrame(KindSync, vid, nonce, k, []byte("x"))
-	_, _, _, sealed, _ := ParseHeader(frame)
+	frame, _ := SealFrame(Header{KindSync, vid, nonce}, k, []byte("x"))
+	h, sealed, _ := ParseHeader(frame)
 	var wrong vault.ChannelKey
 	wrong[0] = k[0] ^ 1
-	if _, err := OpenFrame(wrong, KindSync, vid, nonce, sealed); !errors.Is(err, ErrOpen) {
+	if _, err := OpenFrame(wrong, h, sealed); !errors.Is(err, ErrOpen) {
 		t.Fatalf("expected ErrOpen under wrong key, got %v", err)
 	}
 }
@@ -70,38 +71,38 @@ func TestFrame_WrongKeyFails(t *testing.T) {
 // header breaks the open — direction/type cannot be forged.
 func TestFrame_KindBoundInAD(t *testing.T) {
 	vid, k, nonce := testKeys(t)
-	frame, _ := SealFrame(KindSync, vid, nonce, k, []byte("x"))
+	frame, _ := SealFrame(Header{KindSync, vid, nonce}, k, []byte("x"))
 	frame[1] = KindResp // flip kind
-	kind, gotVid, gotNonce, sealed, err := ParseHeader(frame)
+	h, sealed, err := ParseHeader(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OpenFrame(k, kind, gotVid, gotNonce, sealed); !errors.Is(err, ErrOpen) {
+	if _, err := OpenFrame(k, h, sealed); !errors.Is(err, ErrOpen) {
 		t.Fatalf("expected ErrOpen after kind tamper, got %v", err)
 	}
 }
 
 func TestFrame_VaultIDBoundInAD(t *testing.T) {
 	vid, k, nonce := testKeys(t)
-	frame, _ := SealFrame(KindSync, vid, nonce, k, []byte("x"))
+	frame, _ := SealFrame(Header{KindSync, vid, nonce}, k, []byte("x"))
 	frame[2] ^= 1 // flip a vault_id byte
-	kind, gotVid, gotNonce, sealed, _ := ParseHeader(frame)
-	if _, err := OpenFrame(k, kind, gotVid, gotNonce, sealed); !errors.Is(err, ErrOpen) {
+	h, sealed, _ := ParseHeader(frame)
+	if _, err := OpenFrame(k, h, sealed); !errors.Is(err, ErrOpen) {
 		t.Fatalf("expected ErrOpen after vault_id tamper, got %v", err)
 	}
 }
 
 func TestFrame_BadVersion(t *testing.T) {
 	vid, k, nonce := testKeys(t)
-	frame, _ := SealFrame(KindSync, vid, nonce, k, []byte("x"))
+	frame, _ := SealFrame(Header{KindSync, vid, nonce}, k, []byte("x"))
 	frame[0] = 0xFF
-	if _, _, _, _, err := ParseHeader(frame); !errors.Is(err, ErrVersion) {
+	if _, _, err := ParseHeader(frame); !errors.Is(err, ErrVersion) {
 		t.Fatalf("expected ErrVersion, got %v", err)
 	}
 }
 
 func TestFrame_Short(t *testing.T) {
-	if _, _, _, _, err := ParseHeader([]byte{0x01, 0x02}); !errors.Is(err, ErrShort) {
+	if _, _, err := ParseHeader([]byte{0x01, 0x02}); !errors.Is(err, ErrShort) {
 		t.Fatalf("expected ErrShort, got %v", err)
 	}
 }

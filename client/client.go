@@ -612,7 +612,7 @@ func (c *Client) roundtrip(ctx context.Context, stage string, kind byte, sealK v
 	if err != nil {
 		return wire.Resp{}, err
 	}
-	frame, err := wire.SealFrame(kind, c.vid, nonce, sealK, payload)
+	frame, err := wire.SealFrame(wire.Header{Kind: kind, VaultID: c.vid, Nonce: nonce}, sealK, payload)
 	if err != nil {
 		return wire.Resp{}, err
 	}
@@ -626,14 +626,14 @@ func (c *Client) roundtrip(ctx context.Context, stage string, kind byte, sealK v
 	if len(respBytes) == 1 {
 		return wire.Resp{}, fmt.Errorf("client: %s: %w", stage, wire.PreChannel(respBytes[0]))
 	}
-	rkind, rvid, rnonce, sealed, err := wire.ParseHeader(respBytes)
+	h, sealed, err := wire.ParseHeader(respBytes)
 	if err != nil {
 		return wire.Resp{}, fmt.Errorf("client: parse response: %w", err)
 	}
-	if rkind != wire.KindResp || rvid != c.vid {
+	if h.Kind != wire.KindResp || h.VaultID != c.vid {
 		return wire.Resp{}, errors.New("client: unexpected response frame")
 	}
-	rpayload, err := wire.OpenFrame(c.s2c, wire.KindResp, rvid, rnonce, sealed)
+	rpayload, err := wire.OpenFrame(c.s2c, h, sealed)
 	if err != nil {
 		return wire.Resp{}, fmt.Errorf("client: response did not open: %w", err)
 	}

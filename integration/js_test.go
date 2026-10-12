@@ -167,13 +167,13 @@ func jsVectors(t *testing.T) map[string]any {
 		fn[i] = 0xB0 + byte(i)
 	}
 	out["frameNonce"] = h(fn[:])
-	frame, err := wire.SealFrame(wire.KindSync, vid, fn, c2s, probe)
+	frame, err := wire.SealFrame(wire.Header{Kind: wire.KindSync, VaultID: vid, Nonce: fn}, c2s, probe)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out["probeFrame"] = h(frame)
 	resp := wire.Resp{Status: wire.StatusOK, ReqNonce: fn, Entries: entries}.Marshal()
-	respFrame, err := wire.SealFrame(wire.KindResp, vid, fn, s2c, resp)
+	respFrame, err := wire.SealFrame(wire.Header{Kind: wire.KindResp, VaultID: vid, Nonce: fn}, s2c, resp)
 	if err != nil {
 		t.Fatal(err)
 	}

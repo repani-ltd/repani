@@ -86,10 +86,10 @@ func (m *MemStore) Has(id vault.EntryID) bool {
 }
 
 // Len implements Store.Len.
-func (m *MemStore) Len() uint32 {
+func (m *MemStore) Len() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return uint32(len(m.entries))
+	return len(m.entries)
 }
 
 // Sorted implements Store.Sorted.

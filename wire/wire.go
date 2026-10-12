@@ -123,59 +123,64 @@ var (
 
 // --- envelope ---
 
+// Header is a frame's cleartext header after its version byte: what
+// routes the frame and, as associated data, binds it.
+type Header struct {
+	Kind    byte
+	VaultID vault.VaultID
+	Nonce   [vault.NonceSize]byte
+}
+
+// bytes is the header as sent: ver || kind || vault_id || nonce.
+func (h Header) bytes() []byte {
+	b := make([]byte, FrameHeaderSize)
+	b[0] = Version
+	b[1] = h.Kind
+	copy(b[2:2+vault.VaultIDSize], h.VaultID[:])
+	copy(b[2+vault.VaultIDSize:], h.Nonce[:])
+	return b
+}
+
 // SealFrame builds a full frame: the 34-byte cleartext header followed
 // by AEAD(K, nonce, ad=header, pt=payload).
-func SealFrame(kind byte, vid vault.VaultID, nonce [vault.NonceSize]byte, k vault.ChannelKey, payload []byte) ([]byte, error) {
+func SealFrame(h Header, k vault.ChannelKey, payload []byte) ([]byte, error) {
 	a, err := ascon.NewAEAD(k[:])
 	if err != nil {
 		return nil, err
 	}
-	header := frameHeader(kind, vid, nonce)
+	ad := h.bytes()
 	out := make([]byte, FrameHeaderSize, FrameHeaderSize+len(payload)+ascon.AEADTagSize)
-	copy(out, header)
-	out = a.Seal(out, nonce[:], payload, header)
-	return out, nil
+	copy(out, ad)
+	return a.Seal(out, h.Nonce[:], payload, ad), nil
 }
 
-// ParseHeader splits a frame into its cleartext header fields and the
-// trailing sealed bytes, without opening. It validates only length and
-// version.
-func ParseHeader(b []byte) (kind byte, vid vault.VaultID, nonce [vault.NonceSize]byte, sealed []byte, err error) {
+// ParseHeader splits a frame into its header and the trailing sealed
+// bytes, without opening. It validates only length and version.
+func ParseHeader(b []byte) (Header, []byte, error) {
 	if len(b) < FrameHeaderSize+ascon.AEADTagSize {
-		return 0, vid, nonce, nil, ErrShort
+		return Header{}, nil, ErrShort
 	}
 	if b[0] != Version {
-		return 0, vid, nonce, nil, ErrVersion
+		return Header{}, nil, ErrVersion
 	}
-	kind = b[1]
-	copy(vid[:], b[2:2+vault.VaultIDSize])
-	copy(nonce[:], b[2+vault.VaultIDSize:FrameHeaderSize])
-	sealed = b[FrameHeaderSize:]
-	return kind, vid, nonce, sealed, nil
+	h := Header{Kind: b[1]}
+	copy(h.VaultID[:], b[2:2+vault.VaultIDSize])
+	copy(h.Nonce[:], b[2+vault.VaultIDSize:FrameHeaderSize])
+	return h, b[FrameHeaderSize:], nil
 }
 
-// OpenFrame opens sealed under k, reconstructing the AD from the header
-// fields, and returns the payload.
-func OpenFrame(k vault.ChannelKey, kind byte, vid vault.VaultID, nonce [vault.NonceSize]byte, sealed []byte) ([]byte, error) {
+// OpenFrame opens sealed under k with h as its associated data, and
+// returns the payload.
+func OpenFrame(k vault.ChannelKey, h Header, sealed []byte) ([]byte, error) {
 	a, err := ascon.NewAEAD(k[:])
 	if err != nil {
 		return nil, err
 	}
-	header := frameHeader(kind, vid, nonce)
-	pt, err := a.Open(nil, nonce[:], sealed, header)
+	pt, err := a.Open(nil, h.Nonce[:], sealed, h.bytes())
 	if err != nil {
 		return nil, ErrOpen
 	}
 	return pt, nil
-}
-
-func frameHeader(kind byte, vid vault.VaultID, nonce [vault.NonceSize]byte) []byte {
-	h := make([]byte, FrameHeaderSize)
-	h[0] = Version
-	h[1] = kind
-	copy(h[2:2+vault.VaultIDSize], vid[:])
-	copy(h[2+vault.VaultIDSize:], nonce[:])
-	return h
 }
 
 // --- payloads ---

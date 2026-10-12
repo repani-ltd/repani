@@ -191,20 +191,20 @@ type stuckServer struct {
 }
 
 func (s *stuckServer) Do(_ context.Context, req []byte) ([]byte, error) {
-	kind, vid, nonce, sealed, err := wire.ParseHeader(req)
+	h, sealed, err := wire.ParseHeader(req)
 	if err != nil {
 		return wire.ErrBadFrame.Reply(), nil
 	}
 	openK := s.c2s
-	if kind == wire.KindRegister {
+	if h.Kind == wire.KindRegister {
 		openK = s.reg
 	}
-	payload, err := wire.OpenFrame(openK, kind, vid, nonce, sealed)
+	payload, err := wire.OpenFrame(openK, h, sealed)
 	if err != nil {
 		return wire.ErrBadAuth.Reply(), nil
 	}
-	resp := wire.Resp{ReqNonce: nonce, Status: wire.StatusOK}
-	if kind == wire.KindSync {
+	resp := wire.Resp{ReqNonce: h.Nonce, Status: wire.StatusOK}
+	if h.Kind == wire.KindSync {
 		sr, _ := wire.ParseSync(payload)
 		switch sr.Op {
 		case wire.OpProbe:
@@ -213,11 +213,11 @@ func (s *stuckServer) Do(_ context.Context, req []byte) ([]byte, error) {
 			resp.Entries = []vault.Entry{s.fixed} // never advances
 		}
 	}
-	rn, err := vault.FrameNonce(vid)
+	rn, err := vault.FrameNonce(h.VaultID)
 	if err != nil {
 		return nil, err
 	}
-	return wire.SealFrame(wire.KindResp, vid, rn, s.s2c, resp.Marshal())
+	return wire.SealFrame(wire.Header{Kind: wire.KindResp, VaultID: h.VaultID, Nonce: rn}, s.s2c, resp.Marshal())
 }
 
 func TestSync_PullLoopProtection(t *testing.T) {

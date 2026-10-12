@@ -46,7 +46,7 @@ func (h *harness) send(kind byte, sealK vault.ChannelKey, payload []byte) (wire.
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	frame, err := wire.SealFrame(kind, h.vid, nonce, sealK, payload)
+	frame, err := wire.SealFrame(wire.Header{Kind: kind, VaultID: h.vid, Nonce: nonce}, sealK, payload)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -57,14 +57,14 @@ func (h *harness) send(kind byte, sealK vault.ChannelKey, payload []byte) (wire.
 	if len(respBytes) == 1 {
 		return wire.Resp{}, wire.PreChannel(respBytes[0])
 	}
-	rkind, rvid, rnonce, sealed, err := wire.ParseHeader(respBytes)
+	rh, sealed, err := wire.ParseHeader(respBytes)
 	if err != nil {
 		h.t.Fatalf("parse response: %v", err)
 	}
-	if rkind != wire.KindResp {
-		h.t.Fatalf("response kind %d", rkind)
+	if rh.Kind != wire.KindResp {
+		h.t.Fatalf("response kind %d", rh.Kind)
 	}
-	payloadOut, err := wire.OpenFrame(h.s2c, wire.KindResp, rvid, rnonce, sealed)
+	payloadOut, err := wire.OpenFrame(h.s2c, rh, sealed)
 	if err != nil {
 		h.t.Fatalf("open response: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestBadVersionAndKind(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
 	h := newHarness(t, srv, rk, testRegKey)
 	nonce, _ := vault.FrameNonce(h.vid)
-	frame, _ := wire.SealFrame(wire.KindResp, h.vid, nonce, h.s2c, []byte("x")) // RESP from a client is invalid
+	frame, _ := wire.SealFrame(wire.Header{Kind: wire.KindResp, VaultID: h.vid, Nonce: nonce}, h.s2c, []byte("x")) // RESP from a client is invalid
 	resp, _ := srv.HandleFrame(frame)
 	if len(resp) != 1 || wire.PreChannel(resp[0]) != wire.ErrBadKind {
 		t.Fatalf("client-sent RESP: got %v, want BAD_KIND", resp)

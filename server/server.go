@@ -209,28 +209,29 @@ func (s *Server) Close() error {
 // a sealed RESP frame, or a single pre-channel error byte. A non-nil
 // error is an I/O problem that prevents any response.
 func (s *Server) HandleFrame(req []byte) ([]byte, error) {
-	kind, vid, nonce, sealed, err := wire.ParseHeader(req)
+	h, sealed, err := wire.ParseHeader(req)
 	if err != nil {
 		if errors.Is(err, wire.ErrVersion) {
 			return wire.ErrBadVersion.Reply(), nil
 		}
 		return wire.ErrBadFrame.Reply(), nil
 	}
-	switch kind {
+	switch h.Kind {
 	case wire.KindRegister:
-		return s.handleRegister(vid, nonce, sealed)
+		return s.handleRegister(h, sealed)
 	case wire.KindSync:
-		return s.handleSync(vid, nonce, sealed)
+		return s.handleSync(h, sealed)
 	default:
 		return wire.ErrBadKind.Reply(), nil
 	}
 }
 
-func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, sealed []byte) ([]byte, error) {
+func (s *Server) handleRegister(h wire.Header, sealed []byte) ([]byte, error) {
+	vid, nonce := h.VaultID, h.Nonce
 	var payload []byte
 	opened := false // no keys = registration disabled
 	for _, k := range s.regKeys {
-		if p, err := wire.OpenFrame(k, wire.KindRegister, vid, nonce, sealed); err == nil {
+		if p, err := wire.OpenFrame(k, h, sealed); err == nil {
 			payload, opened = p, true
 			break
 		}
@@ -266,14 +267,15 @@ func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, 
 	return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
 }
 
-func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, sealed []byte) ([]byte, error) {
+func (s *Server) handleSync(h wire.Header, sealed []byte) ([]byte, error) {
+	vid, nonce := h.VaultID, h.Nonce
 	s.mu.Lock()
 	st, ok := s.vaults[vid]
 	s.mu.Unlock()
 	if !ok {
 		return wire.ErrUnknownVault.Reply(), nil
 	}
-	payload, err := wire.OpenFrame(st.c2s, wire.KindSync, vid, nonce, sealed)
+	payload, err := wire.OpenFrame(st.c2s, h, sealed)
 	if err != nil {
 		return wire.ErrBadAuth.Reply(), nil
 	}
@@ -403,7 +405,7 @@ func (s *Server) sealResp(vid vault.VaultID, s2c vault.ChannelKey, reqNonce [vau
 		return nil, err
 	}
 	payload := wire.Resp{Status: status, ReqNonce: reqNonce, Entries: entries}.Marshal()
-	return wire.SealFrame(wire.KindResp, vid, respNonce, s2c, payload)
+	return wire.SealFrame(wire.Header{Kind: wire.KindResp, VaultID: vid, Nonce: respNonce}, s2c, payload)
 }
 
 // createVaultLocked constructs and persists a new vaultState. s.mu held.
