@@ -71,9 +71,9 @@ func BenchmarkReplay(b *testing.B) {
 	}
 }
 
-// BenchmarkAddBatch measures durable batch appends of a pull-page-sized
-// group: the per-entry cost when the fsync is amortized.
-func BenchmarkAddBatch(b *testing.B) {
+// BenchmarkAddMany measures durable appends of a pull-page-sized group
+// in one call: the per-entry cost when the fsync is amortized.
+func BenchmarkAddMany(b *testing.B) {
 	const batch = 100
 	path := filepath.Join(b.TempDir(), "entries.log")
 	ls, err := OpenLogStore(path, 0)
@@ -87,7 +87,7 @@ func BenchmarkAddBatch(b *testing.B) {
 	i := 0
 	for b.Loop() {
 		lo := (i * batch) % (len(entries) - batch)
-		if _, err := ls.AddBatch(entries[lo : lo+batch]); err != nil {
+		if _, err := ls.Add(entries[lo : lo+batch]...); err != nil {
 			b.Fatal(err)
 		}
 		i++

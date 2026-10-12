@@ -194,22 +194,10 @@ func (c *Client) Delete(key []byte) error {
 	return c.record(e)
 }
 
-// record adds a locally-created entry to the store and remembers it for
-// the next sync's fast-path push.
-func (c *Client) record(e vault.Entry) error {
-	if _, err := c.store.Add(e); err != nil {
-		return err
-	}
-	c.mu.Lock()
-	c.recent = append(c.recent, e)
-	c.mu.Unlock()
-	return nil
-}
-
-// recordBatch is record for many entries: one durable batch, one
-// fsync. Used by bulk writers (CSV import).
-func (c *Client) recordBatch(es []vault.Entry) error {
-	if _, err := c.store.AddBatch(es); err != nil {
+// record adds locally-created entries to the store, as one durable
+// batch, and remembers them for the next sync's fast-path push.
+func (c *Client) record(es ...vault.Entry) error {
+	if _, err := c.store.Add(es...); err != nil {
 		return err
 	}
 	c.mu.Lock()
@@ -525,7 +513,7 @@ func (c *Client) pullFrom(ctx context.Context, anchorTs uint64, anchorID vault.E
 		// One durable batch per page: one fsync instead of one per
 		// entry, which is what makes a first sync of a large vault
 		// seconds rather than minutes.
-		if _, err := c.store.AddBatch(resp.Entries); err != nil {
+		if _, err := c.store.Add(resp.Entries...); err != nil {
 			return err
 		}
 		st.Pulled += len(resp.Entries)

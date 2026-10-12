@@ -84,7 +84,7 @@ func (c *Client) ImportCSV(r io.Reader) (int, error) {
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := c.recordBatch(batch); err != nil {
+		if err := c.record(batch...); err != nil {
 			return fmt.Errorf("client: import flush: %w", err)
 		}
 		n += len(batch)

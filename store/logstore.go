@@ -213,45 +213,13 @@ func (ls *LogStore) truncateTo(offset int64) error {
 	return nil
 }
 
-// Add implements Store.Add: dedup in memory, then append one record and
-// fsync. The length prefix and body are written in a single call, and on
-// any write/Sync error the file is truncated back to the pre-record
-// offset so replay never sees a torn record. The entry is added to the
-// in-memory set only after the write is durable, so memory and disk
-// never disagree.
-func (ls *LogStore) Add(e vault.Entry) (bool, error) {
-	ls.mu.Lock()
-	defer ls.mu.Unlock()
-	id := e.ID()
-	if ls.mem.Has(id) {
-		return false, nil
-	}
-	rec := make([]byte, 4+e.Size())
-	binary.LittleEndian.PutUint32(rec[:4], uint32(e.Size()))
-	e.MarshalTo(rec[4:])
-
-	off, err := ls.f.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return false, err
-	}
-	if _, err := ls.f.Write(rec); err != nil {
-		ls.rollback(off)
-		return false, err
-	}
-	if err := ls.f.Sync(); err != nil {
-		ls.rollback(off)
-		return false, err
-	}
-	return ls.mem.addID(id, e), nil
-}
-
-// AddBatch implements Store.AddBatch: append every new record, then
-// fsync once, so a pulled page or an import pays one disk flush
-// instead of one per entry. The batch is a single durability unit: on
-// any write/Sync error the file is truncated back to its pre-batch
-// offset and none of it reaches the in-memory set, so replay never
-// sees a torn batch.
-func (ls *LogStore) AddBatch(entries []vault.Entry) (int, error) {
+// Add implements Store.Add: append every new record, then fsync once,
+// so a pulled page or an import pays one disk flush instead of one per
+// entry. The call is a single durability unit: on any write/Sync error
+// the file is truncated back to its offset before the call and none of
+// it reaches the in-memory set, so replay never sees a torn record and
+// memory and disk never disagree.
+func (ls *LogStore) Add(entries ...vault.Entry) (int, error) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 	ids := make([]vault.EntryID, 0, len(entries))

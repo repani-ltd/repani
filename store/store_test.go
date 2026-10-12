@@ -28,12 +28,12 @@ func TestMemStore_AddIdempotent(t *testing.T) {
 	m := NewMemStore()
 	e := mkEntry(t, rk, 1, "k", "v")
 	added, _ := m.Add(e)
-	if !added {
-		t.Fatal("first Add should report added=true")
+	if added != 1 {
+		t.Fatalf("first Add added %d, want 1", added)
 	}
 	added, _ = m.Add(e)
-	if added {
-		t.Fatal("second Add of same entry should report added=false")
+	if added != 0 {
+		t.Fatalf("second Add of same entry added %d, want 0", added)
 	}
 	if m.Len() != 1 {
 		t.Fatalf("Len %d, want 1", m.Len())
@@ -197,10 +197,10 @@ func TestLogStore_GarbageTailTruncated(t *testing.T) {
 	}
 }
 
-// TestLogStore_AddBatch verifies the batch path: duplicates of stored
-// entries and duplicates within the batch are skipped, everything else
-// lands durably and survives a reopen.
-func TestLogStore_AddBatch(t *testing.T) {
+// TestLogStore_AddMany verifies adding several at once: duplicates of
+// stored entries and duplicates within the call are skipped,
+// everything else lands durably and survives a reopen.
+func TestLogStore_AddMany(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "entries.log")
 	ls, err := OpenLogStore(path, 0)
 	if err != nil {
@@ -213,7 +213,7 @@ func TestLogStore_AddBatch(t *testing.T) {
 	}
 	fresh1 := mkEntry(t, rk, 2, "k1", "v")
 	fresh2 := mkEntry(t, rk, 3, "k2", "v")
-	added, err := ls.AddBatch([]vault.Entry{fresh1, prior, fresh2, fresh1})
+	added, err := ls.Add(fresh1, prior, fresh2, fresh1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestLogStore_AddBatch(t *testing.T) {
 		t.Fatalf("Len %d, want 3", ls.Len())
 	}
 	// Idempotent: replaying the same batch adds nothing.
-	if added, _ := ls.AddBatch([]vault.Entry{fresh1, fresh2}); added != 0 {
+	if added, _ := ls.Add(fresh1, fresh2); added != 0 {
 		t.Fatalf("re-batch added %d, want 0", added)
 	}
 	if err := ls.Close(); err != nil {

@@ -389,7 +389,7 @@ func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, seal
 // the whole batch lands as one durable unit (one fsync on a
 // log-backed store) and its byte total is exactly the sum of sizes.
 func addValidatedLocked(st *vaultState, entries []vault.Entry) (int, error) {
-	added, err := st.s.AddBatch(entries)
+	added, err := st.s.Add(entries...)
 	if err != nil {
 		return added, err
 	}

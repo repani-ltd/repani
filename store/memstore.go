@@ -25,14 +25,8 @@ func NewMemStore() *MemStore {
 	return &MemStore{byID: make(map[vault.EntryID]vault.Entry)}
 }
 
-// Add implements Store.Add.
-func (m *MemStore) Add(e vault.Entry) (bool, error) {
-	return m.addID(e.ID(), e), nil
-}
-
-// AddBatch implements Store.AddBatch. Memory has no per-entry
-// durability cost, so this is Add in a loop under one lock.
-func (m *MemStore) AddBatch(entries []vault.Entry) (int, error) {
+// Add implements Store.Add, under one lock.
+func (m *MemStore) Add(entries ...vault.Entry) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	added := 0
