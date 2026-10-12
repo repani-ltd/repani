@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { undelta, decompress } from './lz4s.js';
+import { undelta, decompress, compress } from './lz4s.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixture.json', import.meta.url)));
 const hex = h => Uint8Array.from((h.match(/../g) || []).map(x => parseInt(x, 16)));
@@ -12,6 +12,7 @@ for (const p of fixture.pages) {
   test(p.name, () => {
     const page = hex(p.page);
     assert.deepEqual(decompress(hex(p.comp), page.length), page);
+    assert.deepEqual(compress(page), hex(p.comp), 'compress');
     assert.equal(decompress(hex(p.comp), page.length - 1), null, 'wrong size');
     assert.equal(decompress(hex(p.comp).subarray(0, -3), page.length), null, 'truncated');
   });
@@ -25,7 +26,11 @@ for (const d of fixture.deltas) {
   });
 }
 test('known answers', () => {
-  for (const k of fixture.known) assert.deepEqual(decompress(hex(k.comp), hex(k.src).length), hex(k.src));
+  for (const k of fixture.known) {
+    assert.deepEqual(decompress(hex(k.comp), hex(k.src).length), hex(k.src));
+    assert.deepEqual(compress(hex(k.src)), hex(k.comp), 'compress');
+  }
+  assert.deepEqual(compress(new Uint8Array(0)), new Uint8Array(0));
   assert.deepEqual(decompress(new Uint8Array([0x00, 0x00]), 0), new Uint8Array(0));
   assert.equal(decompress(new Uint8Array([0x00]), 1), null);
 });
