@@ -258,9 +258,9 @@ func (s *Server) HandleFrame(req []byte) ([]byte, error) {
 	kind, vid, nonce, sealed, err := wire.ParseHeader(req)
 	if err != nil {
 		if errors.Is(err, wire.ErrVersion) {
-			return []byte{wire.ErrBadVersion}, nil
+			return wire.ErrBadVersion.Reply(), nil
 		}
-		return []byte{wire.ErrBadFrame}, nil
+		return wire.ErrBadFrame.Reply(), nil
 	}
 	switch kind {
 	case wire.KindRegister:
@@ -268,7 +268,7 @@ func (s *Server) HandleFrame(req []byte) ([]byte, error) {
 	case wire.KindSync:
 		return s.handleSync(vid, nonce, sealed)
 	default:
-		return []byte{wire.ErrBadKind}, nil
+		return wire.ErrBadKind.Reply(), nil
 	}
 }
 
@@ -282,10 +282,10 @@ func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, 
 		}
 	}
 	if !opened {
-		return []byte{wire.ErrBadAuth}, nil // gate: no RegisterKey opens it
+		return wire.ErrBadAuth.Reply(), nil // gate: no RegisterKey opens it
 	}
 	if len(payload) != vault.AuthKeySize {
-		return []byte{wire.ErrBadFrame}, nil
+		return wire.ErrBadFrame.Reply(), nil
 	}
 	var ak vault.AuthKey
 	copy(ak[:], payload)
@@ -295,7 +295,7 @@ func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, 
 	if exists {
 		s.mu.Unlock()
 		if subtle.ConstantTimeCompare(st.authKey[:], ak[:]) != 1 {
-			return []byte{wire.ErrBadAuth}, nil // rebind attempt
+			return wire.ErrBadAuth.Reply(), nil // rebind attempt
 		}
 		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
 	}
@@ -307,7 +307,7 @@ func (s *Server) handleRegister(vid vault.VaultID, nonce [vault.NonceSize]byte, 
 	s.mu.Unlock()
 	if err != nil {
 		log.Printf("server: create vault %x: %v", vid[:], err)
-		return []byte{wire.ErrTryLater}, nil
+		return wire.ErrTryLater.Reply(), nil
 	}
 	return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
 }
@@ -317,11 +317,11 @@ func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, seal
 	st, ok := s.vaults[vid]
 	s.mu.Unlock()
 	if !ok {
-		return []byte{wire.ErrUnknownVault}, nil
+		return wire.ErrUnknownVault.Reply(), nil
 	}
 	payload, err := wire.OpenFrame(st.c2s, wire.KindSync, vid, nonce, sealed)
 	if err != nil {
-		return []byte{wire.ErrBadAuth}, nil
+		return wire.ErrBadAuth.Reply(), nil
 	}
 	req, err := wire.ParseSync(payload)
 	if err != nil {
@@ -346,22 +346,26 @@ func (s *Server) handleSync(vid vault.VaultID, nonce [vault.NonceSize]byte, seal
 		case wire.OpPull:
 			page = st.s.EntriesAfter(req.CurTs, req.CurID, wire.PageBytes)
 		case wire.OpPush:
-			var newEntries []vault.Entry
-			newEntries, status = s.validateNew(st, req.Entries, true)
-			if status == wire.StatusOK && st.noPush && len(newEntries) > 0 {
+			newEntries, verr := s.validateNew(st, req.Entries, true)
+			if verr == nil && st.noPush && len(newEntries) > 0 {
 				// A no-push vault accepts nothing new over the wire: its
 				// published credential grants read and nothing else. A
 				// dedup no-op (re-pushing entries the vault already
 				// holds) still acks OK, so a read-only client's
 				// pull-then-push walk converges instead of erroring.
-				status = wire.StatusQuota
+				verr = ErrQuota
 			}
-			if status == wire.StatusOK {
-				var err error
-				pushed, err = addValidatedLocked(st, newEntries)
-				if err != nil {
-					return nil, false, err
+			if verr != nil {
+				status = wire.StatusBadRequest
+				if errors.Is(verr, ErrQuota) {
+					status = wire.StatusQuota
 				}
+				break
+			}
+			var err error
+			pushed, err = addValidatedLocked(st, newEntries)
+			if err != nil {
+				return nil, false, err
 			}
 		default:
 			status = wire.StatusBadRequest
@@ -400,8 +404,8 @@ func addValidatedLocked(st *vaultState, entries []vault.Entry) (int, error) {
 // an accepted entry is a no-op and not re-judged. The wire PUSH path
 // checks skew; the owner API does not (an owner legitimately writes
 // entries carrying preserved historical timestamps). Returns the new
-// entries and StatusOK, or nil and a rejecting status.
-func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew bool) ([]vault.Entry, byte) {
+// entries, or ErrQuota or errSkew.
+func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew bool) ([]vault.Entry, error) {
 	now := s.clock()
 	skew := s.quotas.TSSkewMs
 	newEntries := make([]vault.Entry, 0, len(pushes))
@@ -419,23 +423,27 @@ func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew boo
 		if checkSkew {
 			d := int64(e.TsMs) - now
 			if d < -skew || d > skew {
-				return nil, wire.StatusBadRequest
+				return nil, errSkew
 			}
 		}
 		newEntries = append(newEntries, e)
 		newBytes += uint64(e.Size())
 	}
 	if uint64(st.s.Len())+uint64(len(newEntries)) > s.quotas.MaxEntries {
-		return nil, wire.StatusQuota
+		return nil, ErrQuota
 	}
 	if st.bytes+newBytes > s.quotas.MaxVaultBytes {
-		return nil, wire.StatusQuota
+		return nil, ErrQuota
 	}
-	return newEntries, wire.StatusOK
+	return newEntries, nil
 }
 
+// errSkew rejects a pushed entry whose ts_ms is too far from the
+// server's clock (TSSkewMs).
+var errSkew = errors.New("server: entry timestamp outside the allowed skew")
+
 // sealResp builds a RESP frame under s2c, echoing reqNonce.
-func (s *Server) sealResp(vid vault.VaultID, s2c vault.ChannelKey, reqNonce [vault.NonceSize]byte, status byte, entries []vault.Entry) ([]byte, error) {
+func (s *Server) sealResp(vid vault.VaultID, s2c vault.ChannelKey, reqNonce [vault.NonceSize]byte, status wire.Status, entries []vault.Entry) ([]byte, error) {
 	respNonce, err := vault.FrameNonce(vid)
 	if err != nil {
 		return nil, err

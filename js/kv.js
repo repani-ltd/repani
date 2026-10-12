@@ -801,7 +801,8 @@ const ZERO_ID = new Uint8Array(ENTRY_ID_SIZE);
 //   local     this device's store failed (e.g. browser storage full).
 //   closed    the client or its store was closed.
 //
-// transient is true for offline alone.
+// transient is true for offline alone. pre is the server's pre-channel
+// byte (ERR_*) when one caused the error, else undefined.
 export class SyncError extends Error {
   constructor(kind, message, cause) {
     super("kv: " + message, cause === undefined ? undefined : { cause });
@@ -811,9 +812,13 @@ export class SyncError extends Error {
   get transient() { return this.kind === "offline"; }
 }
 
+// preChannelError is the SyncError for a server's pre-channel byte,
+// which it carries as .pre.
 function preChannelError(stage, pre) {
   const kind = pre === ERR_TRY_LATER ? "offline" : pre === ERR_BAD_AUTH ? "auth" : "protocol";
-  return new SyncError(kind, stage + ": server returned " + preChannelText(pre));
+  const e = new SyncError(kind, stage + ": server returned " + preChannelText(pre));
+  e.pre = pre;
+  return e;
 }
 
 // pushStatusError maps a non-OK PUSH status: QUOTA and BAD_REQUEST are
@@ -1011,30 +1016,12 @@ export class Client {
     this.recent = [];
     try {
       for (let round = 0; round < MAX_ROUNDS; round++) {
-        if (!this.registered && this.hasReg) await this.register(st);
-
-        // Fast path: push just-written entries before the first probe.
-        if (round === 0 && recent.length > 0) {
-          const pre = await this.pushEntries(recent, "PUSH(new)", st);
-          if (pre === ERR_UNKNOWN_VAULT) { this.unknownVault(); continue; }
-          if (pre !== 0) throw preChannelError("push", pre);
+        try {
+          if (await this.round(round, recent, st)) return st;
+        } catch (e) {
+          if (e.pre !== ERR_UNKNOWN_VAULT) throw e;
+          this.unknownVault();
         }
-
-        const p = await this.probe(st);
-        if (p.pre === ERR_UNKNOWN_VAULT) { this.unknownVault(); continue; }
-        if (p.pre !== 0) throw preChannelError("probe", p.pre);
-        if (p.inSync) return st;
-
-        const anchor = await this.reconcileAnchor(round);
-        this.tracef("RECONCILE round " + round + ": window from ts=" + anchor.ts);
-
-        let pre = await this.pullFrom(anchor.ts, anchor.id, st);
-        if (pre === ERR_UNKNOWN_VAULT) { this.unknownVault(); continue; }
-        if (pre !== 0) throw preChannelError("pull", pre);
-
-        pre = await this.pushFrom(anchor.ts, anchor.id, st);
-        if (pre === ERR_UNKNOWN_VAULT) { this.unknownVault(); continue; }
-        if (pre !== 0) throw preChannelError("push", pre);
         // Loop back to PROBE to confirm convergence (and catch entries
         // a concurrent writer added mid-walk).
       }
@@ -1050,6 +1037,22 @@ export class Client {
     }
   }
 
+  // round runs one round of the reference sync (CLIENT.t): REGISTER
+  // when needed, the fast-path push on round 0, PROBE, and on a
+  // difference the window's PULL and PUSH. It resolves to whether the
+  // PROBE matched.
+  async round(round, recent, st) {
+    if (!this.registered && this.hasReg) await this.register(st);
+    // Fast path: push just-written entries before the first probe.
+    if (round === 0 && recent.length > 0) await this.pushEntries(recent, "PUSH(new)", st);
+    if (await this.probe(st)) return true;
+    const anchor = await this.reconcileAnchor(round);
+    this.tracef("RECONCILE round " + round + ": window from ts=" + anchor.ts);
+    await this.pullFrom(anchor.ts, anchor.id, st);
+    await this.pushFrom(anchor.ts, anchor.id, st);
+    return false;
+  }
+
   // unknownVault handles a pre-channel UNKNOWN_VAULT: re-register on
   // the next round when a register key is available, otherwise fail.
   unknownVault() {
@@ -1060,9 +1063,9 @@ export class Client {
   // register establishes the channel by adopting the client's AuthKey
   // on the server, sealed under K_reg.
   async register(st) {
-    const { pre, resp } = await this.roundtrip(KIND_REGISTER, this.regChan, this.authKey, st);
-    if (pre === ERR_BAD_AUTH) throw new SyncError("auth", "registration rejected - wrong register key");
-    if (pre !== 0) throw preChannelError("register", pre);
+    const resp = await this.roundtrip("register", KIND_REGISTER, this.regChan, this.authKey, st).catch((e) => {
+      throw e.pre === ERR_BAD_AUTH ? new SyncError("auth", "registration rejected - wrong register key") : e;
+    });
     if (resp.status === STATUS_QUOTA) throw new SyncError("rejected", "register status " + statusText(resp.status));
     if (resp.status !== STATUS_OK) throw new SyncError("protocol", "register status " + statusText(resp.status));
     this.tracef("REGISTER -> ok");
@@ -1082,38 +1085,34 @@ export class Client {
     return { ts: 0n, id: ZERO_ID };
   }
 
-  // probe returns {inSync, pre}: whether the set hashes match, or the
-  // pre-channel error byte when the server sent one.
+  // probe resolves to whether the set hashes match.
   async probe(st) {
     const payload = marshalSync({ op: OP_PROBE, setHash: await this.store.setHash() });
-    const { pre, resp } = await this.roundtrip(KIND_SYNC, this.c2s, payload, st);
-    if (pre !== 0) return { inSync: false, pre };
+    const resp = await this.roundtrip("probe", KIND_SYNC, this.c2s, payload, st);
     switch (resp.status) {
       case STATUS_OK:
         this.tracef("PROBE -> in sync");
-        return { inSync: true, pre: 0 };
+        return true;
       case STATUS_DIFFER:
         this.tracef("PROBE -> differ");
-        return { inSync: false, pre: 0 };
+        return false;
       default:
         throw new SyncError("protocol", "probe status " + statusText(resp.status));
     }
   }
 
   // pullFrom walks the server's set from the anchor cursor, committing
-  // each page to the store, and returns a pre-channel byte (0 = none).
-  // Every returned entry is stored verbatim (even one that fails to
-  // open) so the local set matches the server's. The cursor must
-  // advance strictly on every page.
+  // each page to the store. Every returned entry is stored verbatim
+  // (even one that fails to open) so the local set matches the
+  // server's. The cursor must advance strictly on every page.
   async pullFrom(anchorTs, anchorID, st) {
     let curTs = anchorTs, curID = anchorID;
     for (let page = 0; ; page++) {
       if (page >= MAX_PULL_PAGES) throw new SyncError("protocol", "pull exceeded page budget (misbehaving server)");
       const payload = marshalSync({ op: OP_PULL, curTs, curID });
-      const { pre, resp } = await this.roundtrip(KIND_SYNC, this.c2s, payload, st);
-      if (pre !== 0) return pre;
+      const resp = await this.roundtrip("pull", KIND_SYNC, this.c2s, payload, st);
       if (resp.status !== STATUS_OK) throw new SyncError("protocol", "pull status " + statusText(resp.status));
-      if (resp.entries.length === 0) return 0;
+      if (resp.entries.length === 0) return;
       const last = resp.entries[resp.entries.length - 1];
       const lastID = entryID(last);
       if (!posAfter(last.tsMs, lastID, curTs, curID)) {
@@ -1145,14 +1144,13 @@ export class Client {
 
   // pushFrom walks the client's own entries from the anchor cursor in
   // byte-bounded batches and pushes each; dedup-tolerant, the server
-  // drops what it already holds. Returns a pre-channel byte (0 = none).
+  // drops what it already holds.
   async pushFrom(anchorTs, anchorID, st) {
     let curTs = anchorTs, curID = anchorID;
     for (;;) {
       const batch = await this.store.entriesAfter(curTs, curID, PAGE_BYTES);
-      if (batch.length === 0) return 0;
-      const pre = await this.sendPush(batch.map((p) => p.entry), "PUSH", st);
-      if (pre !== 0) return pre;
+      if (batch.length === 0) return;
+      await this.sendPush(batch.map((p) => p.entry), "PUSH", st);
       const last = batch[batch.length - 1];
       curTs = last.entry.tsMs;
       curID = last.id;
@@ -1173,33 +1171,29 @@ export class Client {
         used += sz;
         i++;
       }
-      const pre = await this.sendPush(batch, label, st);
-      if (pre !== 0) return pre;
+      await this.sendPush(batch, label, st);
     }
-    return 0;
   }
 
   // sendPush pushes one batch, accounting and tracing it.
   async sendPush(batch, label, st) {
     const payload = marshalSync({ op: OP_PUSH, entries: batch });
-    const { pre, resp } = await this.roundtrip(KIND_SYNC, this.c2s, payload, st);
-    if (pre !== 0) return pre;
+    const resp = await this.roundtrip("push", KIND_SYNC, this.c2s, payload, st);
     if (resp.status !== STATUS_OK) throw pushStatusError(resp.status);
     let bytesOut = 0;
     for (const e of batch) bytesOut += entrySize(e);
     st.pushed += batch.length;
     st.pushedBytes += bytesOut;
     this.tracef(label + " -> " + batch.length + " entries (" + bytesOut + " B)");
-    return 0;
   }
 
   // roundtrip seals a request frame under sealKey, sends it, and opens
   // the response under K_s2c, verifying the echoed request nonce
-  // (anti-stitch). Returns {pre, resp}: a 1-byte response is an
-  // unauthenticated pre-channel error surfaced in pre (resp null). A
-  // transport that throws anything but a SyncError is taken to have
-  // failed to reach the server.
-  async roundtrip(kind, sealKey, payload, st) {
+  // (anti-stitch), and resolves to the response. A 1-byte response is
+  // the server's pre-channel error, thrown as a SyncError carrying it
+  // in .pre and named by stage. A transport that throws anything but a
+  // SyncError is taken to have failed to reach the server.
+  async roundtrip(stage, kind, sealKey, payload, st) {
     const nonce = frameNonce(this.vaultID);
     const frame = sealFrame(kind, this.vaultID, nonce, sealKey, payload);
     let respBytes;
@@ -1211,9 +1205,7 @@ export class Client {
     st.roundTrips++;
     st.reqBytes += frame.length;
     st.respBytes += respBytes.length;
-    if (respBytes.length === 1) {
-      return { pre: respBytes[0], resp: null };
-    }
+    if (respBytes.length === 1) throw preChannelError(stage, respBytes[0]);
     let resp;
     try {
       const h = parseFrameHeader(respBytes);
@@ -1229,7 +1221,7 @@ export class Client {
     if (bytesCompare(resp.reqNonce, nonce) !== 0) {
       throw new SyncError("protocol", "response nonce does not match request");
     }
-    return { pre: 0, resp };
+    return resp;
   }
 
   // --- reads (last-writer-wins merge, client/client.go §replay) ---

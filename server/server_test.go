@@ -41,7 +41,7 @@ func newHarness(t *testing.T, srv *Server, rk vault.RootKey, regKey vault.Regist
 	}
 }
 
-func (h *harness) send(kind byte, sealK vault.ChannelKey, payload []byte) (wire.Resp, byte) {
+func (h *harness) send(kind byte, sealK vault.ChannelKey, payload []byte) (wire.Resp, wire.PreChannel) {
 	h.t.Helper()
 	nonce, err := vault.FrameNonce(h.vid)
 	if err != nil {
@@ -56,7 +56,7 @@ func (h *harness) send(kind byte, sealK vault.ChannelKey, payload []byte) (wire.
 		h.t.Fatal(err)
 	}
 	if len(respBytes) == 1 {
-		return wire.Resp{}, respBytes[0]
+		return wire.Resp{}, wire.PreChannel(respBytes[0])
 	}
 	rkind, rvid, rnonce, sealed, err := wire.ParseHeader(respBytes)
 	if err != nil {
@@ -79,19 +79,19 @@ func (h *harness) send(kind byte, sealK vault.ChannelKey, payload []byte) (wire.
 	return resp, 0
 }
 
-func (h *harness) register() (wire.Resp, byte) {
+func (h *harness) register() (wire.Resp, wire.PreChannel) {
 	return h.send(wire.KindRegister, h.reg, h.ak[:])
 }
 
-func (h *harness) probe(setHash [16]byte) (wire.Resp, byte) {
+func (h *harness) probe(setHash [16]byte) (wire.Resp, wire.PreChannel) {
 	return h.send(wire.KindSync, h.c2s, wire.SyncReq{Op: wire.OpProbe, SetHash: setHash}.Marshal())
 }
 
-func (h *harness) pull(ts uint64, id vault.EntryID) (wire.Resp, byte) {
+func (h *harness) pull(ts uint64, id vault.EntryID) (wire.Resp, wire.PreChannel) {
 	return h.send(wire.KindSync, h.c2s, wire.SyncReq{Op: wire.OpPull, CurTs: ts, CurID: id}.Marshal())
 }
 
-func (h *harness) push(entries []vault.Entry) (wire.Resp, byte) {
+func (h *harness) push(entries []vault.Entry) (wire.Resp, wire.PreChannel) {
 	return h.send(wire.KindSync, h.c2s, wire.SyncReq{Op: wire.OpPush, Entries: entries}.Marshal())
 }
 
@@ -121,7 +121,7 @@ func TestRegister_GateAcceptsAndRejects(t *testing.T) {
 	// Correct register key → OK.
 	h := newHarness(t, srv, rk, testRegKey)
 	if resp, pre := h.register(); pre != 0 || resp.Status != wire.StatusOK {
-		t.Fatalf("register: pre=0x%02x status=%d", pre, resp.Status)
+		t.Fatalf("register: pre=%v status=%d", pre, resp.Status)
 	}
 
 	// Wrong register key → BAD_AUTH pre-channel byte (seal will not open).
@@ -132,7 +132,7 @@ func TestRegister_GateAcceptsAndRejects(t *testing.T) {
 	}
 	h2 := newHarness(t, srv, rk2, wrong)
 	if _, pre := h2.register(); pre != wire.ErrBadAuth {
-		t.Fatalf("wrong register key: pre=0x%02x, want BAD_AUTH", pre)
+		t.Fatalf("wrong register key: pre=%v, want BAD_AUTH", pre)
 	}
 }
 
@@ -151,12 +151,12 @@ func TestRegister_KeyFileHoldsSeveralKeys(t *testing.T) {
 	for _, k := range []vault.RegisterKey{testRegKey, second} {
 		rk, _ := vault.NewRandomRootKey()
 		if resp, pre := newHarness(t, srv, rk, k).register(); pre != 0 || resp.Status != wire.StatusOK {
-			t.Fatalf("register under %v: pre=0x%02x status=%d", k, pre, resp.Status)
+			t.Fatalf("register under %v: pre=%v status=%d", k, pre, resp.Status)
 		}
 	}
 	rk, _ := vault.NewRandomRootKey()
 	if _, pre := newHarness(t, srv, rk, vault.RegisterKey{0xFF}).register(); pre != wire.ErrBadAuth {
-		t.Fatalf("unlisted register key: pre=0x%02x, want BAD_AUTH", pre)
+		t.Fatalf("unlisted register key: pre=%v, want BAD_AUTH", pre)
 	}
 }
 
@@ -181,7 +181,7 @@ func TestSync_UnknownVaultBeforeRegister(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
 	h := newHarness(t, srv, rk, testRegKey)
 	if _, pre := h.probe([16]byte{}); pre != wire.ErrUnknownVault {
-		t.Fatalf("probe before register: pre=0x%02x, want UNKNOWN_VAULT", pre)
+		t.Fatalf("probe before register: pre=%v, want UNKNOWN_VAULT", pre)
 	}
 }
 
@@ -193,7 +193,7 @@ func TestSync_BadAuthAfterRegister(t *testing.T) {
 	// Tamper the c2s key so the SYNC seal will not open.
 	h.c2s[0] ^= 1
 	if _, pre := h.probe([16]byte{}); pre != wire.ErrBadAuth {
-		t.Fatalf("probe with wrong c2s: pre=0x%02x, want BAD_AUTH", pre)
+		t.Fatalf("probe with wrong c2s: pre=%v, want BAD_AUTH", pre)
 	}
 }
 
@@ -204,12 +204,12 @@ func TestBadVersionAndKind(t *testing.T) {
 	nonce, _ := vault.FrameNonce(h.vid)
 	frame, _ := wire.SealFrame(wire.KindResp, h.vid, nonce, h.s2c, []byte("x")) // RESP from a client is invalid
 	resp, _ := srv.HandleFrame(frame)
-	if len(resp) != 1 || resp[0] != wire.ErrBadKind {
+	if len(resp) != 1 || wire.PreChannel(resp[0]) != wire.ErrBadKind {
 		t.Fatalf("client-sent RESP: got %v, want BAD_KIND", resp)
 	}
 	frame[0] = 0x02 // bad version
 	resp, _ = srv.HandleFrame(frame)
-	if len(resp) != 1 || resp[0] != wire.ErrBadVersion {
+	if len(resp) != 1 || wire.PreChannel(resp[0]) != wire.ErrBadVersion {
 		t.Fatalf("bad version: got %v, want BAD_VERSION", resp)
 	}
 }
@@ -294,7 +294,7 @@ func TestQuota_ZeroFieldTakesDefault(t *testing.T) {
 	h := newHarness(t, srv, rk, testRegKey)
 	h.register()
 	if resp, _ := h.push([]vault.Entry{mkEntry(t, rk, nowMs(), "k", "v")}); resp.Status != wire.StatusOK {
-		t.Fatalf("push status %s, want ok", wire.StatusText(resp.Status))
+		t.Fatalf("push status %s, want ok", resp.Status)
 	}
 	want := DefaultQuotas()
 	want.MaxVaults = 5
@@ -330,7 +330,7 @@ func TestPersistence_ReloadsVaultAndEntries(t *testing.T) {
 	h2 := newHarness(t, srv2, rk, testRegKey)
 	resp, pre := h2.pull(0, vault.EntryID{})
 	if pre != 0 {
-		t.Fatalf("pull after reload pre=0x%02x", pre)
+		t.Fatalf("pull after reload pre=%v", pre)
 	}
 	if len(resp.Entries) != 1 || resp.Entries[0].ID() != e.ID() {
 		t.Fatalf("reload returned %d entries", len(resp.Entries))
@@ -344,13 +344,13 @@ func TestRegister_IdempotentAndRebindRejected(t *testing.T) {
 	h.register()
 	// Same key again — idempotent OK.
 	if resp, pre := h.register(); pre != 0 || resp.Status != wire.StatusOK {
-		t.Fatalf("idempotent re-register: pre=0x%02x status=%d", pre, resp.Status)
+		t.Fatalf("idempotent re-register: pre=%v status=%d", pre, resp.Status)
 	}
 	// A different device (different AuthKey) but same VaultID and valid
 	// register key: rebind attempt must be rejected.
 	other, _ := vault.NewRandomRootKey()
 	h.ak = vault.DeriveAuthKey(other) // present a mismatching authkey
 	if _, pre := h.register(); pre != wire.ErrBadAuth {
-		t.Fatalf("rebind: pre=0x%02x, want BAD_AUTH", pre)
+		t.Fatalf("rebind: pre=%v, want BAD_AUTH", pre)
 	}
 }

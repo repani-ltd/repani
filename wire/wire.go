@@ -32,24 +32,69 @@ const (
 	OpPush  byte = 0x02
 )
 
-// Status codes inside a sealed RESP.
+// Status is the status inside a sealed RESP (PROTOCOL.t, Status).
+type Status byte
+
 const (
-	StatusOK         byte = 0x00
-	StatusDiffer     byte = 0x01
-	StatusQuota      byte = 0x02
-	StatusBadRequest byte = 0x03
+	StatusOK         Status = 0x00
+	StatusDiffer     Status = 0x01
+	StatusQuota      Status = 0x02
+	StatusBadRequest Status = 0x03
 )
 
-// Pre-channel error bytes: a single unauthenticated byte the server
-// returns when no channel key is available to seal a RESP.
+func (s Status) String() string {
+	switch s {
+	case StatusOK:
+		return "ok"
+	case StatusDiffer:
+		return "differ"
+	case StatusQuota:
+		return "quota"
+	case StatusBadRequest:
+		return "bad-request"
+	default:
+		return fmt.Sprintf("status(0x%02x)", byte(s))
+	}
+}
+
+// PreChannel is the single unauthenticated byte a server answers with
+// when it has no key to seal a RESP (PROTOCOL.t, Errors before the
+// channel). It is an error: a client returns the one it got, and a
+// caller tests for one with errors.Is.
+type PreChannel byte
+
 const (
-	ErrBadFrame     byte = 0xE0
-	ErrBadVersion   byte = 0xE1
-	ErrBadKind      byte = 0xE2
-	ErrUnknownVault byte = 0xE3
-	ErrBadAuth      byte = 0xE4
-	ErrTryLater     byte = 0xE5
+	ErrBadFrame     PreChannel = 0xE0
+	ErrBadVersion   PreChannel = 0xE1
+	ErrBadKind      PreChannel = 0xE2
+	ErrUnknownVault PreChannel = 0xE3
+	ErrBadAuth      PreChannel = 0xE4
+	ErrTryLater     PreChannel = 0xE5
 )
+
+func (p PreChannel) Error() string { return "server returned " + p.String() }
+
+func (p PreChannel) String() string {
+	switch p {
+	case ErrBadFrame:
+		return "bad-frame"
+	case ErrBadVersion:
+		return "bad-version"
+	case ErrBadKind:
+		return "bad-kind"
+	case ErrUnknownVault:
+		return "unknown-vault"
+	case ErrBadAuth:
+		return "bad-auth"
+	case ErrTryLater:
+		return "try-later"
+	default:
+		return fmt.Sprintf("pre-channel(0x%02x)", byte(p))
+	}
+}
+
+// Reply is p as the one-byte response a server sends.
+func (p PreChannel) Reply() []byte { return []byte{byte(p)} }
 
 // CursorSize is a canonical position: ts_ms(8) || entry_id(16).
 const CursorSize = 8 + vault.EntryIDSize
@@ -193,7 +238,7 @@ func ParseSync(payload []byte) (SyncReq, error) {
 
 // Resp is a decoded RESP payload.
 type Resp struct {
-	Status   byte
+	Status   Status
 	ReqNonce [vault.NonceSize]byte
 	Entries  []vault.Entry
 }
@@ -201,7 +246,7 @@ type Resp struct {
 // Marshal encodes resp as a RESP payload.
 func (resp Resp) Marshal() []byte {
 	out := make([]byte, 1+vault.NonceSize)
-	out[0] = resp.Status
+	out[0] = byte(resp.Status)
 	copy(out[1:], resp.ReqNonce[:])
 	return appendEntries(out, resp.Entries)
 }
@@ -212,7 +257,7 @@ func ParseResp(payload []byte) (Resp, error) {
 		return Resp{}, ErrMalformed
 	}
 	var resp Resp
-	resp.Status = payload[0]
+	resp.Status = Status(payload[0])
 	copy(resp.ReqNonce[:], payload[1:1+vault.NonceSize])
 	entries, err := parseEntries(payload[1+vault.NonceSize:])
 	if err != nil {
@@ -253,40 +298,4 @@ func parseEntries(b []byte) ([]vault.Entry, error) {
 		return nil, fmt.Errorf("%w: %d trailing bytes after entries", ErrMalformed, len(b)-off)
 	}
 	return out, nil
-}
-
-// StatusText labels a sealed status for logs.
-func StatusText(s byte) string {
-	switch s {
-	case StatusOK:
-		return "ok"
-	case StatusDiffer:
-		return "differ"
-	case StatusQuota:
-		return "quota"
-	case StatusBadRequest:
-		return "bad-request"
-	default:
-		return fmt.Sprintf("status(0x%02x)", s)
-	}
-}
-
-// PreChannelText labels a pre-channel error byte for logs.
-func PreChannelText(b byte) string {
-	switch b {
-	case ErrBadFrame:
-		return "bad-frame"
-	case ErrBadVersion:
-		return "bad-version"
-	case ErrBadKind:
-		return "bad-kind"
-	case ErrUnknownVault:
-		return "unknown-vault"
-	case ErrBadAuth:
-		return "bad-auth"
-	case ErrTryLater:
-		return "try-later"
-	default:
-		return fmt.Sprintf("pre-channel(0x%02x)", b)
-	}
 }

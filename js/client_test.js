@@ -108,6 +108,19 @@ async function kindOf(p) {
   check(await state(b) === '{"z":"1"}', "the entry reached the server");
 }
 
+// A client that believes its vault registered, told UNKNOWN_VAULT,
+// registers and finishes the sync.
+{
+  const rk = kv.newRootKey();
+  const a = client(rk);
+  a.registered = true;
+  await a.put("r", "1");
+  await a.sync();
+  const b = client(rk);
+  await b.sync();
+  check(await state(b) === '{"r":"1"}', "UNKNOWN_VAULT led to a REGISTER and the push: " + await state(b));
+}
+
 // Failures say what kind they are.
 {
   const wrong = new Uint8Array(16).fill(9);
@@ -123,6 +136,11 @@ async function kindOf(p) {
 
   const busy = client(kv.newRootKey(), { transport: async () => new Uint8Array([kv.ERR_TRY_LATER]) });
   check(await kindOf(busy.sync()) === "offline", "TRY_LATER is offline");
+  try {
+    await busy.sync();
+  } catch (e) {
+    check(e.pre === kv.ERR_TRY_LATER && e.message === "kv: register: server returned try-later", "a pre-channel error carries its byte and step: " + e.pre + " " + e.message);
+  }
 
   const garbled = client(kv.newRootKey(), { transport: async () => new Uint8Array(80) });
   check(await kindOf(garbled.sync()) === "protocol", "a garbled response is protocol");

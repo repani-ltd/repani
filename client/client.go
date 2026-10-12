@@ -356,75 +356,49 @@ func (c *Client) Sync(ctx context.Context) (err error) {
 	}()
 
 	for round := range maxRounds {
-		c.mu.Lock()
-		registered := c.registered
-		c.mu.Unlock()
-
-		if !registered && c.hasRegisterKey() {
-			if err := c.register(ctx, st); err != nil {
-				return err
-			}
-		}
-
-		// Fast path: push just-written entries before the first probe.
-		if round == 0 && len(recent) > 0 {
-			if pre, err := c.pushEntries(ctx, recent, st); err != nil {
-				return err
-			} else if pre == wire.ErrUnknownVault {
-				if err := c.unknownVault(); err != nil {
-					return err
-				}
-				continue
-			} else if pre != 0 {
-				return preChannelErr("push", pre)
-			}
-		}
-
-		inSync, pre, err := c.probe(ctx, st)
-		if err != nil {
-			return err
-		}
-		if pre == wire.ErrUnknownVault {
+		inSync, err := c.round(ctx, round, recent, st)
+		if errors.Is(err, wire.ErrUnknownVault) {
 			if err := c.unknownVault(); err != nil {
 				return err
 			}
 			continue
 		}
-		if pre != 0 {
-			return preChannelErr("probe", pre)
-		}
-		if inSync {
-			return nil
-		}
-
-		anchorTs, anchorID := c.reconcileAnchor(round)
-		c.tracef("RECONCILE round %d: window from ts=%d", round, anchorTs)
-
-		if pre, err := c.pullFrom(ctx, anchorTs, anchorID, st); err != nil {
+		if err != nil || inSync {
 			return err
-		} else if pre == wire.ErrUnknownVault {
-			if err := c.unknownVault(); err != nil {
-				return err
-			}
-			continue
-		} else if pre != 0 {
-			return preChannelErr("pull", pre)
-		}
-
-		if pre, err := c.pushFrom(ctx, anchorTs, anchorID, st); err != nil {
-			return err
-		} else if pre == wire.ErrUnknownVault {
-			if err := c.unknownVault(); err != nil {
-				return err
-			}
-			continue
-		} else if pre != 0 {
-			return preChannelErr("push", pre)
 		}
 		// Loop back to PROBE to confirm convergence (and catch any
 		// entries a concurrent writer added mid-walk).
 	}
 	return ErrSyncStuck
+}
+
+// round runs one round of the reference sync (CLIENT.t): REGISTER when
+// needed, the fast-path push on round 0, PROBE, and on a difference
+// the window's PULL and PUSH. It reports whether the PROBE matched.
+func (c *Client) round(ctx context.Context, round int, recent []vault.Entry, st *SyncStats) (inSync bool, err error) {
+	c.mu.Lock()
+	registered := c.registered
+	c.mu.Unlock()
+	if !registered && c.hasRegisterKey() {
+		if err := c.register(ctx, st); err != nil {
+			return false, err
+		}
+	}
+	// Fast path: push just-written entries before the first probe.
+	if round == 0 && len(recent) > 0 {
+		if err := c.pushEntries(ctx, recent, st); err != nil {
+			return false, err
+		}
+	}
+	if inSync, err := c.probe(ctx, st); err != nil || inSync {
+		return inSync, err
+	}
+	anchorTs, anchorID := c.reconcileAnchor(round)
+	c.tracef("RECONCILE round %d: window from ts=%d", round, anchorTs)
+	if err := c.pullFrom(ctx, anchorTs, anchorID, st); err != nil {
+		return false, err
+	}
+	return false, c.pushFrom(ctx, anchorTs, anchorID, st)
 }
 
 // reconcileAnchor returns the walk anchor for a reconcile round: round 0
@@ -478,39 +452,36 @@ func (c *Client) register(ctx context.Context, st *SyncStats) error {
 	if !hasReg {
 		return ErrNoRegisterKey
 	}
-	resp, pre, err := c.roundtrip(ctx, wire.KindRegister, regChan, c.authKey[:], st)
+	resp, err := c.roundtrip(ctx, "register", wire.KindRegister, regChan, c.authKey[:], st)
+	if errors.Is(err, wire.ErrBadAuth) {
+		return errors.New("client: registration rejected — wrong register key")
+	}
 	if err != nil {
 		return err
 	}
-	if pre == wire.ErrBadAuth {
-		return errors.New("client: registration rejected — wrong register key")
-	}
-	if pre != 0 {
-		return preChannelErr("register", pre)
-	}
 	if resp.Status != wire.StatusOK {
-		return fmt.Errorf("client: register status %s", wire.StatusText(resp.Status))
+		return fmt.Errorf("client: register status %s", resp.Status)
 	}
 	c.tracef("REGISTER -> ok")
 	c.SetRegistered(true)
 	return nil
 }
 
-func (c *Client) probe(ctx context.Context, st *SyncStats) (inSync bool, pre byte, err error) {
+func (c *Client) probe(ctx context.Context, st *SyncStats) (inSync bool, err error) {
 	payload := wire.SyncReq{Op: wire.OpProbe, SetHash: c.store.SetHash()}.Marshal()
-	resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload, st)
-	if err != nil || pre != 0 {
-		return false, pre, err
+	resp, err := c.roundtrip(ctx, "probe", wire.KindSync, c.c2s, payload, st)
+	if err != nil {
+		return false, err
 	}
 	switch resp.Status {
 	case wire.StatusOK:
 		c.tracef("PROBE -> in sync")
-		return true, 0, nil
+		return true, nil
 	case wire.StatusDiffer:
 		c.tracef("PROBE -> differ")
-		return false, 0, nil
+		return false, nil
 	default:
-		return false, 0, fmt.Errorf("client: probe status %s", wire.StatusText(resp.Status))
+		return false, fmt.Errorf("client: probe status %s", resp.Status)
 	}
 }
 
@@ -526,26 +497,26 @@ const maxPullPages = 1 << 20
 // open) so the client's set matches the server's. The pull cursor MUST
 // advance on every non-empty page; a server that returns a page not
 // beyond the cursor is misbehaving and is rejected rather than looped on.
-func (c *Client) pullFrom(ctx context.Context, anchorTs uint64, anchorID vault.EntryID, st *SyncStats) (byte, error) {
+func (c *Client) pullFrom(ctx context.Context, anchorTs uint64, anchorID vault.EntryID, st *SyncStats) error {
 	curTs, curID := anchorTs, anchorID
 	for page := 0; ; page++ {
 		if page >= maxPullPages {
-			return 0, errors.New("client: pull exceeded page budget (misbehaving server)")
+			return errors.New("client: pull exceeded page budget (misbehaving server)")
 		}
 		payload := wire.SyncReq{Op: wire.OpPull, CurTs: curTs, CurID: curID}.Marshal()
-		resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload, st)
-		if err != nil || pre != 0 {
-			return pre, err
+		resp, err := c.roundtrip(ctx, "pull", wire.KindSync, c.c2s, payload, st)
+		if err != nil {
+			return err
 		}
 		if resp.Status != wire.StatusOK {
-			return 0, fmt.Errorf("client: pull status %s", wire.StatusText(resp.Status))
+			return fmt.Errorf("client: pull status %s", resp.Status)
 		}
 		if len(resp.Entries) == 0 {
-			return 0, nil
+			return nil
 		}
 		last := resp.Entries[len(resp.Entries)-1]
 		if !posAfter(last.TsMs, last.ID(), curTs, curID) {
-			return 0, errors.New("client: server pull did not advance the cursor")
+			return errors.New("client: server pull did not advance the cursor")
 		}
 		bytesIn := 0
 		for _, e := range resp.Entries {
@@ -555,7 +526,7 @@ func (c *Client) pullFrom(ctx context.Context, anchorTs uint64, anchorID vault.E
 		// entry, which is what makes a first sync of a large vault
 		// seconds rather than minutes.
 		if _, err := c.store.AddBatch(resp.Entries); err != nil {
-			return 0, err
+			return err
 		}
 		st.Pulled += len(resp.Entries)
 		st.PulledBytes += bytesIn
@@ -576,15 +547,15 @@ func posAfter(ts uint64, id vault.EntryID, baseTs uint64, baseID vault.EntryID) 
 // pushFrom walks the client's own entries from the anchor cursor in
 // byte-bounded batches and pushes each. It is dedup-tolerant: the server
 // drops what it already holds.
-func (c *Client) pushFrom(ctx context.Context, anchorTs uint64, anchorID vault.EntryID, st *SyncStats) (byte, error) {
+func (c *Client) pushFrom(ctx context.Context, anchorTs uint64, anchorID vault.EntryID, st *SyncStats) error {
 	curTs, curID := anchorTs, anchorID
 	for {
 		batch := c.store.EntriesAfter(curTs, curID, wire.PageBytes)
 		if len(batch) == 0 {
-			return 0, nil
+			return nil
 		}
-		if pre, err := c.sendPush(ctx, batch, "PUSH", st); err != nil || pre != 0 {
-			return pre, err
+		if err := c.sendPush(ctx, batch, "PUSH", st); err != nil {
+			return err
 		}
 		last := batch[len(batch)-1]
 		curTs, curID = last.TsMs, last.ID()
@@ -593,7 +564,7 @@ func (c *Client) pushFrom(ctx context.Context, anchorTs uint64, anchorID vault.E
 
 // pushEntries pushes an explicit list of entries in byte-bounded batches
 // — the fast path for freshly-written local entries.
-func (c *Client) pushEntries(ctx context.Context, entries []vault.Entry, st *SyncStats) (byte, error) {
+func (c *Client) pushEntries(ctx context.Context, entries []vault.Entry, st *SyncStats) error {
 	i := 0
 	for i < len(entries) {
 		batch := make([]vault.Entry, 0, 64)
@@ -607,22 +578,22 @@ func (c *Client) pushEntries(ctx context.Context, entries []vault.Entry, st *Syn
 			used += sz
 			i++
 		}
-		if pre, err := c.sendPush(ctx, batch, "PUSH(new)", st); err != nil || pre != 0 {
-			return pre, err
+		if err := c.sendPush(ctx, batch, "PUSH(new)", st); err != nil {
+			return err
 		}
 	}
-	return 0, nil
+	return nil
 }
 
 // sendPush pushes one batch, accounting and tracing it.
-func (c *Client) sendPush(ctx context.Context, batch []vault.Entry, label string, st *SyncStats) (byte, error) {
+func (c *Client) sendPush(ctx context.Context, batch []vault.Entry, label string, st *SyncStats) error {
 	payload := wire.SyncReq{Op: wire.OpPush, Entries: batch}.Marshal()
-	resp, pre, err := c.roundtrip(ctx, wire.KindSync, c.c2s, payload, st)
-	if err != nil || pre != 0 {
-		return pre, err
+	resp, err := c.roundtrip(ctx, "push", wire.KindSync, c.c2s, payload, st)
+	if err != nil {
+		return err
 	}
 	if resp.Status != wire.StatusOK {
-		return 0, fmt.Errorf("client: push status %s", wire.StatusText(resp.Status))
+		return fmt.Errorf("client: push status %s", resp.Status)
 	}
 	bytesOut := 0
 	for _, e := range batch {
@@ -631,51 +602,52 @@ func (c *Client) sendPush(ctx context.Context, batch []vault.Entry, label string
 	st.Pushed += len(batch)
 	st.PushedBytes += bytesOut
 	c.tracef("%s -> %d entries (%d B)", label, len(batch), bytesOut)
-	return 0, nil
+	return nil
 }
 
 // roundtrip seals a request frame under sealK, sends it, and opens the
 // response under K_s2c. It verifies the response echoes the request
-// nonce (anti-stitch) before returning. A 1-byte response is an
-// unauthenticated pre-channel error, returned in pre.
-func (c *Client) roundtrip(ctx context.Context, kind byte, sealK vault.ChannelKey, payload []byte, st *SyncStats) (resp wire.Resp, pre byte, err error) {
+// nonce (anti-stitch) before returning. A 1-byte response is the
+// server's pre-channel error, returned as a wire.PreChannel wrapped
+// with stage, the operation that drew it.
+func (c *Client) roundtrip(ctx context.Context, stage string, kind byte, sealK vault.ChannelKey, payload []byte, st *SyncStats) (wire.Resp, error) {
 	nonce, err := vault.FrameNonce(c.vid)
 	if err != nil {
-		return wire.Resp{}, 0, err
+		return wire.Resp{}, err
 	}
 	frame, err := wire.SealFrame(kind, c.vid, nonce, sealK, payload)
 	if err != nil {
-		return wire.Resp{}, 0, err
+		return wire.Resp{}, err
 	}
 	respBytes, err := c.tran.Do(ctx, frame)
 	if err != nil {
-		return wire.Resp{}, 0, err
+		return wire.Resp{}, err
 	}
 	st.RoundTrips++
 	st.ReqBytes += len(frame)
 	st.RespBytes += len(respBytes)
 	if len(respBytes) == 1 {
-		return wire.Resp{}, respBytes[0], nil
+		return wire.Resp{}, fmt.Errorf("client: %s: %w", stage, wire.PreChannel(respBytes[0]))
 	}
 	rkind, rvid, rnonce, sealed, err := wire.ParseHeader(respBytes)
 	if err != nil {
-		return wire.Resp{}, 0, fmt.Errorf("client: parse response: %w", err)
+		return wire.Resp{}, fmt.Errorf("client: parse response: %w", err)
 	}
 	if rkind != wire.KindResp || rvid != c.vid {
-		return wire.Resp{}, 0, errors.New("client: unexpected response frame")
+		return wire.Resp{}, errors.New("client: unexpected response frame")
 	}
 	rpayload, err := wire.OpenFrame(c.s2c, wire.KindResp, rvid, rnonce, sealed)
 	if err != nil {
-		return wire.Resp{}, 0, fmt.Errorf("client: response did not open: %w", err)
+		return wire.Resp{}, fmt.Errorf("client: response did not open: %w", err)
 	}
-	resp, err = wire.ParseResp(rpayload)
+	resp, err := wire.ParseResp(rpayload)
 	if err != nil {
-		return wire.Resp{}, 0, err
+		return wire.Resp{}, err
 	}
 	if resp.ReqNonce != nonce {
-		return wire.Resp{}, 0, errors.New("client: response nonce does not match request")
+		return wire.Resp{}, errors.New("client: response nonce does not match request")
 	}
-	return resp, 0, nil
+	return resp, nil
 }
 
 // reportStats records the stats as the last-sync stats and, if tracing,
@@ -693,8 +665,4 @@ func (c *Client) LastSyncStats() SyncStats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.lastStats
-}
-
-func preChannelErr(stage string, b byte) error {
-	return fmt.Errorf("client: %s: server returned %s", stage, wire.PreChannelText(b))
 }

@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"repani.com/kv/vault"
-	"repani.com/kv/wire"
 )
 
 // Sentinel errors for the owner API.
@@ -99,15 +98,11 @@ func (s *Server) AddEntries(vid vault.VaultID, entries []vault.Entry) error {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	newEntries, status := s.validateNew(st, entries, false)
-	switch status {
-	case wire.StatusOK:
-	case wire.StatusQuota:
-		return ErrQuota
-	default:
-		panic("server: validateNew returned unknown status")
+	newEntries, err := s.validateNew(st, entries, false)
+	if err != nil {
+		return err
 	}
-	_, err := addValidatedLocked(st, newEntries)
+	_, err = addValidatedLocked(st, newEntries)
 	return err
 }
 

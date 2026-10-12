@@ -30,19 +30,19 @@ func TestRegistrationDisabled(t *testing.T) {
 
 	// Every REGISTER frame is rejected, even a well-formed one.
 	if _, pre := h.register(); pre != wire.ErrBadAuth {
-		t.Fatalf("register on disabled server: pre=0x%02x, want BAD_AUTH", pre)
+		t.Fatalf("register on disabled server: pre=%v, want BAD_AUTH", pre)
 	}
 
 	// The EnsureVault'd vault syncs normally over the channel keys.
 	if resp, pre := h.probe(vault.SetHash(nil)); pre != 0 || resp.Status != wire.StatusOK {
-		t.Fatalf("probe: pre=0x%02x status=%d", pre, resp.Status)
+		t.Fatalf("probe: pre=%v status=%d", pre, resp.Status)
 	}
 
 	// A vault the owner did not create stays unknown.
 	other, _ := vault.NewRandomRootKey()
 	h2 := newHarness(t, srv, other, testRegKey)
 	if _, pre := h2.probe([16]byte{}); pre != wire.ErrUnknownVault {
-		t.Fatalf("unknown vault probe: pre=0x%02x, want UNKNOWN_VAULT", pre)
+		t.Fatalf("unknown vault probe: pre=%v, want UNKNOWN_VAULT", pre)
 	}
 }
 
@@ -186,7 +186,7 @@ func TestSetNoPush(t *testing.T) {
 	// Wire PUSH is refused with QUOTA; nothing is stored.
 	e := mkEntry(t, rk, nowMs(), "k", "\x00v")
 	if resp, pre := h.push([]vault.Entry{e}); pre != 0 || resp.Status != wire.StatusQuota {
-		t.Fatalf("push on no-push vault: pre=0x%02x status=%d, want quota", pre, resp.Status)
+		t.Fatalf("push on no-push vault: pre=%v status=%d, want quota", pre, resp.Status)
 	}
 	if got, _ := srv.Entries(vid); len(got) != 0 {
 		t.Fatalf("no-push vault stored %d entries", len(got))
@@ -197,13 +197,13 @@ func TestSetNoPush(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resp, pre := h.pull(0, vault.EntryID{}); pre != 0 || resp.Status != wire.StatusOK || len(resp.Entries) != 1 {
-		t.Fatalf("pull on no-push vault: pre=0x%02x status=%d entries=%d", pre, resp.Status, len(resp.Entries))
+		t.Fatalf("pull on no-push vault: pre=%v status=%d entries=%d", pre, resp.Status, len(resp.Entries))
 	}
 
 	// A dedup no-op (re-pushing what the vault already holds) acks OK,
 	// so a read-only client's pull-then-push walk converges.
 	if resp, pre := h.push([]vault.Entry{e}); pre != 0 || resp.Status != wire.StatusOK {
-		t.Fatalf("no-op push on no-push vault: pre=0x%02x status=%d, want OK", pre, resp.Status)
+		t.Fatalf("no-op push on no-push vault: pre=%v status=%d, want OK", pre, resp.Status)
 	}
 	if got, _ := srv.Entries(vid); len(got) != 1 {
 		t.Fatalf("no-op push changed the vault: %d entries", len(got))
@@ -215,7 +215,7 @@ func TestSetNoPush(t *testing.T) {
 	}
 	e2 := mkEntry(t, rk, nowMs(), "k2", "\x00v2")
 	if resp, pre := h.push([]vault.Entry{e2}); pre != 0 || resp.Status != wire.StatusOK {
-		t.Fatalf("push after clearing no-push: pre=0x%02x status=%d", pre, resp.Status)
+		t.Fatalf("push after clearing no-push: pre=%v status=%d", pre, resp.Status)
 	}
 }
 
@@ -236,7 +236,7 @@ func TestDropVault(t *testing.T) {
 		t.Fatalf("second drop: %v, want ErrUnknownVault", err)
 	}
 	if _, pre := h.probe([16]byte{}); pre != wire.ErrUnknownVault {
-		t.Fatalf("probe after drop: pre=0x%02x, want UNKNOWN_VAULT", pre)
+		t.Fatalf("probe after drop: pre=%v, want UNKNOWN_VAULT", pre)
 	}
 
 	// On disk: entries.log archived, auth.key gone, so a restart does

@@ -181,7 +181,7 @@ type stuckServer struct {
 func (s *stuckServer) Do(_ context.Context, req []byte) ([]byte, error) {
 	kind, vid, nonce, sealed, err := wire.ParseHeader(req)
 	if err != nil {
-		return []byte{wire.ErrBadFrame}, nil
+		return wire.ErrBadFrame.Reply(), nil
 	}
 	openK := s.c2s
 	if kind == wire.KindRegister {
@@ -189,7 +189,7 @@ func (s *stuckServer) Do(_ context.Context, req []byte) ([]byte, error) {
 	}
 	payload, err := wire.OpenFrame(openK, kind, vid, nonce, sealed)
 	if err != nil {
-		return []byte{wire.ErrBadAuth}, nil
+		return wire.ErrBadAuth.Reply(), nil
 	}
 	resp := wire.Resp{ReqNonce: nonce, Status: wire.StatusOK}
 	if kind == wire.KindSync {
@@ -405,5 +405,28 @@ func TestReplay_SkipsUnopenableEntry(t *testing.T) {
 	}
 	if v, ok, err := c.Get([]byte("good")); err != nil || !ok || !bytes.Equal(v, []byte("v")) {
 		t.Fatalf("good key lost: ok=%v v=%q err=%v", ok, v, err)
+	}
+}
+
+// tryLater answers every frame with the TRY_LATER byte.
+type tryLater struct{}
+
+func (tryLater) Do(context.Context, []byte) ([]byte, error) { return wire.ErrTryLater.Reply(), nil }
+
+// TestSync_PreChannelIsAnError: a server's pre-channel byte reaches the
+// caller as that wire.PreChannel, named by the step that drew it.
+func TestSync_PreChannelIsAnError(t *testing.T) {
+	rk, _ := vault.NewRandomRootKey()
+	c, err := New(rk, store.NewMemStore(), tryLater{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetRegistered(true)
+	err = c.Sync(context.Background())
+	if !errors.Is(err, wire.ErrTryLater) {
+		t.Fatalf("sync error %v, want TRY_LATER", err)
+	}
+	if want := "client: probe: server returned try-later"; err.Error() != want {
+		t.Errorf("error text %q, want %q", err, want)
 	}
 }
