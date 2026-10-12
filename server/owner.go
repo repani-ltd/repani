@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"errors"
 	"io"
-	"os"
 
 	"repani.com/kv/vault"
 )
@@ -36,13 +35,14 @@ func (s *Server) EnsureVault(vid vault.VaultID, ak vault.AuthKey) error {
 	return err
 }
 
-// DropVault forgets the vault: it is removed from serving and its store
-// is closed, so subsequent frames for vid get UNKNOWN_VAULT. On disk the
-// entry log is left in place as an archive, but auth.key is removed so
-// the vault is not re-adopted at the next start. A later EnsureVault for
-// the same vid re-adopts the old log; use a fresh RootKey (hence a fresh
-// vid) to start clean. Returns ErrUnknownVault if vid is not being
-// served.
+// DropVault deletes the vault for good: it stops being served, so
+// frames for vid get UNKNOWN_VAULT, its store is closed, and its
+// directory (auth.key and entry log) is removed. DropVaultDir does the
+// same for a server that is not running. Returns ErrUnknownVault if
+// vid is not being served.
+//
+// Removal is not revocation: a device still holding the RootKey and a
+// RegisterKey re-registers the vault and pushes its copy back.
 func (s *Server) DropVault(vid vault.VaultID) error {
 	s.mu.Lock()
 	st, ok := s.vaults[vid]
@@ -53,19 +53,14 @@ func (s *Server) DropVault(vid vault.VaultID) error {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	// Always close the store (releasing its file lock) even if removing
-	// auth.key fails, so a partial failure never leaks the handle. The
-	// auth.key removal error is surfaced but reported after the close.
-	var rmErr error
-	if st.dir != "" {
-		rmErr = os.Remove(authKeyPath(st.dir))
-	}
+	var closeErr error
 	if c, ok := st.s.(io.Closer); ok {
-		if err := c.Close(); err != nil && rmErr == nil {
-			rmErr = err
-		}
+		closeErr = c.Close()
 	}
-	return rmErr
+	if st.dir == "" {
+		return closeErr // in memory: nothing on disk
+	}
+	return errors.Join(closeErr, removeVaultDir(s.dataDir, st.dir))
 }
 
 // Entries returns a canonical-order snapshot of the vault's entry set.

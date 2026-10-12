@@ -476,17 +476,14 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultS
 // ErrVaultInUse reports a vault whose entry log a running server holds.
 var ErrVaultInUse = errors.New("server: vault is held by a running server")
 
-// RemoveVault deletes vid's directory under dataDir: its auth.key and
-// its entry log, for good. It is the offline counterpart to DropVault,
-// for an operator with no Server in hand. It takes the entry log's lock
-// first, so it refuses with ErrVaultInUse while a server is serving the
-// vault: a server keeps every vault's log open from start to stop, and
-// deleting the files under it changes nothing it serves until it
-// restarts. Returns ErrUnknownVault if dataDir has no such vault.
-//
-// Removal is not revocation: any device still holding the RootKey and
-// a RegisterKey re-registers the vault and pushes its copy back.
-func RemoveVault(dataDir string, vid vault.VaultID) error {
+// DropVaultDir is DropVault for a server that is not running: it
+// deletes vid's directory under dataDir, auth.key and entry log, for
+// good. It takes the entry log's lock first, so it refuses with
+// ErrVaultInUse while a server is serving the vault: a server keeps
+// every vault's log open from start to stop, and deleting the files
+// under it changes nothing it serves until it restarts. Returns
+// ErrUnknownVault if dataDir has no such vault.
+func DropVaultDir(dataDir string, vid vault.VaultID) error {
 	dir := filepath.Join(dataDir, vid.String())
 	if _, err := os.Stat(dir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -506,14 +503,20 @@ func RemoveVault(dataDir string, vid vault.VaultID) error {
 		}
 		held = ls
 	}
-	// auth.key goes first: a crash part-way leaves a directory that
-	// the next start skips rather than adopts.
+	err := removeVaultDir(dataDir, dir)
+	if held != nil {
+		_ = held.Close()
+	}
+	return err
+}
+
+// removeVaultDir deletes a vault's directory under dataDir. auth.key
+// goes first: a crash part-way leaves a directory the next start skips
+// rather than adopts.
+func removeVaultDir(dataDir, dir string) error {
 	err := os.Remove(authKeyPath(dir))
 	if err == nil || errors.Is(err, os.ErrNotExist) {
 		err = os.RemoveAll(dir)
-	}
-	if held != nil {
-		_ = held.Close()
 	}
 	if err != nil {
 		return err

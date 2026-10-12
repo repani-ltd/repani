@@ -199,7 +199,7 @@ func runDropVault(args []string) {
 	if err != nil {
 		log.Fatalf("kvserve: drop-vault: %v", err)
 	}
-	switch err := server.RemoveVault(*data, vid); {
+	switch err := server.DropVaultDir(*data, vid); {
 	case errors.Is(err, server.ErrVaultInUse):
 		log.Fatalf("kvserve: drop-vault: %s is being served; stop kvserve first", vid)
 	case errors.Is(err, server.ErrUnknownVault):

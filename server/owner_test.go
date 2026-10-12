@@ -239,37 +239,27 @@ func TestDropVault(t *testing.T) {
 		t.Fatalf("probe after drop: pre=%v, want UNKNOWN_VAULT", pre)
 	}
 
-	// On disk: entries.log archived, auth.key gone, so a restart does
-	// not re-adopt the vault.
-	logs, _ := filepath.Glob(filepath.Join(dir, "*", "entries.log"))
-	if len(logs) != 1 {
-		t.Fatalf("expected archived log, got %v", logs)
-	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(logs[0]), "auth.key")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("auth.key after drop: %v, want ErrNotExist", err)
+	// On disk: the vault's directory is gone, so a restart does not
+	// serve it, and creating it again starts empty.
+	if _, err := os.Stat(filepath.Join(dir, vid.String())); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("vault directory after drop: %v, want ErrNotExist", err)
 	}
 	srv2, err := NewWithOptions(Options{DataDir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := srv2.Entries(vid); !errors.Is(err, ErrUnknownVault) {
-		t.Fatalf("dropped vault re-adopted after restart: %v", err)
+		t.Fatalf("dropped vault served after restart: %v", err)
 	}
-
-	// EnsureVault re-adopts the archived log.
 	if err := srv2.EnsureVault(vid, vault.DeriveAuthKey(rk)); err != nil {
 		t.Fatal(err)
 	}
-	got, err := srv2.Entries(vid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID() != e.ID() {
-		t.Fatalf("re-adopted vault has %d entries", len(got))
+	if got, err := srv2.Entries(vid); err != nil || len(got) != 0 {
+		t.Fatalf("recreated vault: %d entries, %v; want empty", len(got), err)
 	}
 }
 
-func TestRemoveVault(t *testing.T) {
+func TestDropVaultDir(t *testing.T) {
 	dir := t.TempDir()
 	srv, rk, h := ownerServer(t, dir)
 	vid := vault.DeriveVaultID(rk)
@@ -280,20 +270,20 @@ func TestRemoveVault(t *testing.T) {
 	}
 
 	// A serving server holds the log; removal under it is refused.
-	if err := RemoveVault(dir, vid); !errors.Is(err, ErrVaultInUse) {
+	if err := DropVaultDir(dir, vid); !errors.Is(err, ErrVaultInUse) {
 		t.Fatalf("remove while served: %v, want ErrVaultInUse", err)
 	}
 	if err := srv.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := RemoveVault(dir, vid); err != nil {
+	if err := DropVaultDir(dir, vid); err != nil {
 		t.Fatal(err)
 	}
 	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
 		t.Fatalf("data dir after remove: %v", left)
 	}
-	if err := RemoveVault(dir, vid); !errors.Is(err, ErrUnknownVault) {
+	if err := DropVaultDir(dir, vid); !errors.Is(err, ErrUnknownVault) {
 		t.Fatalf("second remove: %v, want ErrUnknownVault", err)
 	}
 
