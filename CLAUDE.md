@@ -1,7 +1,7 @@
 # repani (module repani.com)
 
 One Go module. Top-level directories are either products with
-their own CLAUDE.md (`pica/`, `fact/`, `kiosk/`, `chrometest/`) or primitive
+their own CLAUDE.md (`pica/`, `fact/`, `row/`, `kiosk/`, `chrometest/`) or primitive
 packages (`ascon/`, `golay/`, `lz4s/`) or the typesetting family
 (`typeset/`: one directory, one package per member --
 `typeset/format`, `typeset/wrap` with its optional hyphenation

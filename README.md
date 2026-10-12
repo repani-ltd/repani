@@ -7,6 +7,9 @@ directory is one project; its import path is `repani.com/<dir>/...`.
              (`go install repani.com/pica/cmd/pica@latest`)
 - `fact/`  -- the FACT format, Go projections and `fact` CLI
              (`go install repani.com/fact/cmd/fact@latest`)
+- `row/`   -- ROW typed rows: positional typed values as bytes, in
+             Go and JavaScript, and the `row` CLI
+             (`go install repani.com/row/cmd/row@latest`)
 - `ascon/` -- Ascon-XOF128 and Ascon-AEAD128 (NIST SP 800-232)
 - `golay/` -- extended Golay(24,12): corrects 3, detects 4
 - `lz4s/`  -- LZ4 sequence format re-tuned for small texts
