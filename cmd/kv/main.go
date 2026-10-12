@@ -15,6 +15,7 @@
 //	kv import <file|->            import rows from a CSV file
 //	kv backup [file|-]            emit RootKey (+ register key if local)
 //	kv restore <blob|->           restore a vault from a backup blob
+//	kv vault-id <blob|->          print a blob's VaultID (hex)
 //	kv version [--url URL]        print this build, and the server's
 //	kv search|s [flags] <pattern> case-insensitive substring match
 //	                              across keys AND values; renders a
@@ -35,6 +36,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -124,6 +126,8 @@ func main() {
 		runBackup(args)
 	case "restore":
 		runRestore(args)
+	case "vault-id":
+		runVaultID(args)
 	case "search", "s":
 		runSearch(args)
 	case "version":
@@ -160,6 +164,10 @@ Commands:
   backup [file|-]   emit RootKey (+ register key if available locally)
                     as a single Crockford base32 blob for offline storage
   restore <blob|->  recover a vault on a fresh device from a backup blob
+  vault-id <blob|-> print the VaultID of a pairing or backup blob, in
+                    hex: the vault's directory on the server, and what
+                    kvserve drop-vault takes. Computed here alone: no
+                    KV_HOME, no server
   version [--url U] print this binary's build, and the server's when
                     KV_SERVER (or --url) is set; the useful question is
                     usually whether the two match
@@ -443,6 +451,41 @@ func runPair(args []string) {
 		_ = ls.Close()
 	}
 	fmt.Println("paired")
+}
+
+// runVaultID prints the VaultID a pairing or backup blob's RootKey
+// derives. It reads nothing from KV_HOME and sends nothing anywhere,
+// so it answers for any vault, not just this device's, and the blob
+// never reaches the server whose directory it names. "-" reads the
+// blob from stdin, keeping it out of shell history.
+func runVaultID(args []string) {
+	if len(args) != 1 {
+		fatal("usage: kv vault-id <blob|->")
+	}
+	blob := args[0]
+	if blob == "-" {
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fatal("read stdin: %v", err)
+		}
+		blob = strings.TrimSpace(string(b))
+	}
+	id, err := vaultIDOf(blob)
+	if err != nil {
+		fatal("invalid blob: %v", err)
+	}
+	fmt.Println(id)
+}
+
+// vaultIDOf decodes a pairing (32-char) or backup (58-char) blob and
+// returns its VaultID in hex.
+func vaultIDOf(blob string) (string, error) {
+	rk, _, err := vault.DecodeBackup(blob)
+	if err != nil {
+		return "", err
+	}
+	id := vault.DeriveVaultID(rk)
+	return hex.EncodeToString(id[:]), nil
 }
 
 func runPairBlob(_ []string) {

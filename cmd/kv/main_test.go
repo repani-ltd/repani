@@ -1,10 +1,39 @@
 package main
 
 import (
+	"encoding/hex"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"repani.com/kv/vault"
 )
+
+// TestVaultIDOf takes both blob shapes -- pairing (RootKey alone) and
+// backup (RootKey then RegisterKey) -- to the VaultID their RootKey
+// derives, the name of the vault's directory on the server.
+func TestVaultIDOf(t *testing.T) {
+	rk, err := vault.NewRandomRootKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := vault.NewRegisterKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := vault.DeriveVaultID(rk)
+	want := hex.EncodeToString(id[:])
+	for _, blob := range []string{vault.EncodeRootKey(rk), vault.EncodeBackup(rk, &reg)} {
+		if got, err := vaultIDOf(blob); err != nil || got != want {
+			t.Errorf("vaultIDOf(%q) = %q, %v; want %q", blob, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "#t" + vault.EncodeRootKey(rk), vault.EncodeRootKey(rk)[:20]} {
+		if _, err := vaultIDOf(bad); err == nil {
+			t.Errorf("vaultIDOf(%q) accepted", bad)
+		}
+	}
+}
 
 func TestTruncRunes(t *testing.T) {
 	cases := []struct {

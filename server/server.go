@@ -505,6 +505,58 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultS
 	return st, nil
 }
 
+// ErrVaultInUse reports a vault whose entry log a running server holds.
+var ErrVaultInUse = errors.New("server: vault is held by a running server")
+
+// RemoveVault deletes vid's directory under dataDir: its auth.key and
+// its entry log, for good. It is the offline counterpart to DropVault,
+// for an operator with no Server in hand. It takes the entry log's lock
+// first, so it refuses with ErrVaultInUse while a server is serving the
+// vault: a server keeps every vault's log open from start to stop, and
+// deleting the files under it changes nothing it serves until it
+// restarts. Returns ErrUnknownVault if dataDir has no such vault.
+//
+// Removal is not revocation: any device still holding the RootKey and
+// a RegisterKey re-registers the vault and pushes its copy back.
+func RemoveVault(dataDir string, vid vault.VaultID) error {
+	dir := filepath.Join(dataDir, hex.EncodeToString(vid[:]))
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrUnknownVault
+		}
+		return err
+	}
+	logPath := filepath.Join(dir, "entries.log")
+	var held io.Closer
+	if _, err := os.Stat(logPath); err == nil {
+		ls, err := store.OpenLogStore(logPath, 0)
+		if errors.Is(err, store.ErrLocked) {
+			return ErrVaultInUse
+		}
+		if err != nil {
+			return err
+		}
+		held = ls
+	}
+	// auth.key goes first: a crash part-way leaves a directory that
+	// the next start skips rather than adopts.
+	err := os.Remove(authKeyPath(dir))
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		err = os.RemoveAll(dir)
+	}
+	if held != nil {
+		_ = held.Close()
+	}
+	if err != nil {
+		return err
+	}
+	if d, err := os.Open(dataDir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
+}
+
 // --- per-vault auth.key persistence ---
 
 func authKeyPath(dir string) string { return filepath.Join(dir, "auth.key") }

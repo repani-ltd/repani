@@ -3,6 +3,7 @@
 //	kvserve [serve] --addr 127.0.0.1:8082 --data /opt/kvserve/data \
 //	                --register-key-file /opt/kvserve/register.key
 //	kvserve gen-register-key
+//	kvserve drop-vault --data /opt/kvserve/data VAULTID
 //	kvserve help
 //
 // The serving verb is optional: flags alone serve, and so does an
@@ -19,6 +20,8 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -35,6 +38,9 @@ import (
 
 const usage = `usage: kvserve [serve] [flags]     serve the sync endpoint
        kvserve gen-register-key    print a fresh register-gate secret
+       kvserve drop-vault [--data DIR] VAULTID
+                                   delete a vault (32 hex) for good;
+                                   stop the server first
        kvserve version             print this binary's build
        kvserve help                this text
 
@@ -51,6 +57,8 @@ func main() {
 		runServe(rest)
 	case "gen-register-key":
 		runGenRegisterKey()
+	case "drop-vault":
+		runDropVault(rest)
 	case "version":
 		fmt.Println(kiosk.ReadBuild())
 	case "help":
@@ -171,4 +179,46 @@ func runGenRegisterKey() {
 		log.Fatalf("kvserve: gen-register-key: %v", err)
 	}
 	fmt.Println(vault.EncodeRegisterKey(rk))
+}
+
+// runDropVault deletes one vault's directory from the data directory,
+// entry log included. It works only while kvserve is stopped: a running
+// server holds every vault's log open, so files removed under it keep
+// being served until it restarts -- which is why removing them by hand
+// appears to do nothing. The id is the vault's directory name; the
+// RootKey never has to reach the server to find it.
+//
+//	systemctl stop kvserve
+//	kvserve drop-vault --data /opt/kvserve/data VAULTID
+//	systemctl start kvserve
+func runDropVault(args []string) {
+	fs := flag.NewFlagSet("drop-vault", flag.ExitOnError)
+	data := fs.String("data", "./data", "data directory of the stopped server")
+	_ = fs.Parse(args) // ExitOnError
+	if fs.NArg() != 1 {
+		log.Fatal("kvserve: drop-vault: want one VAULTID (32 hex digits)")
+	}
+	vid, err := parseVaultID(fs.Arg(0))
+	if err != nil {
+		log.Fatalf("kvserve: drop-vault: %v", err)
+	}
+	switch err := server.RemoveVault(*data, vid); {
+	case errors.Is(err, server.ErrVaultInUse):
+		log.Fatalf("kvserve: drop-vault: %x is being served; stop kvserve first", vid[:])
+	case errors.Is(err, server.ErrUnknownVault):
+		log.Fatalf("kvserve: drop-vault: no vault %x in %s", vid[:], *data)
+	case err != nil:
+		log.Fatalf("kvserve: drop-vault: %v", err)
+	}
+	fmt.Printf("dropped %x\n", vid[:])
+}
+
+func parseVaultID(s string) (vault.VaultID, error) {
+	var vid vault.VaultID
+	b, err := hex.DecodeString(s)
+	if err != nil || len(b) != len(vid) {
+		return vid, fmt.Errorf("vault id %q: want %d hex digits", s, 2*len(vid))
+	}
+	copy(vid[:], b)
+	return vid, nil
 }

@@ -268,3 +268,44 @@ func TestDropVault(t *testing.T) {
 		t.Fatalf("re-adopted vault has %d entries", len(got))
 	}
 }
+
+func TestRemoveVault(t *testing.T) {
+	dir := t.TempDir()
+	srv, rk, h := ownerServer(t, dir)
+	vid := vault.DeriveVaultID(rk)
+
+	e := mkEntry(t, rk, nowMs(), "k", "\x00v")
+	if resp, _ := h.push([]vault.Entry{e}); resp.Status != wire.StatusOK {
+		t.Fatalf("push status %d", resp.Status)
+	}
+
+	// A serving server holds the log; removal under it is refused.
+	if err := RemoveVault(dir, vid); !errors.Is(err, ErrVaultInUse) {
+		t.Fatalf("remove while served: %v, want ErrVaultInUse", err)
+	}
+	if err := srv.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveVault(dir, vid); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Fatalf("data dir after remove: %v", left)
+	}
+	if err := RemoveVault(dir, vid); !errors.Is(err, ErrUnknownVault) {
+		t.Fatalf("second remove: %v, want ErrUnknownVault", err)
+	}
+
+	// Unlike a drop, nothing comes back: re-registering starts empty.
+	srv2, err := NewWithOptions(Options{DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv2.EnsureVault(vid, vault.DeriveAuthKey(rk)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := srv2.Entries(vid); len(got) != 0 {
+		t.Fatalf("removed vault came back with %d entries", len(got))
+	}
+}

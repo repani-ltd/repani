@@ -24,6 +24,7 @@ func TestParseVerb(t *testing.T) {
 		{"explicit verb", []string{"serve", "--addr", ":80"}, "serve", []string{"--addr", ":80"}},
 		{"explicit verb alone", []string{"serve"}, "serve", []string{}},
 		{"gen-register-key", []string{"gen-register-key"}, "gen-register-key", []string{}},
+		{"drop-vault", []string{"drop-vault", "--data", "d", "ab"}, "drop-vault", []string{"--data", "d", "ab"}},
 		{"help", []string{"help"}, "help", []string{}},
 		{"unknown", []string{"sevre"}, "sevre", []string{}},
 	} {
