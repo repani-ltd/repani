@@ -1163,6 +1163,13 @@ function crockfordDecode(s, byteLen) {
   return out;
 }
 
+// newRootKey returns a fresh RootKey from the platform's CSPRNG, as
+// vault.NewRandomRootKey does in Go: the one secret a vault has, from
+// which every other key derives.
+export function newRootKey() {
+  return globalThis.crypto.getRandomValues(new Uint8Array(ROOT_KEY_SIZE));
+}
+
 // encodeRootKey returns the Crockford base32 encoding of a 20-byte
 // RootKey (32 chars, no padding bits).
 export function encodeRootKey(rk) {

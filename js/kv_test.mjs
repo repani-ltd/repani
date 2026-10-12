@@ -62,6 +62,12 @@ eq("encodeBackup", kv.encodeBackup(rk, unhex(V.registerKey)), V.backupBlob);
   eq("backup registerKey", b.registerKey, V.registerKey);
   eq("backup bare", String(kv.decodeBackup(V.rootKeyBlob).registerKey === null), "true");
 }
+{
+  const a = kv.newRootKey(), b = kv.newRootKey();
+  eq("newRootKey size", String(a.length), String(kv.ROOT_KEY_SIZE));
+  eq("newRootKey fresh", String(hex(a) !== hex(b)), "true");
+  eq("newRootKey backup", kv.decodeBackup(kv.encodeBackup(a)).rootKey, hex(a));
+}
 
 const aeadKey = kv.deriveAEADKey(rk);
 const entries = [];
