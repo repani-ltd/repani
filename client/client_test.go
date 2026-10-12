@@ -57,12 +57,24 @@ func newClient(t *testing.T, srv *server.Server, rk vault.RootKey) *Client {
 	return c
 }
 
-// newPair returns a client and its server (used by impexp_test).
-func newPair(t *testing.T) (*Client, *server.Server) {
-	t.Helper()
-	srv := newTestServer(t)
+// TestPutMany: every pair is written; one empty value refuses the
+// whole call, writing nothing.
+func TestPutMany(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
-	return newClient(t, srv, rk), srv
+	c := newClient(t, newTestServer(t), rk)
+	if err := c.PutMany(map[string][]byte{"a": []byte("1"), "b": []byte("2")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.PutMany(map[string][]byte{"c": []byte("3"), "d": nil}); err == nil {
+		t.Fatal("an empty value was accepted")
+	}
+	keys, _ := c.List()
+	if strings.Join(keys, ",") != "a,b" {
+		t.Fatalf("keys %v, want a,b", keys)
+	}
+	if c.Store().Len() != 2 {
+		t.Fatalf("store holds %d entries, want 2", c.Store().Len())
+	}
 }
 
 func TestPutGetDelete_FmtTagTransparent(t *testing.T) {
@@ -258,10 +270,33 @@ func TestReconcileAnchor(t *testing.T) {
 	}
 }
 
+// syncCounted syncs c and returns what the sync moved, read from the
+// tracer's closing STATS line (what kv -v prints).
+func syncCounted(t *testing.T, c *Client) (roundTrips, pushed, pulled int) {
+	t.Helper()
+	var stats string
+	c.SetTracer(func(s string) {
+		if strings.HasPrefix(s, "STATS:") {
+			stats = s
+		}
+	})
+	defer c.SetTracer(nil)
+	err := c.Sync(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b int
+	if _, err := fmt.Sscanf(stats, "STATS: pushed %d entries (%d B), pulled %d entries (%d B); %d round-trips",
+		&pushed, &b, &pulled, &b, &roundTrips); err != nil {
+		t.Fatalf("STATS line %q: %v", stats, err)
+	}
+	return roundTrips, pushed, pulled
+}
+
 // TestSync_DeltaWindow_MovesOnlyRecent seeds a vault with many entries
 // older than the reconcile window, converges, then makes ONE recent
-// write and syncs — asserting via SyncStats that only the recent entry
-// moves, not the whole vault.
+// write and syncs — asserting that only the recent entry moves, not
+// the whole vault.
 func TestSync_DeltaWindow_MovesOnlyRecent(t *testing.T) {
 	q := server.DefaultQuotas()
 	q.TSSkewMs = 40 * 24 * 60 * 60 * 1000 // 40 days, so old entries are accepted
@@ -294,13 +329,9 @@ func TestSync_DeltaWindow_MovesOnlyRecent(t *testing.T) {
 	if err := c.Put([]byte("newkey"), []byte("newval")); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Sync(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	s := c.LastSyncStats()
-	if s.Pushed > 2 || s.Pulled > 2 {
+	if _, pushed, pulled := syncCounted(t, c); pushed > 2 || pulled > 2 {
 		t.Fatalf("windowed sync moved too much: pushed=%d pulled=%d (want a handful, not ~%d)",
-			s.Pushed, s.Pulled, nOld+1)
+			pushed, pulled, nOld+1)
 	}
 
 	// Convergence: a fresh reader still sees all 21 keys.
@@ -333,12 +364,8 @@ func TestSync_FastPathLocalWrite(t *testing.T) {
 	if err := c.Put([]byte("extra"), []byte("val")); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Sync(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	s := c.LastSyncStats()
-	if s.Pushed != 1 || s.Pulled != 0 {
-		t.Fatalf("fast path: pushed=%d pulled=%d, want 1 pushed / 0 pulled", s.Pushed, s.Pulled)
+	if _, pushed, pulled := syncCounted(t, c); pushed != 1 || pulled != 0 {
+		t.Fatalf("fast path: pushed=%d pulled=%d, want 1 pushed / 0 pulled", pushed, pulled)
 	}
 }
 
@@ -377,13 +404,10 @@ func TestSync_FailedSyncKeepsFastPath(t *testing.T) {
 		t.Fatal("sync with the transport down succeeded")
 	}
 	tr.down = false
-	if err := c.Sync(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	// The fast path is PUSH then a matching PROBE; a walk would take
 	// PROBE, PULL, PUSH, PROBE.
-	if s := c.LastSyncStats(); s.RoundTrips != 2 || s.Pushed != 1 {
-		t.Fatalf("retry: %d round trips, pushed=%d; want the fast path's 2 and 1", s.RoundTrips, s.Pushed)
+	if trips, pushed, _ := syncCounted(t, c); trips != 2 || pushed != 1 {
+		t.Fatalf("retry: %d round trips, pushed=%d; want the fast path's 2 and 1", trips, pushed)
 	}
 }
 

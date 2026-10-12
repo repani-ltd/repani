@@ -967,7 +967,7 @@ func runExport(args []string) {
 		w = f
 	}
 	c := openClient()
-	if err := c.ExportCSV(w); err != nil {
+	if err := exportCSV(c, w); err != nil {
 		fatal("export: %v", err)
 	}
 }
@@ -992,7 +992,7 @@ func runImport(args []string) {
 		r = f
 	}
 	c := openClient()
-	n, err := c.ImportCSV(r)
+	n, err := importCSV(c, r)
 	if err != nil {
 		fatal("import: %v", err)
 	}
