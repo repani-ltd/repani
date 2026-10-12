@@ -1,28 +1,65 @@
-// Drives the JavaScript client (js/kv.js) through js/kv_test.mjs:
-// vectors generated here from the Go implementation, then live sync
-// phases against an in-process server. Skips when node is absent.
+// Drives the JavaScript client (js/kv.js) in headless Chrome, through
+// js/kv_test.js (vectors generated here from the Go implementation,
+// then live sync steps) and js/client_test.js (the Client's
+// behaviour). One local server serves the page, the modules and the
+// kv server on one origin. Skips when there is no Chrome.
 package integration_test
 
 import (
-	"bufio"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"repani.com/ascon"
+	"repani.com/chrometest"
 	"repani.com/kv/server"
 	"repani.com/kv/vault"
 	"repani.com/kv/wire"
 )
 
+// jsSite serves js/ (kv.js and its test modules) at the root of a
+// local origin, a blank page at "/", and whatever routes adds, then
+// opens the page in headless Chrome. It returns the page and the
+// origin.
+func jsSite(t *testing.T, routes func(*http.ServeMux)) (*chrometest.Page, string) {
+	t.Helper()
+	if !chrometest.Available(chrometest.Options{}) {
+		t.Skip("no Chrome; set CHROMETEST_CHROME to its binary to test kv.js")
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /", http.FileServerFS(os.DirFS("../js")))
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		io.WriteString(w, "<!doctype html><title>kv.js</title>")
+	})
+	routes(mux)
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	p := chrometest.Chrome(t, chrometest.Options{})
+	p.Navigate(ts.URL + "/")
+	return p, ts.URL
+}
+
+// jsFails fails the test with each failure a JS check reported.
+func jsFails(t *testing.T, what string, raw json.RawMessage) {
+	t.Helper()
+	var fails []string
+	if err := json.Unmarshal(raw, &fails); err != nil {
+		t.Fatalf("%s: %s", what, raw)
+	}
+	for _, f := range fails {
+		t.Errorf("%s: %s", what, f)
+	}
+}
+
 // jsVectors builds the cross-implementation vector set consumed by
-// js/kv_test.mjs. Every value is produced by the Go packages, so the
+// js/kv_test.js. Every value is produced by the Go packages, so the
 // JS side is always checked against the current Go behaviour.
 func jsVectors(t *testing.T) map[string]any {
 	t.Helper()
@@ -145,29 +182,29 @@ func jsVectors(t *testing.T) map[string]any {
 }
 
 // TestJSClient checks js/kv.js against the Go implementation: byte-
-// exact vectors for every protocol layer, then live PROBE/PULL sync
-// phases against a real server populated by the Go client.
+// exact vectors for every protocol layer, then live sync steps against
+// a real server populated by the Go client.
 func TestJSClient(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not found in PATH; skipping JS client test")
-	}
-
-	vecPath := filepath.Join(t.TempDir(), "vectors.json")
-	vecJSON, err := json.Marshal(jsVectors(t))
+	vectors, err := json.Marshal(jsVectors(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(vecPath, vecJSON, 0o600); err != nil {
+	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
+	if err != nil {
 		t.Fatal(err)
 	}
-	script := filepath.Join("..", "js", "kv_test.mjs")
+	p, origin := jsSite(t, func(mux *http.ServeMux) {
+		mux.Handle("POST "+server.SyncPath, srv)
+		mux.HandleFunc("GET /vectors.json", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(vectors)
+		})
+	})
+	jsFails(t, "vectors", p.Eval(`import("/kv_test.js").then((m) => m.vectors())`))
 
 	// Live server, vault written by the Go client.
-	_, ts := newServer(t)
-	defer ts.Close()
 	rk := vault.RootKey{42}
-	dev := device(t, rk, ts.URL)
+	dev := device(t, rk, origin)
 	put := func(key, value string) {
 		t.Helper()
 		if err := dev.Put([]byte(key), []byte(value)); err != nil {
@@ -182,43 +219,15 @@ func TestJSClient(t *testing.T) {
 	}
 	mustSync(t, dev)
 
-	cmd := exec.Command(node, script, vecPath, ts.URL, vault.EncodeRootKey(rk))
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stderr []byte
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	go func() { stderr, _ = io.ReadAll(stderrPipe); close(done) }()
-	timer := time.AfterFunc(60*time.Second, func() { _ = cmd.Process.Kill() })
-	defer timer.Stop()
-
-	replies := bufio.NewScanner(stdout)
+	p.Eval(fmt.Sprintf(`import("/kv_test.js").then((m) => m.live(%s))`, chrometest.JS(vault.EncodeRootKey(rk))))
 	send := func(cmd map[string]any) {
 		t.Helper()
-		req, err := json.Marshal(cmd)
+		c, err := json.Marshal(cmd)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := stdin.Write(append(req, '\n')); err != nil {
-			t.Fatalf("write to js harness: %v", err)
-		}
-		if !replies.Scan() {
-			t.Fatalf("js harness closed stdout; stderr:\n%s", stderr)
-		}
-		if reply := replies.Text(); reply != "OK" {
-			t.Fatalf("js harness: %s", reply)
+		if reply := p.Str(fmt.Sprintf(`import("/kv_test.js").then((m) => m.step(%s))`, c)); reply != "OK" {
+			t.Fatalf("js step %s: %s", c, reply)
 		}
 	}
 	step := func(expect map[string]string, probeOnly bool) {
@@ -254,7 +263,7 @@ func TestJSClient(t *testing.T) {
 	step(map[string]string{"js/a": "from js"}, false)
 
 	// A Go device on the same vault must see exactly the JS writes.
-	dev2 := device(t, rk2, ts.URL)
+	dev2 := device(t, rk2, origin)
 	mustSync(t, dev2)
 	assertState(t, dev2, map[string]string{"js/a": "from js"})
 
@@ -286,43 +295,26 @@ func TestJSClient(t *testing.T) {
 	// A keyless client on an unregistered vault fails cleanly.
 	send(map[string]any{"cmd": "vault2", "rootKey": vault.EncodeRootKey(vault.RootKey{11})})
 	send(map[string]any{"cmd": "sync", "expectError": "no register key installed"})
-
-	if _, err := io.WriteString(stdin, `{"cmd":"end"}`+"\n"); err != nil {
-		t.Fatalf("write to js harness: %v", err)
-	}
-	<-done
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("js harness failed: %v\nstderr:\n%s", err, stderr)
-	}
 }
 
-// TestJSClientBehaviour runs js/client_test.mjs: what kv.js's Client
+// TestJSClientBehaviour runs js/client_test.js: what kv.js's Client
 // promises under concurrent async use (one sync at a time, covering
 // every earlier write; writes in call order; nothing lost on a failed
-// sync), its error kinds, close, subscribe, and the cached view.
+// sync), its error kinds, close, subscribe, and the cached view. The
+// quota server, holding two entries per vault, is mounted under /q.
 func TestJSClientBehaviour(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not found in PATH; skipping JS client test")
-	}
-	_, ts := newServer(t)
-	defer ts.Close()
-	q := server.DefaultQuotas()
-	q.MaxEntries = 2
-	qsrv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey, Quotas: q})
+	srv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	qts := httptest.NewServer(qsrv)
-	defer qts.Close()
-
-	script := filepath.Join("..", "js", "client_test.mjs")
-	cmd := exec.Command(node, script, ts.URL, qts.URL, vault.EncodeRegisterKey(testRegKey))
-	timer := time.AfterFunc(60*time.Second, func() { _ = cmd.Process.Kill() })
-	defer timer.Stop()
-	out, err := cmd.CombinedOutput()
+	qsrv, err := server.NewWithOptions(server.Options{RegisterKey: &testRegKey, Quotas: server.Quotas{MaxEntries: 2}})
 	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
+		t.Fatal(err)
 	}
-	t.Logf("%s", out)
+	p, origin := jsSite(t, func(mux *http.ServeMux) {
+		mux.Handle("POST "+server.SyncPath, srv)
+		mux.Handle("POST /q"+server.SyncPath, http.StripPrefix("/q", qsrv))
+	})
+	q := url.Values{"url": {origin}, "quota": {origin + "/q"}, "reg": {vault.EncodeRegisterKey(testRegKey)}}
+	jsFails(t, "client", p.Eval(fmt.Sprintf(`import(%s).then((m) => m.fails)`, chrometest.JS("/client_test.js?"+q.Encode()))))
 }

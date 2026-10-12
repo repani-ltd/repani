@@ -1,24 +1,25 @@
 // Behaviour tests for kv.js's Client: what it promises under
-// concurrent async use, how it fails, and its cached view. Driven by
-// integration/js_test.go (TestJSClientBehaviour), which hosts the
-// servers and passes them in:
+// concurrent async use, how it fails, and its cached view. Driven in
+// headless Chrome by integration/js_test.go (TestJSClientBehaviour),
+// which hosts the servers and imports this module with them in its
+// query:
 //
-//   node js/client_test.mjs <serverURL> <quotaServerURL> <registerKeyBlob>
+//   import("/client_test.js?url=<server>&quota=<server>&reg=<blob>")
 //
-// The quota server holds at most two entries per vault. Exit code 0
-// iff every check passed.
+// The quota server holds at most two entries per vault. The checks run
+// as the module loads; the import resolves once they are done, and
+// `fails` lists the ones that failed.
 import * as kv from "./kv.js";
 
-const [url, quotaURL, regBlob] = process.argv.slice(2);
-const reg = kv.decodeRegisterKey(regBlob);
+const params = new URL(import.meta.url).searchParams;
+const url = params.get("url");
+const quotaURL = params.get("quota");
+const reg = kv.decodeRegisterKey(params.get("reg"));
 const td = new TextDecoder();
 
-let failed = 0;
+export const fails = [];
 function check(ok, name) {
-  if (!ok) {
-    failed++;
-    console.error("FAIL " + name);
-  }
+  if (!ok) fails.push(name);
 }
 
 function client(rk, opts = {}) {
@@ -190,9 +191,3 @@ async function kindOf(p) {
   }
   check(same, "the cached view matches a full replay after every arrival");
 }
-
-if (failed) {
-  console.error(failed + " failed");
-  process.exit(1);
-}
-console.log("PASS");
