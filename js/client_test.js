@@ -208,4 +208,11 @@ async function kindOf(p) {
     if (await state(c) !== await state(fresh)) same = false;
   }
   check(same, "the cached view matches a full replay after every arrival");
+  // The store kept canonical order as entries arrived: the same order
+  // a full sort gives, and the same set hash.
+  const resorted = store.appended(0).slice();
+  kv.sortCanonical(resorted);
+  const hex = (pairs) => pairs.map((p) => p.id.join(",")).join(";");
+  check(hex(store.sortedPairs()) === hex(resorted), "the store's canonical order matches a full sort");
+  check(kv.setHash(resorted).join() === store.setHash().join(), "the store's set hash matches a full sort's");
 }

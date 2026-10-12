@@ -90,7 +90,20 @@ record of what the server has.
 
 After a local write the client pushes just the new entries and
 probes. When those were the whole difference the probe matches, so
-writing one key moves one entry, whatever the vault's size.
+writing one key moves one entry, whatever the vault's size. The other
+common case is the mirror image, another device having written: the
+pull brings the difference, so the client probes again before it
+pushes, and a match spares sending the window back. The probe is one
+fixed-size frame; the push it saves is the whole window.
+
+On the devices, an entry is hashed once, when it enters the store,
+which keeps the canonical order as entries arrive; a read decrypts
+only the entries the store gained since the last read. The cost of a
+write or a read is therefore what changed, not the vault's size. What
+still grows with the window is the pull after a difference: entries
+written within it come down again, and are hashed to be recognised.
+Catalogue reconciliation (Not built yet) is the answer if that cost is
+ever measured in practice.
 
 The loop converges because a pull walked to an empty page leaves the
 client holding every server entry in the window, and the push leaves

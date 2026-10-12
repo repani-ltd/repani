@@ -75,6 +75,7 @@ PROBE                                     OK: done
 anchor = round 0: newest ts_ms in the store, less the window
          later:   zero (the whole set)
 PULL from (anchor, zero id), page by page, until a page is empty
+PROBE                                     OK: done
 PUSH own entries from the same anchor, a page at a time
 next round
 .end

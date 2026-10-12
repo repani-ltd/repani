@@ -9,7 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -70,6 +71,10 @@ type Client struct {
 	recent     []vault.Entry    // entries written since the last sync (fast-path push)
 	windowMs   uint64           // reconcile look-back window
 	lastStats  SyncStats
+
+	viewMu sync.Mutex
+	view   map[string]keyValue // the merged view, by key (foldLocked)
+	folded int                 // how many of the store's entries view has taken
 }
 
 // defaultSyncWindowMs is the reconcile look-back: on a plain sync a
@@ -93,6 +98,7 @@ func New(rk vault.RootKey, s store.Store, t Transport) (*Client, error) {
 		store:    s,
 		tran:     t,
 		windowMs: defaultSyncWindowMs,
+		view:     make(map[string]keyValue),
 		nowMs:    func() uint64 { return uint64(time.Now().UnixMilli()) },
 	}, nil
 }
@@ -220,39 +226,51 @@ func (c *Client) nextTs() uint64 {
 
 // --- reads (last-writer-wins merge) ---
 
+// keyValue is a key's winning entry in the view. An empty stored value
+// is a tombstone; a non-empty one is fmt(1)||payload, and value is the
+// payload.
 type keyValue struct {
 	value []byte
 	fmt   byte
 	ts    uint64
+	id    vault.EntryID
 	tomb  bool
 }
 
-// replay decrypts every entry in canonical order; later entries override
-// earlier ones. An empty stored value is a tombstone; a non-empty one is
-// fmt(1)||payload, and payload is returned. Entries that fail to open are
-// silently skipped (they remain in the store so the set still matches
-// the server's).
-func (c *Client) replay() map[string]keyValue {
-	sorted := c.store.Sorted()
-	out := make(map[string]keyValue, len(sorted))
-	for _, e := range sorted {
+// foldLocked brings the view up to the store: the Merge of PROTOCOL.t,
+// kept rather than rebuilt. It decrypts only the entries the store
+// gained since the last read (Store.Appended), each taking its key when
+// it comes later in canonical order than the key's current winner --
+// the same result as replaying the whole set, since a key's value
+// depends only on its latest entry. An entry that fails to open is
+// skipped, stays in the store so the set still matches the server's,
+// and is never tried again. c.viewMu held.
+func (c *Client) foldLocked() {
+	for _, e := range c.store.Appended(c.folded) {
+		c.folded++
 		k, sv, err := vault.Open(c.aead, e)
 		if err != nil {
 			continue
 		}
+		id := e.ID()
+		if cur, ok := c.view[string(k)]; ok && !posAfter(e.TsMs, id, cur.ts, cur.id) {
+			continue
+		}
 		fmtTag, value, tomb := ParseValue(sv)
-		out[string(k)] = keyValue{value: value, fmt: fmtTag, ts: e.TsMs, tomb: tomb}
+		c.view[string(k)] = keyValue{value: value, fmt: fmtTag, ts: e.TsMs, id: id, tomb: tomb}
 	}
-	return out
 }
 
 // Get returns the current value for key.
 func (c *Client) Get(key []byte) (value []byte, ok bool, err error) {
-	kv, found := c.replay()[string(key)]
+	c.viewMu.Lock()
+	defer c.viewMu.Unlock()
+	c.foldLocked()
+	kv, found := c.view[string(key)]
 	if !found || kv.tomb {
 		return nil, false, nil
 	}
-	return kv.value, true, nil
+	return bytes.Clone(kv.value), true, nil
 }
 
 // List returns the sorted live keys.
@@ -277,17 +295,14 @@ type LiveEntry struct {
 
 // All returns every live (key, value) pair, sorted by key.
 func (c *Client) All() ([]LiveEntry, error) {
-	m := c.replay()
-	keys := make([]string, 0, len(m))
-	for k, kv := range m {
-		if !kv.tomb {
-			keys = append(keys, k)
+	c.viewMu.Lock()
+	defer c.viewMu.Unlock()
+	c.foldLocked()
+	var out []LiveEntry
+	for _, k := range slices.Sorted(maps.Keys(c.view)) {
+		if kv := c.view[k]; !kv.tomb {
+			out = append(out, LiveEntry{Key: []byte(k), Value: bytes.Clone(kv.value), Fmt: kv.fmt, Ts: kv.ts})
 		}
-	}
-	sort.Strings(keys)
-	out := make([]LiveEntry, len(keys))
-	for i, k := range keys {
-		out[i] = LiveEntry{Key: []byte(k), Value: m[k].value, Fmt: m[k].fmt, Ts: m[k].ts}
 	}
 	return out, nil
 }
@@ -383,6 +398,11 @@ func (c *Client) round(ctx context.Context, round int, recent []vault.Entry, st 
 	if err := c.pullFrom(ctx, anchorTs, anchorID, st); err != nil {
 		return false, err
 	}
+	// The pull is often the whole difference (another device wrote): a
+	// PROBE, one fixed-size frame, then spares pushing the window back.
+	if inSync, err := c.probe(ctx, st); err != nil || inSync {
+		return inSync, err
+	}
 	return false, c.pushFrom(ctx, anchorTs, anchorID, st)
 }
 
@@ -397,12 +417,8 @@ func (c *Client) reconcileAnchor(round int) (uint64, vault.EntryID) {
 	c.mu.Lock()
 	w := c.windowMs
 	c.mu.Unlock()
-	sorted := c.store.Sorted()
-	if n := len(sorted); n > 0 {
-		fTs := sorted[n-1].TsMs
-		if fTs > w {
-			return fTs - w, vault.EntryID{}
-		}
+	if newest, ok := c.store.Newest(); ok && newest.TsMs > w {
+		return newest.TsMs - w, vault.EntryID{}
 	}
 	return 0, vault.EntryID{}
 }
@@ -500,7 +516,8 @@ func (c *Client) pullFrom(ctx context.Context, anchorTs uint64, anchorID vault.E
 			return nil
 		}
 		last := resp.Entries[len(resp.Entries)-1]
-		if !posAfter(last.TsMs, last.ID(), curTs, curID) {
+		lastID := last.ID()
+		if !posAfter(last.TsMs, lastID, curTs, curID) {
 			return errors.New("client: server pull did not advance the cursor")
 		}
 		bytesIn := 0
@@ -516,7 +533,7 @@ func (c *Client) pullFrom(ctx context.Context, anchorTs uint64, anchorID vault.E
 		st.Pulled += len(resp.Entries)
 		st.PulledBytes += bytesIn
 		c.tracef("PULL -> %d entries (%d B)", len(resp.Entries), bytesIn)
-		curTs, curID = last.TsMs, last.ID()
+		curTs, curID = last.TsMs, lastID
 	}
 }
 

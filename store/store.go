@@ -34,4 +34,14 @@ type Store interface {
 	// after the cursor (afterTs, afterID), up to budget bytes but always
 	// at least one if any remain. Powers the paged PULL.
 	EntriesAfter(afterTs uint64, afterID vault.EntryID, budget int) []vault.Entry
+
+	// Appended returns the entries added after the first n, in the
+	// order they were added. A store only grows, so a reader that has
+	// taken n entries takes exactly the new ones with Appended(n).
+	// The slice must not be mutated.
+	Appended(n int) []vault.Entry
+
+	// Newest returns the last entry in canonical order, and false when
+	// the store is empty.
+	Newest() (vault.Entry, bool)
 }

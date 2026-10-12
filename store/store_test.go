@@ -58,6 +58,47 @@ func TestMemStore_SortedStable(t *testing.T) {
 	}
 }
 
+// TestMemStore_OrderKeptOnInsert: entries added in shuffled order, with
+// timestamp ties, read back in canonical order exactly as a full sort
+// gives it; EntriesAfter from every cursor, Appended and Newest agree.
+func TestMemStore_OrderKeptOnInsert(t *testing.T) {
+	rk, _ := vault.NewRandomRootKey()
+	var all []vault.Entry
+	for i := range 60 {
+		all = append(all, mkEntry(t, rk, uint64(1000+(i*37)%17), "k", "v"))
+	}
+	m := NewMemStore()
+	for i, e := range all {
+		m.Add(e)
+		if got := m.Appended(i); len(got) != 1 || got[0].ID() != e.ID() {
+			t.Fatalf("Appended(%d) is not the entry just added", i)
+		}
+	}
+	want := append([]vault.Entry(nil), all...)
+	vault.SortCanonical(want)
+	got := m.Sorted()
+	for i := range want {
+		if got[i].ID() != want[i].ID() {
+			t.Fatalf("position %d out of canonical order", i)
+		}
+	}
+	if m.SetHash() != vault.SetHash(want) {
+		t.Fatal("SetHash differs from a full sort's")
+	}
+	for i, e := range want {
+		after := m.EntriesAfter(e.TsMs, e.ID(), 1<<30)
+		if len(after) != len(want)-i-1 || (len(after) > 0 && after[0].ID() != want[i+1].ID()) {
+			t.Fatalf("EntriesAfter entry %d: %d entries", i, len(after))
+		}
+	}
+	if n, ok := m.Newest(); !ok || n.ID() != want[len(want)-1].ID() {
+		t.Fatal("Newest is not the last in canonical order")
+	}
+	if len(m.Appended(0)) != len(all) || len(m.Appended(len(all))) != 0 {
+		t.Fatal("Appended bounds")
+	}
+}
+
 func TestMemStore_SetHashReproducibleAndInvalidated(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
 	m := NewMemStore()

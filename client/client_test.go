@@ -430,3 +430,72 @@ func TestSync_PreChannelIsAnError(t *testing.T) {
 		t.Errorf("error text %q, want %q", err, want)
 	}
 }
+
+// replayAll is the Merge of PROTOCOL.t done the long way: open every
+// entry in canonical order, later overriding earlier.
+func replayAll(t *testing.T, rk vault.RootKey, s store.Store) map[string]string {
+	t.Helper()
+	aead, err := rk.AEAD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := map[string]string{}
+	for _, e := range s.Sorted() {
+		k, sv, err := vault.Open(aead, e)
+		if err != nil {
+			continue
+		}
+		if _, v, tomb := ParseValue(sv); tomb {
+			delete(view, string(k))
+		} else {
+			view[string(k)] = string(v)
+		}
+	}
+	return view
+}
+
+// TestView_MatchesFullReplay: the kept view equals a full replay after
+// every arrival, whatever order entries arrive in -- shuffled
+// timestamps, ties, tombstones, and entries that do not open.
+func TestView_MatchesFullReplay(t *testing.T) {
+	rk, _ := vault.NewRandomRootKey()
+	other, _ := vault.NewRandomRootKey()
+	aead, _ := rk.AEAD()
+	otherAEAD, _ := other.AEAD()
+	var entries []vault.Entry
+	for i := range 80 {
+		a := aead
+		if i%11 == 0 {
+			a = otherAEAD // does not open under rk
+		}
+		var value []byte
+		if i%7 != 0 { // every seventh a tombstone
+			value = WrapValue(fmtRaw, fmt.Appendf(nil, "v%d", i))
+		}
+		e, err := vault.Seal(a, uint64(1000+(i*37)%23), []byte{'a' + byte(i%3)}, value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries = append(entries, e)
+	}
+	for i := len(entries) - 1; i > 0; i-- {
+		j := (i * 7919) % (i + 1)
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+	s := store.NewMemStore()
+	c, err := New(rk, s, tryLater{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, e := range entries {
+		s.Add(e)
+		all, _ := c.All()
+		got := map[string]string{}
+		for _, p := range all {
+			got[string(p.Key)] = string(p.Value)
+		}
+		if want := replayAll(t, rk, s); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Fatalf("after %d arrivals: view %v, full replay %v", i+1, got, want)
+		}
+	}
+}

@@ -45,12 +45,12 @@ var ErrBadMagic = errors.New("logstore: bad or missing magic header")
 // ErrLocked reports a log whose advisory lock another process holds.
 var ErrLocked = errors.New("logstore: locked by another process")
 
-// LogStore wraps a MemStore with an append-only log for persistence.
+// LogStore is a MemStore made durable by an append-only log: Add
+// writes the log first, and every read is the MemStore's.
 type LogStore struct {
-	mem  *MemStore
-	mu   sync.Mutex
-	f    *os.File
-	path string
+	*MemStore
+	mu sync.Mutex
+	f  *os.File
 }
 
 // OpenLogStore opens (or creates) a log file at path and rebuilds the
@@ -74,11 +74,7 @@ func OpenLogStore(path string, lockWait time.Duration) (*LogStore, error) {
 		_ = f.Close()
 		return nil, err
 	}
-	ls := &LogStore{
-		mem:  NewMemStore(),
-		f:    f,
-		path: path,
-	}
+	ls := &LogStore{MemStore: NewMemStore(), f: f}
 	if err := ls.init(dir); err != nil {
 		_ = f.Close()
 		return nil, err
@@ -192,7 +188,7 @@ func (ls *LogStore) replay() error {
 		if err != nil || consumed != int(recLen) {
 			return ls.truncateTo(offset) // unparsable body: torn tail
 		}
-		if _, err := ls.mem.Add(e); err != nil {
+		if _, err := ls.MemStore.Add(e); err != nil { // memory only: the record is on disk
 			return err
 		}
 		offset += 4 + int64(recLen)
@@ -229,7 +225,7 @@ func (ls *LogStore) Add(entries ...vault.Entry) (int, error) {
 	total := 0
 	for _, e := range entries {
 		id := e.ID()
-		if seen[id] || ls.mem.Has(id) {
+		if seen[id] || ls.Has(id) {
 			continue
 		}
 		seen[id] = true
@@ -259,7 +255,7 @@ func (ls *LogStore) Add(entries ...vault.Entry) (int, error) {
 		return 0, err
 	}
 	for i := range news {
-		ls.mem.addID(ids[i], news[i])
+		ls.addID(ids[i], news[i])
 	}
 	return len(news), nil
 }
@@ -268,13 +264,4 @@ func (ls *LogStore) Add(entries ...vault.Entry) (int, error) {
 func (ls *LogStore) rollback(off int64) {
 	_ = ls.f.Truncate(off)
 	_, _ = ls.f.Seek(off, io.SeekStart)
-}
-
-func (ls *LogStore) Has(id vault.EntryID) bool { return ls.mem.Has(id) }
-func (ls *LogStore) Len() uint32               { return ls.mem.Len() }
-func (ls *LogStore) Sorted() []vault.Entry     { return ls.mem.Sorted() }
-func (ls *LogStore) SetHash() [16]byte         { return ls.mem.SetHash() }
-
-func (ls *LogStore) EntriesAfter(afterTs uint64, afterID vault.EntryID, budget int) []vault.Entry {
-	return ls.mem.EntriesAfter(afterTs, afterID, budget)
 }

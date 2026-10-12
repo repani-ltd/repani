@@ -2,27 +2,31 @@ package store
 
 import (
 	"bytes"
-	"sort"
+	"cmp"
+	"slices"
 	"sync"
 
 	"repani.com/kv/vault"
 )
 
-// MemStore is an in-memory Store backed by a map plus a lazily
-// maintained canonical-order snapshot (entries and their ids in
-// parallel). It is safe for concurrent use.
+// MemStore is an in-memory Store. It keeps the entries in the order
+// they were added, each with its id, and a canonical-order index that
+// every insert updates in place. An entry is hashed once, when it is
+// added: no read re-sorts or re-hashes the set. It is safe for
+// concurrent use.
 type MemStore struct {
-	mu        sync.Mutex
-	byID      map[vault.EntryID]vault.Entry
-	sorted    []vault.Entry   // nil when stale
-	sortedIDs []vault.EntryID // parallel to sorted
-	setHash   [16]byte
-	hashSet   bool
+	mu      sync.Mutex
+	entries []vault.Entry   // in the order added
+	ids     []vault.EntryID // ids[i] is entries[i]'s id
+	has     map[vault.EntryID]bool
+	order   []int // indexes into entries, in canonical order
+	setHash [16]byte
+	hashSet bool
 }
 
 // NewMemStore returns a fresh empty MemStore.
 func NewMemStore() *MemStore {
-	return &MemStore{byID: make(map[vault.EntryID]vault.Entry)}
+	return &MemStore{has: make(map[vault.EntryID]bool)}
 }
 
 // Add implements Store.Add, under one lock.
@@ -46,72 +50,71 @@ func (m *MemStore) addID(id vault.EntryID, e vault.Entry) bool {
 	return m.addLocked(id, e)
 }
 
-// addLocked inserts e under id. m.mu held.
+// addLocked inserts e under id, placing it in canonical order: at the
+// end, as most entries arrive, or by binary search. m.mu held.
 func (m *MemStore) addLocked(id vault.EntryID, e vault.Entry) bool {
-	if _, ok := m.byID[id]; ok {
+	if m.has[id] {
 		return false
 	}
-	m.byID[id] = e
-	m.sorted = nil
-	m.sortedIDs = nil
+	i := len(m.entries)
+	m.entries = append(m.entries, e)
+	m.ids = append(m.ids, id)
+	m.has[id] = true
+	if n := len(m.order); n == 0 || m.compare(m.order[n-1], e.TsMs, id) < 0 {
+		m.order = append(m.order, i)
+	} else {
+		at, _ := slices.BinarySearchFunc(m.order, i, func(j, _ int) int { return m.compare(j, e.TsMs, id) })
+		m.order = slices.Insert(m.order, at, i)
+	}
 	m.hashSet = false
 	return true
+}
+
+// compare orders entry j against the position (ts, id) canonically.
+func (m *MemStore) compare(j int, ts uint64, id vault.EntryID) int {
+	if c := cmp.Compare(m.entries[j].TsMs, ts); c != 0 {
+		return c
+	}
+	return bytes.Compare(m.ids[j][:], id[:])
 }
 
 // Has implements Store.Has.
 func (m *MemStore) Has(id vault.EntryID) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	_, ok := m.byID[id]
-	return ok
+	return m.has[id]
 }
 
 // Len implements Store.Len.
 func (m *MemStore) Len() uint32 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return uint32(len(m.byID))
+	return uint32(len(m.entries))
 }
 
-// Sorted implements Store.Sorted, returning a defensive copy.
+// Sorted implements Store.Sorted.
 func (m *MemStore) Sorted() []vault.Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.ensureSortedLocked()
-	out := make([]vault.Entry, len(m.sorted))
-	copy(out, m.sorted)
+	out := make([]vault.Entry, len(m.order))
+	for k, i := range m.order {
+		out[k] = m.entries[i]
+	}
 	return out
 }
 
-// ensureSortedLocked (re)builds the canonical snapshot and id index.
-func (m *MemStore) ensureSortedLocked() {
-	if m.sorted != nil {
-		return
-	}
-	out := make([]vault.Entry, 0, len(m.byID))
-	for _, e := range m.byID {
-		out = append(out, e)
-	}
-	vault.SortCanonical(out)
-	ids := make([]vault.EntryID, len(out))
-	for i := range out {
-		ids[i] = out[i].ID()
-	}
-	m.sorted = out
-	m.sortedIDs = ids
-}
-
-// SetHash implements Store.SetHash with caching.
+// SetHash implements Store.SetHash, cached until the next add.
 func (m *MemStore) SetHash() [16]byte {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.hashSet {
-		return m.setHash
+	if !m.hashSet {
+		ids := make([]vault.EntryID, len(m.order))
+		for k, i := range m.order {
+			ids[k] = m.ids[i]
+		}
+		m.setHash = vault.SetHashIDs(ids)
+		m.hashSet = true
 	}
-	m.ensureSortedLocked()
-	// Reuse the canonical id index rather than re-hashing every entry.
-	m.setHash = vault.SetHashIDs(m.sortedIDs)
-	m.hashSet = true
 	return m.setHash
 }
 
@@ -122,25 +125,38 @@ func (m *MemStore) SetHash() [16]byte {
 func (m *MemStore) EntriesAfter(afterTs uint64, afterID vault.EntryID, budget int) []vault.Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.ensureSortedLocked()
-
-	// First index strictly after the cursor (canonical order).
-	start := sort.Search(len(m.sorted), func(i int) bool {
-		if m.sorted[i].TsMs != afterTs {
-			return m.sorted[i].TsMs > afterTs
-		}
-		return bytes.Compare(m.sortedIDs[i][:], afterID[:]) > 0
-	})
-
+	start, found := slices.BinarySearchFunc(m.order, 0, func(j, _ int) int { return m.compare(j, afterTs, afterID) })
+	if found {
+		start++
+	}
 	var out []vault.Entry
 	used := 0
-	for i := start; i < len(m.sorted); i++ {
-		sz := m.sorted[i].Size()
+	for _, i := range m.order[start:] {
+		sz := m.entries[i].Size()
 		if len(out) > 0 && used+sz > budget {
 			break
 		}
-		out = append(out, m.sorted[i])
+		out = append(out, m.entries[i])
 		used += sz
 	}
 	return out
+}
+
+// Appended implements Store.Appended. Entries are only ever appended,
+// so the returned slice, capped at its length, stays valid.
+func (m *MemStore) Appended(n int) []vault.Entry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n = min(n, len(m.entries))
+	return m.entries[n:len(m.entries):len(m.entries)]
+}
+
+// Newest implements Store.Newest.
+func (m *MemStore) Newest() (vault.Entry, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.order) == 0 {
+		return vault.Entry{}, false
+	}
+	return m.entries[m.order[len(m.order)-1]], true
 }

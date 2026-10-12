@@ -538,7 +538,9 @@ export function preChannelText(b) {
 // Uint8Array(16); entriesAfter(afterTs, afterID, budget) -> [{entry,
 // id}] strictly after the cursor in canonical order, accumulating
 // until the next entry would exceed budget bytes but always at least
-// one if any remain.
+// one if any remain; appended(n) -> [{entry, id}] added after the
+// first n, in the order added (a store only grows, so a reader that
+// has taken n takes exactly the new ones).
 //
 // Optional: addMany(entries) -> number added, the batched add a pull
 // uses for each page (one commit per page instead of per entry);
@@ -552,45 +554,54 @@ function idHex(id) {
   return s;
 }
 
+// firstAfter is the index of the first pair in canonical-order sorted
+// strictly after the position (ts, id).
+function firstAfter(sorted, ts, id) {
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (posAfter(sorted[mid].entry.tsMs, sorted[mid].id, ts, id)) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+// MemStore keeps its pairs in the order added and in canonical order,
+// placing each as it arrives (at the end, as most do, or by binary
+// search), so no read re-sorts the set.
 export class MemStore {
   constructor() {
     this.byID = new Map(); // idHex -> {entry, id}
-    this.sorted = null;    // cached canonical [{entry, id}], null when stale
+    this.added = [];       // [{entry, id}] in the order added
+    this.sorted = [];      // the same pairs in canonical order
     this.hash = null;      // cached set hash, null when stale
   }
   add(entry, id = entryID(entry)) {
     const h = idHex(id);
     if (this.byID.has(h)) return false;
-    this.byID.set(h, { entry, id });
-    this.sorted = null;
+    const p = { entry, id };
+    this.byID.set(h, p);
+    this.added.push(p);
+    const s = this.sorted;
+    const last = s[s.length - 1];
+    if (!last || posAfter(entry.tsMs, id, last.entry.tsMs, last.id)) s.push(p);
+    else s.splice(firstAfter(s, entry.tsMs, id), 0, p);
     this.hash = null;
     return true;
   }
   has(h) { return this.byID.has(h); }
   len() { return this.byID.size; }
-  sortedPairs() {
-    if (this.sorted === null) {
-      this.sorted = Array.from(this.byID.values());
-      sortCanonical(this.sorted);
-    }
-    return this.sorted;
-  }
+  sortedPairs() { return this.sorted; }
+  appended(n) { return this.added.slice(n); }
   setHash() {
-    if (this.hash === null) this.hash = setHash(this.sortedPairs());
+    if (this.hash === null) this.hash = setHash(this.sorted);
     return this.hash;
   }
   entriesAfter(afterTs, afterID, budget) {
-    const sorted = this.sortedPairs();
-    // Binary search for the first position strictly after the cursor.
-    let lo = 0, hi = sorted.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (posAfter(sorted[mid].entry.tsMs, sorted[mid].id, afterTs, afterID)) hi = mid;
-      else lo = mid + 1;
-    }
+    const sorted = this.sorted;
     const out = [];
     let used = 0;
-    for (let i = lo; i < sorted.length; i++) {
+    for (let i = firstAfter(sorted, afterTs, afterID); i < sorted.length; i++) {
       const sz = entrySize(sorted[i].entry);
       if (out.length > 0 && used + sz > budget) break;
       out.push(sorted[i]);
@@ -737,6 +748,7 @@ export class IDBStore {
   has(h) { return this.mem.has(h); }
   len() { return this.mem.len(); }
   sortedPairs() { return this.mem.sortedPairs(); }
+  appended(n) { return this.mem.appended(n); }
   setHash() { return this.mem.setHash(); }
   entriesAfter(afterTs, afterID, budget) { return this.mem.entriesAfter(afterTs, afterID, budget); }
 
@@ -891,7 +903,7 @@ export class Client {
     this.closed = false;
     this.listeners = new Set();
     this.view = new Map(); // key hex -> {key, value, fmt, ts, id, tomb}
-    this.seen = new Set(); // ids (hex) already folded into view
+    this.folded = 0;       // how many of the store's entries view has taken
     store.onRemote = () => this.changed("tab");
   }
 
@@ -1052,6 +1064,9 @@ export class Client {
     const anchor = await this.reconcileAnchor(round);
     this.tracef("RECONCILE round " + round + ": window from ts=" + anchor.ts);
     await this.pullFrom(anchor.ts, anchor.id, st);
+    // The pull is often the whole difference (another device wrote): a
+    // PROBE, one fixed-size frame, then spares pushing the window back.
+    if (await this.probe(st)) return true;
     await this.pushFrom(anchor.ts, anchor.id, st);
     return false;
   }
@@ -1231,19 +1246,19 @@ export class Client {
 
   // replay returns the merged view: Map(key hex -> {key, value, fmt,
   // ts, id, tomb}), ts the winning entry's ts_ms as BigInt. Callers
-  // must not mutate it. It folds in only the entries it has not seen,
-  // each replacing its key's winner when it comes later in canonical
-  // order -- the same result as decrypting the whole set in order,
-  // since last-writer-wins depends only on each key's latest entry.
-  // An entry that fails to open is skipped (it stays in the store so
-  // the set still matches the server's) and never tried again.
+  // must not mutate it. It folds in only the entries the store gained
+  // since the last read (store.appended), each replacing its key's
+  // winner when it comes later in canonical order -- the same result
+  // as decrypting the whole set in order, since last-writer-wins
+  // depends only on each key's latest entry. An entry that fails to
+  // open is skipped (it stays in the store so the set still matches
+  // the server's) and never tried again. Two reads may overlap across
+  // the await: each takes up where the count stands when it resumes.
   async replay() {
-    const pairs = await this.store.sortedPairs();
-    if (pairs.length === this.seen.size) return this.view; // a store only grows
-    for (const { entry, id } of pairs) {
-      const h = idHex(id);
-      if (this.seen.has(h)) continue;
-      this.seen.add(h);
+    const from = this.folded;
+    const fresh = await this.store.appended(from);
+    for (const { entry, id } of fresh.slice(this.folded - from)) {
+      this.folded++;
       let kva;
       try {
         kva = openEntry(this.aeadKey, entry);
