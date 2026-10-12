@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 
 	"repani.com/kv/vault"
@@ -18,22 +17,16 @@ import (
 // round-trip cleanly through CSV; such vaults should prefer a
 // byte-preserving transport (e.g., a raw copy of entries.log).
 func (c *Client) ExportCSV(w io.Writer) error {
-	m := c.replay()
-	keys := make([]string, 0, len(m))
-	for k, kv := range m {
-		if kv.tomb {
-			continue
-		}
-		keys = append(keys, k)
+	all, err := c.All()
+	if err != nil {
+		return err
 	}
-	sort.Strings(keys)
-
 	cw := csv.NewWriter(w)
 	if err := cw.Write([]string{"Key", "Value"}); err != nil {
 		return err
 	}
-	for _, k := range keys {
-		if err := cw.Write([]string{k, string(m[k].value)}); err != nil {
+	for _, e := range all {
+		if err := cw.Write([]string{string(e.Key), string(e.Value)}); err != nil {
 			return err
 		}
 	}

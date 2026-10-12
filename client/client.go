@@ -257,15 +257,12 @@ func (c *Client) Get(key []byte) (value []byte, ok bool, err error) {
 
 // List returns the sorted live keys.
 func (c *Client) List() ([]string, error) {
-	m := c.replay()
-	out := make([]string, 0, len(m))
-	for k, kv := range m {
-		if !kv.tomb {
-			out = append(out, k)
-		}
+	all, err := c.All()
+	out := make([]string, len(all))
+	for i, e := range all {
+		out[i] = string(e.Key)
 	}
-	sort.Strings(out)
-	return out, nil
+	return out, err
 }
 
 // LiveEntry is a live (key, value) pair. Fmt is the value's format tag

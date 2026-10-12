@@ -403,6 +403,9 @@ export const ERR_TRY_LATER = 0xE5;
 export const CURSOR_SIZE = 8 + ENTRY_ID_SIZE;
 export const PAGE_BYTES = 256 * 1024;
 export const MAX_FRAME_BYTES = 1 << 20;
+// SYNC_PATH is the one HTTP route, relative to the server's base URL
+// (PROTOCOL.t, HTTP).
+export const SYNC_PATH = "/v1/sync";
 
 function buildFrameHeader(kind, vaultID, nonce) {
   const h = new Uint8Array(FRAME_HEADER_SIZE);
@@ -1268,12 +1271,7 @@ export class Client {
 
   // list returns the live keys as Uint8Arrays, sorted bytewise.
   async list() {
-    const out = [];
-    for (const kv of (await this.replay()).values()) {
-      if (!kv.tomb) out.push(kv.key);
-    }
-    out.sort(bytesCompare);
-    return out;
+    return (await this.all()).map((p) => p.key);
   }
 
   // all returns every live pair as [{key, value, fmt, ts}], sorted by
@@ -1296,7 +1294,7 @@ export class Client {
 // (PROTOCOL.t §HTTP); opts.timeoutMs defaults to 60s.
 
 export function httpTransport(base, opts = {}) {
-  const url = base.replace(/\/+$/, "") + "/v1/sync";
+  const url = base.replace(/\/+$/, "") + SYNC_PATH;
   const timeoutMs = opts.timeoutMs || 60000;
   const fetchFn = opts.fetch || globalThis.fetch;
   // Errors are SyncErrors: no answer (network, timeout) and the
