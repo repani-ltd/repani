@@ -100,10 +100,23 @@ function daysIn(y, m) {
 }
 const validCivil = (y, m, d) => y >= 1 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 && d <= daysIn(y, m);
 
-function validUTF8(s) {
-  // A JS string holds UTF-16; only a lone surrogate has no UTF-8 form.
-  return !/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(s);
+// loneSurrogate is the index of s's first lone surrogate, or -1. A JS
+// string holds UTF-16; only a lone surrogate has no UTF-8 form. A scan,
+// not a regular expression: lookbehind is a syntax error before Safari
+// 16.4, and one in this file would stop every page importing it.
+function loneSurrogate(s) {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0xd800 || c > 0xdfff) continue;
+    if (c <= 0xdbff) {
+      const n = s.charCodeAt(i + 1);
+      if (n >= 0xdc00 && n <= 0xdfff) { i++; continue; }
+    }
+    return i;
+  }
+  return -1;
 }
+const validUTF8 = (s) => loneSurrogate(s) < 0;
 
 function checkFloat(f, off) {
   if (Number.isNaN(f)) throw err("R005", off, "float is NaN");
@@ -459,7 +472,11 @@ function formatDuration(ms) {
   if (s > 0 || (h === 0 && m === 0)) {
     out += Math.floor(s / 1000);
     const frac = s % 1000;
-    if (frac > 0) out += "." + pad(frac, 3).replace(/0+$/, "");
+    if (frac > 0) {
+      let f = pad(frac, 3);
+      while (f.endsWith("0")) f = f.slice(0, -1);
+      out += "." + f;
+    }
     out += "s";
   }
   return out;
@@ -476,10 +493,8 @@ export function parse(line) {
 const isSpace = (c) => c === " " || c === "\t";
 
 function parseVals(line) {
-  if (!validUTF8(line)) {
-    const m = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.exec(line);
-    throw err("R006", m.index, "text is not valid UTF-8");
-  }
+  const bad = loneSurrogate(line);
+  if (bad >= 0) throw err("R006", bad, "text is not valid UTF-8");
   const p = { s: line, pos: 0 };
   const vals = [];
   space(p);
@@ -558,50 +573,145 @@ function parseStr(p) {
 
 function hex4(p) {
   const h = p.s.slice(p.pos, p.pos + 4);
-  if (!/^[0-9a-fA-F]{4}$/.test(h)) return null;
+  if (h.length !== 4 || ![...h].every(isHex)) return null;
   p.pos += 4;
   return parseInt(h, 16);
 }
 
-const RE = {
-  datetime: /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$/,
-  date: /^(\d{4})-(\d{2})-(\d{2})$/,
-  time: /^(\d{2}):(\d{2}):(\d{2})\.(\d{3})$/,
-  duration: /^(-?)(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)(?:\.(\d{1,3}))?s)?$/,
-  float: /^-?\d+(?:\.\d+)?[eE][+-]?\d+$/,
-  decimal: /^(-?)(\d+)\.(\d*)$/,
-  int: /^(-?)(\d+)$/,
-  bytes: /^0[xX]((?:[0-9a-fA-F]{2})*)$/,
-};
+// The bare items' shapes, matched by hand, with no regular expressions
+// (the Go twin is the same scan): some engines reject regexp syntax that
+// others accept, and one rejected literal stops the whole module. Each
+// match returns submatches in the manner of RegExp exec, m[0] the whole
+// token and "" for a group that is absent, or null. Digits are ASCII 0-9.
+
+const isDigit = (c) => c >= "0" && c <= "9";
+const isHex = (c) => isDigit(c) || (c >= "a" && c <= "f") || (c >= "A" && c <= "F");
+
+// digitRun is the end of the run of digits in t from i.
+function digitRun(t, i) {
+  while (i < t.length && isDigit(t[i])) i++;
+  return i;
+}
+
+// minus reads an optional leading "-": the group, and where the rest begins.
+const minus = (t) => (t[0] === "-" ? ["-", 1] : ["", 0]);
+
+// Fixed shapes: each "d" one digit, any other character itself; the
+// groups are the runs of "d".
+const SHAPE = { datetime: "dddd-dd-ddTdd:dd:dd.dddZ", date: "dddd-dd-dd", time: "dd:dd:dd.ddd" };
+
+function matchShape(t, shape) {
+  if (t.length !== shape.length) return null;
+  const m = [t];
+  let start = -1;
+  for (let i = 0; i <= shape.length; i++) {
+    if (i < shape.length && shape[i] === "d") {
+      if (!isDigit(t[i])) return null;
+      if (start < 0) start = i;
+      continue;
+    }
+    if (start >= 0) { m.push(t.slice(start, i)); start = -1; }
+    if (i < shape.length && t[i] !== shape[i]) return null;
+  }
+  return m;
+}
+
+// matchDuration: -? (N h)? (N m)? (N (.F)? s)?, F one to three digits;
+// m[1] the sign, m[2], m[3], m[4] hours, minutes, seconds, m[5] the
+// fraction. Every part may be absent, so the empty token matches; the
+// caller asks for one of m[2..4].
+function matchDuration(t) {
+  const m = [t, "", "", "", "", ""];
+  let i;
+  [m[1], i] = minus(t);
+  ["h", "m"].forEach((unit, g) => {
+    const j = digitRun(t, i);
+    if (j > i && t[j] === unit) { m[2 + g] = t.slice(i, j); i = j + 1; }
+  });
+  const j = digitRun(t, i);
+  if (j > i) {
+    let k = j;
+    if (t[k] === ".") {
+      const e = digitRun(t, k + 1);
+      if (e - (k + 1) < 1 || e - (k + 1) > 3) return null;
+      m[5] = t.slice(k + 1, e);
+      k = e;
+    }
+    if (t[k] !== "s") return null;
+    m[4] = t.slice(i, j);
+    i = k + 1;
+  }
+  return i === t.length ? m : null;
+}
+
+// isFloat: -? D+ (. D+)? [eE] [+-]? D+.
+function isFloat(t) {
+  const i = minus(t)[1];
+  let j = digitRun(t, i);
+  if (j === i) return false;
+  if (t[j] === ".") {
+    const k = digitRun(t, j + 1);
+    if (k === j + 1) return false;
+    j = k;
+  }
+  if (t[j] !== "e" && t[j] !== "E") return false;
+  j++;
+  if (t[j] === "+" || t[j] === "-") j++;
+  const k = digitRun(t, j);
+  return k > j && k === t.length;
+}
+
+// matchDecimal: -? D+ . D*; m[1] the sign, m[2] the whole digits, m[3]
+// the fraction's.
+function matchDecimal(t) {
+  const [s, i] = minus(t);
+  const j = digitRun(t, i);
+  if (j === i || t[j] !== "." || digitRun(t, j + 1) !== t.length) return null;
+  return [t, s, t.slice(i, j), t.slice(j + 1)];
+}
+
+// matchInt: -? D+; m[1] the sign, m[2] the digits.
+function matchInt(t) {
+  const [s, i] = minus(t);
+  const j = digitRun(t, i);
+  return j === i || j !== t.length ? null : [t, s, t.slice(i)];
+}
+
+// matchBytes: 0x or 0X, then hex digits in pairs; m[1] the hex.
+function matchBytes(t) {
+  if (t[0] !== "0" || (t[1] !== "x" && t[1] !== "X") || t.length % 2 !== 0) return null;
+  for (let i = 2; i < t.length; i++) if (!isHex(t[i])) return null;
+  return [t, t.slice(2)];
+}
 
 function bare(t, off) {
   if (t === "none") return { k: K.NONE };
   if (t === "false") return { k: K.FALSE };
   if (t === "true") return { k: K.TRUE };
   let m;
-  if ((m = RE.bytes.exec(t))) {
+  if ((m = matchBytes(t))) {
     const b = new Uint8Array(m[1].length / 2);
     for (let i = 0; i < b.length; i++) b[i] = parseInt(m[1].slice(2 * i, 2 * i + 2), 16);
     return { k: K.BYTES, b };
   }
-  if ((m = RE.datetime.exec(t))) {
+  if ((m = matchShape(t, SHAPE.datetime))) {
     const day = civil(m[1], m[2], m[3], off);
     return { k: K.DT, n: day * 86400000 + clock(m[4], m[5], m[6], m[7], off) };
   }
-  if ((m = RE.date.exec(t))) return { k: K.DATE, n: civil(m[1], m[2], m[3], off) };
-  if ((m = RE.time.exec(t))) return { k: K.TIME, n: clock(m[1], m[2], m[3], m[4], off) };
-  if ((m = RE.duration.exec(t)) && (m[2] || m[3] || m[4])) return duration(m, off);
-  if (RE.float.test(t)) {
+  if ((m = matchShape(t, SHAPE.date))) return { k: K.DATE, n: civil(m[1], m[2], m[3], off) };
+  if ((m = matchShape(t, SHAPE.time))) return { k: K.TIME, n: clock(m[1], m[2], m[3], m[4], off) };
+  if ((m = matchDuration(t)) && (m[2] || m[3] || m[4])) return duration(m, off);
+  if (isFloat(t)) {
     const f = Number(t);
     checkFloat(f, off);
     return { k: K.FLT, f };
   }
-  if ((m = RE.decimal.exec(t))) {
+  if ((m = matchDecimal(t))) {
     if (m[3].length > MAX_SCALE) throw err("R004", off, `decimal scale ${m[3].length} is above 15`);
     const n = digits(m[2] + m[3], off, "decimal mantissa");
     return { k: K.DEC, n: m[1] === "-" ? -n : n, scale: m[3].length };
   }
-  if ((m = RE.int.exec(t))) {
+  if ((m = matchInt(t))) {
     const n = digits(m[2], off, "int");
     return { k: K.INT, n: m[1] === "-" ? -n : n };
   }
@@ -610,7 +720,9 @@ function bare(t, off) {
 
 // digits reads a run of decimal digits within 2^53-1, exactly.
 function digits(s, off, what) {
-  s = s.replace(/^0+/, "");
+  let z = 0;
+  while (s[z] === "0") z++;
+  s = s.slice(z);
   if (s === "") return 0;
   if (s.length > 16 || BigInt(s) > BigInt(MAX_INT)) throw err("R003", off, `${what} is outside ±(2^53-1)`);
   return Number(s);

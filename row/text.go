@@ -2,7 +2,6 @@ package row
 
 import (
 	"encoding/hex"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -373,16 +372,159 @@ func (p *parser) hex4() (rune, bool) {
 	return rune(n), true
 }
 
-var (
-	reDatetime = regexp.MustCompile(`^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$`)
-	reDate     = regexp.MustCompile(`^(\d{4})-(\d{2})-(\d{2})$`)
-	reTime     = regexp.MustCompile(`^(\d{2}):(\d{2}):(\d{2})\.(\d{3})$`)
-	reDuration = regexp.MustCompile(`^(-?)(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)(?:\.(\d{1,3}))?s)?$`)
-	reFloat    = regexp.MustCompile(`^-?\d+(?:\.\d+)?[eE][+-]?\d+$`)
-	reDecimal  = regexp.MustCompile(`^(-?)(\d+)\.(\d*)$`)
-	reInt      = regexp.MustCompile(`^(-?)(\d+)$`)
-	reBytes    = regexp.MustCompile(`^0[xX]((?:[0-9a-fA-F]{2})*)$`)
+// The bare items' shapes, matched by hand, with no regular
+// expressions (row.js is the same scan, for engines that lack some
+// regexp syntax). Each match returns submatches in the manner of
+// FindStringSubmatch: m[0] the whole token, "" for a group that is
+// absent; nil for no match. Digits are ASCII 0-9.
+
+func isDigit(c byte) bool { return '0' <= c && c <= '9' }
+
+func isHex(c byte) bool { return isDigit(c) || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F' }
+
+// digitRun is the end of the run of digits in t from i.
+func digitRun(t string, i int) int {
+	for i < len(t) && isDigit(t[i]) {
+		i++
+	}
+	return i
+}
+
+// minus reads an optional leading '-': the group, and where the rest
+// begins.
+func minus(t string) (string, int) {
+	if strings.HasPrefix(t, "-") {
+		return "-", 1
+	}
+	return "", 0
+}
+
+// Fixed shapes: each 'd' one digit, any other byte itself; the groups
+// are the runs of 'd'.
+const (
+	shapeDatetime = "dddd-dd-ddTdd:dd:dd.dddZ"
+	shapeDate     = "dddd-dd-dd"
+	shapeTime     = "dd:dd:dd.ddd"
 )
+
+func matchShape(t, shape string) []string {
+	if len(t) != len(shape) {
+		return nil
+	}
+	m := []string{t}
+	start := -1
+	for i := 0; i <= len(shape); i++ {
+		if i < len(shape) && shape[i] == 'd' {
+			if !isDigit(t[i]) {
+				return nil
+			}
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if start >= 0 {
+			m = append(m, t[start:i])
+			start = -1
+		}
+		if i < len(shape) && t[i] != shape[i] {
+			return nil
+		}
+	}
+	return m
+}
+
+// matchDuration: -? (N h)? (N m)? (N (.F)? s)?, F one to three
+// digits; m[1] the sign, m[2], m[3], m[4] hours, minutes, seconds,
+// m[5] the fraction. Every part may be absent, so the empty token
+// matches; the caller asks for one of m[2..4].
+func matchDuration(t string) []string {
+	m := make([]string, 6)
+	m[0] = t
+	var i int
+	m[1], i = minus(t)
+	for g, unit := range []byte{'h', 'm'} {
+		if j := digitRun(t, i); j > i && j < len(t) && t[j] == unit {
+			m[2+g], i = t[i:j], j+1
+		}
+	}
+	if j := digitRun(t, i); j > i {
+		k := j
+		if k < len(t) && t[k] == '.' {
+			e := digitRun(t, k+1)
+			if n := e - (k + 1); n < 1 || n > 3 {
+				return nil
+			}
+			m[5], k = t[k+1:e], e
+		}
+		if k == len(t) || t[k] != 's' {
+			return nil
+		}
+		m[4], i = t[i:j], k+1
+	}
+	if i != len(t) {
+		return nil
+	}
+	return m
+}
+
+// isFloat: -? D+ (. D+)? [eE] [+-]? D+.
+func isFloat(t string) bool {
+	_, i := minus(t)
+	j := digitRun(t, i)
+	if j == i {
+		return false
+	}
+	if j < len(t) && t[j] == '.' {
+		k := digitRun(t, j+1)
+		if k == j+1 {
+			return false
+		}
+		j = k
+	}
+	if j == len(t) || t[j] != 'e' && t[j] != 'E' {
+		return false
+	}
+	j++
+	if j < len(t) && (t[j] == '+' || t[j] == '-') {
+		j++
+	}
+	k := digitRun(t, j)
+	return k > j && k == len(t)
+}
+
+// matchDecimal: -? D+ . D*; m[1] the sign, m[2] the whole digits,
+// m[3] the fraction's.
+func matchDecimal(t string) []string {
+	s, i := minus(t)
+	j := digitRun(t, i)
+	if j == i || j == len(t) || t[j] != '.' || digitRun(t, j+1) != len(t) {
+		return nil
+	}
+	return []string{t, s, t[i:j], t[j+1:]}
+}
+
+// matchInt: -? D+; m[1] the sign, m[2] the digits.
+func matchInt(t string) []string {
+	s, i := minus(t)
+	if j := digitRun(t, i); j == i || j != len(t) {
+		return nil
+	}
+	return []string{t, s, t[i:]}
+}
+
+// matchBytes: 0x or 0X, then hex digits in pairs; m[1] the hex.
+func matchBytes(t string) []string {
+	if len(t) < 2 || t[0] != '0' || t[1] != 'x' && t[1] != 'X' || len(t)%2 != 0 {
+		return nil
+	}
+	for i := 2; i < len(t); i++ {
+		if !isHex(t[i]) {
+			return nil
+		}
+	}
+	return []string{t, t[2:]}
+}
 
 // bare reads an unquoted item: a keyword, number, date, time,
 // duration or bytes.
@@ -395,11 +537,11 @@ func bare(t string, off int) (val, error) {
 	case "true":
 		return val{k: kTrue}, nil
 	}
-	if m := reBytes.FindStringSubmatch(t); m != nil {
+	if m := matchBytes(t); m != nil {
 		b, _ := hex.DecodeString(m[1])
 		return val{k: kBytes, b: b}, nil
 	}
-	if m := reDatetime.FindStringSubmatch(t); m != nil {
+	if m := matchShape(t, shapeDatetime); m != nil {
 		day, err := civil(m[1], m[2], m[3], off)
 		if err != nil {
 			return val{}, err
@@ -410,19 +552,19 @@ func bare(t string, off int) (val, error) {
 		}
 		return val{k: kDatetime, n: day*86400000 + ms}, nil
 	}
-	if m := reDate.FindStringSubmatch(t); m != nil {
+	if m := matchShape(t, shapeDate); m != nil {
 		day, err := civil(m[1], m[2], m[3], off)
 		return val{k: kDate, n: day}, err
 	}
-	if m := reTime.FindStringSubmatch(t); m != nil {
+	if m := matchShape(t, shapeTime); m != nil {
 		ms, err := clock(m[1], m[2], m[3], m[4], off)
 		return val{k: kTime, n: ms}, err
 	}
-	if m := reDuration.FindStringSubmatch(t); m != nil && (m[2] != "" || m[3] != "" || m[4] != "") {
+	if m := matchDuration(t); m != nil && (m[2] != "" || m[3] != "" || m[4] != "") {
 		return duration(m, off)
 	}
-	if reFloat.MatchString(t) {
-		// The syntax is the regexp's; a range error is only the value
+	if isFloat(t) {
+		// The syntax is isFloat's; a range error is only the value
 		// rounding to an infinity (R005 below) or to zero (then not
 		// canonical), as JavaScript's Number reads it.
 		f, _ := strconv.ParseFloat(t, 64)
@@ -431,7 +573,7 @@ func bare(t string, off int) (val, error) {
 		}
 		return val{k: kFloat, f: f}, nil
 	}
-	if m := reDecimal.FindStringSubmatch(t); m != nil {
+	if m := matchDecimal(t); m != nil {
 		if len(m[3]) > maxScale {
 			return val{}, errf("R004", off, "decimal scale %d is above 15", len(m[3]))
 		}
@@ -444,7 +586,7 @@ func bare(t string, off int) (val, error) {
 		}
 		return val{k: kDecimal, n: n, scale: len(m[3])}, nil
 	}
-	if m := reInt.FindStringSubmatch(t); m != nil {
+	if m := matchInt(t); m != nil {
 		n, err := digits(m[2], off, "int")
 		if err != nil {
 			return val{}, err
