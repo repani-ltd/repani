@@ -236,6 +236,30 @@ one vault, and a credential that can destroy any vault. It becomes
 worth it when the server is managed remotely, and then it carries
 register keys and quotas too, and the revoked file moves into it.
 
+## The timestamp skew bounds only the future
+
+A server refuses a pushed entry dated more than TS_SKEW_MS ahead of
+its clock, and never one for being old. The bound was a distance
+either way until 2026-10-20, when the 2026-10-13 security review
+found it lost data: a phone offline for more than a day could never
+push its entries, one refused entry failing the whole push, and a
+rebuilt server could not be refilled from its devices. v1 was
+amended, not succeeded: it had two consumers, and the change only
+narrows what a server refuses.
+
+The past bound bought no security. Only a vault's members can push
+at all, since a frame must open under the vault's channel key. A
+member's backdated entry loses last-writer-wins to every newer write
+of its key, so it overrides nothing; it can only add an entry dated
+in the past, which any member can do inside the old window anyway.
+The future bound stays, because a future-dated entry wins every
+merge until its date.
+
+The cost is a sync's, not security's: an old entry pushed late falls
+outside other devices' first-round window (CLIENT.t), so their PROBE
+still differs and the next round walks the whole set. It converges;
+it costs one full pull, within MAX_VAULT_BYTES.
+
 ## The store is protocol, not a primitive
 
 The store's identity of an item (the entry id), its order (canonical
@@ -307,8 +331,9 @@ from its log, its set hash and its pushes, so a lagging device learns
 the shun before it can push the corpse back.
 
 Open questions: whether PURGE needs the shun entry to exist first,
-how a shun entry is itself ever compacted, and how the timestamp skew
-treats replaying old shun entries on a new device.
+and how a shun entry is itself ever compacted. (Replaying old shun
+entries on a new device is no question: the skew bounds only the
+future.)
 
 Build it when a vault nears its quota, or the first time a secret
 must be removed from every device and the server. It is the more

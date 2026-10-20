@@ -241,15 +241,16 @@ func TestQuota_SkewAndMaxEntries(t *testing.T) {
 	h := newHarness(t, srv, rk, testRegKey)
 	h.register()
 
-	// Out-of-skew push rejected.
-	old := mkEntry(t, rk, uint64(now-120_000), "old", "v")
-	if resp, _ := h.push([]vault.Entry{old}); resp.Status != wire.StatusBadRequest {
-		t.Fatalf("out-of-skew push status %d, want BAD_REQUEST", resp.Status)
+	// Too far ahead: rejected.
+	ahead := mkEntry(t, rk, uint64(now+120_000), "ahead", "v")
+	if resp, _ := h.push([]vault.Entry{ahead}); resp.Status != wire.StatusBadRequest {
+		t.Fatalf("future push status %d, want BAD_REQUEST", resp.Status)
 	}
 
-	// Fill to the entry cap.
-	a := mkEntry(t, rk, uint64(now+1), "a", "1")
-	b := mkEntry(t, rk, uint64(now+2), "b", "2")
+	// Fill to the entry cap. The skew bounds only the future: an entry
+	// a day old, written offline, is accepted.
+	a := mkEntry(t, rk, uint64(now-86_400_000), "a", "1")
+	b := mkEntry(t, rk, uint64(now+60_000), "b", "2")
 	if resp, _ := h.push([]vault.Entry{a, b}); resp.Status != wire.StatusOK {
 		t.Fatalf("fill push status %d", resp.Status)
 	}

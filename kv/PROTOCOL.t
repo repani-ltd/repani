@@ -154,7 +154,7 @@ A RESP carries one status. It is sealed, so it is authentic.
 0x00 | OK | accepted; a PULL's page follows
 0x01 | DIFFER | PROBE only: the sets differ
 0x02 | QUOTA | a PUSH that would exceed a vault limit, or that brings new entries to a vault refusing pushes; a REGISTER of a new vault on a server at its vault limit
-0x03 | BAD_REQUEST | the payload is malformed, has an unknown op, or carries an entry outside the timestamp skew
+0x03 | BAD_REQUEST | the payload is malformed, has an unknown op, or carries an entry dated further ahead than TS_SKEW_MS
 .end
 
 # Errors before the channel
@@ -240,7 +240,7 @@ hashes still agree.
 MAX_ENTRY_BYTES | 65536 | the largest marshaled entry
 PAGE_BYTES | 262144 | the entry bytes in one PULL page; clients batch PUSHes to it too
 MAX_FRAME_BYTES | 1048576 | the largest frame either side accepts
-TS_SKEW_MS | 86400000 | default largest distance of a pushed entry's ts_ms from the server's clock
+TS_SKEW_MS | 86400000 | default furthest a pushed entry's ts_ms may be ahead of the server's clock; an entry is never refused for being old
 .end
 
 PAGE_BYTES exceeds MAX_ENTRY_BYTES, so every entry fits one page,

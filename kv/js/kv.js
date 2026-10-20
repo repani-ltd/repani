@@ -811,8 +811,8 @@ const ZERO_ID = new Uint8Array(ENTRY_ID_SIZE);
 //             changes.
 //   rejected  the server refused entries: QUOTA (the vault, or the
 //             server's vault count, is full) or BAD_REQUEST on a push
-//             (an entry's ts_ms is outside the server's skew window,
-//             i.e. this device's clock is wrong). Every later sync is
+//             (an entry's ts_ms is too far ahead of the server's
+//             clock, i.e. this device's clock is fast). Every later sync is
 //             refused the same way until the cause is fixed.
 //   protocol  the server misbehaved: a frame that does not open, a
 //             cursor that does not advance, an unexpected status.

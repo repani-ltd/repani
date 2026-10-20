@@ -84,8 +84,7 @@ func (s *Server) Entries(vid vault.VaultID) ([]vault.Entry, error) {
 
 // AddEntries adds entries to the vault, applying the same quota
 // validation as a PUSH frame but not its timestamp-skew check: the
-// owner is trusted and legitimately writes entries carrying preserved
-// historical timestamps (e.g. copies that keep their source ts_ms).
+// owner is trusted.
 // Idempotent for entries the vault already holds. Unlike a PUSH it
 // never fires Options.OnPush, so an owner writing back into a vault
 // from inside an OnPush-triggered handler cannot re-trigger itself.

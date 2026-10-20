@@ -297,9 +297,7 @@ func syncCounted(t *testing.T, c *Client) (roundTrips, pushed, pulled int) {
 // write and syncs — asserting that only the recent entry moves, not
 // the whole vault.
 func TestSync_DeltaWindow_MovesOnlyRecent(t *testing.T) {
-	q := server.DefaultQuotas()
-	q.TSSkewMs = 40 * 24 * 60 * 60 * 1000 // 40 days, so old entries are accepted
-	srv, err := server.New(server.Options{Quotas: q, RegisterKeys: []vault.RegisterKey{testRegKey}})
+	srv, err := server.New(server.Options{RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}

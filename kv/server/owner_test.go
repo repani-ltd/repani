@@ -117,9 +117,8 @@ func TestEntriesAndAddEntries(t *testing.T) {
 		t.Fatalf("Entries on unknown vault: %v", err)
 	}
 
-	// Far outside the push-skew window: the owner API accepts it (an
-	// owner legitimately writes preserved historical timestamps), and
-	// it counts toward MaxEntries below.
+	// A historical timestamp, as an owner copying entries keeps them:
+	// accepted, and it counts toward MaxEntries below.
 	old := mkEntry(t, rk, uint64(now-120_000), "old", "\x00v")
 	if err := srv.AddEntries(vid, []vault.Entry{old}); err != nil {
 		t.Fatalf("historical-ts AddEntries: %v", err)

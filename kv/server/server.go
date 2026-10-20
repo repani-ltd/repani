@@ -375,9 +375,10 @@ func addValidatedLocked(st *vaultState, entries []vault.Entry) (int, error) {
 
 // validateNew enforces quota -- and, when checkSkew is set, timestamp
 // skew -- on the entries the server does not already hold; re-pushing
-// an accepted entry is a no-op and not re-judged. The wire PUSH path
-// checks skew; the owner API does not (an owner legitimately writes
-// entries carrying preserved historical timestamps). Returns the new
+// an accepted entry is a no-op and not re-judged. Skew bounds only the
+// future: an entry written offline days ago, or replayed onto a
+// rebuilt server, is honest and accepted however old. The wire PUSH
+// path checks skew; the owner API, trusted, does not. Returns the new
 // entries, or ErrQuota or errSkew.
 func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew bool) ([]vault.Entry, error) {
 	now := s.clock()
@@ -394,11 +395,8 @@ func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew boo
 			continue
 		}
 		seen[id] = true
-		if checkSkew {
-			d := int64(e.TsMs) - now
-			if d < -skew || d > skew {
-				return nil, errSkew
-			}
+		if checkSkew && int64(e.TsMs)-now > skew {
+			return nil, errSkew
 		}
 		newEntries = append(newEntries, e)
 		newBytes += uint64(e.Size())
@@ -412,9 +410,9 @@ func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew boo
 	return newEntries, nil
 }
 
-// errSkew rejects a pushed entry whose ts_ms is too far from the
-// server's clock (TSSkewMs).
-var errSkew = errors.New("server: entry timestamp outside the allowed skew")
+// errSkew rejects a pushed entry whose ts_ms is further ahead of the
+// server's clock than TSSkewMs.
+var errSkew = errors.New("server: entry timestamp too far ahead of the server's clock")
 
 // sealResp builds a RESP frame under s2c, echoing reqNonce.
 func (s *Server) sealResp(vid vault.VaultID, s2c vault.ChannelKey, reqNonce [vault.NonceSize]byte, status wire.Status, entries []vault.Entry) ([]byte, error) {
