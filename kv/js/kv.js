@@ -387,6 +387,17 @@ export const KIND_RESP = 0x03;
 export const OP_PROBE = 0x00;
 export const OP_PULL = 0x01;
 export const OP_PUSH = 0x02;
+export const OP_DROP = 0x03; // ends an ephemeral vault
+
+// REGISTER_EPHEMERAL is the REGISTER flag marking a new vault
+// ephemeral (PROTOCOL.t, Ephemeral vaults).
+export const REGISTER_EPHEMERAL = 0x01;
+
+// registerPayload encodes a REGISTER payload: the AuthKey, then a flags
+// byte only when a flag is set.
+export function registerPayload(authKey, ephemeral) {
+  return ephemeral ? concatBytes(authKey, new Uint8Array([REGISTER_EPHEMERAL])) : authKey;
+}
 
 export const STATUS_OK = 0x00;
 export const STATUS_DIFFER = 0x01;
@@ -462,6 +473,8 @@ export function marshalSync(req) {
     }
     case OP_PUSH:
       return concatBytes(new Uint8Array([OP_PUSH]), marshalEntryList(req.entries));
+    case OP_DROP:
+      return new Uint8Array([OP_DROP]);
     default:
       throw new Error("kv: unknown sync op");
   }
@@ -816,6 +829,10 @@ const ZERO_ID = new Uint8Array(ENTRY_ID_SIZE);
 //             refused the same way until the cause is fixed.
 //   protocol  the server misbehaved: a frame that does not open, a
 //             cursor that does not advance, an unexpected status.
+//   ended     an ephemeral vault this client registered, or dropped,
+//             is gone from the server: dropped or expired, for good.
+//   notephemeral  drop() of a vault that is not ephemeral; nothing
+//             changed.
 //   local     this device's store failed (e.g. browser storage full).
 //   closed    the client or its store was closed.
 //
@@ -883,6 +900,9 @@ export class Client {
   // rootKey: Uint8Array(20). store: see the Store contract above.
   // transport: async (frameBytes) -> responseBytes.
   // opts.syncWindowMs overrides the reconcile look-back window.
+  // opts.ephemeral registers the vault ephemeral (PROTOCOL.t, Ephemeral
+  // vaults): the client registers it once, and UNKNOWN_VAULT after that
+  // is a SyncError of kind "ended".
   constructor(rootKey, store, transport, opts = {}) {
     if (rootKey.length !== ROOT_KEY_SIZE) throw new Error("kv: root key must be 20 bytes");
     this.aeadKey = deriveAEADKey(rootKey);
@@ -896,6 +916,9 @@ export class Client {
     this.lastStats = null;
     this.trace = opts.trace || null; // optional (msg: string) -> void
     this.registered = false; // belief; embedders may persist and restore it
+    this.ephemeral = !!opts.ephemeral;
+    this.everRegistered = false; // this client's REGISTER succeeded once
+    this.ended = false;          // this client dropped the vault
     this.hasReg = false;
     this.regChan = null; // K_reg, valid iff hasReg
     this.recent = []; // entries written since the last sync (fast-path push)
@@ -1077,20 +1100,51 @@ export class Client {
   // unknownVault handles a pre-channel UNKNOWN_VAULT: re-register on
   // the next round when a register key is available, otherwise fail.
   unknownVault() {
-    if (!this.hasReg) throw new SyncError("auth", "vault not registered on server and no register key installed");
+    if (this.ended || (this.ephemeral && this.everRegistered)) throw new SyncError("ended", "the ephemeral vault has ended");
+    if (!this.hasReg) {
+      const e = new SyncError("auth", "vault not registered on server and no register key installed");
+      e.pre = ERR_UNKNOWN_VAULT;
+      throw e;
+    }
     this.registered = false;
   }
 
   // register establishes the channel by adopting the client's AuthKey
   // on the server, sealed under K_reg.
   async register(st) {
-    const resp = await this.roundtrip("register", KIND_REGISTER, this.regChan, this.authKey, st).catch((e) => {
-      throw e.pre === ERR_BAD_AUTH ? new SyncError("auth", "registration rejected - wrong register key") : e;
+    const payload = registerPayload(this.authKey, this.ephemeral);
+    const resp = await this.roundtrip("register", KIND_REGISTER, this.regChan, payload, st).catch((e) => {
+      throw e.pre === ERR_BAD_AUTH ? new SyncError("auth", "registration rejected - wrong register key, or a revoked vault") : e;
     });
     if (resp.status === STATUS_QUOTA) throw new SyncError("rejected", "register status " + statusText(resp.status));
     if (resp.status !== STATUS_OK) throw new SyncError("protocol", "register status " + statusText(resp.status));
     this.tracef("REGISTER -> ok");
     this.registered = true;
+    this.everRegistered = true;
+  }
+
+  // drop ends an ephemeral vault on the server: its entries are deleted
+  // and it is revoked, so its RootKey opens nothing again (PROTOCOL.t,
+  // Ephemeral vaults). Any holder may drop it, registered here or not.
+  // It waits for the sync under way. A SyncError of kind
+  // "notephemeral" means the vault is not ephemeral and nothing
+  // changed; "ended" that it had ended already. The local store is the
+  // caller's to discard.
+  async drop() {
+    this.checkOpen();
+    await Promise.allSettled([this.running, this.queued]);
+    const st = { roundTrips: 0, reqBytes: 0, respBytes: 0 };
+    let resp;
+    try {
+      resp = await this.roundtrip("drop", KIND_SYNC, this.c2s, marshalSync({ op: OP_DROP }), st);
+    } catch (e) {
+      if (e.pre === ERR_UNKNOWN_VAULT) throw new SyncError("ended", "the ephemeral vault has ended");
+      throw e;
+    }
+    if (resp.status === STATUS_BAD_REQUEST) throw new SyncError("notephemeral", "drop: the vault is not ephemeral");
+    if (resp.status !== STATUS_OK) throw new SyncError("protocol", "drop status " + statusText(resp.status));
+    this.tracef("DROP -> ok");
+    this.ended = true;
   }
 
   // reconcileAnchor returns the walk anchor for a round: round 0 looks

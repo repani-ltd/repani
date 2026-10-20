@@ -216,3 +216,34 @@ async function kindOf(p) {
   check(hex(store.sortedPairs()) === hex(resorted), "the store's canonical order matches a full sort");
   check(kv.setHash(resorted).join() === store.setHash().join(), "the store's set hash matches a full sort's");
 }
+
+// An ephemeral vault hands one secret over: the giver registers it and
+// writes, a receiver with no register key reads and drops it, and then
+// it is gone for both, and cannot be registered again.
+{
+  const rk = kv.newRootKey();
+  const giver = client(rk, { ephemeral: true });
+  const receiver = client(rk, { reg: null });
+  let early = null;
+  try {
+    await receiver.sync();
+  } catch (e) {
+    early = e;
+  }
+  check(early && early.kind === "auth" && early.pre === kv.ERR_UNKNOWN_VAULT, "before the giver, the receiver sees an unknown vault: " + (early && early.kind));
+  await giver.put("keyring", "secret");
+  await giver.sync();
+  await receiver.sync();
+  check(await state(receiver) === '{"keyring":"secret"}', "the receiver read the secret: " + await state(receiver));
+  check(await kindOf(receiver.drop()) === "resolved", "the receiver dropped the vault");
+  check(await kindOf(giver.sync()) === "ended", "the giver's next sync is ended");
+  check(await kindOf(receiver.sync()) === "ended", "the receiver's next sync is ended");
+  check(await kindOf(receiver.drop()) === "ended", "a second drop is ended");
+  check(await kindOf(client(rk).sync()) === "auth", "a dropped vault does not register again");
+
+  const ordinary = client(kv.newRootKey());
+  await ordinary.put("k", "v");
+  await ordinary.sync();
+  check(await kindOf(ordinary.drop()) === "notephemeral", "an ordinary vault does not drop");
+  await ordinary.sync();
+}

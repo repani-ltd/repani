@@ -24,18 +24,18 @@ var (
 // not in-band registration is enabled; MaxVaults does not apply, since
 // the owner is the operator. A revoked vault is ErrRevoked.
 func (s *Server) EnsureVault(vid vault.VaultID, ak vault.AuthKey) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.revoked[vid] {
 		return ErrRevoked
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if st, ok := s.vaults[vid]; ok {
 		if subtle.ConstantTimeCompare(st.authKey[:], ak[:]) != 1 {
 			return ErrAuthKeyMismatch
 		}
 		return nil
 	}
-	_, err := s.createVaultLocked(vid, ak)
+	_, err := s.createVaultLocked(vid, ak, false)
 	return err
 }
 
@@ -58,6 +58,7 @@ func (s *Server) DropVault(vid vault.VaultID) error {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	st.gone = true
 	var closeErr error
 	if c, ok := st.s.(io.Closer); ok {
 		closeErr = c.Close()
@@ -79,6 +80,9 @@ func (s *Server) Entries(vid vault.VaultID) ([]vault.Entry, error) {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.gone {
+		return nil, ErrUnknownVault
+	}
 	return st.s.Sorted(), nil
 }
 
@@ -97,6 +101,9 @@ func (s *Server) AddEntries(vid vault.VaultID, entries []vault.Entry) error {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.gone {
+		return ErrUnknownVault
+	}
 	newEntries, err := s.validateNew(st, entries, false)
 	if err != nil {
 		return err

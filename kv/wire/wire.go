@@ -30,7 +30,39 @@ const (
 	OpProbe byte = 0x00
 	OpPull  byte = 0x01
 	OpPush  byte = 0x02
+	OpDrop  byte = 0x03 // ends an ephemeral vault
 )
+
+// RegisterEphemeral is the REGISTER flag marking a new vault
+// ephemeral (PROTOCOL.t, Ephemeral vaults).
+const RegisterEphemeral byte = 0x01
+
+// RegisterPayload encodes a REGISTER payload: the AuthKey, then a
+// flags byte only when a flag is set.
+func RegisterPayload(ak vault.AuthKey, ephemeral bool) []byte {
+	if !ephemeral {
+		return ak[:]
+	}
+	return append(ak[:], RegisterEphemeral)
+}
+
+// ParseRegister decodes a REGISTER payload. ErrMalformed covers a
+// wrong length and an unknown flag alike.
+func ParseRegister(payload []byte) (ak vault.AuthKey, ephemeral bool, err error) {
+	switch len(payload) {
+	case vault.AuthKeySize:
+	case vault.AuthKeySize + 1:
+		flags := payload[vault.AuthKeySize]
+		if flags&^RegisterEphemeral != 0 {
+			return ak, false, ErrMalformed
+		}
+		ephemeral = flags&RegisterEphemeral != 0
+	default:
+		return ak, false, ErrMalformed
+	}
+	copy(ak[:], payload)
+	return ak, ephemeral, nil
+}
 
 // Status is the status inside a sealed RESP (PROTOCOL.t, Status).
 type Status byte
@@ -208,6 +240,8 @@ func (r SyncReq) Marshal() []byte {
 		binary.LittleEndian.PutUint64(out[1:9], r.CurTs)
 		copy(out[9:], r.CurID[:])
 		return out
+	case OpDrop:
+		return []byte{OpDrop}
 	default: // OpPush
 		out := []byte{OpPush}
 		return appendEntries(out, r.Entries)
@@ -240,6 +274,10 @@ func ParseSync(payload []byte) (SyncReq, error) {
 			return SyncReq{}, err
 		}
 		r.Entries = entries
+	case OpDrop:
+		if len(body) != 0 {
+			return SyncReq{}, ErrMalformed
+		}
 	default:
 		return SyncReq{}, ErrBadOp
 	}

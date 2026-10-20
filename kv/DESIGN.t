@@ -260,6 +260,43 @@ outside other devices' first-round window (CLIENT.t), so their PROBE
 still differs and the next round walks the whole set. It converges;
 it costs one full pull, within MAX_VAULT_BYTES.
 
+## Ephemeral vaults
+
+Some vaults exist for one exchange: iou pairs a new device by putting
+the keyring's key in a vault named by a code the person copies from
+one device to the other (iou ACCESS.t). A code can be left behind in
+a chat's history, and kv deletes nothing, so without an end that
+vault would hand the keyring to whoever finds the code later. An
+ephemeral vault makes the code single-use, and the server is the
+only party that can enforce that: the receiving device DROPs the
+vault once it has read it, and EPHEMERAL_TTL_MS ends it otherwise.
+
+.item ONLY EPHEMERAL VAULTS DROP. Every holder of a shared vault's
+channel key is a member; were DROP open to all vaults, any member of
+a trip could destroy it for everyone. The mark is set at creation,
+by the creator, and a later REGISTER cannot set or clear it.
+.item ENDING IS REVOKING. A dropped vault whose id could be
+registered again would come back from whichever device still held
+its RootKey and a RegisterKey, as a dropped vault did before
+Revocation. So the server keeps an end marker where the vault was:
+its directory holds only a `dropped` file. It is the server's own
+record in its own data directory, not the operator's revoked file:
+the server writes nothing outside its data directory at run time.
+.item EXPIRY IS LAZY. An ephemeral vault past its lifetime ends when
+a frame next names it, and every expired one ends before a new vault
+counts against the vault limit. No timer, no goroutine: nothing
+outlives a request.
+.item WHAT IT DOES NOT COVER. A party holding the code while the vault
+lives can read it before the rightful receiver; the window is the
+minutes the exchange takes, where without an end it would be
+forever. Avoiding even that needs public-key cryptography (the
+code a fingerprint of the receiver's key), which kv does not have.
+
+Decided 2026-10-20. Not Purge and shun, below: DROP ends a whole vault
+of one exchange, which needs no shun, since nothing of it lives on
+elsewhere that must be told; PURGE removes chosen entries from a
+long-lived vault every device must learn of.
+
 ## The store is protocol, not a primitive
 
 The store's identity of an item (the entry id), its order (canonical

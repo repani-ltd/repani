@@ -128,15 +128,18 @@ it.
 # Payloads
 
 .pre
-REGISTER = authkey(16)
+REGISTER = authkey(16) || [flags(1)]
+  flags bit 0  EPHEMERAL; every other bit is zero
 SYNC     = op(1) || body
   op 0x00  PROBE  body = set_hash(16)
   op 0x01  PULL   body = cursor(24)
   op 0x02  PUSH   body = count(4) || entries
+  op 0x03  DROP   body = empty
 RESP     = status(1) || req_nonce(16) || count(4) || entries
 cursor   = ts_ms(8) || entry_id(16)
 .end
 
+.item A REGISTER payload without `flags` sets none.
 .item `count` is the number of entries that follow. Entries delimit
 themselves through `ct_len`; bytes left over after the last one make
 the payload malformed.
@@ -154,7 +157,7 @@ A RESP carries one status. It is sealed, so it is authentic.
 0x00 | OK | accepted; a PULL's page follows
 0x01 | DIFFER | PROBE only: the sets differ
 0x02 | QUOTA | a PUSH that would exceed a vault limit, or that brings new entries to a vault refusing pushes; a REGISTER of a new vault on a server at its vault limit
-0x03 | BAD_REQUEST | the payload is malformed, has an unknown op, or carries an entry dated further ahead than TS_SKEW_MS
+0x03 | BAD_REQUEST | the payload is malformed, has an unknown op, carries an entry dated further ahead than TS_SKEW_MS, or is a DROP of a vault that is not ephemeral
 .end
 
 # Errors before the channel
@@ -165,7 +168,7 @@ always longer than one byte, so the two never collide.
 
 .table 76 5L 14L *L
 ^byte | error | when
-0xE0 | BAD_FRAME | the frame is malformed, or a REGISTER payload is not 16 bytes
+0xE0 | BAD_FRAME | the frame is malformed, or a REGISTER payload is not 16 or 17 bytes or sets an unknown flag
 0xE1 | BAD_VERSION | `ver` is not one the server speaks
 0xE2 | BAD_KIND | `kind` is unknown
 0xE3 | UNKNOWN_VAULT | a SYNC names a vault the server does not hold
@@ -188,7 +191,8 @@ hash fingerprints a whole set of N entries:
 set_hash = XOF("kv/sset/" || u32(N) || entry_ids in canonical order, 16)
 .end
 
-The server keeps no state between requests. The three operations:
+The server keeps no state between requests. The three operations a
+sync uses (the fourth, DROP, is under Ephemeral vaults):
 
 .term PROBE(set_hash)
 OK if the server's set hash equals `set_hash`, else DIFFER.
@@ -222,6 +226,25 @@ BAD_AUTH. Its operator may REVOKE a vault: the server then no longer
 serves it and answers every REGISTER for it with BAD_AUTH, so a
 device still holding the RootKey cannot create it again.
 
+## Ephemeral vaults
+
+A REGISTER that creates a vault may set EPHEMERAL: the vault is for
+one exchange, such as handing a key from one device to another, and
+ends once it has served. The mark is fixed when the vault is
+created; a REGISTER for an existing vault leaves it as it is,
+whatever its flags. An ephemeral vault ends in either of two ways:
+
+.item DROP, a SYNC operation any holder of the vault's channel key
+may send. The server ends the vault and answers OK. A DROP for a
+vault that is not ephemeral is BAD_REQUEST, and changes nothing.
+.item EXPIRY: EPHEMERAL_TTL_MS after its creation, the server ends
+it, used or not.
+
+Ending a vault deletes its entries and revokes it. A SYNC for it is
+then UNKNOWN_VAULT and a REGISTER is BAD_AUTH, so its RootKey opens
+nothing again, on any device. An ephemeral vault counts toward the
+server's vault limit while it lives.
+
 # Merge
 
 A device's view of a vault is the replay of its whole set in
@@ -241,13 +264,14 @@ MAX_ENTRY_BYTES | 65536 | the largest marshaled entry
 PAGE_BYTES | 262144 | the entry bytes in one PULL page; clients batch PUSHes to it too
 MAX_FRAME_BYTES | 1048576 | the largest frame either side accepts
 TS_SKEW_MS | 86400000 | default furthest a pushed entry's ts_ms may be ahead of the server's clock; an entry is never refused for being old
+EPHEMERAL_TTL_MS | 3600000 | default lifetime of an ephemeral vault, from its creation
 .end
 
 PAGE_BYTES exceeds MAX_ENTRY_BYTES, so every entry fits one page,
 and MAX_FRAME_BYTES exceeds a full page with its framing.
 
 A server sets per vault MAX_ENTRIES and MAX_VAULT_BYTES, may cap the
-number of vaults, and may change TS_SKEW_MS. It judges a PUSH only by
+number of vaults, and may change TS_SKEW_MS and EPHEMERAL_TTL_MS. It judges a PUSH only by
 the entries it does not already hold: pushing an entry again is
 never refused.
 

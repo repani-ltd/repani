@@ -63,15 +63,18 @@ type Client struct {
 	store   store.Store
 	tran    Transport
 
-	nowMs    func() uint64
-	regChan  *vault.ChannelKey // K_reg; nil when the client holds no RegisterKey
-	windowMs uint64            // reconcile look-back window
-	trace    func(string)      // nil = off
+	nowMs     func() uint64
+	regChan   *vault.ChannelKey // K_reg; nil when the client holds no RegisterKey
+	ephemeral bool              // registers the vault ephemeral (PROTOCOL.t)
+	windowMs  uint64            // reconcile look-back window
+	trace     func(string)      // nil = off
 
-	mu         sync.Mutex
-	lastTs     uint64
-	registered bool          // belief that the server holds the vault
-	recent     []vault.Entry // entries written since the last sync (fast-path push)
+	mu             sync.Mutex
+	lastTs         uint64
+	registered     bool          // belief that the server holds the vault
+	everRegistered bool          // this client's REGISTER succeeded once
+	ended          bool          // this client dropped the vault
+	recent         []vault.Entry // entries written since the last sync (fast-path push)
 
 	viewMu sync.Mutex
 	view   map[string]keyValue // the merged view, by key (foldLocked)
@@ -88,6 +91,11 @@ type Options struct {
 	// Registered says the server is known to hold the vault, sparing
 	// the first REGISTER; Sync registers anyway on UNKNOWN_VAULT.
 	Registered bool
+	// Ephemeral registers the vault as ephemeral: for one exchange,
+	// ended by Drop or by the server's lifetime (PROTOCOL.t, Ephemeral
+	// vaults). Such a client registers it once; UNKNOWN_VAULT after
+	// that means it has ended, and Sync returns ErrVaultEnded.
+	Ephemeral bool
 	// SyncWindow is the reconcile look-back (CLIENT.t); 0 is 10 minutes.
 	SyncWindow time.Duration
 	// Trace receives one line per piece of sync traffic
@@ -119,6 +127,7 @@ func New(rk vault.RootKey, s store.Store, t Transport, opts Options) (*Client, e
 		windowMs:   defaultSyncWindowMs,
 		trace:      opts.Trace,
 		registered: opts.Registered,
+		ephemeral:  opts.Ephemeral,
 		view:       make(map[string]keyValue),
 	}
 	if opts.RegisterKey != nil {
@@ -328,6 +337,15 @@ var ErrSyncStuck = errors.New("client: sync did not converge within round budget
 // created by the owner.
 var ErrNoRegisterKey = errors.New("client: no register key; cannot register with a gated server")
 
+// ErrVaultEnded reports an ephemeral vault this client registered, or
+// asked to drop, that the server no longer holds: it was dropped or it
+// expired, and it cannot be registered again.
+var ErrVaultEnded = errors.New("client: the ephemeral vault has ended")
+
+// ErrNotEphemeral is Drop's answer for a vault that was not registered
+// ephemeral; the server changed nothing.
+var ErrNotEphemeral = errors.New("client: the vault is not ephemeral; only an ephemeral vault drops")
+
 // Sync reconciles the client's vault with the server. Registration is
 // reactive: a client that believes itself unregistered registers first
 // only when a register key is installed; without one it proceeds
@@ -435,12 +453,15 @@ func (c *Client) reconcileAnchor(round int) (uint64, vault.EntryID) {
 // key the next round re-registers; without one the sync cannot
 // proceed.
 func (c *Client) unknownVault() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ended || c.ephemeral && c.everRegistered {
+		return ErrVaultEnded
+	}
 	if c.regChan == nil {
 		return ErrNoRegisterKey
 	}
-	c.mu.Lock()
 	c.registered = false
-	c.mu.Unlock()
 	return nil
 }
 
@@ -450,9 +471,10 @@ func (c *Client) register(ctx context.Context, st *syncStats) error {
 	if c.regChan == nil {
 		return ErrNoRegisterKey
 	}
-	resp, err := c.roundtrip(ctx, "register", wire.KindRegister, *c.regChan, c.authKey[:], st)
+	payload := wire.RegisterPayload(c.authKey, c.ephemeral)
+	resp, err := c.roundtrip(ctx, "register", wire.KindRegister, *c.regChan, payload, st)
 	if errors.Is(err, wire.ErrBadAuth) {
-		return errors.New("client: registration rejected — wrong register key")
+		return errors.New("client: registration rejected — wrong register key, or a revoked vault")
 	}
 	if err != nil {
 		return err
@@ -463,8 +485,39 @@ func (c *Client) register(ctx context.Context, st *syncStats) error {
 	c.tracef("REGISTER -> ok")
 	c.mu.Lock()
 	c.registered = true
+	c.everRegistered = true
 	c.mu.Unlock()
 	return nil
+}
+
+// Drop ends an ephemeral vault on the server: its entries are deleted
+// and it is revoked, so its RootKey opens nothing again (PROTOCOL.t,
+// Ephemeral vaults). Any holder of the vault may drop it, whether or
+// not it registered it. ErrNotEphemeral: the vault is not ephemeral
+// and nothing changed. ErrVaultEnded: it had ended already. The local
+// store is the caller's to discard.
+func (c *Client) Drop(ctx context.Context) error {
+	st := &syncStats{}
+	payload := wire.SyncReq{Op: wire.OpDrop}.Marshal()
+	resp, err := c.roundtrip(ctx, "drop", wire.KindSync, c.c2s, payload, st)
+	if errors.Is(err, wire.ErrUnknownVault) {
+		return ErrVaultEnded
+	}
+	if err != nil {
+		return err
+	}
+	switch resp.Status {
+	case wire.StatusOK:
+		c.tracef("DROP -> ok")
+		c.mu.Lock()
+		c.ended = true // a later sync reports the end
+		c.mu.Unlock()
+		return nil
+	case wire.StatusBadRequest:
+		return ErrNotEphemeral
+	default:
+		return fmt.Errorf("client: drop status %s", resp.Status)
+	}
 }
 
 func (c *Client) probe(ctx context.Context, st *syncStats) (inSync bool, err error) {

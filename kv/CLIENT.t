@@ -70,6 +70,11 @@ skips it and syncs. When the server answers UNKNOWN_VAULT, a client
 with a RegisterKey registers and starts the round again; one without
 fails, since the vault does not exist and it cannot create it.
 
+A client that registers an EPHEMERAL vault (PROTOCOL.t) registers it
+once. UNKNOWN_VAULT after that, or after it sent the DROP itself,
+means the vault has ended: the client reports that and never
+registers it again, since the server would refuse it anyway.
+
 ## The loop
 
 .pre

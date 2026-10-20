@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,20 +28,22 @@ import (
 // Quotas configure a server's limits. A zero field takes its
 // DefaultQuotas value.
 type Quotas struct {
-	MaxEntries    uint64
-	MaxVaultBytes uint64
-	MaxVaults     uint64
-	TSSkewMs      int64
+	MaxEntries     uint64
+	MaxVaultBytes  uint64
+	MaxVaults      uint64
+	TSSkewMs       int64
+	EphemeralTTLMs int64 // an ephemeral vault's lifetime from its creation
 }
 
 // withDefaults returns q with each zero field set to its default.
 func (q Quotas) withDefaults() Quotas {
 	d := DefaultQuotas()
 	return Quotas{
-		MaxEntries:    cmp.Or(q.MaxEntries, d.MaxEntries),
-		MaxVaultBytes: cmp.Or(q.MaxVaultBytes, d.MaxVaultBytes),
-		MaxVaults:     cmp.Or(q.MaxVaults, d.MaxVaults),
-		TSSkewMs:      cmp.Or(q.TSSkewMs, d.TSSkewMs),
+		MaxEntries:     cmp.Or(q.MaxEntries, d.MaxEntries),
+		MaxVaultBytes:  cmp.Or(q.MaxVaultBytes, d.MaxVaultBytes),
+		MaxVaults:      cmp.Or(q.MaxVaults, d.MaxVaults),
+		TSSkewMs:       cmp.Or(q.TSSkewMs, d.TSSkewMs),
+		EphemeralTTLMs: cmp.Or(q.EphemeralTTLMs, d.EphemeralTTLMs),
 	}
 }
 
@@ -55,10 +59,11 @@ const logLockWait = 5 * time.Second
 // flags. DESIGN.t, Quotas, has the sizing and the gap they leave.
 func DefaultQuotas() Quotas {
 	return Quotas{
-		MaxEntries:    10_000,
-		MaxVaultBytes: 8 << 20, // 8 MiB
-		MaxVaults:     1_000,
-		TSSkewMs:      24 * 60 * 60 * 1000,
+		MaxEntries:     10_000,
+		MaxVaultBytes:  8 << 20, // 8 MiB
+		MaxVaults:      1_000,
+		TSSkewMs:       24 * 60 * 60 * 1000,
+		EphemeralTTLMs: 60 * 60 * 1000,
 	}
 }
 
@@ -78,7 +83,9 @@ type Options struct {
 	// Revoked vaults are never served or registered: a REGISTER naming
 	// one is BAD_AUTH, and one still on disk is not loaded. Dropping a
 	// vault without revoking it lets any client holding its RootKey and
-	// a RegisterKey create it again on its next sync.
+	// a RegisterKey create it again on its next sync. The server adds
+	// to these itself as ephemeral vaults end, keeping an end marker in
+	// DataDir (see endLocked).
 	Revoked []vault.VaultID
 
 	// OnPush, if non-nil, is called after a PUSH frame's entries have
@@ -95,12 +102,14 @@ type Server struct {
 	quotas  Quotas
 	clock   func() int64
 	regKeys []vault.ChannelKey // K_reg per RegisterKey; none = registration disabled
-	revoked map[vault.VaultID]bool
 	onPush  func(vault.VaultID)
 	mux     *http.ServeMux // the protocol routes, built once
 
-	mu     sync.Mutex
-	vaults map[vault.VaultID]*vaultState
+	// mu guards vaults and revoked. Lock order: mu, then a vaultState's
+	// mu; never the other way.
+	mu      sync.Mutex
+	vaults  map[vault.VaultID]*vaultState
+	revoked map[vault.VaultID]bool
 }
 
 type vaultState struct {
@@ -112,6 +121,15 @@ type vaultState struct {
 	bytes   uint64
 	dir     string
 	noPush  bool // refuse wire PUSH; owner AddEntries still writes
+
+	ephemeral bool  // fixed at creation; see endLocked
+	created   int64 // ms; set for an ephemeral vault
+	gone      bool  // dropped or ended: its store is closed (mu held to read)
+}
+
+// expired reports an ephemeral vault past its lifetime.
+func (s *Server) expired(st *vaultState) bool {
+	return st.ephemeral && s.clock()-st.created >= s.quotas.EphemeralTTLMs
 }
 
 // New constructs a Server.
@@ -163,11 +181,20 @@ func (s *Server) loadPersistedVaults() error {
 		if err != nil {
 			continue
 		}
+		dir := filepath.Join(s.dataDir, d.Name())
+		if _, err := os.Stat(endedPath(dir)); err == nil {
+			// An ended ephemeral vault: revoked for good. Finish a
+			// deletion a crash interrupted.
+			s.revoked[vid] = true
+			if err := clearVaultFiles(dir); err != nil {
+				log.Printf("server: ended vault %s: %v", d.Name(), err)
+			}
+			continue
+		}
 		if s.revoked[vid] {
 			log.Printf("server: not serving vault %s: revoked (kvserve drop-vault removes it)", d.Name())
 			continue
 		}
-		dir := filepath.Join(s.dataDir, d.Name())
 		ak, err := readAuthKey(dir)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -188,7 +215,75 @@ func (s *Server) loadPersistedVaults() error {
 		for _, e := range ls.Sorted() {
 			st.bytes += uint64(e.Size())
 		}
+		if created, ok, err := readEphemeral(dir); err != nil {
+			// The mark is unreadable: ending the vault is the safe side,
+			// since serving it could outlive its single use.
+			log.Printf("server: vault %s: %v; ending it", d.Name(), err)
+			st.ephemeral = true
+		} else if ok {
+			st.ephemeral, st.created = true, created
+		}
 		s.vaults[vid] = st
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sweepLocked()
+}
+
+// sweepLocked ends every ephemeral vault past its lifetime. s.mu held.
+func (s *Server) sweepLocked() error {
+	for vid, st := range s.vaults {
+		if s.expired(st) {
+			if err := s.endLocked(vid, st); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// expireIfDue ends vid if it is an ephemeral vault past its lifetime,
+// reporting whether it ended now.
+func (s *Server) expireIfDue(vid vault.VaultID, st *vaultState) (bool, error) {
+	if !s.expired(st) {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.vaults[vid] != st {
+		return true, nil // another request ended it
+	}
+	return true, s.endLocked(vid, st)
+}
+
+// endLocked ends an ephemeral vault (PROTOCOL.t, Ephemeral vaults): it
+// is revoked, its store closed, and its files deleted. On disk the end
+// marker is written first, so a crash at any point leaves a vault that
+// the next start treats as ended. An error means the marker could not
+// be written and nothing changed; once it is written the vault has
+// ended, and files left behind are logged and cleared at the next
+// start. s.mu held, st.mu not.
+func (s *Server) endLocked(vid vault.VaultID, st *vaultState) error {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.dir != "" {
+		stamp := []byte(strconv.FormatInt(s.clock(), 10) + "\n")
+		if err := durable.WriteFile(endedPath(st.dir), stamp, 0o600); err != nil {
+			return err
+		}
+	}
+	s.revoked[vid] = true
+	delete(s.vaults, vid)
+	st.gone = true
+	if c, ok := st.s.(io.Closer); ok {
+		if err := c.Close(); err != nil {
+			log.Printf("server: ended vault %s: close: %v", vid, err)
+		}
+	}
+	if st.dir != "" {
+		if err := clearVaultFiles(st.dir); err != nil {
+			log.Printf("server: ended vault %s: %v (cleared at the next start)", vid, err)
+		}
 	}
 	return nil
 }
@@ -254,29 +349,44 @@ func (s *Server) handleRegister(h wire.Header, sealed []byte) ([]byte, error) {
 	if !opened {
 		return wire.ErrBadAuth.Reply(), nil // gate: no RegisterKey opens it
 	}
-	if len(payload) != vault.AuthKeySize {
+	ak, ephemeral, err := wire.ParseRegister(payload)
+	if err != nil {
 		return wire.ErrBadFrame.Reply(), nil
 	}
-	if s.revoked[vid] {
-		return wire.ErrBadAuth.Reply(), nil // revoked: never again
-	}
-	var ak vault.AuthKey
-	copy(ak[:], payload)
 
 	s.mu.Lock()
 	st, exists := s.vaults[vid]
+	if exists && s.expired(st) {
+		if err := s.endLocked(vid, st); err != nil {
+			s.mu.Unlock()
+			log.Printf("server: end vault %s: %v", vid, err)
+			return wire.ErrTryLater.Reply(), nil
+		}
+		exists = false
+	}
+	if s.revoked[vid] {
+		s.mu.Unlock()
+		return wire.ErrBadAuth.Reply(), nil // revoked: never again
+	}
 	if exists {
 		s.mu.Unlock()
 		if subtle.ConstantTimeCompare(st.authKey[:], ak[:]) != 1 {
 			return wire.ErrBadAuth.Reply(), nil // rebind attempt
 		}
-		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil) // its mark stays as created
+	}
+	// Expired ephemeral vaults give their places back before the cap
+	// is judged.
+	if err := s.sweepLocked(); err != nil {
+		s.mu.Unlock()
+		log.Printf("server: sweep: %v", err)
+		return wire.ErrTryLater.Reply(), nil
 	}
 	if uint64(len(s.vaults)) >= s.quotas.MaxVaults {
 		s.mu.Unlock()
 		return s.sealResp(vid, vault.DeriveS2C(ak), nonce, wire.StatusQuota, nil)
 	}
-	st, err := s.createVaultLocked(vid, ak)
+	st, err = s.createVaultLocked(vid, ak, ephemeral)
 	s.mu.Unlock()
 	if err != nil {
 		log.Printf("server: create vault %s: %v", vid, err)
@@ -297,9 +407,19 @@ func (s *Server) handleSync(h wire.Header, sealed []byte) ([]byte, error) {
 	if err != nil {
 		return wire.ErrBadAuth.Reply(), nil
 	}
+	if ended, err := s.expireIfDue(vid, st); ended {
+		if err != nil {
+			log.Printf("server: end vault %s: %v", vid, err)
+			return wire.ErrTryLater.Reply(), nil
+		}
+		return wire.ErrUnknownVault.Reply(), nil
+	}
 	req, err := wire.ParseSync(payload)
 	if err != nil {
 		return s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
+	}
+	if req.Op == wire.OpDrop {
+		return s.handleDrop(vid, st, nonce)
 	}
 
 	// The op runs under the vault lock; OnPush fires after it is
@@ -307,6 +427,9 @@ func (s *Server) handleSync(h wire.Header, sealed []byte) ([]byte, error) {
 	resp, pushedNew, err := func() ([]byte, bool, error) {
 		st.mu.Lock()
 		defer st.mu.Unlock()
+		if st.gone { // ended or dropped after the lookup above
+			return wire.ErrUnknownVault.Reply(), false, nil
+		}
 
 		status := wire.StatusOK
 		var page []vault.Entry
@@ -352,6 +475,27 @@ func (s *Server) handleSync(h wire.Header, sealed []byte) ([]byte, error) {
 		s.onPush(vid)
 	}
 	return resp, err
+}
+
+// handleDrop ends an ephemeral vault at its holder's request; any
+// other vault answers BAD_REQUEST and is untouched. The OK is sealed
+// under the channel the vault had.
+func (s *Server) handleDrop(vid vault.VaultID, st *vaultState, nonce [vault.NonceSize]byte) ([]byte, error) {
+	if !st.ephemeral {
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusBadRequest, nil)
+	}
+	s.mu.Lock()
+	if s.vaults[vid] != st {
+		s.mu.Unlock()
+		return wire.ErrUnknownVault.Reply(), nil // ended meanwhile
+	}
+	err := s.endLocked(vid, st)
+	s.mu.Unlock()
+	if err != nil {
+		log.Printf("server: drop vault %s: %v", vid, err)
+		return wire.ErrTryLater.Reply(), nil
+	}
+	return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
 }
 
 // addValidatedLocked adds entries that already passed validateNew,
@@ -424,16 +568,26 @@ func (s *Server) sealResp(vid vault.VaultID, s2c vault.ChannelKey, reqNonce [vau
 	return wire.SealFrame(wire.Header{Kind: wire.KindResp, VaultID: vid, Nonce: respNonce}, s2c, payload)
 }
 
-// createVaultLocked constructs and persists a new vaultState. s.mu held.
-func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultState, error) {
+// createVaultLocked constructs and persists a new vaultState. An
+// ephemeral one's mark is written before its auth.key, so no vault on
+// disk is ever served without it. s.mu held.
+func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey, ephemeral bool) (*vaultState, error) {
+	now := s.clock()
 	if s.dataDir == "" {
 		st := newVaultState(store.NewMemStore(), ak, "")
+		st.ephemeral, st.created = ephemeral, now
 		s.vaults[vid] = st
 		return st, nil
 	}
 	dir := filepath.Join(s.dataDir, vid.String())
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
+	}
+	if ephemeral {
+		stamp := []byte(strconv.FormatInt(now, 10) + "\n")
+		if err := durable.WriteFile(ephemeralPath(dir), stamp, 0o600); err != nil {
+			return nil, err
+		}
 	}
 	if err := durable.WriteFile(authKeyPath(dir), ak[:], 0o600); err != nil {
 		return nil, err
@@ -443,6 +597,7 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey) (*vaultS
 		return nil, err
 	}
 	st := newVaultState(ls, ak, dir)
+	st.ephemeral, st.created = ephemeral, now
 	s.vaults[vid] = st
 	return st, nil
 }
@@ -502,6 +657,42 @@ func removeVaultDir(dataDir, dir string) error {
 // --- per-vault auth.key persistence ---
 
 func authKeyPath(dir string) string { return filepath.Join(dir, "auth.key") }
+
+// An ephemeral vault's directory holds an "ephemeral" file, its
+// creation time in ms as decimal text, written before auth.key. An
+// ended one holds only "dropped", the moment it ended: its end marker.
+func ephemeralPath(dir string) string { return filepath.Join(dir, "ephemeral") }
+func endedPath(dir string) string     { return filepath.Join(dir, "dropped") }
+
+// readEphemeral reports whether dir's vault is ephemeral, and when it
+// was created.
+func readEphemeral(dir string) (created int64, ok bool, err error) {
+	b, err := os.ReadFile(ephemeralPath(dir))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	created, err = strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("server: ephemeral file: %w", err)
+	}
+	return created, true, nil
+}
+
+// clearVaultFiles deletes an ended vault's files, all but its end
+// marker. auth.key goes first, as in removeVaultDir.
+func clearVaultFiles(dir string) error {
+	var errs []error
+	for _, name := range []string{"auth.key", "entries.log", "ephemeral"} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	durable.SyncDir(dir)
+	return errors.Join(errs...)
+}
 
 func readAuthKey(dir string) (vault.AuthKey, error) {
 	b, err := os.ReadFile(authKeyPath(dir))
