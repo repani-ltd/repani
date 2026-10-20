@@ -34,6 +34,13 @@ shaped by the TrueType case alone until then.
 
 # Elsewhere
 
+.term seal: sealed request and response
+Designed, not built (seal/DESIGN.t, 2026-10-20): Ascon seals in place
+of bearer tokens between server processes, with quietcasting's strict
+replay rule kept per client and lane. Trigger: hosa's model process
+leaving its host for a bank's own model server; the numbers (skew,
+frame size, clock bound) are set from that consumer.
+
 .term quietcasting binding of raster
 Raster's records (RASTER.t, "Records": a row record whole, and the
 row count) are the unit the radio carries, unchanged: a slot
