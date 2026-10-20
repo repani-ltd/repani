@@ -75,6 +75,12 @@ type Options struct {
 	Clock        func() int64
 	RegisterKeys []vault.RegisterKey
 
+	// Revoked vaults are never served or registered: a REGISTER naming
+	// one is BAD_AUTH, and one still on disk is not loaded. Dropping a
+	// vault without revoking it lets any client holding its RootKey and
+	// a RegisterKey create it again on its next sync.
+	Revoked []vault.VaultID
+
 	// OnPush, if non-nil, is called after a PUSH frame's entries have
 	// been validated and persisted, once per PUSH that added at least
 	// one new entry. It runs outside the vault locks, on the goroutine
@@ -89,6 +95,7 @@ type Server struct {
 	quotas  Quotas
 	clock   func() int64
 	regKeys []vault.ChannelKey // K_reg per RegisterKey; none = registration disabled
+	revoked map[vault.VaultID]bool
 	onPush  func(vault.VaultID)
 	mux     *http.ServeMux // the protocol routes, built once
 
@@ -127,8 +134,12 @@ func New(opt Options) (*Server, error) {
 		quotas:  opt.Quotas.withDefaults(),
 		clock:   clk,
 		regKeys: regKeys,
+		revoked: make(map[vault.VaultID]bool),
 		onPush:  opt.OnPush,
 		vaults:  make(map[vault.VaultID]*vaultState),
+	}
+	for _, vid := range opt.Revoked {
+		s.revoked[vid] = true
 	}
 	s.mux = s.routes()
 	if opt.DataDir != "" {
@@ -150,6 +161,10 @@ func (s *Server) loadPersistedVaults() error {
 		}
 		vid, err := vault.ParseVaultID(d.Name())
 		if err != nil {
+			continue
+		}
+		if s.revoked[vid] {
+			log.Printf("server: not serving vault %s: revoked (kvserve drop-vault removes it)", d.Name())
 			continue
 		}
 		dir := filepath.Join(s.dataDir, d.Name())
@@ -241,6 +256,9 @@ func (s *Server) handleRegister(h wire.Header, sealed []byte) ([]byte, error) {
 	}
 	if len(payload) != vault.AuthKeySize {
 		return wire.ErrBadFrame.Reply(), nil
+	}
+	if s.revoked[vid] {
+		return wire.ErrBadAuth.Reply(), nil // revoked: never again
 	}
 	var ak vault.AuthKey
 	copy(ak[:], payload)

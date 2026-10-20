@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"repani.com/kv/server"
@@ -84,5 +85,81 @@ func TestReadRegisterKeys(t *testing.T) {
 		if _, err := readRegisterKeys(write(file)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// TestReadRevoked: ids one per line, notes after #; an empty file
+// revokes nothing, and a missing file or a bad line is an error.
+func TestReadRevoked(t *testing.T) {
+	a, b := vault.VaultID{1}, vault.VaultID{2}
+	path := filepath.Join(t.TempDir(), "revoked")
+	os.WriteFile(path, []byte("# dropped vaults\n"+a.String()+"  # old trip\n\n"+b.String()+"\n"), 0o600)
+	if ids, err := readRevoked(path); err != nil || !slices.Equal(ids, []vault.VaultID{a, b}) {
+		t.Fatalf("ids %v, %v; want a then b", ids, err)
+	}
+	os.WriteFile(path, nil, 0o600)
+	if ids, err := readRevoked(path); err != nil || len(ids) != 0 {
+		t.Fatalf("empty file: %v, %v", ids, err)
+	}
+	os.WriteFile(path, []byte(a.String()+"\nnot-an-id\n"), 0o600)
+	if _, err := readRevoked(path); err == nil {
+		t.Error("bad line accepted")
+	}
+	if _, err := readRevoked(path + ".missing"); err == nil {
+		t.Error("missing file accepted")
+	}
+}
+
+// TestDropVault: a drop revokes before it deletes, once; a vault with
+// no data is revoked all the same; a served vault is revoked and its
+// data kept until the server stops; and a server started on the file
+// never registers the vault again.
+func TestDropVault(t *testing.T) {
+	data := t.TempDir()
+	revoked := filepath.Join(t.TempDir(), "revoked")
+	os.WriteFile(revoked, nil, 0o600)
+	reg := vault.RegisterKey{9}
+	srv, err := server.New(server.Options{DataDir: data, RegisterKeys: []vault.RegisterKey{reg}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rk, _ := vault.NewRandomRootKey()
+	vid, ak := vault.DeriveVaultID(rk), vault.DeriveAuthKey(rk)
+	if err := srv.EnsureVault(vid, ak); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := dropVault(data, revoked, vid, "in use"); err == nil || !strings.Contains(err.Error(), "being served") {
+		t.Fatalf("drop of a served vault: %v", err)
+	}
+	srv.Close()
+	if msg, err := dropVault(data, revoked, vid, ""); err != nil || msg != vid.String()+" already revoked and dropped" {
+		t.Fatalf("drop after stop: %q, %v", msg, err)
+	}
+	other := vault.VaultID{7}
+	if msg, err := dropVault(data, revoked, other, "removed by hand,  long ago"); err != nil || !strings.Contains(msg, "revoked; no data") {
+		t.Fatalf("drop of a vault with no data: %q, %v", msg, err)
+	}
+	b, _ := os.ReadFile(revoked)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], vid.String()+"  # dropped ") || !strings.HasSuffix(lines[0], ": in use") ||
+		!strings.HasSuffix(lines[1], ": removed by hand, long ago") {
+		t.Fatalf("revoked file:\n%s", b)
+	}
+	if _, err := os.Stat(filepath.Join(data, vid.String())); !os.IsNotExist(err) {
+		t.Fatalf("data still there: %v", err)
+	}
+
+	ids, err := readRevoked(revoked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv2, err := server.New(server.Options{DataDir: data, RegisterKeys: []vault.RegisterKey{reg}, Revoked: ids})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv2.Close()
+	if err := srv2.EnsureVault(vid, ak); err != server.ErrRevoked {
+		t.Fatalf("recreating a dropped vault: %v, want ErrRevoked", err)
 	}
 }

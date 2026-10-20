@@ -169,7 +169,7 @@ always longer than one byte, so the two never collide.
 0xE1 | BAD_VERSION | `ver` is not one the server speaks
 0xE2 | BAD_KIND | `kind` is unknown
 0xE3 | UNKNOWN_VAULT | a SYNC names a vault the server does not hold
-0xE4 | BAD_AUTH | the frame does not open under any key the server holds for it, or a REGISTER brings a different AuthKey for an existing vault
+0xE4 | BAD_AUTH | the frame does not open under any key the server holds for it, or a REGISTER brings a different AuthKey for an existing vault, or names a revoked vault
 0xE5 | TRY_LATER | a transient failure; the request may be retried
 .end
 
@@ -218,7 +218,9 @@ vaults, and with TRY_LATER when the server cannot store it.
 
 A server may also hold vaults created by its operator without a
 REGISTER. A server with no RegisterKey answers every REGISTER with
-BAD_AUTH.
+BAD_AUTH. Its operator may REVOKE a vault: the server then no longer
+serves it and answers every REGISTER for it with BAD_AUTH, so a
+device still holding the RootKey cannot create it again.
 
 # Merge
 

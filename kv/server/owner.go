@@ -15,14 +15,18 @@ var (
 	ErrUnknownVault    = errors.New("server: unknown vault")
 	ErrAuthKeyMismatch = errors.New("server: vault exists with a different auth key")
 	ErrQuota           = errors.New("server: quota exceeded")
+	ErrRevoked         = errors.New("server: vault is revoked")
 )
 
 // EnsureVault creates the vault for vid with the given channel root, or
 // verifies that an existing one carries the same AuthKey. Idempotent.
 // It is the owner-side equivalent of a REGISTER and works whether or
 // not in-band registration is enabled; MaxVaults does not apply, since
-// the owner is the operator.
+// the owner is the operator. A revoked vault is ErrRevoked.
 func (s *Server) EnsureVault(vid vault.VaultID, ak vault.AuthKey) error {
+	if s.revoked[vid] {
+		return ErrRevoked
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if st, ok := s.vaults[vid]; ok {
@@ -42,7 +46,8 @@ func (s *Server) EnsureVault(vid vault.VaultID, ak vault.AuthKey) error {
 // vid is not being served.
 //
 // Removal is not revocation: a device still holding the RootKey and a
-// RegisterKey re-registers the vault and pushes its copy back.
+// RegisterKey re-registers the vault and pushes its copy back, unless
+// the vault is also in Options.Revoked.
 func (s *Server) DropVault(vid vault.VaultID) error {
 	s.mu.Lock()
 	st, ok := s.vaults[vid]

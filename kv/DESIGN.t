@@ -216,6 +216,26 @@ refuses a second open in-process too. flock does not exclude a
 writer on another machine, so the data directory stays on a local
 disk.
 
+## Revocation
+
+Dropping a vault's data does not end it: every device that holds
+its RootKey and a RegisterKey creates it again on its next sync, by
+design (UNKNOWN_VAULT, then REGISTER), and uploads its copy. So a
+drop is a revocation first. kvserve reads a revoked file at start,
+one VaultID per line, and neither serves nor registers those vaults
+(BAD_AUTH); `kvserve drop-vault` writes the id there before it
+removes the data, and requires the file. The file sits beside the
+register-key file and works as it does: the operator edits it over
+ssh, kvserve reads it at start.
+
+Decided 2026-10-13. Considered: an admin vault on the server, its
+entries ROW rows naming the revoked ids, written from the operator's
+laptop with the kv client. It removes ssh from operations, but the
+server must hold that vault's RootKey -- the end of its blindness for
+one vault, and a credential that can destroy any vault. It becomes
+worth it when the server is managed remotely, and then it carries
+register keys and quotas too, and the revoked file moves into it.
+
 ## The store is protocol, not a primitive
 
 The store's identity of an item (the entry id), its order (canonical
