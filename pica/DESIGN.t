@@ -1307,4 +1307,6 @@ with "if". Both site pages render byte for byte as served.
 Verified at each step by rendering every document: byte for byte,
 but for the PDFs once every stream became compressed.
 
+.width 48
+.cols 2
 .font sans

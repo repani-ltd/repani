@@ -173,6 +173,6 @@ row r k   end fg bg len "888"   end fg bg len end fg bg len
 
 Rationale, history and what is open: `DESIGN.t`, beside this file.
 
-.width 72
-.cols 1
+.width 48
+.cols 2
 .font sans

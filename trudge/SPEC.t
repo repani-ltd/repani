@@ -184,6 +184,6 @@ trudge1, full parameters:
 The Go tests carry the same vectors (trudge_test.go); the full
 vector runs unless -short.
 
-.width 72
-.cols 1
+.width 48
+.cols 2
 .font sans

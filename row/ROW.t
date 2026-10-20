@@ -333,3 +333,6 @@ A row is what each value is: one row of typed fields, as in a table
 whose columns the program knows. Considered: rst (the radio report,
 compact and positional, but opaque without the reference), tup,
 bead, strand.
+.width 48
+.cols 2
+.font sans

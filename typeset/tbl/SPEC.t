@@ -276,6 +276,6 @@ a number wider than its N box.
 
 Rationale, history and the choices weighed: `repani-lab/board/DESIGN.t`.
 
-.width 72
-.cols 1
+.width 48
+.cols 2
 .font sans

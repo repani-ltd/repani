@@ -115,3 +115,6 @@ To retire a device, create a fresh RootKey on a trusted device, copy
 the live keys into the new vault, and give the new RootKey to the
 remaining devices. The old vault stays readable to the retired
 device but no longer changes.
+.width 48
+.cols 2
+.font sans

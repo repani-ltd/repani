@@ -309,3 +309,6 @@ pushes.
 
 A tombstone removes a key from the view, not entries from the set.
 A set only grows.
+.width 48
+.cols 2
+.font sans

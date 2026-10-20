@@ -274,5 +274,5 @@ and `board-align-data.js`. Serve the directory to view it; the
 webfonts do not load from file://.
 
 .width 72
-.cols 1
+.cols 2
 .font sans

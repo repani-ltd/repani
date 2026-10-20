@@ -376,3 +376,6 @@ Build it when a vault nears its quota, or the first time a secret
 must be removed from every device and the server. It is the more
 important of the two: it is a capability kv lacks outright, and every
 long-lived replicated set comes to need it.
+.width 48
+.cols 2
+.font sans

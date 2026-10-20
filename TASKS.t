@@ -235,4 +235,6 @@ and loses everywhere else. Trigger: a consumer with live
 cell-level updates in place, where the receiver wants the dirty
 rows without a compare; then a primitive with round-trip and
 known-answer tests over the same pairs.
-.width 72
+.width 48
+.cols 2
+.font sans

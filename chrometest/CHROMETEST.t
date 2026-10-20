@@ -47,3 +47,6 @@ for what a person would see, and polling needs no event plumbing.
 .term A phone by option
 Options.Phone emulates a 390 x 844 phone, the device the apps are
 used on; without it a page gets Chrome's default desktop viewport.
+.width 48
+.cols 2
+.font sans
