@@ -273,6 +273,6 @@ columns: `~/repos/_attic/board`.
 and `board-align-data.js`. Serve the directory to view it; the
 webfonts do not load from file://.
 
-.width 72
-.cols 2
+.width 80
+.cols 1
 .font sans
