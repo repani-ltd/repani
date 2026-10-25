@@ -15,12 +15,10 @@ width) and `golang.org/x/sys/windows` (the log lock on Windows);
 
 ## Exported surface has consumers outside this module
 
-In repani-private: `almanac` imports `kv/vault`, `kv/client`,
-`kv/server` and `kv/js` (it is an ASCON-KV application: pages are vault
-items), and `webapp` serves and stages `js/kv.js` to every web app
+In repani-private: `webapp` serves and stages `js/kv.js` to every web app
 (iou), whose `vaults.js` builds on its Client contract -- after changing
 kv.js, run webapp's and iou's browser tests too (see their CLAUDE.md).
-The repani server's deploy (`repani-private/ops/repani`) builds kvserve
+The repani server's deploy (private, outside this repo) builds kvserve
 and kv by import path. Before removing or changing any exported
 identifier, grep every module in `~/repos` -- including `~/repos/_attic`
 -- for its users; "unused in this module" is not "dead". The

@@ -48,5 +48,5 @@ are the contract.
   one series for the whole module; v0.x while the API moves (MINOR
   = API change, PATCH = fix/docs), v1.0.0 = frozen surface, and a
   breaking successor is a new module path, never `/v2`. Procedure
-  and history: `repani-private/ops/runbooks.t`, "Publish a module
-  version".
+  and history: the private ops runbooks (located by
+  `~/repos/CLAUDE.md`), "Publish a module version".

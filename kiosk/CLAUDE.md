@@ -11,8 +11,8 @@ and the decision ledger — read it before changing any default it
 states, and record a new decision there rather than in a code
 comment.
 
-The package was factored out of three daemons (almanac's `web` +
-`cmd/almanacd`, the retired `_attic/quietcasting-go`'s `web` +
+The package was factored out of three daemons (the atticed
+`_attic/almanac-private`'s `web` + `cmd/almanacd`, the retired `_attic/quietcasting-go`'s `web` +
 `cmd/qcweb`, and `kv`'s `cmd/kvserve`) after a production-readiness
 review on 2026-09-06. KIOSK.t's "Findings" section is that review;
 every default here answers one of its items. Do not reintroduce a
@@ -43,7 +43,7 @@ lifecycle in a daemon — a daemon builds routes and calls Serve.
 
 ## Style
 
-Follows `~/repos/CLAUDE.md` for the module rules, plus almanac's:
+Follows `~/repos/CLAUDE.md` for the module rules, plus these (inherited from almanac):
 ASCII in comments, `any` not `interface{}`, architectural prose in
 `doc.go` and one-line file comments, no speculative abstraction,
 tests beside the code with a regression test for every fixed bug.
