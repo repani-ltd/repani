@@ -7,7 +7,9 @@ packages (`ascon/`, `golay/`, `lz4s/`) or the typesetting family
 `typeset/format`, `typeset/wrap` with its optional hyphenation
 `typeset/wrap/hyphen`, `typeset/tbl`, `typeset/raster`
 -- every member under the primitive rule, so a
-product never lives there); this file holds what is common.
+product never lives there); this file holds what is common. No
+top-level directory may be named `draft`: https://repani.com/draft/
+is the website's preview, and a package there would shadow it.
 
 Primitive packages import only the standard library, other
 primitive packages, and well-known, well-tested external
