@@ -312,7 +312,9 @@ export function unmarshalEntry(b, off = 0) {
   const tsMs = ld64(b, off);
   const nonce = b.slice(off + 8, off + 8 + NONCE_SIZE);
   const ctLen = new DataView(b.buffer, b.byteOffset + off + 8 + NONCE_SIZE, 2).getUint16(0, true);
+  if (ctLen < AEAD_TAG_SIZE) throw new Error("kv: entry ciphertext shorter than its tag");
   const total = ENTRY_HEADER_SIZE + ctLen;
+  if (total > MAX_ENTRY_BYTES) throw new Error("kv: entry exceeds MAX_ENTRY_BYTES");
   if (b.length - off < total) throw new Error("kv: entry ciphertext length mismatch");
   const ct = b.slice(off + ENTRY_HEADER_SIZE, off + total);
   return { entry: { tsMs, nonce, ct }, consumed: total };

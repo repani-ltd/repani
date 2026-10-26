@@ -17,6 +17,9 @@ import (
 // URL.
 var ErrNoBaseURL = errors.New("client: transport has no base URL")
 
+// ErrResponseTooLarge reports a response longer than wire.MaxFrameBytes.
+var ErrResponseTooLarge = errors.New("client: response exceeds the frame cap")
+
 // HTTPTransport POSTs each sealed frame to <Base>/v1/sync and returns
 // the response bytes, capped at wire.MaxFrameBytes. It is the
 // canonical Transport for HTTP servers; a server mounted under a
@@ -48,12 +51,18 @@ func (t *HTTPTransport) Do(ctx context.Context, frame []byte) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxFrameBytes))
+	// One byte past the cap tells an oversized reply from one that
+	// fits, so it is refused as what it is, not cut short and then
+	// reported as a seal that does not open.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxFrameBytes+1))
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("client: server returned %s", resp.Status)
+	}
+	if len(body) > wire.MaxFrameBytes {
+		return nil, ErrResponseTooLarge
 	}
 	return body, nil
 }

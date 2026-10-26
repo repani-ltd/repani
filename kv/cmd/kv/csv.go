@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -39,7 +40,13 @@ const importChunk = 512
 // skipped: an empty value is a tombstone, never made by an import. A
 // key that appears twice takes its later row. The caller syncs.
 func importCSV(c *client.Client, r io.Reader) (int, error) {
-	cr := csv.NewReader(r)
+	// Excel's and Numbers' "CSV UTF-8" begins with a byte-order mark,
+	// dropped here so the first header still reads as Key.
+	br := bufio.NewReader(r)
+	if b, err := br.Peek(3); err == nil && string(b) == "\xef\xbb\xbf" {
+		br.Discard(3)
+	}
+	cr := csv.NewReader(br)
 	cr.FieldsPerRecord = -1 // rows may vary in width
 	header, err := cr.Read()
 	if err == io.EOF {

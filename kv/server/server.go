@@ -162,6 +162,7 @@ func New(opt Options) (*Server, error) {
 	s.mux = s.routes()
 	if opt.DataDir != "" {
 		if err := s.loadPersistedVaults(); err != nil {
+			s.Close() // the logs already opened, and their locks
 			return nil, err
 		}
 	}
@@ -539,7 +540,8 @@ func (s *Server) validateNew(st *vaultState, pushes []vault.Entry, checkSkew boo
 			continue
 		}
 		seen[id] = true
-		if checkSkew && int64(e.TsMs)-now > skew {
+		// Unsigned, so a ts_ms of 2^63 or more cannot wrap below now.
+		if checkSkew && e.TsMs > uint64(now)+uint64(skew) {
 			return nil, errSkew
 		}
 		newEntries = append(newEntries, e)

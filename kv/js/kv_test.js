@@ -79,6 +79,19 @@ export async function vectors() {
     eq("entryID " + i, kv.entryID(entry), V.entryIDs[i]);
     eq("remarshal " + i, kv.marshalEntry(entry), V.entries[i]);
   }
+  {
+    // As Go's vault.UnmarshalEntry: a ciphertext shorter than its tag,
+    // or an entry over MAX_ENTRY_BYTES, is refused on parse.
+    const refuses = (name, ctLen) => {
+      const raw = new Uint8Array(kv.ENTRY_HEADER_SIZE + ctLen);
+      new DataView(raw.buffer).setUint16(8 + kv.NONCE_SIZE, ctLen, true);
+      let threw = false;
+      try { kv.unmarshalEntry(raw); } catch { threw = true; }
+      eq(name, String(threw), "true");
+    };
+    refuses("entry ct shorter than tag", kv.AEAD_TAG_SIZE - 1);
+    refuses("entry over max", kv.MAX_ENTRY_BYTES - kv.ENTRY_HEADER_SIZE + 1);
+  }
   const opened = entries.map((e) => kv.openEntry(aeadKey, e));
   eq("e1 key", td.decode(opened[0].key), "alpha");
   eq("e1 val", td.decode(kv.parseValue(opened[0].value).value), "first");

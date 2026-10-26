@@ -246,6 +246,13 @@ func TestQuota_SkewAndMaxEntries(t *testing.T) {
 	if resp, _ := h.push([]vault.Entry{ahead}); resp.Status != wire.StatusBadRequest {
 		t.Fatalf("future push status %d, want BAD_REQUEST", resp.Status)
 	}
+	// At or past 2^63, where a signed comparison would wrap negative.
+	for _, ts := range []uint64{1 << 63, ^uint64(0)} {
+		far := mkEntry(t, rk, ts, "far", "v")
+		if resp, _ := h.push([]vault.Entry{far}); resp.Status != wire.StatusBadRequest {
+			t.Fatalf("push at ts %d status %d, want BAD_REQUEST", ts, resp.Status)
+		}
+	}
 
 	// Fill to the entry cap. The skew bounds only the future: an entry
 	// a day old, written offline, is accepted.

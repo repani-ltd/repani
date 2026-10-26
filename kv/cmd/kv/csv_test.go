@@ -73,6 +73,9 @@ func TestImportCSV(t *testing.T) {
 		{"empty skipped", "Key,Value\n,v\nk,\n ,  \nreal,secret\n", 2,
 			map[string]string{" ": "  ", "real": "secret"}},
 		{"later row wins", "Key,Value\nk,first\nk,second\n", 1, map[string]string{"k": "second"}},
+		// Excel's and Numbers' "CSV UTF-8", quoted header or not.
+		{"byte-order mark", "\xef\xbb\xbfKey,Value\nk,v\n", 1, map[string]string{"k": "v"}},
+		{"byte-order mark, quoted", "\xef\xbb\xbf\"Key\",\"Value\"\nk,v\n", 1, map[string]string{"k": "v"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := testClient(t)

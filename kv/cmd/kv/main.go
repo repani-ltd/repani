@@ -361,14 +361,53 @@ func loadRegisterKey() *vault.RegisterKey {
 	return &rk
 }
 
-// saveRegisterKey validates and writes the register key to disk in
-// Crockford base32 form, mode 0600.
-func saveRegisterKey(b32 string) error {
+// parseRegisterKeyFlag decodes a --register-key value; "" is none.
+func parseRegisterKeyFlag(b32 string) *vault.RegisterKey {
+	if b32 == "" {
+		return nil
+	}
 	rk, err := vault.DecodeRegisterKey(strings.TrimSpace(b32))
 	if err != nil {
-		return fmt.Errorf("register key: %w", err)
+		fatal("invalid register key: %v", err)
 	}
-	return writeKeyExclusive(registerKeyPath(), []byte(vault.EncodeRegisterKey(rk)+"\n"))
+	return &rk
+}
+
+// createVault makes this device's vault from rk, installing regKey
+// too when it is not nil, for init, pair and restore. Everything that
+// can refuse is checked before anything is written, and vault.key,
+// whose presence is what makes a vault, is written last: a run that
+// fails leaves no half-made vault for the next one to refuse. A
+// register.key already installed is kept if it is regKey, and refused
+// if it is another.
+func createVault(rk vault.RootKey, regKey *vault.RegisterKey) {
+	if _, err := os.Stat(vaultKeyPath()); err == nil {
+		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())
+	}
+	writeReg := false
+	if regKey != nil {
+		switch have := loadRegisterKey(); {
+		case have == nil:
+			writeReg = true
+		case *have != *regKey:
+			fatal("refusing to replace the different register key at %s (kv set-register-key replaces it)", registerKeyPath())
+		}
+	}
+	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
+		fatal("mkdir: %v", err)
+	}
+	if writeReg {
+		if err := writeKeyExclusive(registerKeyPath(), []byte(vault.EncodeRegisterKey(*regKey)+"\n")); err != nil {
+			fatal("write register.key: %v", err)
+		}
+	}
+	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
+		fatal("write vault.key: %v", err)
+	}
+	// Materialize an empty log with the proper magic header.
+	if ls, err := store.OpenLogStore(entriesPath(), lockWait()); err == nil {
+		_ = ls.Close()
+	}
 }
 
 // --- commands ---
@@ -378,28 +417,12 @@ func runInit(args []string) {
 	registerKey := fs.String("register-key", "",
 		"server register-gate secret (26-char Crockford base32); needed to register with a gated server")
 	_ = fs.Parse(args)
-	if _, err := os.Stat(vaultKeyPath()); err == nil {
-		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())
-	}
+	regKey := parseRegisterKeyFlag(*registerKey)
 	rk, err := vault.NewRandomRootKey()
 	if err != nil {
 		fatal("rand: %v", err)
 	}
-	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
-		fatal("mkdir: %v", err)
-	}
-	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
-		fatal("write vault.key: %v", err)
-	}
-	if *registerKey != "" {
-		if err := saveRegisterKey(*registerKey); err != nil {
-			fatal("%v", err)
-		}
-	}
-	// Materialize an empty log with the proper magic header.
-	if ls, err := store.OpenLogStore(entriesPath(), lockWait()); err == nil {
-		_ = ls.Close()
-	}
+	createVault(rk, regKey)
 	fmt.Println(vault.EncodeRootKey(rk))
 }
 
@@ -423,23 +446,7 @@ func runPair(args []string) {
 	if err != nil {
 		fatal("invalid pairing blob: %v", err)
 	}
-	if _, err := os.Stat(vaultKeyPath()); err == nil {
-		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())
-	}
-	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
-		fatal("mkdir: %v", err)
-	}
-	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
-		fatal("write vault.key: %v", err)
-	}
-	if *registerKey != "" {
-		if err := saveRegisterKey(*registerKey); err != nil {
-			fatal("%v", err)
-		}
-	}
-	if ls, err := store.OpenLogStore(entriesPath(), lockWait()); err == nil {
-		_ = ls.Close()
-	}
+	createVault(rk, parseRegisterKeyFlag(*registerKey))
 	fmt.Println("paired")
 }
 
@@ -523,21 +530,6 @@ func runBackup(args []string) {
 	fs := flag.NewFlagSet("backup", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	var w io.Writer = os.Stdout
-	if fs.NArg() >= 1 && fs.Arg(0) != "-" {
-		f, err := os.OpenFile(fs.Arg(0), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if err != nil {
-			fatal("open %s: %v", fs.Arg(0), err)
-		}
-		// OpenFile applies 0600 only when creating; force it so a
-		// pre-existing (possibly world-readable) file cannot leak the RootKey.
-		if err := f.Chmod(0o600); err != nil {
-			fatal("chmod %s: %v", fs.Arg(0), err)
-		}
-		defer f.Close()
-		w = f
-	}
-
 	rk := loadRootKey()
 	regKey := loadRegisterKey() // may be nil
 	blob := vault.EncodeBackup(rk, regKey)
@@ -550,7 +542,24 @@ func runBackup(args []string) {
 		fmt.Fprintln(os.Stderr,
 			"         with `kv pair --register-key <base32>`.")
 	}
-	fmt.Fprintln(w, blob)
+	writeOutput(fs.Arg(0), []byte(blob+"\n"))
+}
+
+// writeOutput writes out to stdout when path is "" or "-", and
+// otherwise to path, mode 0600 (it may hold a RootKey or plaintext
+// values), replacing the file only once all of out is written. A
+// command builds out whole before calling it, so a run that fails
+// leaves an earlier backup or export as it was.
+func writeOutput(path string, out []byte) {
+	if path == "" || path == "-" {
+		if _, err := os.Stdout.Write(out); err != nil {
+			fatal("write: %v", err)
+		}
+		return
+	}
+	if err := durable.WriteFile(path, out, 0o600); err != nil {
+		fatal("write %s: %v", path, err)
+	}
 }
 
 // runRestore consumes a blob produced by `kv backup` (or the
@@ -574,27 +583,7 @@ func runRestore(args []string) {
 	if err != nil {
 		fatal("invalid backup blob: %v", err)
 	}
-	if _, err := os.Stat(vaultKeyPath()); err == nil {
-		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())
-	}
-	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
-		fatal("mkdir: %v", err)
-	}
-	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
-		fatal("write vault.key: %v", err)
-	}
-	if regKey != nil {
-		if err := writeKeyExclusive(
-			registerKeyPath(),
-			[]byte(vault.EncodeRegisterKey(*regKey)+"\n"),
-		); err != nil {
-			fatal("write register.key: %v", err)
-		}
-	}
-	// Materialize an empty entries.log with the proper magic header.
-	if ls, err := store.OpenLogStore(entriesPath(), lockWait()); err == nil {
-		_ = ls.Close()
-	}
+	createVault(rk, regKey)
 	if regKey != nil {
 		fmt.Println("restored (RootKey + register key)")
 	} else {
@@ -945,24 +934,12 @@ func runExport(args []string) {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	var w io.Writer = os.Stdout
-	if fs.NArg() >= 1 && fs.Arg(0) != "-" {
-		f, err := os.OpenFile(fs.Arg(0), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if err != nil {
-			fatal("open %s: %v", fs.Arg(0), err)
-		}
-		// export writes plaintext keys and values; force 0600 so a
-		// pre-existing file's looser permissions cannot leak them.
-		if err := f.Chmod(0o600); err != nil {
-			fatal("chmod %s: %v", fs.Arg(0), err)
-		}
-		defer f.Close()
-		w = f
-	}
 	c := openClient()
-	if err := exportCSV(c, w); err != nil {
+	var buf bytes.Buffer
+	if err := exportCSV(c, &buf); err != nil {
 		fatal("export: %v", err)
 	}
+	writeOutput(fs.Arg(0), buf.Bytes())
 }
 
 func runImport(args []string) {

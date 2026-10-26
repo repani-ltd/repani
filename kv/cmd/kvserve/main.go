@@ -105,7 +105,7 @@ func serveFlags() (*flag.FlagSet, *opts) {
 	o := &opts{quotas: server.DefaultQuotas()}
 	d := server.DefaultQuotas()
 	fs := flag.NewFlagSet("kvserve", flag.ExitOnError)
-	fs.StringVar(&o.addr, "addr", ":8080", "address to listen on")
+	fs.StringVar(&o.addr, "addr", "127.0.0.1:8080", "address to listen on; loopback, for TLS at a fronting proxy")
 	fs.StringVar(&o.data, "data", "./data", "data directory (created if missing)")
 	fs.DurationVar(&o.readTimeout, "read-timeout", 60*time.Second, "per-request read timeout")
 	fs.DurationVar(&o.writeTimeout, "write-timeout", 60*time.Second, "per-request write timeout")
