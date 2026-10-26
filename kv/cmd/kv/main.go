@@ -182,15 +182,11 @@ func entriesPath() string { return filepath.Join(home, "entries.log") }
 // registers with, if it has one. Its presence is what makes a vault
 // here. init and pair create it whole and never over another
 // (durable.CreateFile); set-register-key replaces it whole
-// (durable.WriteFile). The entry log beside it is only a cache.
-type deviceFile struct {
-	Device deviceKeys `fact:"device"`
-}
-
-type deviceKeys struct {
-	RootKey     string  `fact:"root_key"`     // vault.EncodeRootKey
-	RegisterKey *string `fact:"register_key"` // vault.EncodeRegisterKey; none without one
-}
+// (durable.WriteFile). The entry log beside it is only a cache. Its
+// facts:
+//
+//	device.register_key: str? = "<vault.EncodeRegisterKey>"  (none without one)
+//	device.root_key: str = "<vault.EncodeRootKey>"
 
 // device is this device's keys, decoded.
 type device struct {
@@ -206,17 +202,30 @@ func loadDevice() (device, error) {
 	if err != nil {
 		return device{}, err
 	}
-	var f deviceFile
-	if err := fact.Unmarshal(b, &f); err != nil {
+	facts, errs := fact.Load(b)
+	if len(errs) > 0 {
+		return device{}, fmt.Errorf("%s:%d: %s", devicePath(), errs[0].Line, errs[0].Msg)
+	}
+	m, err := fact.Bind(facts)
+	if err != nil {
 		return device{}, fmt.Errorf("%s: %v", devicePath(), err)
 	}
-	rk, err := vault.DecodeRootKey(f.Device.RootKey)
+	keys, _ := m["device"].(map[string]any)
+	blob, ok := keys["root_key"].(string)
+	if !ok {
+		return device{}, fmt.Errorf("%s: root_key: want str", devicePath())
+	}
+	rk, err := vault.DecodeRootKey(blob)
 	if err != nil {
 		return device{}, fmt.Errorf("%s: root_key: %v", devicePath(), err)
 	}
 	d := device{rk: rk}
-	if f.Device.RegisterKey != nil {
-		reg, err := vault.DecodeRegisterKey(*f.Device.RegisterKey)
+	if x := keys["register_key"]; x != nil {
+		blob, ok := x.(string)
+		if !ok {
+			return device{}, fmt.Errorf("%s: register_key: want str", devicePath())
+		}
+		reg, err := vault.DecodeRegisterKey(blob)
 		if err != nil {
 			return device{}, fmt.Errorf("%s: register_key: %v", devicePath(), err)
 		}
@@ -225,13 +234,20 @@ func loadDevice() (device, error) {
 	return d, nil
 }
 
+// marshal is d as device.fact: canonical, and checked by fact.Load as
+// any reader would check it.
 func (d device) marshal() ([]byte, error) {
-	k := deviceKeys{RootKey: vault.EncodeRootKey(d.rk)}
+	reg := "none"
 	if d.reg != nil {
-		s := vault.EncodeRegisterKey(*d.reg)
-		k.RegisterKey = &s
+		reg = fact.Quote(vault.EncodeRegisterKey(*d.reg))
 	}
-	return fact.Marshal(deviceFile{k})
+	src := "device.register_key: str? = " + reg + "\n" +
+		"device.root_key: str = " + fact.Quote(vault.EncodeRootKey(d.rk)) + "\n"
+	facts, errs := fact.Load([]byte(src))
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("device file: %s", errs[0].Msg)
+	}
+	return fact.Canonical(facts), nil
 }
 
 func serverURL() string { return os.Getenv("KV_SERVER") }
