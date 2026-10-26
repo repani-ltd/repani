@@ -34,6 +34,13 @@ func TestDrive(t *testing.T) {
 	if got := p.Str(`new Promise((r) => setTimeout(() => r(String(innerWidth)), 10))`); got != "390" {
 		t.Errorf("awaited eval, phone width: %q, want 390", got)
 	}
+	// A Promise condition is judged by what it resolves to: this one is
+	// false for half a second, so WaitFor must not return before then.
+	p.Eval(`window.__later = false; setTimeout(() => { window.__later = true; }, 500); true`)
+	p.WaitFor(`new Promise((r) => setTimeout(() => r(window.__later), 10))`)
+	if got := p.Str(`String(window.__later)`); got != "true" {
+		t.Errorf("WaitFor returned on a Promise of false (__later = %s)", got)
+	}
 
 	q := b.Page()
 	q.Navigate(srv.URL)

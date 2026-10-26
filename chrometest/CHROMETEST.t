@@ -43,7 +43,11 @@ WebSocket the DevTools protocol runs on. The standard library has no
 WebSocket client, and this package is the Go project's own.
 .term Polling, not events
 WaitFor evaluates a condition every 100 ms for up to 15 s. Tests wait
-for what a person would see, and polling needs no event plumbing.
+for what a person would see, and polling needs no event plumbing. A
+condition may be a Promise, awaited and judged by its value: until
+2026-10-26 it was judged as an object, always true, and three
+conditions that read a vault (webapp's watch tests) passed without
+waiting at all.
 .term A phone by option
 Options.Phone emulates a 390 x 844 phone, the device the apps are
 used on; without it a page gets Chrome's default desktop viewport.

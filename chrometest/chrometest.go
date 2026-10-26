@@ -252,11 +252,13 @@ func (p *Page) Navigate(url string) {
 }
 
 // WaitFor polls a JavaScript condition until it holds, for up to 15 s.
+// A condition that is a Promise is awaited and judged by what it
+// resolves to, not by being an object.
 func (p *Page) WaitFor(cond string) {
 	p.t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		if string(p.Eval(`!!(`+cond+`)`)) == "true" {
+		if string(p.Eval(`Promise.resolve(`+cond+`).then((v) => !!v)`)) == "true" {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
