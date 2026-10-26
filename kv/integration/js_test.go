@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"testing"
+	"time"
 
 	"repani.com/ascon"
 	"repani.com/chrometest"
@@ -245,12 +246,22 @@ func TestJSClient(t *testing.T) {
 	step(map[string]string{"p/001": "hello from go", "p/002": "second page"}, false)
 	step(map[string]string{"p/001": "hello from go", "p/002": "second page"}, true)
 
-	// Go client writes more; the JS client must converge incrementally.
+	// In sync, a WAIT is held open: it must still be pending after the
+	// Go client has merely synced nothing new, and answer true as soon
+	// as the Go client's write reaches the server.
+	send(map[string]any{"cmd": "waitStart"})
+	mustSync(t, dev)
+	time.Sleep(100 * time.Millisecond)
+	send(map[string]any{"cmd": "waitResult", "pending": true})
+
+	// Go client writes more; the wait wakes, and the JS client must
+	// converge incrementally.
 	put("p/003", "third page")
 	if err := dev.Delete([]byte("p/002")); err != nil {
 		t.Fatal(err)
 	}
 	mustSync(t, dev)
+	send(map[string]any{"cmd": "waitResult", "expect": true, "within": 5000})
 	step(map[string]string{"p/001": "hello from go", "p/003": "third page"}, false)
 
 	// --- write path: a JS-owned vault ---

@@ -1,5 +1,5 @@
 ASCON-KV CLIENT CONVENTIONS
-.date 2026-10-12
+.date 2026-10-25
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
 .rem What two ASCON-KV clients agree on above the wire: normative for
@@ -102,6 +102,28 @@ K_s2c, and echo the request's nonce. Its body is refused over
 MAX_FRAME_BYTES.
 .item A sync that fails keeps the entries it was to push first, ahead
 of any written since, for the next sync.
+
+## Watching
+
+A client that wants another device's write soon after it is made
+sends WAIT (PROTOCOL.t, Wait) with its store's set hash, and on
+DIFFER runs the loop above; on OK, still interested, it sends
+another WAIT. The reference clients expose this as one call (Go
+`Wait`, kv.js `wait()`) and leave the loop to the application,
+which knows when the vault is being looked at: a wait holds one
+connection open per vault, so an application waits on the vaults on
+screen and syncs the rest on its timer.
+
+.item A WAIT runs beside the sync loop, never inside it: a sync must
+not stand behind a request that may last WAIT_MAX_MS.
+.item BAD_REQUEST to a WAIT means the server does not offer it. The
+client reports that once (Go `ErrWaitUnsupported`, kv.js kind
+"unsupported") and the application falls back to its timer.
+.item The request timeout exceeds WAIT_MAX_MS (the reference clients'
+default, 60 s, does); a WAIT ended by the transport is an ordinary
+transport failure, retried as one.
+.item A WAIT never registers. UNKNOWN_VAULT is reported as from a
+sync.
 
 ## The view
 

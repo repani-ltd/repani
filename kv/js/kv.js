@@ -418,6 +418,11 @@ export const OP_PROBE = 0x00;
 export const OP_PULL = 0x01;
 export const OP_PUSH = 0x02;
 export const OP_DROP = 0x03; // ends an ephemeral vault
+export const OP_WAIT = 0x04; // a PROBE held open until the set changes (PROTOCOL.t, Wait)
+
+// WAIT_MAX_MS is the default longest a server holds a WAIT (PROTOCOL.t,
+// Limits). A transport's request timeout must exceed the server's value.
+export const WAIT_MAX_MS = 25000;
 
 // REGISTER_EPHEMERAL is the REGISTER flag marking a new vault
 // ephemeral (PROTOCOL.t, Ephemeral vaults).
@@ -484,13 +489,14 @@ export function openFrame(channelKey, kind, vaultID, nonce, sealed) {
   return aeadOpen(channelKey, nonce, sealed, buildFrameHeader(kind, vaultID, nonce));
 }
 
-// marshalSync encodes a SYNC payload from {op, setHash} (PROBE),
+// marshalSync encodes a SYNC payload from {op, setHash} (PROBE, WAIT),
 // {op, curTs, curID} (PULL), or {op, entries} (PUSH).
 export function marshalSync(req) {
   switch (req.op) {
-    case OP_PROBE: {
+    case OP_PROBE:
+    case OP_WAIT: {
       const out = new Uint8Array(1 + 16);
-      out[0] = OP_PROBE;
+      out[0] = req.op;
       out.set(req.setHash, 1);
       return out;
     }
@@ -920,8 +926,12 @@ const noop = () => {};
 //   - subscribe(fn) calls fn(source) when the view may have changed:
 //     "local" (this client wrote), "sync" (a sync stored new entries),
 //     "tab" (another tab on the same IndexedDB database did).
+//   - wait() holds one request open on the server until the vault
+//     changes there (or the server gives up), beside any sync; it
+//     resolves true when a sync would bring something. See wait.
 //   - close() waits for the running sync and pending writes, then
-//     closes the store; every later call fails with kind "closed".
+//     closes the store; every later call fails with kind "closed". A
+//     wait in flight resolves when the server answers it.
 //
 // Every failure of the server, the network or the store is a
 // SyncError (above); a bad argument (an empty key, a value too large)
@@ -1175,6 +1185,44 @@ export class Client {
     if (resp.status !== STATUS_OK) throw new SyncError("protocol", "drop status " + statusText(resp.status));
     this.tracef("DROP -> ok");
     this.ended = true;
+  }
+
+  // wait asks the server to answer when the vault's set differs from
+  // this store's (PROTOCOL.t, Wait; CLIENT.t, Watching). It resolves
+  // true when the server's set differs -- at once, or as soon as it
+  // changes -- and false when the server gave up waiting (WAIT_MAX_MS,
+  // or its shutdown) with the sets still equal. True is the cue to
+  // sync(); false, to wait() again while still interested. It runs
+  // beside a sync, not in its queue: the wait is a long request, and a
+  // sync must not stand behind it. A SyncError of kind "unsupported"
+  // means the server does not offer WAIT: sync on a timer instead;
+  // "ended" an ephemeral vault that has ended; the transport's
+  // "offline" a lost connection, as for any request.
+  async wait() {
+    this.checkOpen();
+    const st = { roundTrips: 0, reqBytes: 0, respBytes: 0 };
+    const payload = marshalSync({ op: OP_WAIT, setHash: await this.store.setHash() });
+    let resp;
+    try {
+      resp = await this.roundtrip("wait", KIND_SYNC, this.c2s, payload, st);
+    } catch (e) {
+      if (e.pre === ERR_UNKNOWN_VAULT && (this.ended || (this.ephemeral && this.everRegistered))) {
+        throw new SyncError("ended", "the ephemeral vault has ended");
+      }
+      throw e;
+    }
+    switch (resp.status) {
+      case STATUS_DIFFER:
+        this.tracef("WAIT -> differ");
+        return true;
+      case STATUS_OK:
+        this.tracef("WAIT -> no change");
+        return false;
+      case STATUS_BAD_REQUEST:
+        throw new SyncError("unsupported", "wait: the server does not offer WAIT");
+      default:
+        throw new SyncError("protocol", "wait status " + statusText(resp.status));
+    }
   }
 
   // reconcileAnchor returns the walk anchor for a round: round 0 looks

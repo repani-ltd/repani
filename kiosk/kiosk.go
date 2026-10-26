@@ -73,6 +73,12 @@ type Config struct {
 	// once shutdown starts.
 	ShutdownGrace time.Duration
 
+	// Drain, if set, is called once as shutdown starts, before the
+	// in-flight requests are awaited: a handler that holds requests
+	// open (a long poll) answers them here, so the drain does not wait
+	// them out. It must not block.
+	Drain func()
+
 	MaxHeaderBytes int
 
 	// Close releases whatever the handler reads from, after the last
@@ -144,6 +150,9 @@ func Serve(ctx context.Context, cfg Config) error {
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
 		ErrorLog:          slog.NewLogLogger(cfg.Logger.Handler(), slog.LevelWarn),
 		BaseContext:       func(net.Listener) context.Context { return ctx },
+	}
+	if cfg.Drain != nil {
+		srv.RegisterOnShutdown(cfg.Drain)
 	}
 
 	ln, err := net.Listen("tcp", cfg.Addr)

@@ -278,6 +278,65 @@ func TestServeShutsDownCleanly(t *testing.T) {
 	}
 }
 
+// TestServeDrainAnswersHeldRequests: a handler holding a request open
+// (a long poll) answers it when Drain is called as shutdown starts, so
+// the drain does not wait it out. Without the hook Serve would return
+// only when the held request gave up on its own.
+func TestServeDrainAnswersHeldRequests(t *testing.T) {
+	addr := freeAddr(t)
+	drained := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.Handle("GET "+HealthPath, Health())
+	mux.HandleFunc("GET /hold", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-drained:
+		case <-time.After(20 * time.Second):
+		}
+		w.Write([]byte("answered"))
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(ctx, Config{
+			Addr:    addr,
+			Handler: mux,
+			Logger:  slog.New(slog.DiscardHandler),
+			Drain:   func() { close(drained) },
+		})
+	}()
+	waitUp(t, addr)
+
+	held := make(chan string, 1)
+	go func() {
+		resp, err := http.Get("http://" + addr + "/hold")
+		if err != nil {
+			held <- err.Error()
+			return
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		held <- string(b)
+	}()
+	time.Sleep(100 * time.Millisecond) // the request is in the handler
+
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Serve returned %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Serve waited out the held request")
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("shutdown took %v with a held request", d)
+	}
+	if got := <-held; got != "answered" {
+		t.Fatalf("held request got %q, want an answer", got)
+	}
+}
+
 // TestServeReturnsBindError is the regression for a daemon that
 // called os.Exit from inside its listener goroutine, skipping its own
 // cleanup and giving its caller nothing to handle.

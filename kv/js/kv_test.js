@@ -15,6 +15,9 @@
 //   {"cmd":"del","key":K}
 //   {"cmd":"vault2","rootKey":blob,"registerKey":blob}   switch to a
 //       fresh client+store on that RootKey (register key installed)
+//   {"cmd":"waitStart"}            start a wait() and keep its promise
+//   {"cmd":"waitResult","expect":true|false,"within":ms}   the wait
+//       must have resolved to expect; "pending" checks it has not
 //
 // Stores are IDBStore throughout: the browser's store, under the real
 // sync loop.
@@ -163,6 +166,7 @@ export async function vectors() {
 // --- live steps ---
 
 let client = null;
+let waiting = null; // the wait() under way, as {promise, done, value, error}
 
 async function newClient(rootKeyBlob) {
   return new kv.Client(kv.decodeRootKey(rootKeyBlob), await kv.IDBStore.open(storeName()), kv.httpTransport(location.origin));
@@ -185,6 +189,22 @@ export async function step(c) {
       case "del":
         await client.delete(c.key);
         return "OK";
+      case "waitStart": {
+        const w = { done: false, value: undefined, error: undefined };
+        w.promise = client.wait().then((v) => { w.done = true; w.value = v; }, (e) => { w.done = true; w.error = e; });
+        waiting = w;
+        return "OK";
+      }
+      case "waitResult": {
+        if (!waiting) return "FAIL no wait under way";
+        if (c.pending) return waiting.done ? "FAIL wait answered early: " + (waiting.error ? waiting.error.message : waiting.value) : "OK";
+        const timeout = new Promise((r) => setTimeout(() => r("timeout"), c.within || 5000));
+        if ((await Promise.race([waiting.promise, timeout])) === "timeout") return "FAIL wait still pending after " + (c.within || 5000) + " ms";
+        const w = waiting;
+        waiting = null;
+        if (w.error) return "FAIL wait: " + w.error.message;
+        return w.value === c.expect ? "OK" : "FAIL wait resolved " + w.value + ", want " + c.expect;
+      }
       case "sync": {
         if (c.expectError) {
           try {

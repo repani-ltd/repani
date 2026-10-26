@@ -117,6 +117,7 @@ func serveFlags() (*flag.FlagSet, *opts) {
 	fs.Uint64Var(&o.quotas.MaxVaults, "max-vaults", d.MaxVaults, "hard cap on number of registered vaults")
 	fs.Uint64Var(&o.quotas.MaxVaultBytes, "max-vault-bytes", d.MaxVaultBytes, "hard cap on the bytes one vault may hold")
 	fs.Uint64Var(&o.quotas.MaxEntries, "max-entries", d.MaxEntries, "hard cap on the entries one vault may hold")
+	fs.Int64Var(&o.quotas.WaitMaxMs, "wait-max-ms", d.WaitMaxMs, "longest a WAIT is held before answering OK; keep it under write-timeout and any proxy's")
 	fs.StringVar(&o.registerKeyFile, "register-key-file", "", "the register-gate secrets, a FACT file (see above); REQUIRED")
 	return fs, o
 }
@@ -206,6 +207,7 @@ func runServe(args []string) {
 		WriteTimeout:  o.writeTimeout,
 		IdleTimeout:   o.idleTimeout,
 		ShutdownGrace: o.shutdownGrace,
+		Drain:         srv.Drain, // answers held WAITs, so a stop does not wait them out
 		Close:         srv.Close,
 	}); err != nil {
 		log.Fatalf("kvserve: %v", err)

@@ -346,6 +346,11 @@ var ErrVaultEnded = errors.New("client: the ephemeral vault has ended")
 // ephemeral; the server changed nothing.
 var ErrNotEphemeral = errors.New("client: the vault is not ephemeral; only an ephemeral vault drops")
 
+// ErrWaitUnsupported is Wait's answer from a server that does not
+// offer WAIT (a server from before it answers the op BAD_REQUEST):
+// the caller falls back to syncing on a timer.
+var ErrWaitUnsupported = errors.New("client: the server does not offer WAIT")
+
 // Sync reconciles the client's vault with the server. Registration is
 // reactive: a client that believes itself unregistered registers first
 // only when a register key is installed; without one it proceeds
@@ -488,6 +493,52 @@ func (c *Client) register(ctx context.Context, st *syncStats) error {
 	c.everRegistered = true
 	c.mu.Unlock()
 	return nil
+}
+
+// Wait asks the server to answer when the vault's set differs from
+// the client's (PROTOCOL.t, Wait; CLIENT.t, Watching): it sends the
+// store's set hash as a WAIT and reports true when the server's set
+// differs -- at once, or as soon as it changes -- and false when the
+// server gave up waiting (WAIT_MAX_MS, default 25 s, or the server
+// shutting down) with the sets still equal. A true answer is the cue
+// to Sync; a false one, to Wait again while still interested.
+//
+// ctx bounds the request; a caller's own deadline must exceed the
+// server's WAIT_MAX_MS or every wait ends in ctx's error. The request
+// is held open on the server and this goroutine blocks on it; a
+// client watches at most one vault per connection it is willing to
+// hold. ErrWaitUnsupported means the server does not know the op:
+// sync on a timer instead. UNKNOWN_VAULT is reported as from Sync
+// (ErrVaultEnded for an ephemeral vault, the pre-channel error
+// otherwise); Wait never registers.
+func (c *Client) Wait(ctx context.Context) (changed bool, err error) {
+	st := &syncStats{}
+	payload := wire.SyncReq{Op: wire.OpWait, SetHash: c.store.SetHash()}.Marshal()
+	resp, err := c.roundtrip(ctx, "wait", wire.KindSync, c.c2s, payload, st)
+	if errors.Is(err, wire.ErrUnknownVault) {
+		c.mu.Lock()
+		ended := c.ended || c.ephemeral && c.everRegistered
+		c.mu.Unlock()
+		if ended {
+			return false, ErrVaultEnded
+		}
+		return false, err
+	}
+	if err != nil {
+		return false, err
+	}
+	switch resp.Status {
+	case wire.StatusDiffer:
+		c.tracef("WAIT -> differ")
+		return true, nil
+	case wire.StatusOK:
+		c.tracef("WAIT -> no change")
+		return false, nil
+	case wire.StatusBadRequest:
+		return false, ErrWaitUnsupported
+	default:
+		return false, fmt.Errorf("client: wait status %s", resp.Status)
+	}
 }
 
 // Drop ends an ephemeral vault on the server: its entries are deleted

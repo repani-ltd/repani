@@ -1,5 +1,5 @@
 ASCON-KV PROTOCOL, VERSION 1
-.date 2026-10-12
+.date 2026-10-25
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
 .rem The wire protocol of repani.com/kv: normative throughout. The
@@ -139,6 +139,7 @@ SYNC     = op(1) || body
   op 0x01  PULL   body = cursor(24)
   op 0x02  PUSH   body = count(4) || entries
   op 0x03  DROP   body = empty
+  op 0x04  WAIT   body = set_hash(16)
 RESP     = status(1) || req_nonce(16) || count(4) || entries
 cursor   = ts_ms(8) || entry_id(16)
 .end
@@ -159,7 +160,7 @@ A RESP carries one status. It is sealed, so it is authentic.
 .table 76 4L 12L *L
 ^code | status | meaning
 0x00 | OK | accepted; a PULL's page follows
-0x01 | DIFFER | PROBE only: the sets differ
+0x01 | DIFFER | PROBE and WAIT only: the sets differ
 0x02 | QUOTA | a PUSH that would exceed a vault limit, or that brings new entries to a vault refusing pushes; a REGISTER of a new vault on a server at its vault limit
 0x03 | BAD_REQUEST | the payload is malformed, has an unknown op, carries an entry dated further ahead than TS_SKEW_MS, or is a DROP of a vault that is not ephemeral
 .end
@@ -212,6 +213,31 @@ A client is in sync when a PROBE answers OK. How it gets there is
 the client's own: CLIENT.t gives the reference loop. Any loop that
 pulls and pushes until a PROBE matches interoperates, since the
 server sees only the cursors and entries a client sends.
+
+## Wait
+
+A client in sync that wants to learn of the next change without
+asking again and again sends the fifth operation:
+
+.term WAIT(set_hash)
+a PROBE the server holds open. If its set hash differs from
+`set_hash` it answers DIFFER at once. Otherwise it answers when its
+set changes, DIFFER, or after at most WAIT_MAX_MS with the sets
+still equal, OK.
+
+A server may answer OK sooner than WAIT_MAX_MS, for instance when it
+is shutting down: OK says only that nothing had changed when the
+server answered, so a client still interested sends another WAIT.
+DIFFER is the cue to sync. A WAIT changes nothing on the server and
+stands in no sync loop; a client may hold one WAIT open per vault
+while it syncs that vault or others.
+
+A server that does not know WAIT answers it BAD_REQUEST, as it does
+any op it does not know. A client takes that as the server not
+offering WAIT, and syncs on a timer instead.
+
+What a server learns from a WAIT it already learns from a PROBE,
+plus that the client is listening at that moment.
 
 # Registration
 
@@ -269,15 +295,18 @@ PAGE_BYTES | 262144 | the entry bytes in one PULL page; clients batch PUSHes to 
 MAX_FRAME_BYTES | 1048576 | the largest frame either side accepts
 TS_SKEW_MS | 86400000 | default furthest a pushed entry's ts_ms may be ahead of the server's clock; an entry is never refused for being old
 EPHEMERAL_TTL_MS | 3600000 | default lifetime of an ephemeral vault, from its creation
+WAIT_MAX_MS | 25000 | default longest a WAIT is held before it answers OK
 .end
 
 PAGE_BYTES exceeds MAX_ENTRY_BYTES, so every entry fits one page,
 and MAX_FRAME_BYTES exceeds a full page with its framing.
 
 A server sets per vault MAX_ENTRIES and MAX_VAULT_BYTES, may cap the
-number of vaults, and may change TS_SKEW_MS and EPHEMERAL_TTL_MS. It judges a PUSH only by
-the entries it does not already hold: pushing an entry again is
-never refused.
+number of vaults, and may change TS_SKEW_MS, EPHEMERAL_TTL_MS and
+WAIT_MAX_MS. It judges a PUSH only by the entries it does not already
+hold: pushing an entry again is never refused. A client's request
+timeout must exceed the server's WAIT_MAX_MS, or every WAIT ends in
+the transport's error.
 
 # HTTP
 
@@ -292,7 +321,8 @@ where `<base>` is the server's URL, which may carry a path prefix.
 The server answers 200 with a body that is either a RESP frame or
 one error byte. Any other HTTP status is a failure of the transport,
 not an answer. Each side refuses a body over MAX_FRAME_BYTES, and a
-client sets a timeout on every request.
+client sets a timeout on every request. A WAIT is one such request,
+held open: a server ends it when the connection closes.
 
 # Security considerations
 

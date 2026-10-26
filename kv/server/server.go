@@ -6,6 +6,7 @@ package server
 
 import (
 	"cmp"
+	"context"
 	"crypto/subtle"
 	"errors"
 	"io"
@@ -30,6 +31,7 @@ type Quotas struct {
 	MaxVaults      uint64
 	TSSkewMs       int64
 	EphemeralTTLMs int64 // an ephemeral vault's lifetime from its creation
+	WaitMaxMs      int64 // the longest a WAIT is held before it answers OK
 }
 
 // withDefaults returns q with each zero field set to its default.
@@ -41,6 +43,7 @@ func (q Quotas) withDefaults() Quotas {
 		MaxVaults:      cmp.Or(q.MaxVaults, d.MaxVaults),
 		TSSkewMs:       cmp.Or(q.TSSkewMs, d.TSSkewMs),
 		EphemeralTTLMs: cmp.Or(q.EphemeralTTLMs, d.EphemeralTTLMs),
+		WaitMaxMs:      cmp.Or(q.WaitMaxMs, d.WaitMaxMs),
 	}
 }
 
@@ -61,6 +64,7 @@ func DefaultQuotas() Quotas {
 		MaxVaults:      1_000,
 		TSSkewMs:       24 * 60 * 60 * 1000,
 		EphemeralTTLMs: 60 * 60 * 1000,
+		WaitMaxMs:      wire.WaitMaxMs,
 	}
 }
 
@@ -101,6 +105,11 @@ type Server struct {
 	mu      sync.Mutex
 	vaults  map[vault.VaultID]*vaultState
 	revoked map[vault.VaultID]bool
+
+	// closing is closed by Drain, or by Close if Drain was not called,
+	// so that every WAIT held open answers at once (see handleWait).
+	closing   chan struct{}
+	closeOnce sync.Once
 }
 
 type vaultState struct {
@@ -116,6 +125,19 @@ type vaultState struct {
 	ephemeral bool  // fixed at creation; see endLocked
 	created   int64 // ms, to the second, as its record holds it
 	gone      bool  // dropped or ended: its store is closed (mu held to read)
+	closed    bool  // the server closed its store (Close); mu held to read
+
+	// changed is closed and replaced whenever the vault's set changes
+	// or the vault ends, waking every WAIT held on it. mu held to read
+	// or replace it; see notifyLocked.
+	changed chan struct{}
+}
+
+// notifyLocked wakes the WAITs held on the vault: the set changed, or
+// the vault is going away. st.mu held.
+func (st *vaultState) notifyLocked() {
+	close(st.changed)
+	st.changed = make(chan struct{})
 }
 
 // expired reports an ephemeral vault past its lifetime.
@@ -146,6 +168,7 @@ func New(opt Options) (*Server, error) {
 		revoked: make(map[vault.VaultID]bool),
 		onPush:  opt.OnPush,
 		vaults:  make(map[vault.VaultID]*vaultState),
+		closing: make(chan struct{}),
 	}
 	s.mux = s.routes()
 	if opt.DataDir != "" {
@@ -264,6 +287,7 @@ func (s *Server) endLocked(vid vault.VaultID, st *vaultState, note string) error
 	s.revoked[vid] = true
 	delete(s.vaults, vid)
 	st.gone = true
+	st.notifyLocked()
 	if c, ok := st.s.(io.Closer); ok {
 		if err := c.Close(); err != nil {
 			log.Printf("server: ended vault %s: close: %v", vid, err)
@@ -284,30 +308,55 @@ func newVaultState(s store.Store, ak vault.AuthKey, dir string) *vaultState {
 		c2s:     vault.DeriveC2S(ak),
 		s2c:     vault.DeriveS2C(ak),
 		dir:     dir,
+		changed: make(chan struct{}),
 	}
 }
 
+// Drain answers every WAIT held open with OK, and any WAIT that
+// arrives after it at once: an HTTP server's drain waits for every
+// request in flight, so it is called as shutdown starts, before that
+// wait (kiosk.Config.Drain), and a stop is not held up by WAIT_MAX_MS.
+// Every other operation is served as before. It does not block.
+func (s *Server) Drain() {
+	s.closeOnce.Do(func() { close(s.closing) })
+}
+
 // Close releases every vault's backing store, including the advisory
-// file locks its log holds. The server must not be used afterwards; it
-// is the clean-shutdown counterpart to New.
+// file locks its log holds, and drains (Drain) if that was not done.
+// The server must not be used afterwards; it is the clean-shutdown
+// counterpart to New.
 func (s *Server) Close() error {
+	s.closeOnce.Do(func() { close(s.closing) })
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var firstErr error
 	for _, st := range s.vaults {
+		st.mu.Lock()
+		st.closed = true
 		if c, ok := st.s.(io.Closer); ok {
 			if err := c.Close(); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}
+		st.mu.Unlock()
 	}
 	return firstErr
 }
 
 // HandleFrame processes one request frame and returns a response: either
 // a sealed RESP frame, or a single pre-channel error byte. A non-nil
-// error is an I/O problem that prevents any response.
+// error is an I/O problem that prevents any response. A WAIT is held
+// for up to the server's WaitMaxMs; HandleFrameContext lets the caller
+// end it sooner.
 func (s *Server) HandleFrame(req []byte) ([]byte, error) {
+	return s.HandleFrameContext(context.Background(), req)
+}
+
+// HandleFrameContext is HandleFrame bounded by ctx: a WAIT held open
+// answers as soon as ctx ends (the HTTP handler passes the request's
+// context, so a client that gives up frees its goroutine). No other
+// operation watches ctx.
+func (s *Server) HandleFrameContext(ctx context.Context, req []byte) ([]byte, error) {
 	h, sealed, err := wire.ParseHeader(req)
 	if err != nil {
 		if errors.Is(err, wire.ErrVersion) {
@@ -319,7 +368,7 @@ func (s *Server) HandleFrame(req []byte) ([]byte, error) {
 	case wire.KindRegister:
 		return s.handleRegister(h, sealed)
 	case wire.KindSync:
-		return s.handleSync(h, sealed)
+		return s.handleSync(ctx, h, sealed)
 	default:
 		return wire.ErrBadKind.Reply(), nil
 	}
@@ -384,7 +433,7 @@ func (s *Server) handleRegister(h wire.Header, sealed []byte) ([]byte, error) {
 	return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
 }
 
-func (s *Server) handleSync(h wire.Header, sealed []byte) ([]byte, error) {
+func (s *Server) handleSync(ctx context.Context, h wire.Header, sealed []byte) ([]byte, error) {
 	vid, nonce := h.VaultID, h.Nonce
 	s.mu.Lock()
 	st, ok := s.vaults[vid]
@@ -409,6 +458,9 @@ func (s *Server) handleSync(h wire.Header, sealed []byte) ([]byte, error) {
 	}
 	if req.Op == wire.OpDrop {
 		return s.handleDrop(vid, st, nonce)
+	}
+	if req.Op == wire.OpWait {
+		return s.handleWait(ctx, vid, st, nonce, req.SetHash)
 	}
 
 	// The op runs under the vault lock; OnPush fires after it is
@@ -466,6 +518,50 @@ func (s *Server) handleSync(h wire.Header, sealed []byte) ([]byte, error) {
 	return resp, err
 }
 
+// handleWait answers a WAIT (PROTOCOL.t, Wait): DIFFER at once if the
+// vault's set already differs from the client's hash, else it is held
+// until the set changes, the vault ends, the server closes, ctx ends or
+// WaitMaxMs passes, and then answers DIFFER if the set differs and OK
+// if it does not. It holds no lock while waiting, so pushes and other
+// waits proceed; what it holds is one goroutine and its connection.
+func (s *Server) handleWait(ctx context.Context, vid vault.VaultID, st *vaultState, nonce [vault.NonceSize]byte, want [16]byte) ([]byte, error) {
+	st.mu.Lock()
+	if st.gone {
+		st.mu.Unlock()
+		return wire.ErrUnknownVault.Reply(), nil
+	}
+	if st.closed {
+		st.mu.Unlock()
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusOK, nil)
+	}
+	if st.s.SetHash() != want {
+		st.mu.Unlock()
+		return s.sealResp(vid, st.s2c, nonce, wire.StatusDiffer, nil)
+	}
+	changed := st.changed
+	st.mu.Unlock()
+
+	timer := time.NewTimer(time.Duration(s.quotas.WaitMaxMs) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-changed:
+	case <-timer.C:
+	case <-ctx.Done():
+	case <-s.closing:
+	}
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.gone {
+		return wire.ErrUnknownVault.Reply(), nil
+	}
+	status := wire.StatusOK
+	if !st.closed && st.s.SetHash() != want {
+		status = wire.StatusDiffer
+	}
+	return s.sealResp(vid, st.s2c, nonce, status, nil)
+}
+
 // handleDrop ends an ephemeral vault at its holder's request; any
 // other vault answers BAD_REQUEST and is untouched. The OK is sealed
 // under the channel the vault had.
@@ -502,6 +598,9 @@ func addValidatedLocked(st *vaultState, entries []vault.Entry) (int, error) {
 	}
 	for _, e := range entries[:added] {
 		st.bytes += uint64(e.Size())
+	}
+	if added > 0 {
+		st.notifyLocked()
 	}
 	return added, nil
 }
@@ -663,7 +762,7 @@ func (s *Server) serveSync(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	resp, err := s.HandleFrame(body)
+	resp, err := s.HandleFrameContext(r.Context(), body)
 	if err != nil {
 		log.Printf("server: handle frame: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

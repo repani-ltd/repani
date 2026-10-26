@@ -1,5 +1,5 @@
 ASCON-KV DESIGN
-.date 2026-10-12
+.date 2026-10-25
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
 .rem Why ASCON-KV is the way it is: the reasons behind PROTOCOL.t and
@@ -129,6 +129,60 @@ A client bounds its own sync: a round budget, a cursor that must
 advance, a page backstop. A hostile relay can stall it but cannot
 make it loop, and by the merge and the double seal it can neither
 read nor corrupt the data.
+
+## Wait
+
+Until 2026-10-25 a device learnt of another's write only by asking:
+the platform's clients probe every 30 s while a page is visible, so
+a write took up to half a minute to show on the next phone. Fine for
+a shared expense list; too slow for a game of Raid, where the
+opponent should see a move as it is made.
+
+WAIT is a PROBE the server holds open: it answers at once if the sets
+already differ, otherwise when the vault's set next changes, or OK
+after WAIT_MAX_MS. It was chosen over the alternatives for keeping
+everything else as it was:
+
+.item It is the same frame, keys, route and request-response pairing.
+Server-sent events stream many events over one GET with no body, so
+the sealed request could not travel with it and no response would
+echo a request nonce; a WebSocket is a second transport with its own
+framing, keepalives and proxy rules, for a channel that carries one
+bit. Long-polling over the existing POST carries that bit with
+nothing new to secure or deploy.
+.item The server stays stateless between requests. What it holds is
+one open request per waiting device, a goroutine and a connection,
+until the set changes or WAIT_MAX_MS passes; it remembers nothing
+once it has answered. The 25 s default sits under the 30 s and 60 s
+request timeouts that proxies and clients commonly set.
+.item It is version 1 developed in place (Versioning), and still
+interoperates both ways, since kvserve and the apps deploy apart. A
+server without WAIT answers an unknown op BAD_REQUEST, so a client
+that receives it knows the server does not offer WAIT and falls back
+to its timer; a client without WAIT never sends it. Neither side can
+mistake the other.
+.item What it reveals is what a PROBE reveals, and the moment a device
+is listening. The server could already see a device's probes arrive
+every 30 s; it now sees them arrive as long requests.
+
+The client exposes a single call and leaves the loop to the
+application, since only the application knows which vault is on
+screen: a wait costs a connection, and browsers cap connections per
+origin, so an app waits on what is being looked at and keeps its
+timer for the rest. A WAIT runs beside the sync loop rather than
+in its queue, or a write made during a wait would stand behind it
+for up to 25 s.
+
+A stop does not wait out the WAITs. An HTTP server's drain waits for
+every request in flight, so kvserve hands kiosk the server's Drain
+(kiosk.Config.Drain), called as shutdown starts: every held WAIT
+answers OK, and the drain finishes in the time a sync takes rather
+than WAIT_MAX_MS. Close drains too, for an embedder without kiosk.
+
+Not done: a bound on the WAITs a server holds, and a push to a
+device whose page is closed. Only a vault's members can open a
+WAIT, so none is set yet; the second needs a notification service
+and is a different design.
 
 # Versioning
 

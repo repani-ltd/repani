@@ -518,3 +518,96 @@ func TestView_MatchesFullReplay(t *testing.T) {
 		}
 	}
 }
+
+// inProcCtx is inProc with the request's context passed through, so a
+// WAIT ends when the caller's does.
+type inProcCtx struct{ srv *server.Server }
+
+func (t *inProcCtx) Do(ctx context.Context, req []byte) ([]byte, error) {
+	return t.srv.HandleFrameContext(ctx, req)
+}
+
+func TestWait_SeesAnotherWriter(t *testing.T) {
+	srv := newTestServer(t)
+	writer := newClient(t, srv, vault.RootKey{7})
+	if err := writer.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := New(vault.RootKey{7}, store.NewMemStore(), &inProcCtx{srv}, Options{RegisterKey: &testRegKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	type answer struct {
+		changed bool
+		err     error
+	}
+	got := make(chan answer, 1)
+	go func() {
+		ch, err := reader.Wait(context.Background())
+		got <- answer{ch, err}
+	}()
+	time.Sleep(30 * time.Millisecond)
+	select {
+	case a := <-got:
+		t.Fatalf("Wait answered %v %v before the write", a.changed, a.err)
+	default:
+	}
+	if err := writer.Put([]byte("k"), []byte("v")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case a := <-got:
+		if a.err != nil || !a.changed {
+			t.Fatalf("Wait = %v, %v; want true, nil", a.changed, a.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the writer's sync did not wake the reader's Wait")
+	}
+	if err := reader.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok, _ := reader.Get([]byte("k")); !ok || string(v) != "v" {
+		t.Fatalf("after Wait and Sync, k = %q %v", v, ok)
+	}
+	// In sync again: a Wait bounded by ctx returns false, no error,
+	// when nothing changes.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if ch, err := reader.Wait(ctx); err != nil || ch {
+		t.Fatalf("quiet Wait = %v, %v; want false, nil", ch, err)
+	}
+}
+
+// oldServer stands in for a v1 server from before WAIT: it answers
+// every SYNC with BAD_REQUEST inside the channel, as that server's
+// parser does for an op it does not know. It holds the vault's keys,
+// as any server does, to seal the answer under K_s2c.
+type oldServer struct{ rk vault.RootKey }
+
+func (t *oldServer) Do(_ context.Context, req []byte) ([]byte, error) {
+	h, _, err := wire.ParseHeader(req)
+	if err != nil {
+		return nil, err
+	}
+	ak := vault.DeriveAuthKey(t.rk)
+	nonce, _ := vault.FrameNonce(h.VaultID)
+	payload := wire.Resp{Status: wire.StatusBadRequest, ReqNonce: h.Nonce}.Marshal()
+	return wire.SealFrame(wire.Header{Kind: wire.KindResp, VaultID: h.VaultID, Nonce: nonce}, vault.DeriveS2C(ak), payload)
+}
+
+func TestWait_UnsupportedFallsBack(t *testing.T) {
+	rk := vault.RootKey{8}
+	c, err := New(rk, store.NewMemStore(), &oldServer{rk}, Options{Registered: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Wait(context.Background()); !errors.Is(err, ErrWaitUnsupported) {
+		t.Fatalf("Wait against an old server: %v, want ErrWaitUnsupported", err)
+	}
+}

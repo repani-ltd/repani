@@ -31,6 +31,7 @@ const (
 	OpPull  byte = 0x01
 	OpPush  byte = 0x02
 	OpDrop  byte = 0x03 // ends an ephemeral vault
+	OpWait  byte = 0x04 // PROBE held open until the set changes (PROTOCOL.t, Wait)
 )
 
 // RegisterEphemeral is the REGISTER flag marking a new vault
@@ -144,6 +145,13 @@ const (
 	MaxFrameBytes = 1 << 20
 )
 
+// WaitMaxMs is the default longest a server holds a WAIT open before
+// answering OK (PROTOCOL.t, Limits): under the 30 s and 60 s request
+// timeouts proxies and clients commonly set, so a wait is never cut
+// off by the transport. A client's request timeout must exceed the
+// server's value.
+const WaitMaxMs = 25_000
+
 // Codec errors.
 var (
 	ErrShort     = errors.New("wire: truncated frame")
@@ -220,7 +228,7 @@ func OpenFrame(k vault.ChannelKey, h Header, sealed []byte) ([]byte, error) {
 // SyncReq is a decoded SYNC payload.
 type SyncReq struct {
 	Op      byte
-	SetHash [16]byte      // OpProbe
+	SetHash [16]byte      // OpProbe, OpWait
 	CurTs   uint64        // OpPull cursor ts_ms
 	CurID   vault.EntryID // OpPull cursor entry_id
 	Entries []vault.Entry // OpPush
@@ -229,9 +237,9 @@ type SyncReq struct {
 // Marshal encodes r as a SYNC payload.
 func (r SyncReq) Marshal() []byte {
 	switch r.Op {
-	case OpProbe:
+	case OpProbe, OpWait:
 		out := make([]byte, 1+16)
-		out[0] = OpProbe
+		out[0] = r.Op
 		copy(out[1:], r.SetHash[:])
 		return out
 	case OpPull:
@@ -257,7 +265,7 @@ func ParseSync(payload []byte) (SyncReq, error) {
 	r.Op = payload[0]
 	body := payload[1:]
 	switch r.Op {
-	case OpProbe:
+	case OpProbe, OpWait:
 		if len(body) != 16 {
 			return SyncReq{}, ErrMalformed
 		}
