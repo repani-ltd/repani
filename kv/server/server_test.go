@@ -322,48 +322,6 @@ func TestPersistence_ReloadsVaultAndEntries(t *testing.T) {
 	}
 }
 
-// TestRevoked: a revoked vault is not loaded from disk, its clients
-// get UNKNOWN_VAULT and then BAD_AUTH on REGISTER, and the owner
-// cannot create it either; other vaults are untouched.
-func TestRevoked(t *testing.T) {
-	dir := t.TempDir()
-	gone, _ := vault.NewRandomRootKey()
-	kept, _ := vault.NewRandomRootKey()
-	srv1 := mustNew(t, dir)
-	for _, rk := range []vault.RootKey{gone, kept} {
-		h := newHarness(t, srv1, rk, testRegKey)
-		h.register()
-		h.push([]vault.Entry{mkEntry(t, rk, nowMs(), "k", "\x00v")})
-	}
-	if err := srv1.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	srv2, err := New(Options{DataDir: dir, RegisterKeys: []vault.RegisterKey{testRegKey}, Revoked: []vault.VaultID{vault.DeriveVaultID(gone)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := newHarness(t, srv2, gone, testRegKey)
-	if _, pre := h.probe([16]byte{}); pre != wire.ErrUnknownVault {
-		t.Fatalf("probe of a revoked vault still on disk: pre=%v, want UNKNOWN_VAULT", pre)
-	}
-	if _, pre := h.register(); pre != wire.ErrBadAuth {
-		t.Fatalf("register of a revoked vault: pre=%v, want BAD_AUTH", pre)
-	}
-	if _, pre := h.probe([16]byte{}); pre != wire.ErrUnknownVault {
-		t.Fatalf("after the refused register: pre=%v, want UNKNOWN_VAULT", pre)
-	}
-	if err := srv2.EnsureVault(h.vid, h.ak); err != ErrRevoked {
-		t.Fatalf("EnsureVault of a revoked vault: %v, want ErrRevoked", err)
-	}
-	if resp, pre := newHarness(t, srv2, kept, testRegKey).pull(0, vault.EntryID{}); pre != 0 || len(resp.Entries) != 1 {
-		t.Fatalf("the other vault: pre=%v, %d entries", pre, len(resp.Entries))
-	}
-	if n := len(srv2.Vaults()); n != 1 {
-		t.Fatalf("serving %d vaults, want 1", n)
-	}
-}
-
 func TestRegister_IdempotentAndRebindRejected(t *testing.T) {
 	srv := mustNew(t, "")
 	rk, _ := vault.NewRandomRootKey()

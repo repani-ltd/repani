@@ -5,7 +5,6 @@ package server
 import (
 	"crypto/subtle"
 	"errors"
-	"io"
 
 	"repani.com/kv/vault"
 )
@@ -39,34 +38,19 @@ func (s *Server) EnsureVault(vid vault.VaultID, ak vault.AuthKey) error {
 	return err
 }
 
-// DropVault deletes the vault for good: it stops being served, so
-// frames for vid get UNKNOWN_VAULT, its store is closed, and its
-// directory (auth.key and entry log) is removed. DropVaultDir does the
-// same for a server that is not running. Returns ErrUnknownVault if
-// vid is not being served.
-//
-// Removal is not revocation: a device still holding the RootKey and a
-// RegisterKey re-registers the vault and pushes its copy back, unless
-// the vault is also in Options.Revoked.
-func (s *Server) DropVault(vid vault.VaultID) error {
+// DropVault ends the vault for good, with note in its record: it is
+// revoked, so frames for vid get UNKNOWN_VAULT and a REGISTER for it
+// BAD_AUTH, its store is closed, and its entries are deleted.
+// DropVaultDir does the same for a server that is not running. Returns
+// ErrUnknownVault if vid is not being served.
+func (s *Server) DropVault(vid vault.VaultID, note string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	st, ok := s.vaults[vid]
-	delete(s.vaults, vid)
-	s.mu.Unlock()
 	if !ok {
 		return ErrUnknownVault
 	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.gone = true
-	var closeErr error
-	if c, ok := st.s.(io.Closer); ok {
-		closeErr = c.Close()
-	}
-	if st.dir == "" {
-		return closeErr // in memory: nothing on disk
-	}
-	return errors.Join(closeErr, removeVaultDir(s.dataDir, st.dir))
+	return s.endLocked(vid, st, note)
 }
 
 // Entries returns a canonical-order snapshot of the vault's entry set.

@@ -11,10 +11,8 @@ import (
 	"repani.com/kv/vault"
 )
 
-// TestParseVerb pins the dispatch. The case that matters is "serve":
-// the sibling daemon on this host requires that verb in its unit file
-// and kvserve used to reject it, so a unit copied between the two
-// failed at ExecStart.
+// TestParseVerb pins the dispatch: serving has no verb, so flags alone
+// (or nothing) serve, and anything else names a subcommand.
 func TestParseVerb(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -25,12 +23,10 @@ func TestParseVerb(t *testing.T) {
 		{"no arguments", nil, "serve", nil},
 		{"flags alone", []string{"--addr", ":80"}, "serve", []string{"--addr", ":80"}},
 		{"single-dash flags", []string{"-addr", ":80"}, "serve", []string{"-addr", ":80"}},
-		{"explicit verb", []string{"serve", "--addr", ":80"}, "serve", []string{"--addr", ":80"}},
-		{"explicit verb alone", []string{"serve"}, "serve", []string{}},
-		{"gen-register-key", []string{"gen-register-key"}, "gen-register-key", []string{}},
+		{"gen-register-key", []string{"gen-register-key", "iou"}, "gen-register-key", []string{"iou"}},
 		{"drop-vault", []string{"drop-vault", "--data", "d", "ab"}, "drop-vault", []string{"--data", "d", "ab"}},
 		{"help", []string{"help"}, "help", []string{}},
-		{"unknown", []string{"sevre"}, "sevre", []string{}},
+		{"unknown", []string{"serve"}, "serve", []string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			verb, rest := parseVerb(tc.args)
@@ -60,64 +56,45 @@ func TestServeFlagsCarryQuotaDefaults(t *testing.T) {
 	}
 }
 
-// TestReadRegisterKeys: keys one per line, with labels and blank lines
-// between; a file with none, or with a line that is not a key, is an
-// error.
+// TestReadRegisterKeys: the lines gen-register-key prints make a file
+// that reads back as their keys and labels; a file with none, one that
+// is not FACT, or one with another fact, is an error.
 func TestReadRegisterKeys(t *testing.T) {
 	a := vault.RegisterKey{1, 2, 3}
 	b := vault.RegisterKey{16, 15, 14}
 	write := func(s string) string {
-		path := filepath.Join(t.TempDir(), "register.key")
+		path := filepath.Join(t.TempDir(), "register_keys.fact")
 		if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		return path
 	}
-	keys, err := readRegisterKeys(write("# operator\n" + vault.EncodeRegisterKey(a) + "\n\n  # iou\n" + vault.EncodeRegisterKey(b) + "\n"))
-	if err != nil || !slices.Equal(keys, []vault.RegisterKey{a, b}) {
-		t.Fatalf("keys %v, %v; want a then b", keys, err)
+	file := registerKeyLine("operator", a) + "\n\n" + registerKeyLine("iou", b) + "\n"
+	keys, labels, err := readRegisterKeys(write(file))
+	if err != nil || !slices.Equal(keys, []vault.RegisterKey{b, a}) || !slices.Equal(labels, []string{"iou", "operator"}) {
+		t.Fatalf("keys %v, labels %v, %v; want iou's then operator's", keys, labels, err)
 	}
 	for name, file := range map[string]string{
-		"empty":        "",
-		"only comment": "# iou\n\n",
-		"bad line":     vault.EncodeRegisterKey(a) + "\nnot-a-key\n",
+		"empty":       "",
+		"not fact":    vault.EncodeRegisterKey(a) + "\n",
+		"comment":     "# iou\n" + registerKeyLine("iou", a) + "\n",
+		"other fact":  registerKeyLine("iou", a) + "\nserver.port: int = 80\n",
+		"not a key":   `register_key:iou.key: str = "not-a-key"` + "\n",
+		"wrong type":  `register_key:iou.key: str? = none` + "\n",
+		"deeper path": `register_key:iou.key.old: str = "x"` + "\n",
 	} {
-		if _, err := readRegisterKeys(write(file)); err == nil {
+		if _, _, err := readRegisterKeys(write(file)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 }
 
-// TestReadRevoked: ids one per line, notes after #; an empty file
-// revokes nothing, and a missing file or a bad line is an error.
-func TestReadRevoked(t *testing.T) {
-	a, b := vault.VaultID{1}, vault.VaultID{2}
-	path := filepath.Join(t.TempDir(), "revoked")
-	os.WriteFile(path, []byte("# dropped vaults\n"+a.String()+"  # old trip\n\n"+b.String()+"\n"), 0o600)
-	if ids, err := readRevoked(path); err != nil || !slices.Equal(ids, []vault.VaultID{a, b}) {
-		t.Fatalf("ids %v, %v; want a then b", ids, err)
-	}
-	os.WriteFile(path, nil, 0o600)
-	if ids, err := readRevoked(path); err != nil || len(ids) != 0 {
-		t.Fatalf("empty file: %v, %v", ids, err)
-	}
-	os.WriteFile(path, []byte(a.String()+"\nnot-an-id\n"), 0o600)
-	if _, err := readRevoked(path); err == nil {
-		t.Error("bad line accepted")
-	}
-	if _, err := readRevoked(path + ".missing"); err == nil {
-		t.Error("missing file accepted")
-	}
-}
-
-// TestDropVault: a drop revokes before it deletes, once; a vault with
-// no data is revoked all the same; a served vault is revoked and its
-// data kept until the server stops; and a server started on the file
-// never registers the vault again.
+// TestDropVault: a served vault is refused; once the server stops, a
+// drop ends it, a second drop changes nothing, and a vault this server
+// never held is revoked all the same; a server started afterwards
+// never creates either again.
 func TestDropVault(t *testing.T) {
 	data := t.TempDir()
-	revoked := filepath.Join(t.TempDir(), "revoked")
-	os.WriteFile(revoked, nil, 0o600)
 	reg := vault.RegisterKey{9}
 	srv, err := server.New(server.Options{DataDir: data, RegisterKeys: []vault.RegisterKey{reg}})
 	if err != nil {
@@ -129,37 +106,33 @@ func TestDropVault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := dropVault(data, revoked, vid, "in use"); err == nil || !strings.Contains(err.Error(), "being served") {
+	if _, err := dropVault(data, vid, "in use"); err == nil || !strings.Contains(err.Error(), "being served") {
 		t.Fatalf("drop of a served vault: %v", err)
 	}
 	srv.Close()
-	if msg, err := dropVault(data, revoked, vid, ""); err != nil || msg != vid.String()+" already revoked and dropped" {
+	if msg, err := dropVault(data, vid, "tester  reset"); err != nil || !strings.Contains(msg, "ended: revoked") {
 		t.Fatalf("drop after stop: %q, %v", msg, err)
 	}
-	other := vault.VaultID{7}
-	if msg, err := dropVault(data, revoked, other, "removed by hand,  long ago"); err != nil || !strings.Contains(msg, "revoked; no data") {
-		t.Fatalf("drop of a vault with no data: %q, %v", msg, err)
+	if msg, err := dropVault(data, vid, ""); err != nil || !strings.Contains(msg, "already ended") {
+		t.Fatalf("second drop: %q, %v", msg, err)
 	}
-	b, _ := os.ReadFile(revoked)
-	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], vid.String()+"  # dropped ") || !strings.HasSuffix(lines[0], ": in use") ||
-		!strings.HasSuffix(lines[1], ": removed by hand, long ago") {
-		t.Fatalf("revoked file:\n%s", b)
+	other, _ := vault.NewRandomRootKey()
+	if msg, err := dropVault(data, vault.DeriveVaultID(other), "never here"); err != nil || !strings.Contains(msg, "ended: revoked") {
+		t.Fatalf("drop of a vault never held: %q, %v", msg, err)
 	}
-	if _, err := os.Stat(filepath.Join(data, vid.String())); !os.IsNotExist(err) {
-		t.Fatalf("data still there: %v", err)
+	b, _ := os.ReadFile(filepath.Join(data, vid.String(), "vault.fact"))
+	if !strings.Contains(string(b), `vault.note: str? = "tester reset"`) {
+		t.Fatalf("record after drop:\n%s", b)
 	}
 
-	ids, err := readRevoked(revoked)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv2, err := server.New(server.Options{DataDir: data, RegisterKeys: []vault.RegisterKey{reg}, Revoked: ids})
+	srv2, err := server.New(server.Options{DataDir: data, RegisterKeys: []vault.RegisterKey{reg}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer srv2.Close()
-	if err := srv2.EnsureVault(vid, ak); err != server.ErrRevoked {
-		t.Fatalf("recreating a dropped vault: %v, want ErrRevoked", err)
+	for _, r := range []vault.RootKey{rk, other} {
+		if err := srv2.EnsureVault(vault.DeriveVaultID(r), vault.DeriveAuthKey(r)); err != server.ErrRevoked {
+			t.Fatalf("recreating a dropped vault: %v, want ErrRevoked", err)
+		}
 	}
 }

@@ -41,6 +41,16 @@ replay rule kept per client and lane. Trigger: hosa's model process
 leaving its host for a bank's own model server; the numbers (skew,
 frame size, clock bound) are set from that consumer.
 
+.term durable in qsl
+repani-lab/qsl/log.go (writeCheckpoint) hand-rolls the atomic
+replace with a fixed checkpoint.tmp name, so two writers share one
+temporary file; it moves to repani.com/durable.WriteFile. Not
+ginko/kiban/export Stage: it checks its context between the sync and
+the rename, so a worker that lost its lease never publishes, and
+WriteFile has no such step. That would be a second consumer's demand
+on durable, decided if it comes. Trigger: the next change to
+qsl/log.go.
+
 .term quietcasting binding of raster
 Raster's records (RASTER.t, "Records": a row record whole, and the
 row count) are the unit the radio carries, unchanged: a slot

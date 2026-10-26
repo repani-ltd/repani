@@ -206,7 +206,7 @@ server counts. Recovery from that is rotation.
 ## One server lock
 
 One mutex guards the map of vaults. Creating a vault holds it across
-the disk work (directory, auth key, log open), so while a vault is
+the disk work (directory, record, log open), so while a vault is
 being created every other request waits. That is deliberate: the
 check that a vault is new and its insertion must be atomic, or two
 REGISTERs for one new vault would both build a store and race for
@@ -230,25 +230,66 @@ refuses a second open in-process too. flock does not exclude a
 writer on another machine, so the data directory stays on a local
 disk.
 
+## The vault record
+
+A vault's directory holds two files: its record, `vault.fact`, and
+its entry log. The record is all of the vault's state but its
+entries -- its AuthKey, whether it is ephemeral, when it was created,
+and whether and why it ended -- and is replaced whole, in one atomic
+write (repani.com/durable). Its parts therefore never disagree. The
+vault exists once its record does; the log is created after it and
+deleted after the record ends, and a start finishes a deletion a
+crash interrupted. A record that cannot be read leaves its vault
+refused, never created afresh, since the record it lost may have
+said ended.
+
+It replaced three marker files (auth.key, ephemeral, dropped) and
+the operator's revoked file, on 2026-10-26. Written one at a time,
+they had to land in the right order, and once did not: an ephemeral
+mark written before an auth.key that failed survived into a later
+permanent vault of the same id, and the next start ended that vault
+and deleted its entries. The rule since is the repos' own
+(~/repos/CLAUDE.md): several writes are never one transaction, so
+state that must change together lives in one file.
+
+It is FACT rather than binary because a person reads it: an
+operator looks at a vault's state, and its note, with any text tool,
+and checks it with fact validate.
+
 ## Revocation
 
 Dropping a vault's data does not end it: every device that holds
 its RootKey and a RegisterKey creates it again on its next sync, by
 design (UNKNOWN_VAULT, then REGISTER), and uploads its copy. So a
-drop is a revocation first. kvserve reads a revoked file at start,
-one VaultID per line, and neither serves nor registers those vaults
-(BAD_AUTH); `kvserve drop-vault` writes the id there before it
-removes the data, and requires the file. The file sits beside the
-register-key file and works as it does: the operator edits it over
-ssh, kvserve reads it at start.
+drop is a revocation first: `kvserve drop-vault` rewrites the
+vault's record as ended, with a note, and then deletes its log. A
+server neither serves nor registers an ended vault (BAD_AUTH). A
+vault id the server never held gets a record that says only that it
+ended. Undoing a revocation is deleting the vault's directory with
+the server stopped.
 
-Decided 2026-10-13. Considered: an admin vault on the server, its
-entries ROW rows naming the revoked ids, written from the operator's
-laptop with the kv client. It removes ssh from operations, but the
-server must hold that vault's RootKey -- the end of its blindness for
-one vault, and a credential that can destroy any vault. It becomes
-worth it when the server is managed remotely, and then it carries
-register keys and quotas too, and the revoked file moves into it.
+Revocation lived in a revoked file beside the register-key file from
+2026-10-13 to 2026-10-26: drop-vault appended to it, then deleted
+the data, two writes that a crash could split, and an append that
+could join a hand-edited last line. The record makes it one write.
+
+Considered on 2026-10-13: an admin vault on the server, its entries
+ROW rows naming the revoked ids, written from the operator's laptop
+with the kv client. It removes ssh from operations, but the server
+must hold that vault's RootKey -- the end of its blindness for one
+vault, and a credential that can destroy any vault. It becomes worth
+it when the server is managed remotely, and then it carries register
+keys and quotas too.
+
+## The register-key file
+
+The register keys are a FACT file, one fact per key, labelled by who
+holds it: `register_key:iou.key: str = "…"`. `kvserve
+gen-register-key LABEL` prints such a line. The file was lines of
+base32 with `#` labels until 2026-10-26, when it moved to FACT with
+the vault record, so that every file kvserve reads but its logs is
+one checked format. Only the operator writes it, and only kvserve
+reads it, so nothing is ever written together with it.
 
 ## The timestamp skew bounds only the future
 
@@ -292,10 +333,10 @@ by the creator, and a later REGISTER cannot set or clear it.
 .item ENDING IS REVOKING. A dropped vault whose id could be
 registered again would come back from whichever device still held
 its RootKey and a RegisterKey, as a dropped vault did before
-Revocation. So the server keeps an end marker where the vault was:
-its directory holds only a `dropped` file. It is the server's own
-record in its own data directory, not the operator's revoked file:
-the server writes nothing outside its data directory at run time.
+Revocation. So ending one rewrites its record as ended, noted
+"expired" or "dropped by its holder", exactly as drop-vault does:
+its directory then holds only the record (The vault record). The
+server writes nothing outside its data directory at run time.
 .item EXPIRY IS LAZY. An ephemeral vault past its lifetime ends when
 a frame next names it, and every expired one ends before a new vault
 counts against the vault limit. No timer, no goroutine: nothing

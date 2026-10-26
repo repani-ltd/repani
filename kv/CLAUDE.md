@@ -8,8 +8,8 @@ frame's `ver` byte; CLIENT.t the conventions above it; DESIGN.t the
 reasons, decisions, known gaps and designs not yet built. History is
 git's: no changelog, and no history in comments.
 
-Imports, beyond the standard library: `repani.com/ascon` and
-`repani.com/kiosk` (this module), `golang.org/x/term` (the CLI's table
+Imports, beyond the standard library: `repani.com/ascon`,
+`repani.com/durable` and `repani.com/kiosk` (this module), `golang.org/x/term` (the CLI's table
 width) and `golang.org/x/sys/windows` (the log lock on Windows);
 `repani.com/chrometest` in kv.js's tests.
 
@@ -27,7 +27,7 @@ dead code while quietcasting-go's qcpub depended on it, and that tool
 silently stopped building for a month. Conversely, nothing in kv is a
 general primitive: vault types, client, server and wire are ASCON-KV
 protocol surface and stay here; primitives (ascon, golay, lz4s) are
-their own top-level directories. `store` included: see DESIGN.t, "The
+their own top-level directories (`durable` among them). `store` included: see DESIGN.t, "The
 store is protocol, not a primitive".
 
 ## Testing

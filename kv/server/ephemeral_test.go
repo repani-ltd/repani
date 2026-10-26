@@ -78,8 +78,11 @@ func TestEphemeral_DropEndsAndRevokes(t *testing.T) {
 		t.Fatalf("plain register after drop: pre=%v, want BAD_AUTH", pre)
 	}
 	vdir := filepath.Join(dir, h.vid.String())
-	if got := dirNames(t, vdir); !slices.Equal(got, []string{"dropped"}) {
-		t.Fatalf("vault directory after drop holds %v, want only the end marker", got)
+	if got := dirNames(t, vdir); !slices.Equal(got, []string{"vault.fact"}) {
+		t.Fatalf("vault directory after drop holds %v, want only its record", got)
+	}
+	if r, err := readRecord(vdir); err != nil || r.Ended == nil || r.Note == nil || *r.Note != noteDropped || !r.Ephemeral {
+		t.Fatalf("record after drop: %+v, %v; want ephemeral, ended, noted %q", r, err, noteDropped)
 	}
 
 	srv.Close()
@@ -197,10 +200,10 @@ func TestEphemeral_SurvivesRestart(t *testing.T) {
 	}
 }
 
-// TestEphemeral_EndMarkerWinsAtStart: a crash after the end marker was
-// written but before the files were deleted leaves a vault the next
-// start treats as ended, and clears.
-func TestEphemeral_EndMarkerWinsAtStart(t *testing.T) {
+// TestEphemeral_EndedRecordWinsAtStart: a crash after the record was
+// rewritten as ended but before the entry log was deleted leaves a
+// vault the next start treats as ended, and clears.
+func TestEphemeral_EndedRecordWinsAtStart(t *testing.T) {
 	dir := t.TempDir()
 	clk := &fakeClock{now: 1_700_000_000_000}
 	srv := newEphemeralServer(t, dir, clk, Quotas{})
@@ -209,7 +212,11 @@ func TestEphemeral_EndMarkerWinsAtStart(t *testing.T) {
 	h.registerEphemeral()
 	srv.Close()
 	vdir := filepath.Join(dir, h.vid.String())
-	if err := os.WriteFile(endedPath(vdir), []byte("1\n"), 0o600); err != nil {
+	r, err := readRecord(vdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRecord(vdir, r.ended(clk.now, noteDropped)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,8 +227,8 @@ func TestEphemeral_EndMarkerWinsAtStart(t *testing.T) {
 	if _, pre := newHarness(t, srv2, rk, testRegKey).register(); pre != wire.ErrBadAuth {
 		t.Fatalf("register: pre=%v, want BAD_AUTH", pre)
 	}
-	if got := dirNames(t, vdir); !slices.Equal(got, []string{"dropped"}) {
-		t.Fatalf("vault directory holds %v, want only the end marker", got)
+	if got := dirNames(t, vdir); !slices.Equal(got, []string{"vault.fact"}) {
+		t.Fatalf("vault directory holds %v, want only its record", got)
 	}
 }
 

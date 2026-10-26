@@ -1,14 +1,10 @@
 // kvserve: ASCON-KV server.
 //
-//	kvserve [serve] --addr 127.0.0.1:8082 --data /opt/kvserve/data \
-//	                --register-key-file /opt/kvserve/register.key \
-//	                --revoked-file /opt/kvserve/revoked
-//	kvserve gen-register-key
-//	kvserve drop-vault --data /opt/kvserve/data --revoked-file /opt/kvserve/revoked VAULTID [NOTE]
+//	kvserve --addr 127.0.0.1:8082 --data /opt/kvserve/data \
+//	        --register-key-file /opt/kvserve/register_keys.fact
+//	kvserve gen-register-key LABEL
+//	kvserve drop-vault --data /opt/kvserve/data VAULTID [NOTE]
 //	kvserve help
-//
-// The serving verb is optional: flags alone serve, and so does an
-// explicit "serve", so a unit file names the verb or not.
 //
 // kvserve speaks plain HTTP on a loopback address; TLS belongs to a
 // fronting reverse proxy (see deploy/). Every frame is sealed, so
@@ -17,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,26 +21,37 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"slices"
+	"sort"
 	"strings"
 	"time"
 
+	"repani.com/fact"
 	"repani.com/kiosk"
 	"repani.com/kv/server"
 	"repani.com/kv/vault"
 )
 
-const usage = `usage: kvserve [serve] [flags]     serve the sync endpoint
-       kvserve gen-register-key    print a fresh register-gate secret
-       kvserve drop-vault [--data DIR] --revoked-file FILE VAULTID [NOTE]
-                                   revoke a vault (32 hex) and delete it:
-                                   never served or registered again;
-                                   stop the server first
+const usage = `usage: kvserve [flags]              serve the sync endpoint
+       kvserve gen-register-key LABEL
+                                   print a fresh register-gate secret as a
+                                   line of the register-key file
+       kvserve drop-vault --data DIR VAULTID [NOTE]
+                                   end a vault (32 hex) for good: its
+                                   record says ended, with NOTE, and its
+                                   entries are deleted; never served or
+                                   registered again; stop the server first
        kvserve version             print this binary's build
        kvserve help                this text
 
-The serving verb is optional: "kvserve --addr ..." and
-"kvserve serve --addr ..." are the same command.
+The register-key file is FACT (fact spec), one line per key, the
+label naming who holds it:
+
+  register_key:iou.key: str = "<26-char Crockford base32>"
+
+Revoking a key is deleting its line and restarting; the other keys
+and every vault are untouched. A vault's state is the record in its
+directory, DIR/VAULTID/vault.fact; deleting the directory of an ended
+vault, server stopped, lets it be registered again.
 
 The protocol kvserve speaks is PROTOCOL.t (repani/kv, a pica
 document).
@@ -57,7 +65,7 @@ func main() {
 	case "serve":
 		runServe(rest)
 	case "gen-register-key":
-		runGenRegisterKey()
+		runGenRegisterKey(rest)
 	case "drop-vault":
 		runDropVault(rest)
 	case "version":
@@ -71,16 +79,11 @@ func main() {
 	}
 }
 
-// parseVerb splits the optional leading verb from the flags. No
-// arguments, or a leading flag, means serve; so does an explicit
-// "serve", which is what makes a unit file portable between this
-// daemon and its siblings.
+// parseVerb splits a leading verb from the flags. No arguments, or a
+// leading flag, means serve: serving has no verb.
 func parseVerb(args []string) (verb string, rest []string) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return "serve", args
-	}
-	if args[0] == "serve" {
-		return "serve", args[1:]
 	}
 	return args[0], args[1:]
 }
@@ -94,7 +97,7 @@ func printUsage(w io.Writer) {
 
 // opts is everything the serve flags set.
 type opts struct {
-	addr, data, registerKeyFile, revokedFile              string
+	addr, data, registerKeyFile                           string
 	readTimeout, writeTimeout, idleTimeout, shutdownGrace time.Duration
 	quotas                                                server.Quotas
 }
@@ -114,117 +117,69 @@ func serveFlags() (*flag.FlagSet, *opts) {
 	fs.Uint64Var(&o.quotas.MaxVaults, "max-vaults", d.MaxVaults, "hard cap on number of registered vaults")
 	fs.Uint64Var(&o.quotas.MaxVaultBytes, "max-vault-bytes", d.MaxVaultBytes, "hard cap on the bytes one vault may hold")
 	fs.Uint64Var(&o.quotas.MaxEntries, "max-entries", d.MaxEntries, "hard cap on the entries one vault may hold")
-	fs.StringVar(&o.registerKeyFile, "register-key-file", "", "path to the register-gate secrets (Crockford base32, one per line, # comments); REQUIRED")
-	fs.StringVar(&o.revokedFile, "revoked-file", "", "path to the revoked VaultIDs (32 hex, one per line, # comments; may be empty), written by drop-vault; REQUIRED")
+	fs.StringVar(&o.registerKeyFile, "register-key-file", "", "the register-gate secrets, a FACT file (see above); REQUIRED")
 	return fs, o
 }
 
-// readRevoked reads the revoked file: one VaultID (32 hex digits) per
-// line, anything from "#" on a comment, blank lines ignored. The file
-// must exist -- a mistyped path must not quietly revoke nothing -- but
-// may hold no ID.
-func readRevoked(path string) ([]vault.VaultID, error) {
+// readRegisterKeys reads the register-key file: a FACT document whose
+// every fact is register_key:LABEL.key, a str holding one RegisterKey
+// blob. It returns the keys and their labels, sorted by label. A file
+// with no key is an error: registration is disabled by not serving,
+// never by an empty file.
+func readRegisterKeys(path string) (keys []vault.RegisterKey, labels []string, err error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("revoked-file %s: %w", path, err)
+		return nil, nil, fmt.Errorf("register-key-file %s: %w", path, err)
 	}
-	var ids []vault.VaultID
-	for i, line := range strings.Split(string(b), "\n") {
-		line, _, _ = strings.Cut(line, "#")
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	facts, errs := fact.Load(b)
+	if len(errs) > 0 {
+		var all []error
+		for _, e := range errs {
+			all = append(all, fmt.Errorf("register-key-file %s:%d: %s", path, e.Line, e.Msg))
 		}
-		vid, err := vault.ParseVaultID(line)
+		return nil, nil, errors.Join(all...)
+	}
+	sort.Slice(facts, func(i, j int) bool { return facts[i].Key < facts[j].Key })
+	for _, f := range facts {
+		label, ok := strings.CutPrefix(f.Key, "register_key:")
+		if ok {
+			label, ok = strings.CutSuffix(label, ".key")
+		}
+		if !ok || strings.Contains(label, ".") || f.Type.Raw != "str" {
+			return nil, nil, fmt.Errorf("register-key-file %s:%d: want register_key:LABEL.key: str = \"<base32>\", got %s", path, f.Line, f.Key)
+		}
+		var blob string
+		if err := json.Unmarshal([]byte(f.Value.Elems[0]), &blob); err != nil {
+			return nil, nil, fmt.Errorf("register-key-file %s:%d: %w", path, f.Line, err)
+		}
+		rk, err := vault.DecodeRegisterKey(blob)
 		if err != nil {
-			return nil, fmt.Errorf("revoked-file %s:%d: %w", path, i+1, err)
+			return nil, nil, fmt.Errorf("register-key-file %s:%d: %w", path, f.Line, err)
 		}
-		ids = append(ids, vid)
-	}
-	return ids, nil
-}
-
-// revoke records vid in the revoked file, with a note, unless it is
-// there already, and syncs the file before returning.
-func revoke(path string, vid vault.VaultID, note string) (added bool, err error) {
-	ids, err := readRevoked(path)
-	if err != nil {
-		return false, err
-	}
-	if slices.Contains(ids, vid) {
-		return false, nil
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
-	if err != nil {
-		return false, err
-	}
-	line := vid.String() + "  # dropped " + time.Now().UTC().Format("2006-01-02")
-	if note = strings.Join(strings.Fields(note), " "); note != "" {
-		line += ": " + note
-	}
-	if _, err := fmt.Fprintln(f, line); err != nil {
-		f.Close()
-		return false, err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return false, err
-	}
-	return true, f.Close()
-}
-
-// readRegisterKeys reads the register-key file: one RegisterKey blob
-// per line, blank lines and lines starting with "#" ignored, so each
-// key can carry a label naming who holds it. Revoking one is deleting
-// its line and restarting; the others and every vault are untouched.
-// A file with no key is an error: registration is disabled by not
-// serving, never by an empty file.
-func readRegisterKeys(path string) ([]vault.RegisterKey, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("register-key-file %s: %w", path, err)
-	}
-	var keys []vault.RegisterKey
-	for i, line := range strings.Split(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		rk, err := vault.DecodeRegisterKey(line)
-		if err != nil {
-			return nil, fmt.Errorf("register-key-file %s:%d: %w", path, i+1, err)
-		}
-		keys = append(keys, rk)
+		keys, labels = append(keys, rk), append(labels, label)
 	}
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("register-key-file %s: no register key", path)
+		return nil, nil, fmt.Errorf("register-key-file %s: no register key", path)
 	}
-	return keys, nil
+	return keys, labels, nil
 }
 
 func runServe(args []string) {
 	fs, o := serveFlags()
 	_ = fs.Parse(args) // ExitOnError
 	if o.registerKeyFile == "" {
-		log.Fatal("kvserve: --register-key-file is required (generate one with `kvserve gen-register-key`)")
+		log.Fatal("kvserve: --register-key-file is required (make one with `kvserve gen-register-key LABEL`)")
 	}
-	keys, err := readRegisterKeys(o.registerKeyFile)
+	keys, labels, err := readRegisterKeys(o.registerKeyFile)
 	if err != nil {
 		log.Fatalf("kvserve: %v", err)
 	}
-	if o.revokedFile == "" {
-		log.Fatal("kvserve: --revoked-file is required (an empty file revokes nothing)")
-	}
-	revoked, err := readRevoked(o.revokedFile)
+	srv, err := server.New(server.Options{DataDir: o.data, Quotas: o.quotas, RegisterKeys: keys})
 	if err != nil {
 		log.Fatalf("kvserve: %v", err)
 	}
-	srv, err := server.New(server.Options{DataDir: o.data, Quotas: o.quotas, RegisterKeys: keys, Revoked: revoked})
-	if err != nil {
-		log.Fatalf("kvserve: %v", err)
-	}
-	log.Printf("kvserve: REGISTER gated by %d keys in %s, %d vaults revoked in %s, data=%s, quotas: %d vaults x %d bytes / %d entries",
-		len(keys), o.registerKeyFile, len(revoked), o.revokedFile, o.data, o.quotas.MaxVaults, o.quotas.MaxVaultBytes, o.quotas.MaxEntries)
+	log.Printf("kvserve: REGISTER gated by %d keys (%s) in %s, data=%s, quotas: %d vaults x %d bytes / %d entries",
+		len(keys), strings.Join(labels, ", "), o.registerKeyFile, o.data, o.quotas.MaxVaults, o.quotas.MaxVaultBytes, o.quotas.MaxEntries)
 
 	// The protocol routes under "/", liveness beside them. The kv
 	// server declares its own method and path, so a wrong method gets
@@ -257,77 +212,76 @@ func runServe(args []string) {
 	}
 }
 
-// runGenRegisterKey generates a fresh 16-byte register key, encodes
-// it as Crockford base32, and prints it (with a trailing newline) to
-// stdout. Intended for the deploy pipeline:
+// runGenRegisterKey generates a fresh 16-byte register key and prints
+// it as one line of the register-key file, labelled:
 //
-//	kvserve gen-register-key > /opt/kvserve/register.key
+//	kvserve gen-register-key iou
+//	register_key:iou.key: str = "…"
 //
-// The emitted file is consumed by `kvserve --register-key-file`.
-func runGenRegisterKey() {
+// The label names who holds the key; it is a FACT segment (letters,
+// digits, _, starting with a letter).
+func runGenRegisterKey(args []string) {
+	if len(args) != 1 || !fact.IsSegment(args[0]) {
+		log.Fatal("kvserve: gen-register-key: want one LABEL: letters, digits and _, starting with a letter")
+	}
 	rk, err := vault.NewRegisterKey()
 	if err != nil {
 		log.Fatalf("kvserve: gen-register-key: %v", err)
 	}
-	fmt.Println(vault.EncodeRegisterKey(rk))
+	fmt.Println(registerKeyLine(args[0], rk))
 }
 
-// runDropVault drops a vault for good: it records the id in the
-// revoked file, then deletes the vault's directory, entry log included.
-// Revoking first is what makes the drop stick: without it any device
-// still holding the RootKey and a RegisterKey creates the vault again
-// on its next sync. A vault with no directory (one removed earlier) is
-// revoked all the same.
+// registerKeyLine is rk as the register-key file's line for label.
+func registerKeyLine(label string, rk vault.RegisterKey) string {
+	return "register_key:" + label + ".key: str = " + fact.Quote(vault.EncodeRegisterKey(rk))
+}
+
+// runDropVault ends a vault for good: its record is rewritten as
+// ended, with the note, and its entry log deleted (server.DropVaultDir).
+// The record is what makes the drop stick: without it any device still
+// holding the RootKey and a RegisterKey creates the vault again on its
+// next sync. A vault this server never held is revoked all the same.
 //
-// The directory goes only while kvserve is stopped: a running server
-// holds every vault's log open, so files removed under it keep being
-// served until it restarts. The revocation itself takes effect at the
-// next start. The id is the vault's directory name; the RootKey never
-// has to reach the server to find it.
+// It runs only while kvserve is stopped: a running server holds every
+// vault's log open, so a vault it serves is refused. The id is the
+// vault's directory name; the RootKey never has to reach the server
+// to find it.
 //
 //	systemctl stop kvserve
-//	kvserve drop-vault --data /opt/kvserve/data --revoked-file /opt/kvserve/revoked VAULTID [NOTE]
+//	kvserve drop-vault --data /opt/kvserve/data VAULTID [NOTE]
 //	systemctl start kvserve
 func runDropVault(args []string) {
 	fs := flag.NewFlagSet("drop-vault", flag.ExitOnError)
-	data := fs.String("data", "./data", "data directory of the stopped server")
-	revokedFile := fs.String("revoked-file", "", "the server's revoked file; REQUIRED")
+	data := fs.String("data", "", "data directory of the stopped server; REQUIRED")
 	_ = fs.Parse(args) // ExitOnError
+	if *data == "" {
+		log.Fatal("kvserve: drop-vault: --data is required")
+	}
 	if fs.NArg() < 1 {
 		log.Fatal("kvserve: drop-vault: want a VAULTID (32 hex digits) and an optional note")
-	}
-	if *revokedFile == "" {
-		log.Fatal("kvserve: drop-vault: --revoked-file is required: a drop that is not revoked does not last")
 	}
 	vid, err := vault.ParseVaultID(fs.Arg(0))
 	if err != nil {
 		log.Fatalf("kvserve: drop-vault: %v", err)
 	}
-	msg, err := dropVault(*data, *revokedFile, vid, strings.Join(fs.Args()[1:], " "))
+	msg, err := dropVault(*data, vid, strings.Join(fs.Args()[1:], " "))
 	if err != nil {
 		log.Fatalf("kvserve: drop-vault: %v", err)
 	}
 	fmt.Println(msg)
 }
 
-// dropVault revokes vid and removes its directory, and says what it
-// did.
-func dropVault(data, revokedFile string, vid vault.VaultID, note string) (string, error) {
-	added, err := revoke(revokedFile, vid, note)
-	if err != nil {
-		return "", err
-	}
-	state := "revoked"
-	if !added {
-		state = "already revoked"
-	}
-	switch err := server.DropVaultDir(data, vid); {
+// dropVault ends vid and says what it did.
+func dropVault(data string, vid vault.VaultID, note string) (string, error) {
+	note = strings.Join(strings.Fields(note), " ")
+	already, err := server.DropVaultDir(data, vid, note)
+	switch {
 	case errors.Is(err, server.ErrVaultInUse):
-		return "", fmt.Errorf("%s %s, but it is being served: stop kvserve and run this again to remove its data", vid, state)
-	case errors.Is(err, server.ErrUnknownVault):
-		return fmt.Sprintf("%s %s; no data in %s to drop", vid, state, data), nil
+		return "", fmt.Errorf("%s is being served: stop kvserve and run this again", vid)
 	case err != nil:
-		return "", fmt.Errorf("%s %s, but its data stays: %w", vid, state, err)
+		return "", fmt.Errorf("%s: %w", vid, err)
+	case already:
+		return fmt.Sprintf("%s had already ended; its record is unchanged", vid), nil
 	}
-	return fmt.Sprintf("%s %s and dropped", vid, state), nil
+	return fmt.Sprintf("%s ended: revoked, and its entries deleted", vid), nil
 }

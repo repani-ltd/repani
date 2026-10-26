@@ -8,18 +8,15 @@ import (
 	"cmp"
 	"crypto/subtle"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
-	"repani.com/kv/internal/durable"
+	"repani.com/durable"
 	"repani.com/kv/store"
 	"repani.com/kv/vault"
 	"repani.com/kv/wire"
@@ -80,14 +77,6 @@ type Options struct {
 	Clock        func() int64
 	RegisterKeys []vault.RegisterKey
 
-	// Revoked vaults are never served or registered: a REGISTER naming
-	// one is BAD_AUTH, and one still on disk is not loaded. Dropping a
-	// vault without revoking it lets any client holding its RootKey and
-	// a RegisterKey create it again on its next sync. The server adds
-	// to these itself as ephemeral vaults end, keeping an end marker in
-	// DataDir (see endLocked).
-	Revoked []vault.VaultID
-
 	// OnPush, if non-nil, is called after a PUSH frame's entries have
 	// been validated and persisted, once per PUSH that added at least
 	// one new entry. It runs outside the vault locks, on the goroutine
@@ -106,7 +95,9 @@ type Server struct {
 	mux     *http.ServeMux // the protocol routes, built once
 
 	// mu guards vaults and revoked. Lock order: mu, then a vaultState's
-	// mu; never the other way.
+	// mu; never the other way. revoked holds every vault whose record
+	// says ended, and every one whose record cannot be read: none is
+	// served or registered again (see record.go).
 	mu      sync.Mutex
 	vaults  map[vault.VaultID]*vaultState
 	revoked map[vault.VaultID]bool
@@ -123,7 +114,7 @@ type vaultState struct {
 	noPush  bool // refuse wire PUSH; owner AddEntries still writes
 
 	ephemeral bool  // fixed at creation; see endLocked
-	created   int64 // ms; set for an ephemeral vault
+	created   int64 // ms, to the second, as its record holds it
 	gone      bool  // dropped or ended: its store is closed (mu held to read)
 }
 
@@ -156,9 +147,6 @@ func New(opt Options) (*Server, error) {
 		onPush:  opt.OnPush,
 		vaults:  make(map[vault.VaultID]*vaultState),
 	}
-	for _, vid := range opt.Revoked {
-		s.revoked[vid] = true
-	}
 	s.mux = s.routes()
 	if opt.DataDir != "" {
 		if err := s.loadPersistedVaults(); err != nil {
@@ -183,31 +171,32 @@ func (s *Server) loadPersistedVaults() error {
 			continue
 		}
 		dir := filepath.Join(s.dataDir, d.Name())
-		if _, err := os.Stat(endedPath(dir)); err == nil {
-			// An ended ephemeral vault: revoked for good. Finish a
-			// deletion a crash interrupted.
+		r, err := readRecord(dir)
+		if errors.Is(err, os.ErrNotExist) {
+			continue // a creation that crashed before its record: never served
+		}
+		var ak vault.AuthKey
+		if err == nil && r.Ended == nil {
+			ak, err = r.authKey()
+		}
+		if err != nil {
+			// A single damaged vault must not take the whole server
+			// offline: skip it loudly and serve the rest. It is refused
+			// too, not left for a REGISTER to create afresh, since the
+			// record it lost may have said ended.
+			log.Printf("server: refusing vault %s until its record is mended: %v", d.Name(), err)
 			s.revoked[vid] = true
-			if err := clearVaultFiles(dir); err != nil {
+			continue
+		}
+		if r.Ended != nil {
+			// Revoked for good. Finish a deletion a crash interrupted.
+			s.revoked[vid] = true
+			if err := removeLog(dir); err != nil {
 				log.Printf("server: ended vault %s: %v", d.Name(), err)
 			}
 			continue
 		}
-		if s.revoked[vid] {
-			log.Printf("server: not serving vault %s: revoked (kvserve drop-vault removes it)", d.Name())
-			continue
-		}
-		ak, err := readAuthKey(dir)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue // crashed registration; unreachable until re-register
-			}
-			// A single damaged vault must not take the whole server
-			// offline; skip it loudly and serve the rest. It stays
-			// reachable via re-registration under the same RootKey.
-			log.Printf("server: skipping vault %s: bad auth.key: %v", d.Name(), err)
-			continue
-		}
-		ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"), logLockWait)
+		ls, err := store.OpenLogStore(logPath(dir), logLockWait)
 		if err != nil {
 			log.Printf("server: skipping vault %s: %v", d.Name(), err)
 			continue
@@ -216,14 +205,7 @@ func (s *Server) loadPersistedVaults() error {
 		for _, e := range ls.Sorted() {
 			st.bytes += uint64(e.Size())
 		}
-		if created, ok, err := readEphemeral(dir); err != nil {
-			// The mark is unreadable: ending the vault is the safe side,
-			// since serving it could outlive its single use.
-			log.Printf("server: vault %s: %v; ending it", d.Name(), err)
-			st.ephemeral = true
-		} else if ok {
-			st.ephemeral, st.created = true, created
-		}
+		st.ephemeral, st.created = r.Ephemeral, r.Created.UnixMilli()
 		s.vaults[vid] = st
 	}
 	s.mu.Lock()
@@ -235,7 +217,7 @@ func (s *Server) loadPersistedVaults() error {
 func (s *Server) sweepLocked() error {
 	for vid, st := range s.vaults {
 		if s.expired(st) {
-			if err := s.endLocked(vid, st); err != nil {
+			if err := s.endLocked(vid, st, noteExpired); err != nil {
 				return err
 			}
 		}
@@ -254,22 +236,28 @@ func (s *Server) expireIfDue(vid vault.VaultID, st *vaultState) (bool, error) {
 	if s.vaults[vid] != st {
 		return true, nil // another request ended it
 	}
-	return true, s.endLocked(vid, st)
+	return true, s.endLocked(vid, st, noteExpired)
 }
 
-// endLocked ends an ephemeral vault (PROTOCOL.t, Ephemeral vaults): it
-// is revoked, its store closed, and its files deleted. On disk the end
-// marker is written first, so a crash at any point leaves a vault that
-// the next start treats as ended. An error means the marker could not
-// be written and nothing changed; once it is written the vault has
-// ended, and files left behind are logged and cleared at the next
-// start. s.mu held, st.mu not.
-func (s *Server) endLocked(vid vault.VaultID, st *vaultState) error {
+// The notes an ephemeral vault's record ends with.
+const (
+	noteExpired = "ephemeral: expired"
+	noteDropped = "ephemeral: dropped by its holder"
+)
+
+// endLocked ends a vault for good: an ephemeral one as PROTOCOL.t
+// (Ephemeral vaults) has it, any one at its owner's DropVault. It is
+// revoked, its store closed, and its entries deleted. On disk the
+// record is rewritten as ended, with note, first, so a crash at any
+// point leaves a vault that the next start treats as ended. An error
+// means the record could not be written and nothing changed; once it
+// is, the vault has ended, and an entry log left behind is logged and
+// deleted at the next start. s.mu held, st.mu not.
+func (s *Server) endLocked(vid vault.VaultID, st *vaultState, note string) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.dir != "" {
-		stamp := []byte(strconv.FormatInt(s.clock(), 10) + "\n")
-		if err := durable.WriteFile(endedPath(st.dir), stamp, 0o600); err != nil {
+		if err := writeRecord(st.dir, st.record().ended(s.clock(), note)); err != nil {
 			return err
 		}
 	}
@@ -282,8 +270,8 @@ func (s *Server) endLocked(vid vault.VaultID, st *vaultState) error {
 		}
 	}
 	if st.dir != "" {
-		if err := clearVaultFiles(st.dir); err != nil {
-			log.Printf("server: ended vault %s: %v (cleared at the next start)", vid, err)
+		if err := removeLog(st.dir); err != nil {
+			log.Printf("server: ended vault %s: %v (deleted at the next start)", vid, err)
 		}
 	}
 	return nil
@@ -358,7 +346,7 @@ func (s *Server) handleRegister(h wire.Header, sealed []byte) ([]byte, error) {
 	s.mu.Lock()
 	st, exists := s.vaults[vid]
 	if exists && s.expired(st) {
-		if err := s.endLocked(vid, st); err != nil {
+		if err := s.endLocked(vid, st, noteExpired); err != nil {
 			s.mu.Unlock()
 			log.Printf("server: end vault %s: %v", vid, err)
 			return wire.ErrTryLater.Reply(), nil
@@ -490,7 +478,7 @@ func (s *Server) handleDrop(vid vault.VaultID, st *vaultState, nonce [vault.Nonc
 		s.mu.Unlock()
 		return wire.ErrUnknownVault.Reply(), nil // ended meanwhile
 	}
-	err := s.endLocked(vid, st)
+	err := s.endLocked(vid, st, noteDropped)
 	s.mu.Unlock()
 	if err != nil {
 		log.Printf("server: drop vault %s: %v", vid, err)
@@ -570,14 +558,13 @@ func (s *Server) sealResp(vid vault.VaultID, s2c vault.ChannelKey, reqNonce [vau
 	return wire.SealFrame(wire.Header{Kind: wire.KindResp, VaultID: vid, Nonce: respNonce}, s2c, payload)
 }
 
-// createVaultLocked constructs and persists a new vaultState. An
-// ephemeral one's mark is written before its auth.key, so no vault on
-// disk is ever served without it. s.mu held.
+// createVaultLocked constructs and persists a new vaultState: its
+// record first, in one write, then its entry log. s.mu held.
 func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey, ephemeral bool) (*vaultState, error) {
-	now := s.clock()
+	created := recordTime(s.clock()).UnixMilli()
 	if s.dataDir == "" {
 		st := newVaultState(store.NewMemStore(), ak, "")
-		st.ephemeral, st.created = ephemeral, now
+		st.ephemeral, st.created = ephemeral, created
 		s.vaults[vid] = st
 		return st, nil
 	}
@@ -585,21 +572,16 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey, ephemera
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	if ephemeral {
-		stamp := []byte(strconv.FormatInt(now, 10) + "\n")
-		if err := durable.WriteFile(ephemeralPath(dir), stamp, 0o600); err != nil {
-			return nil, err
-		}
-	}
-	if err := durable.WriteFile(authKeyPath(dir), ak[:], 0o600); err != nil {
+	st := newVaultState(nil, ak, dir)
+	st.ephemeral, st.created = ephemeral, created
+	if err := writeRecord(dir, st.record()); err != nil {
 		return nil, err
 	}
-	ls, err := store.OpenLogStore(filepath.Join(dir, "entries.log"), logLockWait)
+	ls, err := store.OpenLogStore(logPath(dir), logLockWait)
 	if err != nil {
 		return nil, err
 	}
-	st := newVaultState(ls, ak, dir)
-	st.ephemeral, st.created = ephemeral, now
+	st.s = ls
 	s.vaults[vid] = st
 	return st, nil
 }
@@ -607,106 +589,53 @@ func (s *Server) createVaultLocked(vid vault.VaultID, ak vault.AuthKey, ephemera
 // ErrVaultInUse reports a vault whose entry log a running server holds.
 var ErrVaultInUse = errors.New("server: vault is held by a running server")
 
-// DropVaultDir is DropVault for a server that is not running: it
-// deletes vid's directory under dataDir, auth.key and entry log, for
-// good. It takes the entry log's lock first, so it refuses with
+// DropVaultDir is DropVault for a server that is not running, and for
+// any vault id, held or not: it rewrites vid's record under dataDir as
+// ended, with note, and deletes its entry log. A vault this server has
+// never held gets a record that says only that it ended, so it can
+// never be registered here. already reports a vault that had ended
+// before, whose record is left as it was.
+//
+// It takes the entry log's lock first, so it refuses with
 // ErrVaultInUse while a server is serving the vault: a server keeps
-// every vault's log open from start to stop, and deleting the files
-// under it changes nothing it serves until it restarts. Returns
-// ErrUnknownVault if dataDir has no such vault.
-func DropVaultDir(dataDir string, vid vault.VaultID) error {
+// every vault's log open from start to stop, and changing the files
+// under it changes nothing it serves until it restarts.
+func DropVaultDir(dataDir string, vid vault.VaultID, note string) (already bool, err error) {
 	dir := filepath.Join(dataDir, vid.String())
-	if _, err := os.Stat(dir); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return ErrUnknownVault
-		}
-		return err
-	}
-	logPath := filepath.Join(dir, "entries.log")
-	var held io.Closer
-	if _, err := os.Stat(logPath); err == nil {
-		ls, err := store.OpenLogStore(logPath, 0)
+	if _, err := os.Stat(logPath(dir)); err == nil {
+		ls, err := store.OpenLogStore(logPath(dir), 0)
 		if errors.Is(err, store.ErrLocked) {
-			return ErrVaultInUse
+			return false, ErrVaultInUse
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
-		held = ls
+		defer ls.Close()
 	}
-	err := removeVaultDir(dataDir, dir)
-	if held != nil {
-		_ = held.Close()
-	}
-	return err
-}
-
-// removeVaultDir deletes a vault's directory under dataDir. auth.key
-// goes first: a crash part-way leaves a directory the next start skips
-// rather than adopts.
-func removeVaultDir(dataDir, dir string) error {
-	err := os.Remove(authKeyPath(dir))
-	if err == nil || errors.Is(err, os.ErrNotExist) {
-		err = os.RemoveAll(dir)
+	now := time.Now().UnixMilli()
+	r, err := readRecord(dir)
+	switch {
+	case err == nil && r.Ended != nil:
+		already = true
+	case err == nil:
+		err = writeRecord(dir, r.ended(now, note))
+	case errors.Is(err, os.ErrNotExist):
+		if err = os.MkdirAll(dir, 0o700); err == nil {
+			err = writeRecord(dir, vaultRecord{Created: recordTime(now)}.ended(now, note))
+		}
 	}
 	if err != nil {
+		return false, err
+	}
+	return already, removeLog(dir)
+}
+
+// removeLog deletes an ended vault's entry log, if it has one.
+func removeLog(dir string) error {
+	if err := os.Remove(logPath(dir)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	durable.SyncDir(dataDir)
-	return nil
-}
-
-// --- per-vault auth.key persistence ---
-
-func authKeyPath(dir string) string { return filepath.Join(dir, "auth.key") }
-
-// An ephemeral vault's directory holds an "ephemeral" file, its
-// creation time in ms as decimal text, written before auth.key. An
-// ended one holds only "dropped", the moment it ended: its end marker.
-func ephemeralPath(dir string) string { return filepath.Join(dir, "ephemeral") }
-func endedPath(dir string) string     { return filepath.Join(dir, "dropped") }
-
-// readEphemeral reports whether dir's vault is ephemeral, and when it
-// was created.
-func readEphemeral(dir string) (created int64, ok bool, err error) {
-	b, err := os.ReadFile(ephemeralPath(dir))
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, err
-	}
-	created, err = strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
-	if err != nil {
-		return 0, false, fmt.Errorf("server: ephemeral file: %w", err)
-	}
-	return created, true, nil
-}
-
-// clearVaultFiles deletes an ended vault's files, all but its end
-// marker. auth.key goes first, as in removeVaultDir.
-func clearVaultFiles(dir string) error {
-	var errs []error
-	for _, name := range []string{"auth.key", "entries.log", "ephemeral"} {
-		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			errs = append(errs, err)
-		}
-	}
-	durable.SyncDir(dir)
-	return errors.Join(errs...)
-}
-
-func readAuthKey(dir string) (vault.AuthKey, error) {
-	b, err := os.ReadFile(authKeyPath(dir))
-	if err != nil {
-		return vault.AuthKey{}, err
-	}
-	if len(b) != vault.AuthKeySize {
-		return vault.AuthKey{}, fmt.Errorf("server: auth.key is %d bytes, want %d", len(b), vault.AuthKeySize)
-	}
-	var ak vault.AuthKey
-	copy(ak[:], b)
-	return ak, nil
+	return durable.SyncDir(dir)
 }
 
 // --- HTTP ---

@@ -1,35 +1,5 @@
-// kv: ASCON-KV client CLI.
-//
-// Commands:
-//
-//	kv init                       generate a new vault's RootKey
-//	kv pair <blob|->              join an existing vault (use - to read stdin)
-//	kv pair-blob                  print this device's pairing blob
-//	kv set-register-key <b32|->   install/replace the server register-gate secret
-//	kv put <key> [value|-]        set a key (value from argv or stdin)
-//	kv get <key>                  print the current value
-//	kv del <key>                  tombstone a key
-//	kv ls                         list live keys
-//	kv sync                       run one sync cycle
-//	kv export [file|-]            dump live state as CSV (Key,Value)
-//	kv import <file|->            import rows from a CSV file
-//	kv backup [file|-]            emit RootKey (+ register key if local)
-//	kv restore <blob|->           restore a vault from a backup blob
-//	kv vault-id <blob|->          print a blob's VaultID (hex)
-//	kv version [--url URL]        print this build, and the server's
-//	kv search|s [flags] <pattern> case-insensitive substring match
-//	                              across keys AND values; renders a
-//	                              KEY/VALUE table by default.
-//	                              --regex, --key, --value, --keys-only,
-//	                              --case-sensitive
-//
-// Environment:
-//
-//	KV_HOME           storage directory (default ~/.kv)
-//	KV_SERVER         server base URL, e.g. https://vault.example
-//	KV_HTTP_TIMEOUT   per-request timeout (default 60s)
-//	KV_LOCK_WAIT      wait for a concurrent kv holding the local
-//	                  entry-log lock (default 5s)
+// kv: ASCON-KV client CLI. Run `kv help` for its commands and
+// environment; that text is the one list of them.
 package main
 
 import (
@@ -50,127 +20,129 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/term"
+	"repani.com/durable"
 	"repani.com/kiosk"
 	"repani.com/kv/client"
-	"repani.com/kv/internal/durable"
 	"repani.com/kv/store"
 	"repani.com/kv/vault"
 )
 
-const defaultHTTPTimeout = 60 * time.Second
+const httpTimeout = 60 * time.Second
 
-// defaultLockWait bounds how long an invocation waits for another kv
-// process holding the entry-log lock. Holders keep it only for
-// milliseconds per operation, so waiting briefly lets concurrent
-// invocations serialize instead of failing.
-const defaultLockWait = 5 * time.Second
+// lockWait bounds how long an invocation waits for another kv process
+// holding the entry-log lock. Holders keep it only for milliseconds
+// per operation, so waiting briefly lets concurrent invocations
+// serialize instead of failing.
+const lockWait = 5 * time.Second
 
 // verbose enables a sync-traffic tracer on the client. It is package-
 // level because several subcommands set it from their own flag sets
-// before openClient runs; KV_VERBOSE turns it on regardless of position.
+// before openClient runs.
 var verbose bool
 
 func addVerboseFlag(fs *flag.FlagSet) {
-	// Default to the current value so a global `kv -v <cmd>` (which set
-	// verbose before the subcommand parsed) is not reset to false.
-	def := verbose
-	fs.BoolVar(&verbose, "v", def, "verbose: print sync traffic (PROBE/PULL/PUSH/REGISTER) and stats to stderr")
-	fs.BoolVar(&verbose, "verbose", def, "alias for -v")
+	fs.BoolVar(&verbose, "v", false, "print sync traffic (PROBE/PULL/PUSH/REGISTER) and stats to stderr")
 }
 
+// exitCode is an error that ends kv with that status and prints
+// nothing more: what there was to say has been said.
+type exitCode int
+
+func (e exitCode) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+
 func main() {
-	// KV_VERBOSE seeds the single verbose flag; a global or per-subcommand
-	// -v/--verbose can still turn it on. Reading it once here means the
-	// rest of the program only ever consults `verbose`.
-	verbose = os.Getenv("KV_VERBOSE") != ""
-	rest := os.Args[1:]
-	// Accept a global -v/--verbose before the subcommand, in addition to
-	// the per-subcommand flag — so `kv -v put k v` and `kv put -v k v`
-	// both work.
-	for len(rest) > 0 && (rest[0] == "-v" || rest[0] == "--verbose") {
-		verbose = true
-		rest = rest[1:]
-	}
-	if len(rest) == 0 {
-		usage(os.Stderr)
-		os.Exit(2)
-	}
-
-	cmd := rest[0]
-	args := rest[1:]
-
-	switch cmd {
-	case "init":
-		runInit(args)
-	case "pair":
-		runPair(args)
-	case "pair-blob":
-		runPairBlob(args)
-	case "set-register-key":
-		runSetRegisterKey(args)
-	case "put":
-		runPut(args)
-	case "get":
-		runGet(args)
-	case "del":
-		runDel(args)
-	case "ls":
-		runLs(args)
-	case "sync":
-		runSync(args)
-	case "export":
-		runExport(args)
-	case "import":
-		runImport(args)
-	case "backup":
-		runBackup(args)
-	case "restore":
-		runRestore(args)
-	case "vault-id":
-		runVaultID(args)
-	case "search", "s":
-		runSearch(args)
-	case "version":
-		runVersion(args)
-	case "-h", "--help", "help":
-		usage(os.Stdout)
+	err := run(os.Args[1:])
+	var code exitCode
+	switch {
+	case err == nil:
+	case errors.As(err, &code):
+		os.Exit(int(code))
 	default:
+		fatal("%v", err)
+	}
+}
+
+// home is the storage directory, resolved by run before any command.
+var home string
+
+// run resolves the storage directory and runs the command args names.
+func run(args []string) error {
+	if len(args) == 0 {
+		usage(os.Stderr)
+		return exitCode(2)
+	}
+	cmd, args := args[0], args[1:]
+	if cmd == "-h" || cmd == "--help" || cmd == "help" {
+		usage(os.Stdout)
+		return nil
+	}
+	commands := map[string]func([]string) error{
+		"init":             runInit,
+		"pair":             runPair,
+		"pair-blob":        runPairBlob,
+		"set-register-key": runSetRegisterKey,
+		"put":              runPut,
+		"get":              runGet,
+		"del":              runDel,
+		"ls":               runLs,
+		"sync":             runSync,
+		"export":           runExport,
+		"import":           runImport,
+		"backup":           runBackup,
+		"vault-id":         runVaultID,
+		"search":           runSearch,
+		"s":                runSearch,
+		"version":          runVersion,
+	}
+	f, ok := commands[cmd]
+	if !ok {
 		fmt.Fprintf(os.Stderr, "kv: unknown command %q\n\n", cmd)
 		usage(os.Stderr)
-		os.Exit(2)
+		return exitCode(2)
 	}
+	home = os.Getenv("KV_HOME")
+	if home == "" {
+		ud, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("could not determine home directory: %v", err)
+		}
+		home = filepath.Join(ud, ".kv")
+	}
+	return f(args)
 }
 
 func usage(w io.Writer) {
 	fmt.Fprint(w, `kv — ASCON-KV client CLI
 
 Commands:
-  init              generate a new vault's RootKey
-  pair <blob|->     join an existing vault from a pairing blob (use - to read stdin)
-  pair-blob         print this device's pairing blob
+  init              generate a new vault's RootKey and print its pairing blob
+  pair <blob|->     join an existing vault from a pairing or backup blob
+                    (- reads it from stdin); a backup blob's register key
+                    is installed too
+  pair-blob         print this device's pairing blob (no register key)
   set-register-key <base32|->
                     install/replace the server register-gate secret used
                     to register with a gated server (26-char Crockford base32)
-  put <key> [val]   set key to val (or read val from stdin if omitted or "-")
+  put [-v] <key> [val]
+                    set key to val (or read val from stdin if omitted or "-")
   get <key>         print the current value, or exit 1 if absent
-  del [-f] <key>    tombstone a key; exit 1 if it is not present
-                    (-f/--force writes the tombstone regardless)
+  del [-v] [-f] <key>
+                    tombstone a key; exit 1 if it is not present
+                    (-f writes the tombstone regardless)
   ls                list live keys
-  sync [-v]         run one sync cycle (-v/--verbose prints per-frame
-                    traffic and a byte/entry stats summary to stderr;
-                    -v also works on put/del/import)
+  sync [-v]         run one sync cycle
   export [file|-]   dump live state as CSV (Key,Value); default stdout
-  import <file|->   import rows from CSV (reads Key,Value columns by header)
+  import [-v] <file|->
+                    import rows from CSV (reads Key,Value columns by header)
   backup [file|-]   emit RootKey (+ register key if available locally)
                     as a single Crockford base32 blob for offline storage
-  restore <blob|->  recover a vault on a fresh device from a backup blob
   vault-id <blob|-> print the VaultID of a pairing or backup blob, in
                     hex: the vault's directory on the server, and what
                     kvserve drop-vault takes. Computed here alone: no
                     KV_HOME, no server
-  version [--url U] print this binary's build, and the server's when
-                    KV_SERVER (or --url) is set; the useful question is
-                    usually whether the two match
+  version           print this binary's build, and the server's when
+                    KV_SERVER is set; the useful question is usually
+                    whether the two match
   search <query>    (alias: s) find keys/values containing the substring
                     (case-insensitive). Default output is a column-aligned
                     KEY/VALUE table. Flags:
@@ -180,19 +152,16 @@ Commands:
                       --keys-only      print bare keys, one per line
                       --case-sensitive exact-case match
                       --truncate       one line per value (default: wrap)
-                      --width N        force table width (0 = auto/terminal)
                     Long values wrap to the terminal width, breaking on
                     their own newlines; piping prints full, untruncated
                     values.
 
+put, del and import sync after writing. -v prints each sync frame and
+a byte/entry stats summary to stderr.
+
 Environment:
   KV_HOME           storage directory (default ~/.kv)
   KV_SERVER         server base URL, e.g. https://vault.example
-  KV_HTTP_TIMEOUT   per-request timeout (default 60s)
-  KV_VERBOSE        if set, print sync traffic + stats (same as -v)
-  KV_SYNC_WINDOW    reconcile look-back window (Go duration, default 10m)
-  KV_LOCK_WAIT      wait for a concurrent kv holding the local entry-log
-                    lock (Go duration, default 5s; 0 fails immediately)
 
 Specification (repani/kv, pica documents):
   PROTOCOL.t        the wire protocol kv speaks
@@ -202,33 +171,35 @@ Specification (repani/kv, pica documents):
 
 // --- bootstrap helpers ---
 
-func homeDir() string {
-	if h := os.Getenv("KV_HOME"); h != "" {
-		return h
-	}
-	ud, err := os.UserHomeDir()
-	if err != nil {
-		fatal("could not determine home directory: %v", err)
-	}
-	return filepath.Join(ud, ".kv")
-}
+func vaultKeyPath() string    { return filepath.Join(home, "vault.key") }
+func entriesPath() string     { return filepath.Join(home, "entries.log") }
+func registerKeyPath() string { return filepath.Join(home, "register.key") }
 
-func vaultKeyPath() string    { return filepath.Join(homeDir(), "vault.key") }
-func entriesPath() string     { return filepath.Join(homeDir(), "entries.log") }
-func registerKeyPath() string { return filepath.Join(homeDir(), "register.key") }
-
-func loadRootKey() vault.RootKey {
+func loadRootKey() (vault.RootKey, error) {
 	b, err := os.ReadFile(vaultKeyPath())
 	if err != nil {
-		fatal("read %s: %v (have you run `kv init` or `kv pair`?)", vaultKeyPath(), err)
+		return vault.RootKey{}, fmt.Errorf("read %s: %v (have you run `kv init` or `kv pair`?)", vaultKeyPath(), err)
 	}
 	if len(b) != vault.RootKeySize {
-		fatal("vault.key is %d bytes, expected %d", len(b), vault.RootKeySize)
+		return vault.RootKey{}, fmt.Errorf("vault.key is %d bytes, expected %d", len(b), vault.RootKeySize)
 	}
-	return vault.RootKey(b)
+	return vault.RootKey(b), nil
 }
 
 func serverURL() string { return os.Getenv("KV_SERVER") }
+
+// argOrStdin is arg, or when arg is "-" what stdin holds, trimmed:
+// "-" keeps a blob or key out of shell history.
+func argOrStdin(arg string) (string, error) {
+	if arg != "-" {
+		return arg, nil
+	}
+	b, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("read stdin: %v", err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
 
 // runVersion prints this binary's build, and the server's when one is
 // configured. Two lines rather than one because the interesting
@@ -238,26 +209,24 @@ func serverURL() string { return os.Getenv("KV_SERVER") }
 // cannot: an unreachable or older server prints an error against the
 // "server:" label and exits 1, leaving the local line already on
 // stdout where it is still useful.
-func runVersion(args []string) {
+func runVersion(args []string) error {
 	fs := flag.NewFlagSet("version", flag.ExitOnError)
-	url := fs.String("url", serverURL(), "server base URL (default $KV_SERVER)")
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
+	_ = fs.Parse(args)
 	fmt.Printf("client: %s\n", kiosk.ReadBuild())
-	if *url == "" {
-		return
+	if serverURL() == "" {
+		return nil
 	}
-	line, err := fetchVersion(*url)
+	line, err := fetchVersion(serverURL())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "server: %v\n", err)
-		os.Exit(1)
+		return exitCode(1)
 	}
 	fmt.Printf("server: %s\n", line)
+	return nil
 }
 
 func fetchVersion(base string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
 	u := strings.TrimRight(base, "/") + kiosk.VersionPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -281,41 +250,31 @@ func fetchVersion(base string) (string, error) {
 	return strings.TrimSpace(string(body)), nil
 }
 
-// envDuration is the Go duration in the environment variable name, or
-// def when it is unset. A value that does not parse is fatal: silently
-// running with the default would hide the mistake.
-func envDuration(name string, def time.Duration) time.Duration {
-	v := os.Getenv(name)
-	if v == "" {
-		return def
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		fatal("%s: %v", name, err)
-	}
-	return d
-}
-
-func httpTimeout() time.Duration { return envDuration("KV_HTTP_TIMEOUT", defaultHTTPTimeout) }
-
-func lockWait() time.Duration { return envDuration("KV_LOCK_WAIT", defaultLockWait) }
-
 // --- client open ---
 
-func openClient() *client.Client {
-	rk := loadRootKey()
-	ls, err := store.OpenLogStore(entriesPath(), lockWait())
+// openClient opens this device's vault; the returned func closes its
+// entry log, releasing the lock.
+func openClient() (*client.Client, func(), error) {
+	rk, err := loadRootKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	regKey, err := loadRegisterKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	ls, err := store.OpenLogStore(entriesPath(), lockWait)
 	if err != nil {
 		if errors.Is(err, store.ErrBadMagic) {
 			p := entriesPath()
-			fatal("local entry cache %s is in an incompatible (pre-v1) format.\n"+
+			return nil, nil, fmt.Errorf("local entry cache %s is in an incompatible (pre-v1) format.\n"+
 				"  It is only a cache — your RootKey (%s) is untouched. To upgrade:\n"+
 				"    rm %s\n"+
 				"  then run `kv sync` to rebuild from the server, or, if the server\n"+
 				"  was also reset, `kv import <your-export.csv>` to restore your data.",
 				p, vaultKeyPath(), p)
 		}
-		fatal("open log: %v", err)
+		return nil, nil, fmt.Errorf("open log: %v", err)
 	}
 	opts := client.Options{
 		// Optimistically assume the vault is already registered: in
@@ -324,154 +283,146 @@ func openClient() *client.Client {
 		// registers -- one extra round trip once per fresh device, and
 		// no persisted "registered" file to keep in step.
 		Registered: true,
-		// A register key saved at init/pair time lets that REGISTER
-		// through a gated server.
-		RegisterKey: loadRegisterKey(),
-		SyncWindow:  envDuration("KV_SYNC_WINDOW", 0), // 0: the client's default
+		// A register key installed by pair or set-register-key lets
+		// that REGISTER through a gated server.
+		RegisterKey: regKey,
 	}
 	if verbose {
 		opts.Trace = func(s string) { fmt.Fprintln(os.Stderr, s) }
 	}
-	transport := &client.HTTPTransport{Base: serverURL(), Client: &http.Client{Timeout: httpTimeout()}}
+	transport := &client.HTTPTransport{Base: serverURL(), Client: &http.Client{Timeout: httpTimeout}}
 	c, err := client.New(rk, ls, transport, opts)
 	if err != nil {
-		fatal("client init: %v", err)
+		ls.Close()
+		return nil, nil, fmt.Errorf("client init: %v", err)
 	}
-	return c
+	return c, func() { ls.Close() }, nil
 }
 
 // loadRegisterKey reads $KV_HOME/register.key if present and returns
 // it, or nil if absent. The file holds the key in Crockford base32
 // (matches what `kvserve gen-register-key` emits and what
-// vault.EncodeRegisterKey produces). Any non-ENOENT error is fatal
+// vault.EncodeRegisterKey produces). Any non-ENOENT error is an error
 // so the user knows their register-key file is corrupt rather than
 // silently running with no register key.
-func loadRegisterKey() *vault.RegisterKey {
+func loadRegisterKey() (*vault.RegisterKey, error) {
 	b, err := os.ReadFile(registerKeyPath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		fatal("read %s: %v", registerKeyPath(), err)
+		return nil, fmt.Errorf("read %s: %v", registerKeyPath(), err)
 	}
 	rk, err := vault.DecodeRegisterKey(string(b))
 	if err != nil {
-		fatal("register.key: %v", err)
+		return nil, fmt.Errorf("register.key: %v", err)
 	}
-	return &rk
-}
-
-// parseRegisterKeyFlag decodes a --register-key value; "" is none.
-func parseRegisterKeyFlag(b32 string) *vault.RegisterKey {
-	if b32 == "" {
-		return nil
-	}
-	rk, err := vault.DecodeRegisterKey(strings.TrimSpace(b32))
-	if err != nil {
-		fatal("invalid register key: %v", err)
-	}
-	return &rk
+	return &rk, nil
 }
 
 // createVault makes this device's vault from rk, installing regKey
-// too when it is not nil, for init, pair and restore. Everything that
-// can refuse is checked before anything is written, and vault.key,
-// whose presence is what makes a vault, is written last: a run that
-// fails leaves no half-made vault for the next one to refuse. A
+// too when it is not nil, for init and pair. Everything that can
+// refuse is checked before anything is written, and vault.key, whose
+// presence is what makes a vault, is written last: a run that fails
+// leaves no half-made vault for the next one to refuse. A
 // register.key already installed is kept if it is regKey, and refused
 // if it is another.
-func createVault(rk vault.RootKey, regKey *vault.RegisterKey) {
+func createVault(rk vault.RootKey, regKey *vault.RegisterKey) error {
 	if _, err := os.Stat(vaultKeyPath()); err == nil {
-		fatal("refusing to overwrite existing vault at %s", vaultKeyPath())
+		return fmt.Errorf("refusing to overwrite existing vault at %s", vaultKeyPath())
 	}
 	writeReg := false
 	if regKey != nil {
-		switch have := loadRegisterKey(); {
+		have, err := loadRegisterKey()
+		switch {
+		case err != nil:
+			return err
 		case have == nil:
 			writeReg = true
 		case *have != *regKey:
-			fatal("refusing to replace the different register key at %s (kv set-register-key replaces it)", registerKeyPath())
+			return fmt.Errorf("refusing to replace the different register key at %s (kv set-register-key replaces it)", registerKeyPath())
 		}
 	}
-	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
-		fatal("mkdir: %v", err)
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return fmt.Errorf("mkdir: %v", err)
 	}
 	if writeReg {
 		if err := writeKeyExclusive(registerKeyPath(), []byte(vault.EncodeRegisterKey(*regKey)+"\n")); err != nil {
-			fatal("write register.key: %v", err)
+			return fmt.Errorf("write register.key: %v", err)
 		}
 	}
 	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
-		fatal("write vault.key: %v", err)
+		return fmt.Errorf("write vault.key: %v", err)
 	}
 	// Materialize an empty log with the proper magic header.
-	if ls, err := store.OpenLogStore(entriesPath(), lockWait()); err == nil {
+	if ls, err := store.OpenLogStore(entriesPath(), lockWait); err == nil {
 		_ = ls.Close()
 	}
+	return nil
 }
 
 // --- commands ---
 
-func runInit(args []string) {
+func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	registerKey := fs.String("register-key", "",
-		"server register-gate secret (26-char Crockford base32); needed to register with a gated server")
 	_ = fs.Parse(args)
-	regKey := parseRegisterKeyFlag(*registerKey)
 	rk, err := vault.NewRandomRootKey()
 	if err != nil {
-		fatal("rand: %v", err)
+		return fmt.Errorf("rand: %v", err)
 	}
-	createVault(rk, regKey)
+	if err := createVault(rk, nil); err != nil {
+		return err
+	}
 	fmt.Println(vault.EncodeRootKey(rk))
+	return nil
 }
 
-func runPair(args []string) {
+// runPair joins an existing vault from a pairing blob (`kv init`,
+// `kv pair-blob`) or a backup blob (`kv backup`), which also carries
+// the register key. Refuses to run if a vault already exists locally.
+func runPair(args []string) error {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
-	registerKey := fs.String("register-key", "",
-		"server register-gate secret (26-char Crockford base32); required by gated servers on a fresh device")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv pair <blob|->")
+		return errors.New("usage: kv pair <blob|->")
 	}
-	blob := fs.Arg(0)
-	if blob == "-" {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			fatal("read stdin: %v", err)
-		}
-		blob = strings.TrimSpace(string(b))
-	}
-	rk, err := vault.DecodeRootKey(blob)
+	blob, err := argOrStdin(fs.Arg(0))
 	if err != nil {
-		fatal("invalid pairing blob: %v", err)
+		return err
 	}
-	createVault(rk, parseRegisterKeyFlag(*registerKey))
-	fmt.Println("paired")
+	rk, regKey, err := vault.DecodeBackup(blob)
+	if err != nil {
+		return fmt.Errorf("invalid blob: %v", err)
+	}
+	if err := createVault(rk, regKey); err != nil {
+		return err
+	}
+	if regKey != nil {
+		fmt.Println("paired (RootKey + register key)")
+	} else {
+		fmt.Println("paired (RootKey only)")
+	}
+	return nil
 }
 
 // runVaultID prints the VaultID a pairing or backup blob's RootKey
 // derives. It reads nothing from KV_HOME and sends nothing anywhere,
 // so it answers for any vault, not just this device's, and the blob
-// never reaches the server whose directory it names. "-" reads the
-// blob from stdin, keeping it out of shell history.
-func runVaultID(args []string) {
+// never reaches the server whose directory it names.
+func runVaultID(args []string) error {
 	if len(args) != 1 {
-		fatal("usage: kv vault-id <blob|->")
+		return errors.New("usage: kv vault-id <blob|->")
 	}
-	blob := args[0]
-	if blob == "-" {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			fatal("read stdin: %v", err)
-		}
-		blob = strings.TrimSpace(string(b))
+	blob, err := argOrStdin(args[0])
+	if err != nil {
+		return err
 	}
 	id, err := vaultIDOf(blob)
 	if err != nil {
-		fatal("invalid blob: %v", err)
+		return fmt.Errorf("invalid blob: %v", err)
 	}
 	fmt.Println(id)
+	return nil
 }
 
 // vaultIDOf decodes a pairing (32-char) or backup (58-char) blob and
@@ -484,65 +435,72 @@ func vaultIDOf(blob string) (string, error) {
 	return vault.DeriveVaultID(rk).String(), nil
 }
 
-func runPairBlob(_ []string) {
-	rk := loadRootKey()
+func runPairBlob(_ []string) error {
+	rk, err := loadRootKey()
+	if err != nil {
+		return err
+	}
 	fmt.Println(vault.EncodeRootKey(rk))
+	return nil
 }
 
 // runSetRegisterKey installs (or replaces) the server register-gate
 // secret on this device so a subsequent sync can register with a gated
 // server. Unlike init/pair it does not touch the vault — it only writes
 // $KV_HOME/register.key (mode 0600), overwriting any existing value.
-func runSetRegisterKey(args []string) {
+func runSetRegisterKey(args []string) error {
 	fs := flag.NewFlagSet("set-register-key", flag.ExitOnError)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv set-register-key <base32|->")
+		return errors.New("usage: kv set-register-key <base32|->")
 	}
-	arg := fs.Arg(0)
-	if arg == "-" {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			fatal("read stdin: %v", err)
-		}
-		arg = strings.TrimSpace(string(b))
+	arg, err := argOrStdin(fs.Arg(0))
+	if err != nil {
+		return err
 	}
 	rk, err := vault.DecodeRegisterKey(arg)
 	if err != nil {
-		fatal("invalid register key: %v", err)
+		return fmt.Errorf("invalid register key: %v", err)
 	}
-	if err := os.MkdirAll(homeDir(), 0o700); err != nil {
-		fatal("mkdir: %v", err)
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return fmt.Errorf("mkdir: %v", err)
 	}
 	// Replacing a key may overwrite one; first-time writes go through
 	// writeKeyExclusive, which refuses to replace anything.
 	if err := durable.WriteFile(registerKeyPath(), []byte(vault.EncodeRegisterKey(rk)+"\n"), 0o600); err != nil {
-		fatal("write register.key: %v", err)
+		return fmt.Errorf("write register.key: %v", err)
 	}
 	fmt.Fprintln(os.Stderr, "register key saved to "+registerKeyPath())
+	return nil
 }
 
 // runBackup prints a single Crockford base32 blob containing this
 // device's RootKey and, if present, its register.key. The output is
 // the minimum a user needs to restore full read/write access on a
-// fresh machine; treat it as sensitive.
-func runBackup(args []string) {
+// fresh machine (`kv pair`); treat it as sensitive.
+func runBackup(args []string) error {
 	fs := flag.NewFlagSet("backup", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	rk := loadRootKey()
-	regKey := loadRegisterKey() // may be nil
+	rk, err := loadRootKey()
+	if err != nil {
+		return err
+	}
+	regKey, err := loadRegisterKey() // may be nil
+	if err != nil {
+		return err
+	}
 	blob := vault.EncodeBackup(rk, regKey)
 
 	if regKey == nil {
 		fmt.Fprintln(os.Stderr,
 			"warning: no register.key on this device; backup contains RootKey only.")
 		fmt.Fprintln(os.Stderr,
-			"         To include the register key, run this command on a device that was paired")
+			"         To include the register key, install it first with")
 		fmt.Fprintln(os.Stderr,
-			"         with `kv pair --register-key <base32>`.")
+			"         `kv set-register-key <base32>`.")
 	}
-	writeOutput(fs.Arg(0), []byte(blob+"\n"))
+	return writeOutput(fs.Arg(0), []byte(blob+"\n"))
 }
 
 // writeOutput writes out to stdout when path is "" or "-", and
@@ -550,45 +508,17 @@ func runBackup(args []string) {
 // values), replacing the file only once all of out is written. A
 // command builds out whole before calling it, so a run that fails
 // leaves an earlier backup or export as it was.
-func writeOutput(path string, out []byte) {
+func writeOutput(path string, out []byte) error {
 	if path == "" || path == "-" {
 		if _, err := os.Stdout.Write(out); err != nil {
-			fatal("write: %v", err)
+			return fmt.Errorf("write: %v", err)
 		}
-		return
+		return nil
 	}
 	if err := durable.WriteFile(path, out, 0o600); err != nil {
-		fatal("write %s: %v", path, err)
+		return fmt.Errorf("write %s: %v", path, err)
 	}
-}
-
-// runRestore consumes a blob produced by `kv backup` (or the
-// RootKey-only form produced by `kv pair-blob`) and recreates the
-// local vault. Refuses to run if a vault already exists locally.
-func runRestore(args []string) {
-	fs := flag.NewFlagSet("restore", flag.ExitOnError)
-	_ = fs.Parse(args)
-	if fs.NArg() < 1 {
-		fatal("usage: kv restore <blob|->")
-	}
-	blob := fs.Arg(0)
-	if blob == "-" {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			fatal("read stdin: %v", err)
-		}
-		blob = strings.TrimSpace(string(b))
-	}
-	rk, regKey, err := vault.DecodeBackup(blob)
-	if err != nil {
-		fatal("invalid backup blob: %v", err)
-	}
-	createVault(rk, regKey)
-	if regKey != nil {
-		fmt.Println("restored (RootKey + register key)")
-	} else {
-		fmt.Println("restored (RootKey only)")
-	}
+	return nil
 }
 
 // runSearch is the client-side full-text search. The server never
@@ -603,7 +533,7 @@ func runRestore(args []string) {
 //	github_token    ghp_…
 //
 // --keys-only prints bare keys one per line (pipe-friendly).
-func runSearch(args []string) {
+func runSearch(args []string) error {
 	fs := flag.NewFlagSet("search", flag.ExitOnError)
 	useRegex := fs.Bool("regex", false, "interpret query as a Go regexp")
 	scopeKey := fs.Bool("key", false, "match against keys only")
@@ -611,13 +541,12 @@ func runSearch(args []string) {
 	keysOnly := fs.Bool("keys-only", false, "print bare keys, one per line (no table)")
 	caseSensitive := fs.Bool("case-sensitive", false, "exact-case match (default is case-insensitive)")
 	truncate := fs.Bool("truncate", false, "truncate long values to one line (default: wrap)")
-	width := fs.Int("width", 0, "table width (0 = auto/terminal)")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv search [--regex] [--key|--value] [--keys-only] [--case-sensitive] <query>")
+		return errors.New("usage: kv search [--regex] [--key|--value] [--keys-only] [--case-sensitive] [--truncate] <query>")
 	}
 	if *scopeKey && *scopeValue {
-		fatal("--key and --value are mutually exclusive (omit both to match either)")
+		return errors.New("--key and --value are mutually exclusive (omit both to match either)")
 	}
 	query := fs.Arg(0)
 
@@ -630,7 +559,7 @@ func runSearch(args []string) {
 		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			fatal("regex: %v", err)
+			return fmt.Errorf("regex: %v", err)
 		}
 		match = re.MatchString
 	default:
@@ -645,10 +574,14 @@ func runSearch(args []string) {
 		}
 	}
 
-	c := openClient()
+	c, closeLog, err := openClient()
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	all, err := c.All()
 	if err != nil {
-		fatal("search: %v", err)
+		return fmt.Errorf("search: %v", err)
 	}
 
 	// Collect hits first so we know whether to even print a table
@@ -671,16 +604,17 @@ func runSearch(args []string) {
 		}
 	}
 	if len(hits) == 0 {
-		return
+		return nil
 	}
 
 	if *keysOnly {
 		for _, h := range hits {
 			fmt.Println(h.key)
 		}
-		return
+		return nil
 	}
-	renderTable(hits, *truncate, *width)
+	renderTable(hits, *truncate)
+	return nil
 }
 
 // --- KEY/VALUE table rendering ---
@@ -688,16 +622,15 @@ func runSearch(args []string) {
 type kvRow struct{ key, val string }
 
 // renderTable prints rows as an aligned KEY/VALUE table. On a terminal
-// (or when forcedWidth > 0) the value column is sized to the width and a
-// long value is wrapped across continuation lines aligned under the value
-// column — breaking on the value's own newlines first, then wrapping each
-// logical line. With truncate set, each value is instead squeezed onto a
-// single line with an ellipsis. When stdout is not a terminal and no
-// width is forced, full values are emitted tab-separated so pipes and
-// scripts get everything. Widths are measured in runes; wide (CJK) glyphs
-// are not double-counted.
-func renderTable(rows []kvRow, truncate bool, forcedWidth int) {
-	width := tableWidth(forcedWidth)
+// the value column is sized to the width and a long value is wrapped
+// across continuation lines aligned under the value column — breaking
+// on the value's own newlines first, then wrapping each logical line.
+// With truncate set, each value is instead squeezed onto a single line
+// with an ellipsis. When stdout is not a terminal, full values are
+// emitted tab-separated so pipes and scripts get everything. Widths
+// are measured in runes; wide (CJK) glyphs are not double-counted.
+func renderTable(rows []kvRow, truncate bool) {
+	width := tableWidth()
 	if width == 0 {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "KEY\tVALUE")
@@ -762,13 +695,10 @@ func wrapValue(s string, w int) []string {
 	return out
 }
 
-// tableWidth resolves the render width: an explicit forcedWidth wins;
-// otherwise the terminal size (default 80 if a terminal but size is
-// unknown); 0 means "not a terminal — emit full untruncated output".
-func tableWidth(forced int) int {
-	if forced > 0 {
-		return forced
-	}
+// tableWidth is the terminal's width (80 if a terminal of unknown
+// size), or 0 when stdout is not a terminal: emit full, untruncated
+// output.
+func tableWidth() int {
 	fd := int(os.Stdout.Fd())
 	if !term.IsTerminal(fd) {
 		return 0
@@ -825,13 +755,12 @@ func chunkRunes(s string, w int) []string {
 	return out
 }
 
-func runPut(args []string) {
+func runPut(args []string) error {
 	fs := flag.NewFlagSet("put", flag.ExitOnError)
-	offline := fs.Bool("offline", false, "skip auto-sync")
 	addVerboseFlag(fs)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv put <key> [value|-]")
+		return errors.New("usage: kv put [-v] <key> [value|-]")
 	}
 	key := []byte(fs.Arg(0))
 	var value []byte
@@ -841,35 +770,41 @@ func runPut(args []string) {
 	default:
 		b, err := io.ReadAll(bufio.NewReader(os.Stdin))
 		if err != nil {
-			fatal("read stdin: %v", err)
+			return fmt.Errorf("read stdin: %v", err)
 		}
 		value = b
 	}
 	if len(value) == 0 {
-		fatal("empty value is a tombstone; use `kv del %s` instead", string(key))
+		return fmt.Errorf("empty value is a tombstone; use `kv del %s` instead", string(key))
 	}
-	c := openClient()
+	c, closeLog, err := openClient()
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	if err := c.Put(key, value); err != nil {
-		fatal("put: %v", err)
+		return fmt.Errorf("put: %v", err)
 	}
-	if !*offline {
-		mustSync(c)
-	}
+	return syncOnce(c)
 }
 
-func runGet(args []string) {
+func runGet(args []string) error {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv get <key>")
+		return errors.New("usage: kv get <key>")
 	}
-	c := openClient()
+	c, closeLog, err := openClient()
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	v, ok, err := c.Get([]byte(fs.Arg(0)))
 	if err != nil {
-		fatal("get: %v", err)
+		return fmt.Errorf("get: %v", err)
 	}
 	if !ok {
-		os.Exit(1)
+		return exitCode(1)
 	}
 	_, _ = os.Stdout.Write(v)
 	// Add a trailing newline only for interactive display; when piped or
@@ -877,78 +812,91 @@ func runGet(args []string) {
 	if term.IsTerminal(int(os.Stdout.Fd())) && !bytes.HasSuffix(v, []byte("\n")) {
 		fmt.Println()
 	}
+	return nil
 }
 
-func runDel(args []string) {
+func runDel(args []string) error {
 	fs := flag.NewFlagSet("del", flag.ExitOnError)
-	offline := fs.Bool("offline", false, "skip auto-sync")
-	force := fs.Bool("force", false, "tombstone even if the key is not present locally")
-	fs.BoolVar(force, "f", false, "alias for --force")
+	force := fs.Bool("f", false, "tombstone even if the key is not present locally")
 	addVerboseFlag(fs)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv del [-f] <key>")
+		return errors.New("usage: kv del [-v] [-f] <key>")
 	}
 	key := []byte(fs.Arg(0))
 
-	c := openClient()
+	c, closeLog, err := openClient()
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	// Refuse to write a tombstone for a key that is not currently live —
-	// that would only add dead weight. --force overrides (e.g. to delete
-	// a value that exists on the server but has not been synced locally).
+	// that would only add dead weight. -f overrides (e.g. to delete a
+	// value that exists on the server but has not been synced locally).
 	if !*force {
 		if _, ok, err := c.Get(key); err != nil {
-			fatal("del: %v", err)
+			return fmt.Errorf("del: %v", err)
 		} else if !ok {
 			fmt.Fprintf(os.Stderr, "kv: no such key: %s\n", fs.Arg(0))
-			os.Exit(1)
+			return exitCode(1)
 		}
 	}
 	if err := c.Delete(key); err != nil {
-		fatal("del: %v", err)
+		return fmt.Errorf("del: %v", err)
 	}
-	if !*offline {
-		mustSync(c)
-	}
+	return syncOnce(c)
 }
 
-func runLs(_ []string) {
-	c := openClient()
+func runLs(_ []string) error {
+	c, closeLog, err := openClient()
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	keys, err := c.List()
 	if err != nil {
-		fatal("list: %v", err)
+		return fmt.Errorf("list: %v", err)
 	}
 	for _, k := range keys {
 		fmt.Println(k)
 	}
+	return nil
 }
 
-func runSync(args []string) {
+func runSync(args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	addVerboseFlag(fs)
 	_ = fs.Parse(args)
-	c := openClient()
-	mustSync(c)
+	c, closeLog, err := openClient()
+	if err != nil {
+		return err
+	}
+	defer closeLog()
+	return syncOnce(c)
 }
 
-func runExport(args []string) {
+func runExport(args []string) error {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	c := openClient()
+	c, closeLog, err := openClient()
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	var buf bytes.Buffer
 	if err := exportCSV(c, &buf); err != nil {
-		fatal("export: %v", err)
+		return fmt.Errorf("export: %v", err)
 	}
-	writeOutput(fs.Arg(0), buf.Bytes())
+	return writeOutput(fs.Arg(0), buf.Bytes())
 }
 
-func runImport(args []string) {
+func runImport(args []string) error {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
-	offline := fs.Bool("offline", false, "skip auto-sync after import")
 	addVerboseFlag(fs)
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
-		fatal("usage: kv import <file|->")
+		return errors.New("usage: kv import [-v] <file|->")
 	}
 	var r io.Reader
 	if fs.Arg(0) == "-" {
@@ -956,28 +904,31 @@ func runImport(args []string) {
 	} else {
 		f, err := os.Open(fs.Arg(0))
 		if err != nil {
-			fatal("open %s: %v", fs.Arg(0), err)
+			return fmt.Errorf("open %s: %v", fs.Arg(0), err)
 		}
 		defer f.Close()
 		r = f
 	}
-	c := openClient()
+	c, closeLog, err := openClient()
+	if err != nil {
+		return err
+	}
+	defer closeLog()
 	n, err := importCSV(c, r)
 	if err != nil {
-		fatal("import: %v", err)
+		return fmt.Errorf("import: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "imported %d rows\n", n)
-	if !*offline {
-		mustSync(c)
-	}
+	return syncOnce(c)
 }
 
-func mustSync(c *client.Client) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*httpTimeout())
+func syncOnce(c *client.Client) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*httpTimeout)
 	defer cancel()
 	if err := c.Sync(ctx); err != nil {
-		fatal("sync: %v", err)
+		return fmt.Errorf("sync: %v", err)
 	}
+	return nil
 }
 
 // --- helpers ---

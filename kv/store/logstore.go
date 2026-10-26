@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"repani.com/kv/internal/durable"
+	"repani.com/durable"
 	"repani.com/kv/vault"
 )
 

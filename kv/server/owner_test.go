@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"repani.com/kv/vault"
@@ -159,7 +160,7 @@ func TestVaults(t *testing.T) {
 	if got := srv.Vaults(); len(got) != 1 || got[0] != vid {
 		t.Fatalf("Vaults = %v, want [%x]", got, vid[:4])
 	}
-	if err := srv.DropVault(vid); err != nil {
+	if err := srv.DropVault(vid, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := srv.Vaults(); len(got) != 0 {
@@ -218,6 +219,9 @@ func TestSetNoPush(t *testing.T) {
 	}
 }
 
+// TestDropVault: an owner's drop ends the vault for good. It is not
+// served, its directory keeps only its record, ended and noted, and
+// after a restart neither the owner nor a client creates it again.
 func TestDropVault(t *testing.T) {
 	dir := t.TempDir()
 	srv, rk, h := ownerServer(t, dir)
@@ -228,73 +232,128 @@ func TestDropVault(t *testing.T) {
 		t.Fatalf("push status %d", resp.Status)
 	}
 
-	if err := srv.DropVault(vid); err != nil {
+	if err := srv.DropVault(vid, "tester reset"); err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.DropVault(vid); !errors.Is(err, ErrUnknownVault) {
+	if err := srv.DropVault(vid, ""); !errors.Is(err, ErrUnknownVault) {
 		t.Fatalf("second drop: %v, want ErrUnknownVault", err)
 	}
 	if _, pre := h.probe([16]byte{}); pre != wire.ErrUnknownVault {
 		t.Fatalf("probe after drop: pre=%v, want UNKNOWN_VAULT", pre)
 	}
-
-	// On disk: the vault's directory is gone, so a restart does not
-	// serve it, and creating it again starts empty.
-	if _, err := os.Stat(filepath.Join(dir, vid.String())); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("vault directory after drop: %v, want ErrNotExist", err)
+	if err := srv.EnsureVault(vid, vault.DeriveAuthKey(rk)); !errors.Is(err, ErrRevoked) {
+		t.Fatalf("EnsureVault after drop: %v, want ErrRevoked", err)
 	}
-	srv2, err := New(Options{DataDir: dir})
+	vdir := filepath.Join(dir, vid.String())
+	if got := dirNames(t, vdir); !slices.Equal(got, []string{"vault.fact"}) {
+		t.Fatalf("vault directory after drop holds %v, want only its record", got)
+	}
+	if r, err := readRecord(vdir); err != nil || r.Ended == nil || r.Note == nil || *r.Note != "tester reset" {
+		t.Fatalf("record after drop: %+v, %v", r, err)
+	}
+
+	srv.Close()
+	srv2, err := New(Options{DataDir: dir, RegisterKeys: []vault.RegisterKey{testRegKey}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := srv2.Entries(vid); !errors.Is(err, ErrUnknownVault) {
 		t.Fatalf("dropped vault served after restart: %v", err)
 	}
-	if err := srv2.EnsureVault(vid, vault.DeriveAuthKey(rk)); err != nil {
-		t.Fatal(err)
+	if err := srv2.EnsureVault(vid, vault.DeriveAuthKey(rk)); !errors.Is(err, ErrRevoked) {
+		t.Fatalf("EnsureVault after restart: %v, want ErrRevoked", err)
 	}
-	if got, err := srv2.Entries(vid); err != nil || len(got) != 0 {
-		t.Fatalf("recreated vault: %d entries, %v; want empty", len(got), err)
+	if _, pre := newHarness(t, srv2, rk, testRegKey).register(); pre != wire.ErrBadAuth {
+		t.Fatalf("register after restart: pre=%v, want BAD_AUTH", pre)
 	}
 }
 
+// TestDropVaultDir: a stopped server's vault ends the same way; one
+// being served is refused; a second drop reports it had ended; and an
+// id this server never held is revoked all the same. Other vaults are
+// untouched.
 func TestDropVaultDir(t *testing.T) {
 	dir := t.TempDir()
 	srv, rk, h := ownerServer(t, dir)
 	vid := vault.DeriveVaultID(rk)
+	kept, _ := vault.NewRandomRootKey()
+	if err := srv.EnsureVault(vault.DeriveVaultID(kept), vault.DeriveAuthKey(kept)); err != nil {
+		t.Fatal(err)
+	}
 
 	e := mkEntry(t, rk, nowMs(), "k", "\x00v")
 	if resp, _ := h.push([]vault.Entry{e}); resp.Status != wire.StatusOK {
 		t.Fatalf("push status %d", resp.Status)
 	}
 
-	// A serving server holds the log; removal under it is refused.
-	if err := DropVaultDir(dir, vid); !errors.Is(err, ErrVaultInUse) {
-		t.Fatalf("remove while served: %v, want ErrVaultInUse", err)
+	// A serving server holds the log; a drop under it is refused.
+	if _, err := DropVaultDir(dir, vid, ""); !errors.Is(err, ErrVaultInUse) {
+		t.Fatalf("drop while served: %v, want ErrVaultInUse", err)
 	}
 	if err := srv.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := DropVaultDir(dir, vid); err != nil {
-		t.Fatal(err)
+	if already, err := DropVaultDir(dir, vid, "first"); err != nil || already {
+		t.Fatalf("drop: already=%v, %v", already, err)
 	}
-	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
-		t.Fatalf("data dir after remove: %v", left)
+	vdir := filepath.Join(dir, vid.String())
+	if got := dirNames(t, vdir); !slices.Equal(got, []string{"vault.fact"}) {
+		t.Fatalf("vault directory after drop holds %v, want only its record", got)
 	}
-	if err := DropVaultDir(dir, vid); !errors.Is(err, ErrUnknownVault) {
-		t.Fatalf("second remove: %v, want ErrUnknownVault", err)
+	if already, err := DropVaultDir(dir, vid, "second"); err != nil || !already {
+		t.Fatalf("second drop: already=%v, %v; want already", already, err)
+	}
+	if r, _ := readRecord(vdir); r.Note == nil || *r.Note != "first" {
+		t.Fatalf("second drop rewrote the record: %+v", r)
 	}
 
-	// Unlike a drop, nothing comes back: re-registering starts empty.
+	never, _ := vault.NewRandomRootKey()
+	if already, err := DropVaultDir(dir, vault.DeriveVaultID(never), "never here"); err != nil || already {
+		t.Fatalf("drop of a vault never held: already=%v, %v", already, err)
+	}
+
 	srv2, err := New(Options{DataDir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := srv2.EnsureVault(vid, vault.DeriveAuthKey(rk)); err != nil {
+	for _, r := range []vault.RootKey{rk, never} {
+		if err := srv2.EnsureVault(vault.DeriveVaultID(r), vault.DeriveAuthKey(r)); !errors.Is(err, ErrRevoked) {
+			t.Fatalf("EnsureVault of a dropped vault: %v, want ErrRevoked", err)
+		}
+	}
+	if got := srv2.Vaults(); len(got) != 1 || got[0] != vault.DeriveVaultID(kept) {
+		t.Fatalf("serving %v, want only the kept vault", got)
+	}
+}
+
+// TestUnreadableRecordRefused: a vault whose record cannot be read is
+// neither served nor created afresh, since the record it lost may have
+// said ended; the other vaults are served.
+func TestUnreadableRecordRefused(t *testing.T) {
+	dir := t.TempDir()
+	srv, rk, _ := ownerServer(t, dir)
+	kept, _ := vault.NewRandomRootKey()
+	if err := srv.EnsureVault(vault.DeriveVaultID(kept), vault.DeriveAuthKey(kept)); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := srv2.Entries(vid); len(got) != 0 {
-		t.Fatalf("removed vault came back with %d entries", len(got))
+	srv.Close()
+	vid := vault.DeriveVaultID(rk)
+	if err := os.WriteFile(recordPath(filepath.Join(dir, vid.String())), []byte("not a fact\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	srv2, err := New(Options{DataDir: dir, RegisterKeys: []vault.RegisterKey{testRegKey}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv2.EnsureVault(vid, vault.DeriveAuthKey(rk)); !errors.Is(err, ErrRevoked) {
+		t.Fatalf("EnsureVault over an unreadable record: %v, want ErrRevoked", err)
+	}
+	if _, pre := newHarness(t, srv2, rk, testRegKey).register(); pre != wire.ErrBadAuth {
+		t.Fatalf("register over an unreadable record: pre=%v, want BAD_AUTH", pre)
+	}
+	if got := srv2.Vaults(); len(got) != 1 || got[0] != vault.DeriveVaultID(kept) {
+		t.Fatalf("serving %v, want only the kept vault", got)
 	}
 }
