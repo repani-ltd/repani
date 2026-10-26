@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"repani.com/durable"
 	"repani.com/fact"
 )
 
@@ -114,7 +115,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		out := fact.Canonical(facts)
 		if write && path != "" {
-			if err := os.WriteFile(path, out, 0o644); err != nil {
+			// Replaced whole, keeping its mode: the file is the
+			// author's, and a failed write must not lose it.
+			perm := os.FileMode(0o644)
+			if fi, err := os.Stat(path); err == nil {
+				perm = fi.Mode().Perm()
+			}
+			if err := durable.WriteFile(path, out, perm); err != nil {
 				return fail(err)
 			}
 		} else {

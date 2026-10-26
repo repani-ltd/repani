@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -65,6 +66,19 @@ func TestFmtWrite(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(path); string(got) != canonical {
 		t.Errorf("file after fmt -w:\n%s", got)
+	}
+	// The file is replaced whole, keeping its mode, and nothing is left
+	// beside it.
+	if runtime.GOOS != "windows" {
+		os.WriteFile(path, []byte(doc), 0o600)
+		os.Chmod(path, 0o600)
+		exec(t, "", "fmt", "-w", path)
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("mode after fmt -w: %v, %v; want 0600 kept", fi.Mode().Perm(), err)
+		}
+	}
+	if ents, _ := os.ReadDir(filepath.Dir(path)); len(ents) != 1 {
+		t.Errorf("directory after fmt -w holds %d files, want 1", len(ents))
 	}
 	if _, _, stderr := exec(t, "", "fmt", "-w", filepath.Join(t.TempDir(), "missing.fact")); !strings.HasPrefix(stderr, "fact: ") {
 		t.Errorf("missing file: stderr %q", stderr)

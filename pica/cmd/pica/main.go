@@ -64,6 +64,7 @@ import (
 	"os"
 	"strings"
 
+	"repani.com/durable"
 	"repani.com/fact"
 
 	"repani.com/pica"
@@ -222,7 +223,7 @@ func writeOutput(cmd, path string, data []byte) int {
 	if path == "" {
 		_, err = stdout.Write(data)
 	} else {
-		err = os.WriteFile(path, data, 0o644)
+		err = durable.WriteFile(path, data, 0o644) // an earlier output survives a failed write
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "pica %s: write: %v\n", cmd, err)

@@ -291,6 +291,18 @@ the vault record, so that every file kvserve reads but its logs is
 one checked format. Only the operator writes it, and only kvserve
 reads it, so nothing is ever written together with it.
 
+## The device file
+
+The kv CLI keeps a device's keys in one FACT file, `device.fact` in
+KV_HOME: its RootKey, as its pairing blob, and its register key or
+none. Its presence is what makes a vault on the device. init and pair
+create it with durable.CreateFile, whole and never over another --
+a RootKey lost to an overwrite cannot be recovered -- and
+set-register-key replaces it whole. It replaced vault.key (20 raw
+bytes) and register.key (base32) on 2026-10-26: two files in two
+formats, which init and pair had to write in order. The entry log
+beside it is a cache the server can refill.
+
 ## The timestamp skew bounds only the future
 
 A server refuses a pushed entry dated more than TS_SKEW_MS ahead of

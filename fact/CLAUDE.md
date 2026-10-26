@@ -36,8 +36,10 @@ SPEC.t §1.1 and §11 record why.
 
 ## Hard rules
 
-- **Standard library only.** The format core and the CLI import nothing
-  outside the standard library.
+- **Standard library only.** The format core imports nothing outside
+  the standard library. The CLI adds one primitive of this module,
+  `repani.com/durable` (itself standard library only), so `fmt -w`
+  replaces the author's file whole or not at all.
 - **No trees.** The data model is a flat set of fact lines (SPEC §5). Parsing
   is line-local; validation is line-local plus one set pass. Do not introduce
   nested structures to "help".

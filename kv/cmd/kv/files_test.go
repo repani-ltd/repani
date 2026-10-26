@@ -9,47 +9,67 @@ import (
 	"repani.com/kv/vault"
 )
 
-// TestFailedPairLeavesNoHalfVault: pair checks everything before
-// writing, so one that fails leaves no vault.key behind, and the
-// corrected command then succeeds. A register.key equal to the blob's
-// is kept; another one is refused.
-func TestFailedPairLeavesNoHalfVault(t *testing.T) {
+// TestDeviceFile: a device's keys are one file. pair writes both keys
+// into it, and backup gives them back; set-register-key replaces the
+// register key and keeps the RootKey; pair over an existing vault, and
+// set-register-key with no vault, are refused and change nothing; and
+// the home holds only the device file and the entry log.
+func TestDeviceFile(t *testing.T) {
 	rk, _ := vault.NewRandomRootKey()
 	reg, _ := vault.NewRegisterKey()
 	other, _ := vault.NewRegisterKey()
-	backup := vault.EncodeBackup(rk, &reg)
-
-	t.Run("another register key installed", func(t *testing.T) {
-		home := t.TempDir()
-		t.Setenv("KV_HOME", home)
-		os.WriteFile(filepath.Join(home, "register.key"), []byte(vault.EncodeRegisterKey(other)+"\n"), 0o600)
-		if err := run([]string{"pair", backup}); err == nil {
-			t.Fatal("pair over a different register key succeeded")
-		}
-		if _, err := os.Stat(filepath.Join(home, "vault.key")); !os.IsNotExist(err) {
-			t.Fatalf("pair failed but left vault.key (%v)", err)
-		}
-		if err := run([]string{"pair", vault.EncodeRootKey(rk)}); err != nil {
-			t.Fatalf("pair after the failure: %v", err)
-		}
-	})
-	t.Run("same register key installed", func(t *testing.T) {
-		home := t.TempDir()
-		t.Setenv("KV_HOME", home)
-		os.WriteFile(filepath.Join(home, "register.key"), []byte(vault.EncodeRegisterKey(reg)+"\n"), 0o600)
-		if err := run([]string{"pair", backup}); err != nil {
-			t.Fatalf("pair over the same register key: %v", err)
-		}
-	})
-	t.Run("existing vault", func(t *testing.T) {
-		t.Setenv("KV_HOME", t.TempDir())
-		if err := run([]string{"init"}); err != nil {
+	home := t.TempDir()
+	t.Setenv("KV_HOME", home)
+	device := filepath.Join(home, "device.fact")
+	backupOf := func() string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "backup")
+		if err := run([]string{"backup", path}); err != nil {
 			t.Fatal(err)
 		}
-		if err := run([]string{"pair", backup}); err == nil {
-			t.Fatal("pair over an existing vault succeeded")
-		}
-	})
+		b, _ := os.ReadFile(path)
+		return strings.TrimSpace(string(b))
+	}
+
+	if err := run([]string{"set-register-key", vault.EncodeRegisterKey(reg)}); err == nil {
+		t.Fatal("set-register-key with no vault succeeded")
+	}
+	if _, err := os.Stat(device); !os.IsNotExist(err) {
+		t.Fatalf("a refused set-register-key left %s (%v)", device, err)
+	}
+
+	if err := run([]string{"pair", vault.EncodeBackup(rk, &reg)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := backupOf(); got != vault.EncodeBackup(rk, &reg) {
+		t.Fatalf("backup after pair = %q, want the paired blob", got)
+	}
+
+	before, _ := os.ReadFile(device)
+	if err := run([]string{"pair", vault.EncodeRootKey(rk)}); err == nil {
+		t.Fatal("pair over an existing vault succeeded")
+	}
+	if after, _ := os.ReadFile(device); string(after) != string(before) {
+		t.Fatalf("a refused pair changed %s:\n%s", device, after)
+	}
+
+	if err := run([]string{"set-register-key", vault.EncodeRegisterKey(other)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := backupOf(); got != vault.EncodeBackup(rk, &other) {
+		t.Fatalf("backup after set-register-key = %q, want the RootKey with the new key", got)
+	}
+	if fi, err := os.Stat(device); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("%s mode %v, %v; want 0600", device, fi.Mode().Perm(), err)
+	}
+	ents, _ := os.ReadDir(home)
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, " ") != "device.fact entries.log" {
+		t.Fatalf("home holds %v, want device.fact and entries.log", names)
+	}
 }
 
 // TestFailedRunKeepsOutputFile: backup and export replace their output

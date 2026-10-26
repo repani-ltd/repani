@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/term"
 	"repani.com/durable"
+	"repani.com/fact"
 	"repani.com/kiosk"
 	"repani.com/kv/client"
 	"repani.com/kv/store"
@@ -160,7 +161,9 @@ put, del and import sync after writing. -v prints each sync frame and
 a byte/entry stats summary to stderr.
 
 Environment:
-  KV_HOME           storage directory (default ~/.kv)
+  KV_HOME           storage directory (default ~/.kv): device.fact, this
+                    device's keys (FACT, mode 0600), and entries.log,
+                    the local copy of the vault
   KV_SERVER         server base URL, e.g. https://vault.example
 
 Specification (repani/kv, pica documents):
@@ -171,19 +174,64 @@ Specification (repani/kv, pica documents):
 
 // --- bootstrap helpers ---
 
-func vaultKeyPath() string    { return filepath.Join(home, "vault.key") }
-func entriesPath() string     { return filepath.Join(home, "entries.log") }
-func registerKeyPath() string { return filepath.Join(home, "register.key") }
+func devicePath() string  { return filepath.Join(home, "device.fact") }
+func entriesPath() string { return filepath.Join(home, "entries.log") }
 
-func loadRootKey() (vault.RootKey, error) {
-	b, err := os.ReadFile(vaultKeyPath())
+// This device's keys are one FACT file, device.fact, mode 0600: its
+// vault's RootKey, as its pairing blob, and the register key it
+// registers with, if it has one. Its presence is what makes a vault
+// here. init and pair create it whole and never over another
+// (durable.CreateFile); set-register-key replaces it whole
+// (durable.WriteFile). The entry log beside it is only a cache.
+type deviceFile struct {
+	Device deviceKeys `fact:"device"`
+}
+
+type deviceKeys struct {
+	RootKey     string  `fact:"root_key"`     // vault.EncodeRootKey
+	RegisterKey *string `fact:"register_key"` // vault.EncodeRegisterKey; none without one
+}
+
+// device is this device's keys, decoded.
+type device struct {
+	rk  vault.RootKey
+	reg *vault.RegisterKey // nil: none
+}
+
+func loadDevice() (device, error) {
+	b, err := os.ReadFile(devicePath())
+	if errors.Is(err, os.ErrNotExist) {
+		return device{}, fmt.Errorf("no vault on this device: %s is missing (run `kv init` or `kv pair`)", devicePath())
+	}
 	if err != nil {
-		return vault.RootKey{}, fmt.Errorf("read %s: %v (have you run `kv init` or `kv pair`?)", vaultKeyPath(), err)
+		return device{}, err
 	}
-	if len(b) != vault.RootKeySize {
-		return vault.RootKey{}, fmt.Errorf("vault.key is %d bytes, expected %d", len(b), vault.RootKeySize)
+	var f deviceFile
+	if err := fact.Unmarshal(b, &f); err != nil {
+		return device{}, fmt.Errorf("%s: %v", devicePath(), err)
 	}
-	return vault.RootKey(b), nil
+	rk, err := vault.DecodeRootKey(f.Device.RootKey)
+	if err != nil {
+		return device{}, fmt.Errorf("%s: root_key: %v", devicePath(), err)
+	}
+	d := device{rk: rk}
+	if f.Device.RegisterKey != nil {
+		reg, err := vault.DecodeRegisterKey(*f.Device.RegisterKey)
+		if err != nil {
+			return device{}, fmt.Errorf("%s: register_key: %v", devicePath(), err)
+		}
+		d.reg = &reg
+	}
+	return d, nil
+}
+
+func (d device) marshal() ([]byte, error) {
+	k := deviceKeys{RootKey: vault.EncodeRootKey(d.rk)}
+	if d.reg != nil {
+		s := vault.EncodeRegisterKey(*d.reg)
+		k.RegisterKey = &s
+	}
+	return fact.Marshal(deviceFile{k})
 }
 
 func serverURL() string { return os.Getenv("KV_SERVER") }
@@ -255,11 +303,7 @@ func fetchVersion(base string) (string, error) {
 // openClient opens this device's vault; the returned func closes its
 // entry log, releasing the lock.
 func openClient() (*client.Client, func(), error) {
-	rk, err := loadRootKey()
-	if err != nil {
-		return nil, nil, err
-	}
-	regKey, err := loadRegisterKey()
+	d, err := loadDevice()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -272,7 +316,7 @@ func openClient() (*client.Client, func(), error) {
 				"    rm %s\n"+
 				"  then run `kv sync` to rebuild from the server, or, if the server\n"+
 				"  was also reset, `kv import <your-export.csv>` to restore your data.",
-				p, vaultKeyPath(), p)
+				p, devicePath(), p)
 		}
 		return nil, nil, fmt.Errorf("open log: %v", err)
 	}
@@ -285,13 +329,13 @@ func openClient() (*client.Client, func(), error) {
 		Registered: true,
 		// A register key installed by pair or set-register-key lets
 		// that REGISTER through a gated server.
-		RegisterKey: regKey,
+		RegisterKey: d.reg,
 	}
 	if verbose {
 		opts.Trace = func(s string) { fmt.Fprintln(os.Stderr, s) }
 	}
 	transport := &client.HTTPTransport{Base: serverURL(), Client: &http.Client{Timeout: httpTimeout}}
-	c, err := client.New(rk, ls, transport, opts)
+	c, err := client.New(d.rk, ls, transport, opts)
 	if err != nil {
 		ls.Close()
 		return nil, nil, fmt.Errorf("client init: %v", err)
@@ -299,60 +343,23 @@ func openClient() (*client.Client, func(), error) {
 	return c, func() { ls.Close() }, nil
 }
 
-// loadRegisterKey reads $KV_HOME/register.key if present and returns
-// it, or nil if absent. The file holds the key in Crockford base32
-// (matches what `kvserve gen-register-key` emits and what
-// vault.EncodeRegisterKey produces). Any non-ENOENT error is an error
-// so the user knows their register-key file is corrupt rather than
-// silently running with no register key.
-func loadRegisterKey() (*vault.RegisterKey, error) {
-	b, err := os.ReadFile(registerKeyPath())
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read %s: %v", registerKeyPath(), err)
-	}
-	rk, err := vault.DecodeRegisterKey(string(b))
-	if err != nil {
-		return nil, fmt.Errorf("register.key: %v", err)
-	}
-	return &rk, nil
-}
-
-// createVault makes this device's vault from rk, installing regKey
-// too when it is not nil, for init and pair. Everything that can
-// refuse is checked before anything is written, and vault.key, whose
-// presence is what makes a vault, is written last: a run that fails
-// leaves no half-made vault for the next one to refuse. A
-// register.key already installed is kept if it is regKey, and refused
-// if it is another.
+// createVault makes this device's vault from rk, with regKey when it
+// is not nil, for init and pair: device.fact, created whole in one
+// write that fails if the file exists, so no run leaves a half-made
+// vault and none replaces another's keys.
 func createVault(rk vault.RootKey, regKey *vault.RegisterKey) error {
-	if _, err := os.Stat(vaultKeyPath()); err == nil {
-		return fmt.Errorf("refusing to overwrite existing vault at %s", vaultKeyPath())
-	}
-	writeReg := false
-	if regKey != nil {
-		have, err := loadRegisterKey()
-		switch {
-		case err != nil:
-			return err
-		case have == nil:
-			writeReg = true
-		case *have != *regKey:
-			return fmt.Errorf("refusing to replace the different register key at %s (kv set-register-key replaces it)", registerKeyPath())
-		}
+	b, err := device{rk: rk, reg: regKey}.marshal()
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return fmt.Errorf("mkdir: %v", err)
 	}
-	if writeReg {
-		if err := writeKeyExclusive(registerKeyPath(), []byte(vault.EncodeRegisterKey(*regKey)+"\n")); err != nil {
-			return fmt.Errorf("write register.key: %v", err)
+	if err := durable.CreateFile(devicePath(), b, 0o600); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("refusing to overwrite existing vault at %s", devicePath())
 		}
-	}
-	if err := writeKeyExclusive(vaultKeyPath(), rk[:]); err != nil {
-		return fmt.Errorf("write vault.key: %v", err)
+		return fmt.Errorf("write %s: %v", devicePath(), err)
 	}
 	// Materialize an empty log with the proper magic header.
 	if ls, err := store.OpenLogStore(entriesPath(), lockWait); err == nil {
@@ -436,18 +443,18 @@ func vaultIDOf(blob string) (string, error) {
 }
 
 func runPairBlob(_ []string) error {
-	rk, err := loadRootKey()
+	d, err := loadDevice()
 	if err != nil {
 		return err
 	}
-	fmt.Println(vault.EncodeRootKey(rk))
+	fmt.Println(vault.EncodeRootKey(d.rk))
 	return nil
 }
 
 // runSetRegisterKey installs (or replaces) the server register-gate
-// secret on this device so a subsequent sync can register with a gated
-// server. Unlike init/pair it does not touch the vault — it only writes
-// $KV_HOME/register.key (mode 0600), overwriting any existing value.
+// secret on this device's vault, so a later sync can register with a
+// gated server: device.fact is replaced whole, its RootKey unchanged.
+// The device must have a vault (init or pair first).
 func runSetRegisterKey(args []string) error {
 	fs := flag.NewFlagSet("set-register-key", flag.ExitOnError)
 	_ = fs.Parse(args)
@@ -458,43 +465,43 @@ func runSetRegisterKey(args []string) error {
 	if err != nil {
 		return err
 	}
-	rk, err := vault.DecodeRegisterKey(arg)
+	reg, err := vault.DecodeRegisterKey(arg)
 	if err != nil {
 		return fmt.Errorf("invalid register key: %v", err)
 	}
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return fmt.Errorf("mkdir: %v", err)
+	d, err := loadDevice()
+	if err != nil {
+		return err
 	}
-	// Replacing a key may overwrite one; first-time writes go through
-	// writeKeyExclusive, which refuses to replace anything.
-	if err := durable.WriteFile(registerKeyPath(), []byte(vault.EncodeRegisterKey(rk)+"\n"), 0o600); err != nil {
-		return fmt.Errorf("write register.key: %v", err)
+	d.reg = &reg
+	b, err := d.marshal()
+	if err != nil {
+		return err
 	}
-	fmt.Fprintln(os.Stderr, "register key saved to "+registerKeyPath())
+	if err := durable.WriteFile(devicePath(), b, 0o600); err != nil {
+		return fmt.Errorf("write %s: %v", devicePath(), err)
+	}
+	fmt.Fprintln(os.Stderr, "register key saved to "+devicePath())
 	return nil
 }
 
 // runBackup prints a single Crockford base32 blob containing this
-// device's RootKey and, if present, its register.key. The output is
+// device's RootKey and, if it has one, its register key. The output is
 // the minimum a user needs to restore full read/write access on a
 // fresh machine (`kv pair`); treat it as sensitive.
 func runBackup(args []string) error {
 	fs := flag.NewFlagSet("backup", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	rk, err := loadRootKey()
+	d, err := loadDevice()
 	if err != nil {
 		return err
 	}
-	regKey, err := loadRegisterKey() // may be nil
-	if err != nil {
-		return err
-	}
-	blob := vault.EncodeBackup(rk, regKey)
+	blob := vault.EncodeBackup(d.rk, d.reg)
 
-	if regKey == nil {
+	if d.reg == nil {
 		fmt.Fprintln(os.Stderr,
-			"warning: no register.key on this device; backup contains RootKey only.")
+			"warning: no register key on this device; backup contains RootKey only.")
 		fmt.Fprintln(os.Stderr,
 			"         To include the register key, install it first with")
 		fmt.Fprintln(os.Stderr,
@@ -932,18 +939,6 @@ func syncOnce(c *client.Client) error {
 }
 
 // --- helpers ---
-
-func writeKeyExclusive(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := f.Write(data); err != nil {
-		return err
-	}
-	return f.Sync()
-}
 
 func fatal(f string, args ...any) {
 	fmt.Fprintf(os.Stderr, "kv: "+f+"\n", args...)

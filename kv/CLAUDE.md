@@ -9,7 +9,9 @@ reasons, decisions, known gaps and designs not yet built. History is
 git's: no changelog, and no history in comments.
 
 Imports, beyond the standard library: `repani.com/ascon`,
-`repani.com/durable` and `repani.com/kiosk` (this module), `golang.org/x/term` (the CLI's table
+`repani.com/durable`, `repani.com/fact` (the server's vault records,
+kvserve's register-key file, the CLI's device file) and
+`repani.com/kiosk` (this module), `golang.org/x/term` (the CLI's table
 width) and `golang.org/x/sys/windows` (the log lock on Windows);
 `repani.com/chrometest` in kv.js's tests.
 

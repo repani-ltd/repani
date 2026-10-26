@@ -2,7 +2,9 @@ package durable
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -121,6 +123,63 @@ func TestWriteFile_Concurrent(t *testing.T) {
 	b, err := os.ReadFile(path)
 	if err != nil || len(b) != size || !bytes.Equal(b, bytes.Repeat(b[:1], size)) {
 		t.Fatalf("file is not one writer's data whole (len %d, %v)", len(b), err)
+	}
+	noTemps(t, dir, "key")
+}
+
+// TestCreateFile: a create makes the file with its mode exactly; a
+// second, onto the existing file, fails with fs.ErrExist and leaves it
+// as it was; nothing else is left in the directory.
+func TestCreateFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key")
+	if err := CreateFile(path, []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateFile(path, []byte("two"), 0o644); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("create over an existing file: %v, want fs.ErrExist", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "one" {
+		t.Fatalf("contents %q after a refused create, want one", b)
+	}
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Fatalf("mode %v, %v; want 0600", fi.Mode().Perm(), err)
+		}
+	}
+	noTemps(t, dir, "key")
+}
+
+// TestCreateFile_Concurrent: of creators racing on one path exactly one
+// succeeds, the rest get fs.ErrExist, and the file is the winner's
+// data whole.
+func TestCreateFile_Concurrent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key")
+	const creators, size = 16, 64 << 10
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	won := -1
+	for i := range creators {
+		wg.Go(func() {
+			err := CreateFile(path, bytes.Repeat([]byte{byte('a' + i)}, size), 0o600)
+			switch {
+			case err == nil:
+				mu.Lock()
+				if won >= 0 {
+					t.Errorf("creators %d and %d both succeeded", won, i)
+				}
+				won = i
+				mu.Unlock()
+			case !errors.Is(err, fs.ErrExist):
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	b, err := os.ReadFile(path)
+	if err != nil || won < 0 || !bytes.Equal(b, bytes.Repeat([]byte{byte('a' + won)}, size)) {
+		t.Fatalf("file is not the winner's data whole (winner %d, len %d, %v)", won, len(b), err)
 	}
 	noTemps(t, dir, "key")
 }
