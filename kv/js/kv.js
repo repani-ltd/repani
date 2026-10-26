@@ -15,13 +15,17 @@
 // BigInt (they are uint64 on the wire).
 
 // ---------------------------------------------------------------------
-// ASCON primitives (NIST SP 800-232): Ascon-XOF128 and Ascon-AEAD128.
+// ASCON primitives (NIST SP 800-232): Ascon-XOF128, Ascon-CXOF128 and
+// Ascon-AEAD128.
 // State is five 64-bit words as BigInt.
 
 const M64 = 0xFFFFFFFFFFFFFFFFn;
 
 // Ascon-XOF128 IV, LE uint64 (ascon/xof.go).
 const XOF_IV = 0x0000080000CC0003n;
+// Ascon-CXOF128 IV, LE uint64 (ascon/cxof.go).
+const CXOF_IV = 0x0000080000CC0004n;
+const CXOF_MAX_CUSTOM = 256;
 // Ascon-AEAD128 IV, LE uint64 (ascon/aead.go).
 const AEAD_IV = 0x00001000808C0001n;
 
@@ -64,7 +68,29 @@ function p8(s) { for (let i = 4; i < 12; i++) asconRound(s, i); }
 export function xof(data, outLen) {
   const s = [XOF_IV, 0n, 0n, 0n, 0n];
   p12(s);
-  // Absorb: 10* padding into 8-byte blocks, p12 after every block.
+  hashAbsorb(s, data);
+  return hashSqueeze(s, outLen);
+}
+
+// cxof computes Ascon-CXOF128 over data under the customization string
+// z (a string or bytes, at most 256 bytes) and returns outLen bytes.
+export function cxof(z, data, outLen) {
+  const zb = typeof z === "string" ? te.encode(z) : z;
+  if (zb.length > CXOF_MAX_CUSTOM) throw new Error("kv: customization string longer than 256 bytes");
+  const s = [CXOF_IV, 0n, 0n, 0n, 0n];
+  p12(s);
+  // The customization is framed by its own bit length, then absorbed
+  // exactly like a message; after that CXOF is XOF.
+  s[0] ^= BigInt(zb.length) * 8n;
+  p12(s);
+  hashAbsorb(s, zb);
+  hashAbsorb(s, data);
+  return hashSqueeze(s, outLen);
+}
+
+// hashAbsorb absorbs data: 10* padding into 8-byte blocks, p12 after
+// every block.
+function hashAbsorb(s, data) {
   const plen = (data.length + 8) & ~7;
   const padded = new Uint8Array(plen);
   padded.set(data);
@@ -73,7 +99,10 @@ export function xof(data, outLen) {
     s[0] ^= ld64(padded, off);
     p12(s);
   }
-  // Squeeze: 8 bytes of s[0] per p12.
+}
+
+// hashSqueeze returns outLen bytes: 8 bytes of s[0] per p12.
+function hashSqueeze(s, outLen) {
   const out = new Uint8Array(outLen);
   const buf = new Uint8Array(8);
   let pos = 0;
@@ -215,18 +244,18 @@ function concatBytes(...parts) {
   return out;
 }
 
-// derive16 computes XOF(dom || material, 16). dom is the 8-char ASCII
-// domain separator from PROTOCOL.t.
+// derive16 computes CXOF(dom, material, 16). dom is a customization
+// label from PROTOCOL.t.
 function derive16(dom, material) {
-  return xof(concatBytes(te.encode(dom), material), 16);
+  return cxof(dom, material, 16);
 }
 
-export function deriveAEADKey(rootKey) { return derive16("kv/aead/", rootKey); }
-export function deriveVaultID(rootKey) { return derive16("kv/vid1/", rootKey); }
-export function deriveAuthKey(rootKey) { return derive16("kv/auth/", rootKey); }
-export function deriveC2S(authKey) { return derive16("kv/c2s0/", authKey); }
-export function deriveS2C(authKey) { return derive16("kv/s2c0/", authKey); }
-export function deriveRegKey(registerKey) { return derive16("kv/reg0/", registerKey); }
+export function deriveAEADKey(rootKey) { return derive16("kv-aead", rootKey); }
+export function deriveVaultID(rootKey) { return derive16("kv-vid", rootKey); }
+export function deriveAuthKey(rootKey) { return derive16("kv-auth", rootKey); }
+export function deriveC2S(authKey) { return derive16("kv-c2s", authKey); }
+export function deriveS2C(authKey) { return derive16("kv-s2c", authKey); }
+export function deriveRegKey(registerKey) { return derive16("kv-reg", registerKey); }
 
 // hedgedNonce derives a 16-byte nonce from a domain, optional context,
 // a high-resolution timestamp, and 16 fresh random bytes.
@@ -242,13 +271,13 @@ function hedgedNonce(dom, context) {
   const frac = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
   const subNs = BigInt(Math.floor((frac - Math.floor(frac)) * 1e6)); // 0..999999
   st64(ts, 0, BigInt(Date.now()) * 1000000n + subNs);
-  return xof(concatBytes(te.encode(dom), context, ts, r), 16);
+  return cxof(dom, concatBytes(context, ts, r), 16);
 }
 
 // frameNonce returns a hedged frame nonce bound to the vault.
-export function frameNonce(vaultID) { return hedgedNonce("kv/rnon/", vaultID); }
+export function frameNonce(vaultID) { return hedgedNonce("kv-fnon", vaultID); }
 // entryNonce returns a hedged entry nonce.
-export function entryNonce() { return hedgedNonce("kv/enon/", new Uint8Array(0)); }
+export function entryNonce() { return hedgedNonce("kv-enon", new Uint8Array(0)); }
 
 // ---------------------------------------------------------------------
 // Entries (vault/entry.go). An entry is { tsMs: BigInt, nonce:
@@ -289,9 +318,9 @@ export function unmarshalEntry(b, off = 0) {
   return { entry: { tsMs, nonce, ct }, consumed: total };
 }
 
-// entryID computes the content address: XOF("kv/eid1/" || entry, 16).
+// entryID computes the content address: CXOF("kv-eid", entry, 16).
 export function entryID(e) {
-  return xof(concatBytes(te.encode("kv/eid1/"), marshalEntry(e)), 16);
+  return cxof("kv-eid", marshalEntry(e), 16);
 }
 
 // sealEntry encrypts (key, value) into a fresh entry with timestamp
@@ -362,16 +391,15 @@ export function sortCanonical(pairs) {
 }
 
 // setHash returns the 16-byte fingerprint of an entry set:
-// XOF("kv/sset/" || u32(N) || concat(entry_ids in canonical order), 16).
+// CXOF("kv-set", u32(N) || concat(entry_ids in canonical order), 16).
 // sortedPairs must be [{entry, id}] in canonical order.
 export function setHash(sortedPairs) {
-  const buf = new Uint8Array(8 + 4 + sortedPairs.length * ENTRY_ID_SIZE);
-  buf.set(te.encode("kv/sset/"), 0);
-  new DataView(buf.buffer).setUint32(8, sortedPairs.length, true);
+  const buf = new Uint8Array(4 + sortedPairs.length * ENTRY_ID_SIZE);
+  new DataView(buf.buffer).setUint32(0, sortedPairs.length, true);
   for (let i = 0; i < sortedPairs.length; i++) {
-    buf.set(sortedPairs[i].id, 12 + i * ENTRY_ID_SIZE);
+    buf.set(sortedPairs[i].id, 4 + i * ENTRY_ID_SIZE);
   }
-  return xof(buf, 16);
+  return cxof("kv-set", buf, 16);
 }
 
 // ---------------------------------------------------------------------

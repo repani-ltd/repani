@@ -48,6 +48,8 @@ export async function vectors() {
 
   eq("xofEmpty16", kv.xof(new Uint8Array(0), 16), V.xofEmpty16);
   eq("xofMsg40", kv.xof(te.encode(V.xofMsg), 40), V.xofMsg40);
+  eq("cxofEmpty16", kv.cxof("", new Uint8Array(0), 16), V.cxofEmpty16);
+  eq("cxofMsg40", kv.cxof("kv-test", te.encode(V.xofMsg), 40), V.cxofMsg40);
 
   eq("encodeRootKey", kv.encodeRootKey(rk), V.rootKeyBlob);
   eq("decodeRootKey", kv.decodeRootKey(V.rootKeyBlob), V.rootKey);

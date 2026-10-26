@@ -68,14 +68,17 @@ exposed as a JWT in local storage.
 
 A client has one secret, a random 20-byte ROOT KEY, held by the
 client process and by the server. Everything else derives from it,
-in kv's manner, with XOF(m, n) n bytes of Ascon-XOF128 over m and
-8-byte domain prefixes:
+as in kv and quietcasting, with CXOF(z, m, n) n bytes of
+Ascon-CXOF128 over m under the customization label z:
 
 .pre
-ClientID = XOF("seal/id/" || RootKey, 16)   names the client, public
-K_c2s    = XOF("seal/c2s" || RootKey, 16)   seals client -> server
-K_s2c    = XOF("seal/s2c" || RootKey, 16)   seals server -> client
+ClientID = CXOF("seal-id",  RootKey, 16)   names the client, public
+K_c2s    = CXOF("seal-c2s", RootKey, 16)   seals client -> server
+K_s2c    = CXOF("seal-s2c", RootKey, 16)   seals server -> client
 .end
+
+The labels are seal-id, seal-c2s, seal-s2c and seal-non; there are
+no others.
 
 The server's configuration has one line per client: a label, the
 root key, and the client's number of LANES. Rotating a key is a new
@@ -94,8 +97,8 @@ sealed   = AEAD(K, nonce, ad = header, payload)
 .item `stamp` is the sender's clock as Q32.32 seconds since the Unix
 epoch, quietcasting's form. A client never sends two requests on a
 lane with the same stamp; the fraction bits make that free.
-.item `nonce` is hedged, as kv's frame nonce: XOF over a domain
-prefix, the client id, a high-resolution clock and 16 random bytes.
+.item `nonce` is hedged, as kv's frame nonce: CXOF under seal-non
+over the client id, a high-resolution clock and 16 random bytes.
 Strict stamps already make it unique per key; the hedge keeps it
 unique if a clock misbehaves.
 .item A request's payload is the application's. A response's payload
@@ -165,6 +168,7 @@ for the content.
 2026-10-20 | Replay by quietcasting's strict rule, kept per (client, lane), with marks in memory and none saved.
 2026-10-20 | Lanes, fixed per client in the server's configuration, in place of a window of recently seen stamps (the IPsec approach, considered first): the quietcasting rule unchanged, a fixed array of marks, nothing ever forgotten.
 2026-10-20 | A general protocol in the public module, named seal.
+2026-10-25 | Derivations by Ascon-CXOF128 under labels, as quietcasting, in place of 8-byte XOF prefixes; kv version 1 moved to the same construction the same day.
 .end
 
 # Open questions

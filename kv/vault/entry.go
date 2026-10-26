@@ -101,13 +101,10 @@ func (e Entry) Header() []byte {
 }
 
 // ID returns the content-addressed entry id:
-// XOF("kv/eid1/" || marshaled_entry, 16).
+// CXOF("kv-eid", marshaled_entry, 16).
 func (e Entry) ID() EntryID {
-	buf := make([]byte, 0, len(domEID)+e.Size())
-	buf = append(buf, domEID...)
-	buf = append(buf, e.Marshal()...)
 	var out EntryID
-	ascon.XOF(buf, out[:])
+	ascon.CXOF(domEID, e.Marshal(), out[:])
 	return out
 }
 

@@ -66,18 +66,18 @@ func ParseVaultID(s string) (VaultID, error) {
 // EntryID is the content address of an entry.
 type EntryID [EntryIDSize]byte
 
-// Domain separators, 8 bytes each (PROTOCOL.t §Keys, §Nonces).
+// CXOF customization labels, the closed list of PROTOCOL.t §Keys.
 var (
-	domAEAD = []byte("kv/aead/")
-	domVID  = []byte("kv/vid1/")
-	domAuth = []byte("kv/auth/")
-	domC2S  = []byte("kv/c2s0/")
-	domS2C  = []byte("kv/s2c0/")
-	domReg  = []byte("kv/reg0/")
-	domEID  = []byte("kv/eid1/")
-	domSet  = []byte("kv/sset/")
-	domFN   = []byte("kv/rnon/")
-	domEN   = []byte("kv/enon/")
+	domAEAD = []byte("kv-aead")
+	domVID  = []byte("kv-vid")
+	domAuth = []byte("kv-auth")
+	domC2S  = []byte("kv-c2s")
+	domS2C  = []byte("kv-s2c")
+	domReg  = []byte("kv-reg")
+	domEID  = []byte("kv-eid")
+	domSet  = []byte("kv-set")
+	domFN   = []byte("kv-fnon")
+	domEN   = []byte("kv-enon")
 )
 
 // ErrInvalidKey is returned when supplied key material is malformed.
@@ -101,34 +101,31 @@ func NewRegisterKey() (RegisterKey, error) {
 	return rk, nil
 }
 
-// derive16 computes XOF(dom || material, 16).
+// derive16 computes CXOF(dom, material, 16).
 func derive16(dom, material []byte) [16]byte {
-	buf := make([]byte, 0, len(dom)+len(material))
-	buf = append(buf, dom...)
-	buf = append(buf, material...)
 	var out [16]byte
-	ascon.XOF(buf, out[:])
+	ascon.CXOF(dom, material, out[:])
 	return out
 }
 
-// DeriveAEADKey computes AEAD_Key = XOF("kv/aead/" || RootKey, 16).
+// DeriveAEADKey computes AEAD_Key = CXOF("kv-aead", RootKey, 16).
 func DeriveAEADKey(rk RootKey) AEADKey { return derive16(domAEAD, rk[:]) }
 
-// DeriveVaultID computes VaultID = XOF("kv/vid1/" || RootKey, 16).
+// DeriveVaultID computes VaultID = CXOF("kv-vid", RootKey, 16).
 func DeriveVaultID(rk RootKey) VaultID { return derive16(domVID, rk[:]) }
 
-// DeriveAuthKey computes AuthKey = XOF("kv/auth/" || RootKey, 16).
+// DeriveAuthKey computes AuthKey = CXOF("kv-auth", RootKey, 16).
 func DeriveAuthKey(rk RootKey) AuthKey { return derive16(domAuth, rk[:]) }
 
-// DeriveC2S computes K_c2s = XOF("kv/c2s0/" || AuthKey, 16), the key
+// DeriveC2S computes K_c2s = CXOF("kv-c2s", AuthKey, 16), the key
 // that seals client-to-server frames.
 func DeriveC2S(ak AuthKey) ChannelKey { return derive16(domC2S, ak[:]) }
 
-// DeriveS2C computes K_s2c = XOF("kv/s2c0/" || AuthKey, 16), the key
+// DeriveS2C computes K_s2c = CXOF("kv-s2c", AuthKey, 16), the key
 // that seals server-to-client frames.
 func DeriveS2C(ak AuthKey) ChannelKey { return derive16(domS2C, ak[:]) }
 
-// DeriveRegKey computes K_reg = XOF("kv/reg0/" || RegisterKey, 16), the
+// DeriveRegKey computes K_reg = CXOF("kv-reg", RegisterKey, 16), the
 // key that seals (and gates) a REGISTER frame.
 func DeriveRegKey(rk RegisterKey) ChannelKey { return derive16(domReg, rk[:]) }
 

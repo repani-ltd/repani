@@ -44,6 +44,13 @@ The server holds AuthKey and never AEAD_Key. A leaky server can forge
 frames for a vault, which at worst disturbs a sync; it can never read
 an entry or forge one a client would accept.
 
+Every derivation is Ascon-CXOF128 under its own label, absorbed
+apart from the input, so two domains cannot blur whatever their
+inputs; quietcasting and seal use the same construction. It replaced
+8-byte prefixes on Ascon-XOF128, which were safe only because every
+prefix had the same length, a rule each new prefix had to remember.
+Decided 2026-10-25.
+
 A server holds several RegisterKeys so that each application (iou is
 one) has its own, and revoking one leaves the rest and every existing
 vault untouched. Nothing on the wire says which key a client holds.
@@ -128,7 +135,14 @@ read nor corrupt the data.
 The `ver` byte at the head of every frame is the version mechanism.
 A protocol change gets a new `ver` value and its own document; a
 server can speak several versions side by side, and answers any
-other with BAD_VERSION. A version, once defined, does not change.
+other with BAD_VERSION. A version, once fixed, does not change.
+
+Version 1 is not fixed yet. With only test users, whose vaults can
+be made again, a change costs less in place than as a second version
+that every server and client would carry from then on. Decided
+2026-10-25, when version 1 moved to CXOF labels (Keys) and every
+existing vault was left unreadable. It is declared fixed before its
+first user who is not a tester.
 
 # Values
 

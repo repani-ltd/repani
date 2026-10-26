@@ -101,6 +101,12 @@ func jsVectors(t *testing.T) map[string]any {
 	ascon.XOF([]byte(xofMsg), x40)
 	out["xofMsg"] = xofMsg
 	out["xofMsg40"] = h(x40)
+	ce := make([]byte, 16)
+	ascon.CXOF(nil, nil, ce)
+	out["cxofEmpty16"] = h(ce)
+	c40 := make([]byte, 40)
+	ascon.CXOF([]byte("kv-test"), []byte(xofMsg), c40)
+	out["cxofMsg40"] = h(c40)
 
 	// Deterministic entries: vault.Seal hedges its nonce, so seal via
 	// the AEAD directly using Seal's exact plaintext and AD layout.

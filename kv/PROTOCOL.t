@@ -13,14 +13,17 @@ Every frame, request and response, is one Ascon-AEAD128 seal under a
 key both ends hold. There are no other MACs, no signatures and no
 asymmetric cryptography.
 
-The primitives are Ascon-AEAD128 and Ascon-XOF128 (NIST SP 800-232).
-XOF(m, n) is n bytes of Ascon-XOF128 over m, and || is
-concatenation. All integers are little-endian.
+The primitives are Ascon-AEAD128 and Ascon-CXOF128 (NIST SP 800-232).
+CXOF(z, m, n) is n bytes of Ascon-CXOF128 over m under the
+customization label z, and || is concatenation. All integers are
+little-endian.
 
 # Version
 
 Every frame begins with a version byte, `ver`. This document defines
-version 1, `ver` = 0x01, and does not change. A later version is
+version 1, `ver` = 0x01. While kv has only test users, version 1 is
+developed in place, and a change may leave existing vaults unreadable;
+once it is declared fixed, it does not change, and a later version is
 defined in its own document under its own `ver` value. A server
 answers a frame whose version it does not speak with BAD_VERSION
 (see Errors before the channel).
@@ -31,11 +34,11 @@ A vault has one secret: a random 20-byte RootKey, shared by every
 device of the vault. Everything else derives from it:
 
 .pre
-AEAD_Key = XOF("kv/aead/" || RootKey, 16)   encrypts entries
-VaultID  = XOF("kv/vid1/" || RootKey, 16)   names the vault on the wire
-AuthKey  = XOF("kv/auth/" || RootKey, 16)   the channel root
-K_c2s    = XOF("kv/c2s0/" || AuthKey, 16)   seals client -> server
-K_s2c    = XOF("kv/s2c0/" || AuthKey, 16)   seals server -> client
+AEAD_Key = CXOF("kv-aead", RootKey, 16)   encrypts entries
+VaultID  = CXOF("kv-vid",  RootKey, 16)   names the vault on the wire
+AuthKey  = CXOF("kv-auth", RootKey, 16)   the channel root
+K_c2s    = CXOF("kv-c2s",  AuthKey, 16)   seals client -> server
+K_s2c    = CXOF("kv-s2c",  AuthKey, 16)   seals server -> client
 .end
 
 AEAD_Key never leaves the devices. VaultID is public. The server
@@ -47,10 +50,11 @@ given out of band to whoever may create vaults on it. Each yields a
 registration key:
 
 .pre
-K_reg = XOF("kv/reg0/" || RegisterKey, 16)  seals REGISTER
+K_reg = CXOF("kv-reg", RegisterKey, 16)  seals REGISTER
 .end
 
-Every domain prefix is 8 bytes.
+The labels are kv-aead, kv-vid, kv-auth, kv-c2s, kv-s2c, kv-reg,
+kv-eid, kv-set, kv-fnon and kv-enon, in ASCII; there are no others.
 
 # Entries
 
@@ -78,7 +82,7 @@ writer refuses a larger one, and every party rejects one on parse.
 An entry's id is
 
 .pre
-entry_id = XOF("kv/eid1/" || entry, 16)
+entry_id = CXOF("kv-eid", entry, 16)
 .end
 
 over the whole marshaled entry. Equal bytes are the same entry: the
@@ -114,8 +118,8 @@ Nonces are hedged: a fresh random part and a high-resolution clock,
 hashed together.
 
 .pre
-frame nonce = XOF("kv/rnon/" || VaultID || u64(t) || random16, 16)
-entry nonce = XOF("kv/enon/" || u64(t) || random16, 16)
+frame nonce = CXOF("kv-fnon", VaultID || u64(t) || random16, 16)
+entry nonce = CXOF("kv-enon", u64(t) || random16, 16)
 .end
 
 `random16` is 16 bytes from a cryptographic random generator. `t`
@@ -188,7 +192,7 @@ bytes, both ascending. A cursor is a position in that order. The set
 hash fingerprints a whole set of N entries:
 
 .pre
-set_hash = XOF("kv/sset/" || u32(N) || entry_ids in canonical order, 16)
+set_hash = CXOF("kv-set", u32(N) || entry_ids in canonical order, 16)
 .end
 
 The server keeps no state between requests. The three operations a

@@ -34,7 +34,7 @@ func SortCanonical(entries []Entry) {
 
 // SetHash returns the 16-byte fingerprint of an entire entry set:
 //
-//	XOF("kv/sset/" || u32(N) || concat(entry_ids in canonical order), 16)
+//	CXOF("kv-set", u32(N) || concat(entry_ids in canonical order), 16)
 //
 // Two parties agree on it iff they hold identical sets (up to a
 // negligible collision). The sync protocol uses it only as a cheap
@@ -51,13 +51,12 @@ func SetHash(sortedEntries []Entry) [16]byte {
 // order, avoiding a re-hash of every entry's bytes. Callers that keep a
 // cached id index (e.g. store.MemStore) use this directly.
 func SetHashIDs(ids []EntryID) [16]byte {
-	buf := make([]byte, 0, len(domSet)+4+len(ids)*EntryIDSize)
-	buf = append(buf, domSet...)
+	buf := make([]byte, 0, 4+len(ids)*EntryIDSize)
 	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(ids)))
 	for i := range ids {
 		buf = append(buf, ids[i][:]...)
 	}
 	var out [16]byte
-	ascon.XOF(buf, out[:])
+	ascon.CXOF(domSet, buf, out[:])
 	return out
 }
