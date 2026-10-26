@@ -25,6 +25,11 @@ const (
 	styleRule       // drawn as a hairline, occupies one line slot
 )
 
+// linkMark leads every link's title line: the external-link arrow,
+// present in both the mono and the sans face. Underline is not
+// available as the mark; the mono PDF draws emphasis with it.
+const linkMark = "↗ "
+
 // sline is one composed output line with its drawing style. Mono
 // lines carry pre-padded text (indents baked in as spaces);
 // proportional lines carry words plus the inter-word advances
@@ -306,16 +311,35 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 			fb.atomic = true
 
 		case pica.LinkBlk:
+			// The marker says "link" on paper, where gray alone reads
+			// as muted text; a titled link adds its URL, scheme
+			// stripped, on a line of its own under the title, so a
+			// printout keeps the address.
 			url, label := blk.Text, blk.Label
 			if label == "" {
 				label = url
 			}
-			if t.sans {
-				label = truncMeasured(label, t.units, pdf.Measure(pdf.Sans))
-				fb.segs = []seg{{lines: []sline{{words: []string{label}, href: url}}}}
-			} else {
-				fb.segs = []seg{{lines: []sline{{text: format.Trunc(label, width), href: url}}}}
+			label = linkMark + label
+			var addr string
+			if blk.Label != "" {
+				addr = strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
 			}
+			var lines []sline
+			if t.sans {
+				m := pdf.Measure(pdf.Sans)
+				lines = append(lines, sline{words: []string{truncMeasured(label, t.units, m)}, href: url})
+				if addr != "" {
+					in := m.Width(linkMark)
+					lines = append(lines, sline{words: []string{truncMeasured(addr, t.units-in, m)}, indent: in, href: url})
+				}
+			} else {
+				lines = append(lines, sline{text: format.Trunc(label, width), href: url})
+				if addr != "" {
+					in := utf8.RuneCountInString(linkMark)
+					lines = append(lines, sline{text: strings.Repeat(" ", in) + format.Trunc(addr, width-in), href: url})
+				}
+			}
+			fb.segs = []seg{{lines: lines}}
 			fb.atomic = true
 
 		case pica.TableBlk:

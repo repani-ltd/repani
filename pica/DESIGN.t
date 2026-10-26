@@ -1307,6 +1307,27 @@ with "if". Both site pages render byte for byte as served.
 Verified at each step by rendering every document: byte for byte,
 but for the PDFs once every stream became compressed.
 
+# 21. Links show on paper (decided 2026-10-26)
+
+A link in the PDFs was its title in 45% gray and nothing else: gray
+alone reads as muted text (the report footer is 40% gray), and a
+titled link printed without its address, which no reader of the
+paper could recover. Both PDF writers now mark and carry it:
+
+.item The title line leads with "↗ ", the external-link arrow,
+present in the mono and the sans face. Underline was the obvious
+mark and is unavailable: the mono PDF draws emphasis with it, and
+two meanings for one stroke is the confusion being removed.
+.item A titled link adds its URL, scheme stripped, on its own line
+under the title, aligned past the mark, cut to the measure; both
+lines carry the annotation and the block stays atomic. Its own line,
+not after the title: a long URL cut at the column edge loses the
+title's line too. An untitled link is its URL already, one line.
+
+The text writer is untouched (its .link line is the wire markup) and
+so is the HTML writer (a real <a>; how it looks is the page's CSS).
+No language change: this is how a writer sets a block it already had.
+
 .width 48
 .cols 2
 .font sans

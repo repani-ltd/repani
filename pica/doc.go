@@ -122,7 +122,9 @@ its own output format. The text writer's target format is the
 quietcasting wire markup, so it serializes Heading as "# text" and
 LinkBlk as a ".link" meta line (which wire clients render as a
 proper link); the pdf writer renders headings bold and links as
-gray anchor text carrying a clickable annotation, and sets a .term
+gray anchor text after a "↗" mark, carrying a clickable annotation
+(a titled link adds its URL, scheme stripped, on its own line under
+the title, so a printout keeps the address), and sets a .term
 label in the bold face; the HTML writer
 emits the element that carries the meaning (h2/h3, ul/li, dl/dt/dd,
 table with thead, blockquote, a real <a>) and lets the browser wrap, so
