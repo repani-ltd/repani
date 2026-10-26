@@ -125,9 +125,9 @@ One fact per line makes a file greppable and diffable line by
 line, references fail loudly at load when they name nothing, and
 canonical form makes two files comparable byte for byte. Validate
 before shipping: fact validate FILE reports every error with its
-line; a program loads through Load (Parse + Validate) and binds
-with Unmarshal, so a misspelled reference is an error at load,
-never an empty value.
+line; a program loads through Load (Parse + Validate) and reads
+values through Bind, so a misspelled reference is an error at
+load, never an empty value.
 
 What does NOT belong in a fact file. Every property above is
 per-line -- the type as the domain of legal edits, the error on

@@ -29,7 +29,7 @@ SPEC.t §1.1 and §11 record why.
 - `*.go` at this level (package `fact`, import `repani.com/fact`) — the
   format core: line parser, type/value checks, set-level validation
   (`Load` = `Parse` + `Validate`), canonical serializer, JSON codec,
-  `Bind` (nested-map view), `Marshal`/`Unmarshal` (struct binding)
+  `Bind` (nested-map view)
 - `cmd/fact/main.go` — thin CLI wrapper (flag parsing + I/O only; no format
   logic); `main_test.go` drives the commands in-process through `run`
 - `docs/stream-profile.t` — the stream profile
@@ -59,8 +59,15 @@ SPEC.t §1.1 and §11 record why.
   parse time: floats via `strconv.FormatFloat(v, 'g', -1, 64)`, `-0` → `0`,
   strings re-encoded with `json` (HTML escaping off, `fact.Quote`). This is
   what makes the JSON round-trip guarantee (`decode(encode(F)) ==
-  canonical(F)`) hold. `checkValue` is the only canonicaliser: Marshal
-  renders raw tokens and runs them through it.
+  canonical(F)`) hold. `checkValue` is the only canonicaliser.
+- **No reflection, no struct binding.** A program writes its file as
+  fact lines and runs them through `Load` + `Canonical` (the checker
+  stays the one authority on spelling); it reads with `Load` + `Bind`.
+  `kv/server/record.go` is the pattern. `Marshal`/`Unmarshal` were
+  removed on 2026-10-26: two five-field users did not earn a
+  reflection binder in the format core. `git log -- fact/marshal.go`
+  finds the removal commit; revert it if a consumer appears that
+  hand-written lines cannot serve.
 - `float` accepts any JSON number (including plain integers) since float
   canonicalization can itself produce e.g. `5`; the type annotation
   disambiguates.
