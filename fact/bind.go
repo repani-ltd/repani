@@ -1,7 +1,6 @@
 package fact
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -153,14 +152,7 @@ func bindScalar(t Type, tok string, reg map[string]map[string]any) (any, error) 
 	case Float:
 		return strconv.ParseFloat(tok, 64)
 	case Str:
-		if plainString(tok) {
-			return tok[1 : len(tok)-1], nil
-		}
-		var s string
-		if err := json.Unmarshal([]byte(tok), &s); err != nil {
-			return nil, err
-		}
-		return s, nil
+		return unquote(tok), nil
 	case Datetime, Enum:
 		return tok, nil
 	case Ref:

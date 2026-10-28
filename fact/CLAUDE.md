@@ -60,6 +60,15 @@ SPEC.t §1.1 and §11 record why.
   strings re-encoded with `json` (HTML escaping off, `fact.Quote`). This is
   what makes the JSON round-trip guarantee (`decode(encode(F)) ==
   canonical(F)`) hold. `checkValue` is the only canonicaliser.
+- **Import files read as records** (`instance.go`, 2026-10-28):
+  `Instances` groups a set's facts by instance (kind:id) in first-seen
+  order, singletons apart; `LoadInstances` loads an import file whose
+  every fact belongs to an instance of the named kinds at the key's
+  start, refusing anything else with its line; `Fact.Text` and
+  `Fact.One` give a value as plain text. A view like `Bind`, the set
+  staying flat; the consumer is kiban's eight import parsers (users,
+  calendars, branches, currencies, policy, schedules, demo books, the
+  KYC import), which each repeated this by hand.
 - **No reflection, no struct binding.** A program writes its file as
   fact lines and runs them through `Load` + `Canonical` (the checker
   stays the one authority on spelling); it reads with `Load` + `Bind`.
