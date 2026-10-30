@@ -2,501 +2,453 @@ ASCON-KV DESIGN
 .date 2026-10-25
 .by Pavlos Christoforou
 .rights All rights reserved © repani.com
-.rem Why ASCON-KV is the way it is: the reasons behind PROTOCOL.t and
-.rem CLIENT.t, the decisions taken, the known gaps, and what is not
-.rem built yet. Not normative: where this and a spec differ, the spec
-.rem holds. History lives in git, not here.
+.rem Why ASCON-KV is the way it is: the reasons behind PROTOCOL.t and CLIENT.t,
+.rem the decisions taken, the known gaps, and what is not built yet. Not
+.rem normative: where this and a spec differ, the spec holds. History lives in
+.rem git, not here.
 
 # One envelope
 
-Once two parties share a key, a secure protocol is an authenticated
-encrypted envelope. So every frame is one Ascon-AEAD128 seal, and
-the protocol needs nothing else: no MACs beside it, no signatures,
-no handshake, no asymmetric keys. One primitive family, Ascon (NIST
-SP 800-232), does encryption, authentication, hashing and key
-derivation.
+Once two parties share a key, a secure protocol is an authenticated encrypted
+envelope. So every frame is one Ascon-AEAD128 seal, and the protocol needs
+nothing else: no MACs beside it, no signatures, no handshake, no asymmetric
+keys. One primitive family, Ascon (NIST SP 800-232), does encryption,
+authentication, hashing and key derivation.
 
-The associated data is always the WHOLE cleartext header, for frames
-and for entries alike. One rule binds every routing byte: a sealed
-body cannot be moved to another vault, turned around to the other
-direction, or given another version. In an entry it binds `ts_ms`,
-so a relay cannot re-date an entry to change who wins a merge. The
-nonce is in the header too, which makes that binding redundant there,
-and harmless.
+The associated data is always the WHOLE cleartext header, for frames and for
+entries alike. One rule binds every routing byte: a sealed body cannot be moved
+to another vault, turned around to the other direction, or given another
+version. In an entry it binds `ts_ms`, so a relay cannot re-date an entry to
+change who wins a merge. The nonce is in the header too, which makes that
+binding redundant there, and harmless.
 
-Entries pushed in a frame are sealed twice: each under AEAD_Key,
-inside, and the frame under its channel key, outside. The inner seal
-keeps contents from the server; the outer one keeps entry sizes,
-counts and timestamps from anyone watching the wire. It costs one
-more Ascon pass over a small body.
+Entries pushed in a frame are sealed twice: each under AEAD_Key, inside, and the
+frame under its channel key, outside. The inner seal keeps contents from the
+server; the outer one keeps entry sizes, counts and timestamps from anyone
+watching the wire. It costs one more Ascon pass over a small body.
 
 # Keys
 
-The RootKey is 20 bytes, 160 bits: above the 128-bit strength of
-every derived key, and exactly 32 Crockford base32 characters with
-no padding bits.
+The RootKey is 20 bytes, 160 bits: above the 128-bit strength of every derived
+key, and exactly 32 Crockford base32 characters with no padding bits.
 
-Each direction of the channel has its own key, so each has its own
-nonce space and one generator: the client owns client-to-server
-nonces, the server owns the others. Neither has to coordinate.
+Each direction of the channel has its own key, so each has its own nonce space
+and one generator: the client owns client-to-server nonces, the server owns the
+others. Neither has to coordinate.
 
-The server holds AuthKey and never AEAD_Key. A leaky server can forge
-frames for a vault, which at worst disturbs a sync; it can never read
-an entry or forge one a client would accept.
+The server holds AuthKey and never AEAD_Key. A leaky server can forge frames for
+a vault, which at worst disturbs a sync; it can never read an entry or forge one
+a client would accept.
 
-Every derivation is Ascon-CXOF128 under its own label, absorbed
-apart from the input, so two domains cannot blur whatever their
-inputs; quietcasting and seal use the same construction. It replaced
-8-byte prefixes on Ascon-XOF128, which were safe only because every
-prefix had the same length, a rule each new prefix had to remember.
-Decided 2026-10-25.
+Every derivation is Ascon-CXOF128 under its own label, absorbed apart from the
+input, so two domains cannot blur whatever their inputs; quietcasting and seal
+use the same construction. It replaced 8-byte prefixes on Ascon-XOF128, which
+were safe only because every prefix had the same length, a rule each new prefix
+had to remember. Decided 2026-10-25.
 
-A server holds several RegisterKeys so that each application (iou is
-one) has its own, and revoking one leaves the rest and every existing
-vault untouched. Nothing on the wire says which key a client holds.
+A server holds several RegisterKeys so that each application (iou is one) has
+its own, and revoking one leaves the rest and every existing vault untouched.
+Nothing on the wire says which key a client holds.
 
 # Nonces
 
-A nonce is hedged, random and clock together, so no single failure
-repeats one. The random part gives uniqueness; the clock covers a
-generator that repeats, as after a fork or at early boot.
+A nonce is hedged, random and clock together, so no single failure repeats one.
+The random part gives uniqueness; the clock covers a generator that repeats, as
+after a fork or at early boot.
 
-Entry nonces matter most. Every device of a vault seals entries
-under the same AEAD_Key with no coordinator, so two equal nonces
-from two devices would leak the XOR of two secret values. The random
-part keeps devices apart; the clock covers one device whose
-generator has failed. The clock is read in nanoseconds because
-milliseconds alone would repeat within one millisecond and void the
+Entry nonces matter most. Every device of a vault seals entries under the same
+AEAD_Key with no coordinator, so two equal nonces from two devices would leak
+the XOR of two secret values. The random part keeps devices apart; the clock
+covers one device whose generator has failed. The clock is read in nanoseconds
+because milliseconds alone would repeat within one millisecond and void the
 hedge.
 
 # Errors before the channel
 
-When a frame does not parse or does not open, the server has no key
-to seal an answer with. It sends one plain byte. Those bytes are
-hints, and safe as hints, because none of them leads a client to
-change its vault: the worst a forged one does is delay a sync, or
-cause a REGISTER that repeats a known AuthKey under a K_reg the
-forger does not hold.
+When a frame does not parse or does not open, the server has no key to seal an
+answer with. It sends one plain byte. Those bytes are hints, and safe as hints,
+because none of them leads a client to change its vault: the worst a forged one
+does is delay a sync, or cause a REGISTER that repeats a known AuthKey under a
+K_reg the forger does not hold.
 
 # Sync
 
-The server keeps no session. It answers two stateless questions,
-"what comes after this cursor" and "add these", and one equality
-test, the set hash. So a steady-state sync is one fixed-size PROBE
-and its answer, whatever the size of the vault.
+The server keeps no session. It answers two stateless questions, "what comes
+after this cursor" and "add these", and one equality test, the set hash. So a
+steady-state sync is one fixed-size PROBE and its answer, whatever the size of
+the vault.
 
-The reference loop walks only a recent window first. A concurrent or
-slightly back-dated write lands just behind the newest entry, so
-looking back a little catches it without a full walk; a wider gap
-falls to the full walk of the next round, which always converges.
-The window never reaches the wire, so any choice interoperates.
+The reference loop walks only a recent window first. A concurrent or slightly
+back-dated write lands just behind the newest entry, so looking back a little
+catches it without a full walk; a wider gap falls to the full walk of the next
+round, which always converges. The window never reaches the wire, so any choice
+interoperates.
 
-The push is tolerant of duplicates: the client re-sends the window
-and the server drops what it holds. The client therefore keeps no
-record of what the server has.
+The push is tolerant of duplicates: the client re-sends the window and the
+server drops what it holds. The client therefore keeps no record of what the
+server has.
 
-After a local write the client pushes just the new entries and
-probes. When those were the whole difference the probe matches, so
-writing one key moves one entry, whatever the vault's size. The other
-common case is the mirror image, another device having written: the
-pull brings the difference, so the client probes again before it
-pushes, and a match spares sending the window back. The probe is one
-fixed-size frame; the push it saves is the whole window.
+After a local write the client pushes just the new entries and probes. When
+those were the whole difference the probe matches, so writing one key moves one
+entry, whatever the vault's size. The other common case is the mirror image,
+another device having written: the pull brings the difference, so the client
+probes again before it pushes, and a match spares sending the window back. The
+probe is one fixed-size frame; the push it saves is the whole window.
 
-On the devices, an entry is hashed once, when it enters the store,
-which keeps the canonical order as entries arrive; a read decrypts
-only the entries the store gained since the last read. The cost of a
-write or a read is therefore what changed, not the vault's size. What
-still grows with the window is the pull after a difference: entries
-written within it come down again, and are hashed to be recognised.
-Catalogue reconciliation (Not built yet) is the answer if that cost is
-ever measured in practice.
+On the devices, an entry is hashed once, when it enters the store, which keeps
+the canonical order as entries arrive; a read decrypts only the entries the
+store gained since the last read. The cost of a write or a read is therefore
+what changed, not the vault's size. What still grows with the window is the pull
+after a difference: entries written within it come down again, and are hashed to
+be recognised. Catalogue reconciliation (Not built yet) is the answer if that
+cost is ever measured in practice.
 
-The loop converges because a pull walked to an empty page leaves the
-client holding every server entry in the window, and the push leaves
-the server holding every client entry in it. Once the window spans
-the difference the probe matches, and a window from zero spans
-everything. Every page is committed as it arrives, so an interrupted
-sync loses nothing.
+The loop converges because a pull walked to an empty page leaves the client
+holding every server entry in the window, and the push leaves the server holding
+every client entry in it. Once the window spans the difference the probe
+matches, and a window from zero spans everything. Every page is committed as it
+arrives, so an interrupted sync loses nothing.
 
-Recovery is not a mode of its own. A new or wiped client has no
-entries, so its first walk pulls everything; a wiped server is
-refilled by a client's push. A server that lost its data but kept
-its RegisterKeys lets each client register again under the same
-AuthKey.
+Recovery is not a mode of its own. A new or wiped client has no entries, so its
+first walk pulls everything; a wiped server is refilled by a client's push. A
+server that lost its data but kept its RegisterKeys lets each client register
+again under the same AuthKey.
 
-A client bounds its own sync: a round budget, a cursor that must
-advance, a page backstop. A hostile relay can stall it but cannot
-make it loop, and by the merge and the double seal it can neither
-read nor corrupt the data.
+A client bounds its own sync: a round budget, a cursor that must advance, a page
+backstop. A hostile relay can stall it but cannot make it loop, and by the merge
+and the double seal it can neither read nor corrupt the data.
 
 ## Wait
 
-Until 2026-10-25 a device learnt of another's write only by asking:
-the platform's clients probe every 30 s while a page is visible, so
-a write took up to half a minute to show on the next phone. Fine for
-a shared expense list; too slow for a game of Raid, where the
-opponent should see a move as it is made.
+Until 2026-10-25 a device learnt of another's write only by asking: the
+platform's clients probe every 30 s while a page is visible, so a write took up
+to half a minute to show on the next phone. Fine for a shared expense list; too
+slow for a game of Raid, where the opponent should see a move as it is made.
 
-WAIT is a PROBE the server holds open: it answers at once if the sets
-already differ, otherwise when the vault's set next changes, or OK
-after WAIT_MAX_MS. It was chosen over the alternatives for keeping
-everything else as it was:
+WAIT is a PROBE the server holds open: it answers at once if the sets already
+differ, otherwise when the vault's set next changes, or OK after WAIT_MAX_MS. It
+was chosen over the alternatives for keeping everything else as it was:
 
 .item It is the same frame, keys, route and request-response pairing.
-Server-sent events stream many events over one GET with no body, so
-the sealed request could not travel with it and no response would
-echo a request nonce; a WebSocket is a second transport with its own
-framing, keepalives and proxy rules, for a channel that carries one
-bit. Long-polling over the existing POST carries that bit with
-nothing new to secure or deploy.
-.item The server stays stateless between requests. What it holds is
-one open request per waiting device, a goroutine and a connection,
-until the set changes or WAIT_MAX_MS passes; it remembers nothing
-once it has answered. The 25 s default sits under the 30 s and 60 s
-request timeouts that proxies and clients commonly set.
-.item It is version 1 developed in place (Versioning), and still
-interoperates both ways, since kvserve and the apps deploy apart. A
-server without WAIT answers an unknown op BAD_REQUEST, so a client
-that receives it knows the server does not offer WAIT and falls back
-to its timer; a client without WAIT never sends it. Neither side can
-mistake the other.
-.item What it reveals is what a PROBE reveals, and the moment a device
-is listening. The server could already see a device's probes arrive
-every 30 s; it now sees them arrive as long requests.
+Server-sent events stream many events over one GET with no body, so the sealed
+request could not travel with it and no response would echo a request nonce; a
+WebSocket is a second transport with its own framing, keepalives and proxy
+rules, for a channel that carries one bit. Long-polling over the existing POST
+carries that bit with nothing new to secure or deploy.
+.item The server stays stateless between requests. What it holds is one open
+request per waiting device, a goroutine and a connection, until the set changes
+or WAIT_MAX_MS passes; it remembers nothing once it has answered. The 25 s
+default sits under the 30 s and 60 s request timeouts that proxies and clients
+commonly set.
+.item It is version 1 developed in place (Versioning), and still interoperates
+both ways, since kvserve and the apps deploy apart. A server without WAIT
+answers an unknown op BAD_REQUEST, so a client that receives it knows the server
+does not offer WAIT and falls back to its timer; a client without WAIT never
+sends it. Neither side can mistake the other.
+.item What it reveals is what a PROBE reveals, and the moment a device is
+listening. The server could already see a device's probes arrive every 30 s; it
+now sees them arrive as long requests.
 
-The client exposes a single call and leaves the loop to the
-application, since only the application knows which vault is on
-screen: a wait costs a connection, and browsers cap connections per
-origin, so an app waits on what is being looked at and keeps its
-timer for the rest. A WAIT runs beside the sync loop rather than
-in its queue, or a write made during a wait would stand behind it
-for up to 25 s.
+The client exposes a single call and leaves the loop to the application, since
+only the application knows which vault is on screen: a wait costs a connection,
+and browsers cap connections per origin, so an app waits on what is being looked
+at and keeps its timer for the rest. A WAIT runs beside the sync loop rather
+than in its queue, or a write made during a wait would stand behind it for up to
+25 s.
 
-A stop does not wait out the WAITs. An HTTP server's drain waits for
-every request in flight, so kvserve hands kiosk the server's Drain
-(kiosk.Config.Drain), called as shutdown starts: every held WAIT
-answers OK, and the drain finishes in the time a sync takes rather
-than WAIT_MAX_MS. Close drains too, for an embedder without kiosk.
+A stop does not wait out the WAITs. An HTTP server's drain waits for every
+request in flight, so kvserve hands kiosk the server's Drain
+(kiosk.Config.Drain), called as shutdown starts: every held WAIT answers OK, and
+the drain finishes in the time a sync takes rather than WAIT_MAX_MS. Close
+drains too, for an embedder without kiosk.
 
-Not done: a bound on the WAITs a server holds, and a push to a
-device whose page is closed. Only a vault's members can open a
-WAIT, so none is set yet; the second needs a notification service
-and is a different design.
+Not done: a bound on the WAITs a server holds, and a push to a device whose page
+is closed. Only a vault's members can open a WAIT, so none is set yet; the
+second needs a notification service and is a different design.
 
 # Versioning
 
-The `ver` byte at the head of every frame is the version mechanism.
-A protocol change gets a new `ver` value and its own document; a
-server can speak several versions side by side, and answers any
-other with BAD_VERSION. A version, once fixed, does not change.
+The `ver` byte at the head of every frame is the version mechanism. A protocol
+change gets a new `ver` value and its own document; a server can speak several
+versions side by side, and answers any other with BAD_VERSION. A version, once
+fixed, does not change.
 
-Version 1 is not fixed yet. With only test users, whose vaults can
-be made again, a change costs less in place than as a second version
-that every server and client would carry from then on. Decided
-2026-10-25, when version 1 moved to CXOF labels (Keys) and every
-existing vault was left unreadable. It is declared fixed before its
-first user who is not a tester.
+Version 1 is not fixed yet. With only test users, whose vaults can be made
+again, a change costs less in place than as a second version that every server
+and client would carry from then on. Decided 2026-10-25, when version 1 moved to
+CXOF labels (Keys) and every existing vault was left unreadable. It is declared
+fixed before its first user who is not a tester.
 
 # Values
 
-A value carries one format byte so that a client can tell later
-encodings from raw bytes without a protocol change. Raw (0x00) and
-ROW (0x01) are assigned. Reservations for formats nobody uses were
-taken out: a code point is assigned when its first consumer arrives.
-ROW was assigned on 2026-10-12, when it was frozen, ahead of the
-first app that writes it, by Pavlos's decision: the web apps are its
-consumers and it was made for them.
+A value carries one format byte so that a client can tell later encodings from
+raw bytes without a protocol change. Raw (0x00) and ROW (0x01) are assigned.
+Reservations for formats nobody uses were taken out: a code point is assigned
+when its first consumer arrives. ROW was assigned on 2026-10-12, when it was
+frozen, ahead of the first app that writes it, by Pavlos's decision: the web
+apps are its consumers and it was made for them.
 
-Compression is a security decision, not a format one: compressed
-plaintext leaks through ciphertext length, and the server sees every
-length. ROW compresses strings of 242 bytes and more with lz4s,
-whenever that is shorter, so a ROW value's length says something
-about how repetitive its long strings are, not only how long they
-are. Each string is compressed alone, never with its neighbours or
-with other entries, so the leak stays inside one string: it matters
-only when attacker-chosen text and a secret share one long string
-and the attacker sees the lengths of many such writes (CRIME). An
-app that puts outside input and secrets in one long string keeps
-them in separate positions, or writes that value raw.
+Compression is a security decision, not a format one: compressed plaintext leaks
+through ciphertext length, and the server sees every length. ROW compresses
+strings of 242 bytes and more with lz4s, whenever that is shorter, so a ROW
+value's length says something about how repetitive its long strings are, not
+only how long they are. Each string is compressed alone, never with its
+neighbours or with other entries, so the leak stays inside one string: it
+matters only when attacker-chosen text and a secret share one long string and
+the attacker sees the lengths of many such writes (CRIME). An app that puts
+outside input and secrets in one long string keeps them in separate positions,
+or writes that value raw.
 
 # Registration and rotation
 
-There is no registration without a RegisterKey: a vault is created
-by someone the operator authorised, or by the operator directly.
+There is no registration without a RegisterKey: a vault is created by someone
+the operator authorised, or by the operator directly.
 
-There is no in-band key ratchet. A deterministic one would hand the
-retired key's holder the next key; a random one would still need the
-out-of-band channel to carry its entropy. Rotation is therefore out
-of band: a fresh RootKey, a fresh vault.
+There is no in-band key ratchet. A deterministic one would hand the retired
+key's holder the next key; a random one would still need the out-of-band channel
+to carry its entropy. Rotation is therefore out of band: a fresh RootKey, a
+fresh vault.
 
 # TLS
 
-TLS is optional. Everything of substance is sealed, including the
-AuthKey at registration, so TLS adds only the metadata: which vault,
-when, and how much. The leak it would guard against elsewhere, a
-channel key captured in clear, cannot happen here.
+TLS is optional. Everything of substance is sealed, including the AuthKey at
+registration, so TLS adds only the metadata: which vault, when, and how much.
+The leak it would guard against elsewhere, a channel key captured in clear,
+cannot happen here.
 
 # Publishing a RootKey
 
-Symmetric cryptography cannot express read without write. Whoever
-can derive AEAD_Key can seal entries, and whoever can derive AuthKey
-can push them. A published, read-only vault is read-only by server
-policy alone: the server refuses its pushes. Publish a RootKey only
-where every reader is trusted not to write, or where that one server
-is the only path entries travel.
+Symmetric cryptography cannot express read without write. Whoever can derive
+AEAD_Key can seal entries, and whoever can derive AuthKey can push them. A
+published, read-only vault is read-only by server policy alone: the server
+refuses its pushes. Publish a RootKey only where every reader is trusted not to
+write, or where that one server is the only path entries travel.
 
 # Server
 
 ## Quotas
 
-The log store keeps every entry in memory as well as on disk, so the
-quotas are a memory budget before they are a disk one. The defaults
-are sized for a small host: 10,000 entries and 8 MiB per vault,
-1,000 vaults. 8 MiB is also what someone holding a leaked RootKey
-can fill a vault with: junk entries the clients cannot open but the
-server counts. Recovery from that is rotation.
+The log store keeps every entry in memory as well as on disk, so the quotas are
+a memory budget before they are a disk one. The defaults are sized for a small
+host: 10,000 entries and 8 MiB per vault, 1,000 vaults. 8 MiB is also what
+someone holding a leaked RootKey can fill a vault with: junk entries the clients
+cannot open but the server counts. Recovery from that is rotation.
 
 ## One server lock
 
-One mutex guards the map of vaults. Creating a vault holds it across
-the disk work (directory, record, log open), so while a vault is
-being created every other request waits. That is deliberate: the
-check that a vault is new and its insertion must be atomic, or two
-REGISTERs for one new vault would both build a store and race for
-one log. Registrations are rare, so the cost is nil today. If they
-become frequent, reserve the map slot with a placeholder holding its
-own lock, release the server lock, and do the disk work under the
-placeholder.
+One mutex guards the map of vaults. Creating a vault holds it across the disk
+work (directory, record, log open), so while a vault is being created every
+other request waits. That is deliberate: the check that a vault is new and its
+insertion must be atomic, or two REGISTERs for one new vault would both build a
+store and race for one log. Registrations are rare, so the cost is nil today. If
+they become frequent, reserve the map slot with a placeholder holding its own
+lock, release the server lock, and do the disk work under the placeholder.
 
 ## The log
 
-A vault's log is append-only: a magic header, then length-prefixed
-entries, each write synced before the next. On open, a record that
-does not parse can only be a torn tail, since every committed record
-was synced before the next one began; it is cut off, and sync
-fetches whatever it held.
+A vault's log is append-only: a magic header, then length-prefixed entries, each
+write synced before the next. On open, a record that does not parse can only be
+a torn tail, since every committed record was synced before the next one began;
+it is cut off, and sync fetches whatever it held.
 
-The log takes an exclusive flock. POSIX record locks do not exclude
-a second descriptor in the same process and are all dropped when any
-descriptor of the file closes; flock belongs to the open file, so it
-refuses a second open in-process too. flock does not exclude a
-writer on another machine, so the data directory stays on a local
-disk.
+The log takes an exclusive flock. POSIX record locks do not exclude a second
+descriptor in the same process and are all dropped when any descriptor of the
+file closes; flock belongs to the open file, so it refuses a second open
+in-process too. flock does not exclude a writer on another machine, so the data
+directory stays on a local disk.
 
 ## The vault record
 
-A vault's directory holds two files: its record, `vault.fact`, and
-its entry log. The record is all of the vault's state but its
-entries -- its AuthKey, whether it is ephemeral, when it was created,
-and whether and why it ended -- and is replaced whole, in one atomic
-write (repani.com/durable). Its parts therefore never disagree. The
-vault exists once its record does; the log is created after it and
-deleted after the record ends, and a start finishes a deletion a
-crash interrupted. A record that cannot be read leaves its vault
-refused, never created afresh, since the record it lost may have
-said ended.
+A vault's directory holds two files: its record, `vault.fact`, and its entry
+log. The record is all of the vault's state but its entries -- its AuthKey,
+whether it is ephemeral, when it was created, and whether and why it ended --
+and is replaced whole, in one atomic write (repani.com/durable). Its parts
+therefore never disagree. The vault exists once its record does; the log is
+created after it and deleted after the record ends, and a start finishes a
+deletion a crash interrupted. A record that cannot be read leaves its vault
+refused, never created afresh, since the record it lost may have said ended.
 
-It replaced three marker files (auth.key, ephemeral, dropped) and
-the operator's revoked file, on 2026-10-26. Written one at a time,
-they had to land in the right order, and once did not: an ephemeral
-mark written before an auth.key that failed survived into a later
-permanent vault of the same id, and the next start ended that vault
-and deleted its entries. The rule since is the repos' own
-(~/repos/CLAUDE.md): several writes are never one transaction, so
-state that must change together lives in one file.
+It replaced three marker files (auth.key, ephemeral, dropped) and the operator's
+revoked file, on 2026-10-26. Written one at a time, they had to land in the
+right order, and once did not: an ephemeral mark written before an auth.key that
+failed survived into a later permanent vault of the same id, and the next start
+ended that vault and deleted its entries. The rule since is the repos' own
+(~/repos/CLAUDE.md): several writes are never one transaction, so state that
+must change together lives in one file.
 
-It is FACT rather than binary because a person reads it: an
-operator looks at a vault's state, and its note, with any text tool,
-and checks it with fact validate.
+It is FACT rather than binary because a person reads it: an operator looks at a
+vault's state, and its note, with any text tool, and checks it with fact
+validate.
 
 ## Revocation
 
-Dropping a vault's data does not end it: every device that holds
-its RootKey and a RegisterKey creates it again on its next sync, by
-design (UNKNOWN_VAULT, then REGISTER), and uploads its copy. So a
-drop is a revocation first: `kvserve drop-vault` rewrites the
-vault's record as ended, with a note, and then deletes its log. A
-server neither serves nor registers an ended vault (BAD_AUTH). A
-vault id the server never held gets a record that says only that it
-ended. Undoing a revocation is deleting the vault's directory with
-the server stopped.
+Dropping a vault's data does not end it: every device that holds its RootKey and
+a RegisterKey creates it again on its next sync, by design (UNKNOWN_VAULT, then
+REGISTER), and uploads its copy. So a drop is a revocation first: `kvserve
+drop-vault` rewrites the vault's record as ended, with a note, and then deletes
+its log. A server neither serves nor registers an ended vault (BAD_AUTH). A
+vault id the server never held gets a record that says only that it ended.
+Undoing a revocation is deleting the vault's directory with the server stopped.
 
-Revocation lived in a revoked file beside the register-key file from
-2026-10-13 to 2026-10-26: drop-vault appended to it, then deleted
-the data, two writes that a crash could split, and an append that
-could join a hand-edited last line. The record makes it one write.
+Revocation lived in a revoked file beside the register-key file from 2026-10-13
+to 2026-10-26: drop-vault appended to it, then deleted the data, two writes that
+a crash could split, and an append that could join a hand-edited last line. The
+record makes it one write.
 
-Considered on 2026-10-13: an admin vault on the server, its entries
-ROW rows naming the revoked ids, written from the operator's laptop
-with the kv client. It removes ssh from operations, but the server
-must hold that vault's RootKey -- the end of its blindness for one
-vault, and a credential that can destroy any vault. It becomes worth
-it when the server is managed remotely, and then it carries register
-keys and quotas too.
+Considered on 2026-10-13: an admin vault on the server, its entries ROW rows
+naming the revoked ids, written from the operator's laptop with the kv client.
+It removes ssh from operations, but the server must hold that vault's RootKey --
+the end of its blindness for one vault, and a credential that can destroy any
+vault. It becomes worth it when the server is managed remotely, and then it
+carries register keys and quotas too.
 
 ## The register-key file
 
-The register keys are a FACT file, one fact per key, labelled by who
-holds it: `register_key:iou.key: str = "…"`. `kvserve
-gen-register-key LABEL` prints such a line. The file was lines of
-base32 with `#` labels until 2026-10-26, when it moved to FACT with
-the vault record, so that every file kvserve reads but its logs is
-one checked format. Only the operator writes it, and only kvserve
-reads it, so nothing is ever written together with it.
+The register keys are a FACT file, one fact per key, labelled by who holds it:
+`register_key:iou.key: str = "…"`. `kvserve gen-register-key LABEL` prints such
+a line. The file was lines of base32 with `#` labels until 2026-10-26, when it
+moved to FACT with the vault record, so that every file kvserve reads but its
+logs is one checked format. Only the operator writes it, and only kvserve reads
+it, so nothing is ever written together with it.
 
 ## The device file
 
-The kv CLI keeps a device's keys in one FACT file, `device.fact` in
-KV_HOME: its RootKey, as its pairing blob, and its register key or
-none. Its presence is what makes a vault on the device. init and pair
-create it with durable.CreateFile, whole and never over another --
-a RootKey lost to an overwrite cannot be recovered -- and
-set-register-key replaces it whole. It replaced vault.key (20 raw
-bytes) and register.key (base32) on 2026-10-26: two files in two
-formats, which init and pair had to write in order. The entry log
-beside it is a cache the server can refill.
+The kv CLI keeps a device's keys in one FACT file, `device.fact` in KV_HOME: its
+RootKey, as its pairing blob, and its register key or none. Its presence is what
+makes a vault on the device. init and pair create it with durable.CreateFile,
+whole and never over another -- a RootKey lost to an overwrite cannot be
+recovered -- and set-register-key replaces it whole. It replaced vault.key (20
+raw bytes) and register.key (base32) on 2026-10-26: two files in two formats,
+which init and pair had to write in order. The entry log beside it is a cache
+the server can refill.
 
 ## The timestamp skew bounds only the future
 
-A server refuses a pushed entry dated more than TS_SKEW_MS ahead of
-its clock, and never one for being old. The bound was a distance
-either way until 2026-10-20, when the 2026-10-13 security review
-found it lost data: a phone offline for more than a day could never
-push its entries, one refused entry failing the whole push, and a
-rebuilt server could not be refilled from its devices. v1 was
-amended, not succeeded: it had two consumers, and the change only
-narrows what a server refuses.
+A server refuses a pushed entry dated more than TS_SKEW_MS ahead of its clock,
+and never one for being old. The bound was a distance either way until
+2026-10-20, when the 2026-10-13 security review found it lost data: a phone
+offline for more than a day could never push its entries, one refused entry
+failing the whole push, and a rebuilt server could not be refilled from its
+devices. v1 was amended, not succeeded: it had two consumers, and the change
+only narrows what a server refuses.
 
-The past bound bought no security. Only a vault's members can push
-at all, since a frame must open under the vault's channel key. A
-member's backdated entry loses last-writer-wins to every newer write
-of its key, so it overrides nothing; it can only add an entry dated
-in the past, which any member can do inside the old window anyway.
-The future bound stays, because a future-dated entry wins every
-merge until its date.
+The past bound bought no security. Only a vault's members can push at all, since
+a frame must open under the vault's channel key. A member's backdated entry
+loses last-writer-wins to every newer write of its key, so it overrides nothing;
+it can only add an entry dated in the past, which any member can do inside the
+old window anyway. The future bound stays, because a future-dated entry wins
+every merge until its date.
 
-The cost is a sync's, not security's: an old entry pushed late falls
-outside other devices' first-round window (CLIENT.t), so their PROBE
-still differs and the next round walks the whole set. It converges;
-it costs one full pull, within MAX_VAULT_BYTES.
+The cost is a sync's, not security's: an old entry pushed late falls outside
+other devices' first-round window (CLIENT.t), so their PROBE still differs and
+the next round walks the whole set. It converges; it costs one full pull, within
+MAX_VAULT_BYTES.
 
 ## Ephemeral vaults
 
-Some vaults exist for one exchange: iou pairs a new device by putting
-the keyring's key in a vault named by a code the person copies from
-one device to the other (iou ACCESS.t). A code can be left behind in
-a chat's history, and kv deletes nothing, so without an end that
-vault would hand the keyring to whoever finds the code later. An
-ephemeral vault makes the code single-use, and the server is the
-only party that can enforce that: the receiving device DROPs the
+Some vaults exist for one exchange: iou pairs a new device by putting the
+keyring's key in a vault named by a code the person copies from one device to
+the other (iou ACCESS.t). A code can be left behind in a chat's history, and kv
+deletes nothing, so without an end that vault would hand the keyring to whoever
+finds the code later. An ephemeral vault makes the code single-use, and the
+server is the only party that can enforce that: the receiving device DROPs the
 vault once it has read it, and EPHEMERAL_TTL_MS ends it otherwise.
 
-.item ONLY EPHEMERAL VAULTS DROP. Every holder of a shared vault's
-channel key is a member; were DROP open to all vaults, any member of
-a trip could destroy it for everyone. The mark is set at creation,
-by the creator, and a later REGISTER cannot set or clear it.
-.item ENDING IS REVOKING. A dropped vault whose id could be
-registered again would come back from whichever device still held
-its RootKey and a RegisterKey, as a dropped vault did before
-Revocation. So ending one rewrites its record as ended, noted
-"expired" or "dropped by its holder", exactly as drop-vault does:
-its directory then holds only the record (The vault record). The
-server writes nothing outside its data directory at run time.
-.item EXPIRY IS LAZY. An ephemeral vault past its lifetime ends when
-a frame next names it, and every expired one ends before a new vault
-counts against the vault limit. No timer, no goroutine: nothing
-outlives a request.
-.item WHAT IT DOES NOT COVER. A party holding the code while the vault
-lives can read it before the rightful receiver; the window is the
-minutes the exchange takes, where without an end it would be
-forever. Avoiding even that needs public-key cryptography (the
-code a fingerprint of the receiver's key), which kv does not have.
+.item ONLY EPHEMERAL VAULTS DROP. Every holder of a shared vault's channel key
+is a member; were DROP open to all vaults, any member of a trip could destroy it
+for everyone. The mark is set at creation, by the creator, and a later REGISTER
+cannot set or clear it.
+.item ENDING IS REVOKING. A dropped vault whose id could be registered again
+would come back from whichever device still held its RootKey and a RegisterKey,
+as a dropped vault did before Revocation. So ending one rewrites its record as
+ended, noted "expired" or "dropped by its holder", exactly as drop-vault does:
+its directory then holds only the record (The vault record). The server writes
+nothing outside its data directory at run time.
+.item EXPIRY IS LAZY. An ephemeral vault past its lifetime ends when a frame
+next names it, and every expired one ends before a new vault counts against the
+vault limit. No timer, no goroutine: nothing outlives a request.
+.item WHAT IT DOES NOT COVER. A party holding the code while the vault lives can
+read it before the rightful receiver; the window is the minutes the exchange
+takes, where without an end it would be forever. Avoiding even that needs
+public-key cryptography (the code a fingerprint of the receiver's key), which kv
+does not have.
 
-Decided 2026-10-20. Not Purge and shun, below: DROP ends a whole vault
-of one exchange, which needs no shun, since nothing of it lives on
-elsewhere that must be told; PURGE removes chosen entries from a
-long-lived vault every device must learn of.
+Decided 2026-10-20. Not Purge and shun, below: DROP ends a whole vault of one
+exchange, which needs no shun, since nothing of it lives on elsewhere that must
+be told; PURGE removes chosen entries from a long-lived vault every device must
+learn of.
 
 ## The store is protocol, not a primitive
 
-The store's identity of an item (the entry id), its order (canonical
-order) and its fingerprint (the set hash) are all protocol
-definitions. It is the protocol's entry set made durable, not a
-general log, and it stays in kv. A general log set is worth
-extracting only when a second protocol needs one: two consumers
-shape an interface, one does not.
+The store's identity of an item (the entry id), its order (canonical order) and
+its fingerprint (the set hash) are all protocol definitions. It is the
+protocol's entry set made durable, not a general log, and it stays in kv. A
+general log set is worth extracting only when a second protocol needs one: two
+consumers shape an interface, one does not.
 
 # Dependencies
 
-Beyond the standard library and this module's ascon and kiosk, kv
-admits two packages of the Go project, each for one job:
-golang.org/x/term, for the CLI's table width on a terminal, and
-golang.org/x/sys/windows, for the entry log's lock on Windows (flock
-covers Unix). kv.js's tests drive Chrome through this module's
-chrometest.
+Beyond the standard library and this module's ascon and kiosk, kv admits two
+packages of the Go project, each for one job: golang.org/x/term, for the CLI's
+table width on a terminal, and golang.org/x/sys/windows, for the entry log's
+lock on Windows (flock covers Unix). kv.js's tests drive Chrome through this
+module's chrometest.
 
 # Known gaps
 
-.item No real deletion. A tombstone hides a key; no operation removes
-entries from a set, and nothing compacts one. A set only grows.
-.item No bound on the whole population: every quota is per vault, so
-1,000 full vaults hold 8 GiB whatever one vault's cap. A total-bytes
-limit across vaults would close it.
+.item No real deletion. A tombstone hides a key; no operation removes entries
+from a set, and nothing compacts one. A set only grows.
+.item No bound on the whole population: every quota is per vault, so 1,000 full
+vaults hold 8 GiB whatever one vault's cap. A total-bytes limit across vaults
+would close it.
 
 # Not built yet
 
-Two designs, both learnt from the Fossil SCM sync protocol, which is
-the same design as kv's (a set of content-addressed artifacts
-reconciled through a stateless server) with two decades of use.
-Neither is implemented, promised or given a wire code.
+Two designs, both learnt from the Fossil SCM sync protocol, which is the same
+design as kv's (a set of content-addressed artifacts reconciled through a
+stateless server) with two decades of use. Neither is implemented, promised or
+given a wire code.
 
 ## Catalogue reconciliation
 
-The problem: a walk finds differences by moving whole entries. The
-pull re-sends entries the client holds and the push re-sends the
-window, so a one-entry difference back-dated below the window can
-cost the whole vault in transfer.
+The problem: a walk finds differences by moving whole entries. The pull re-sends
+entries the client holds and the push re-sends the window, so a one-entry
+difference back-dated below the window can cost the whole vault in transfer.
 
-Fossil exchanges bare ids first and then asks for exactly what is
-missing. For kv that is two more SYNC operations: IDS(cursor), a page
-of `ts_ms(8) || entry_id(16)` pairs after the cursor, about 2,700 to
-a 64 KiB page; and GET(ids), the whole entries for listed ids within
-the page budget. The client walks IDS to hold the server's catalogue,
-compares it with its own store, GETs what it lacks and PUSHes what the
-server lacks. The server stays stateless; both operations read what it
-already indexes. Fossil's cluster artifacts are not needed: canonical
-order and a cursor page the catalogue already.
+Fossil exchanges bare ids first and then asks for exactly what is missing. For
+kv that is two more SYNC operations: IDS(cursor), a page of `ts_ms(8) ||
+entry_id(16)` pairs after the cursor, about 2,700 to a 64 KiB page; and
+GET(ids), the whole entries for listed ids within the page budget. The client
+walks IDS to hold the server's catalogue, compares it with its own store, GETs
+what it lacks and PUSHes what the server lacks. The server stays stateless; both
+operations read what it already indexes. Fossil's cluster artifacts are not
+needed: canonical order and a cursor page the catalogue already.
 
-Build it when a full walk is a measured cost, on large vaults that
-diverge below the window. The steady state and the fast path do not
-change.
+Build it when a full walk is a measured cost, on large vaults that diverge below
+the window. The steady state and the fast path do not change.
 
 ## Purge and shun
 
-The problem: deleting entries locally does not stick in a replicated
-set, since the next sync brings them back from any device that still
-holds them. So a secret written by mistake cannot be removed, and a
-vault cannot shrink.
+The problem: deleting entries locally does not stick in a replicated set, since
+the next sync brings them back from any device that still holds them. So a
+secret written by mistake cannot be removed, and a vault cannot shrink.
 
-Fossil's answer is the shun: delete the artifact and remember its id,
-refusing it when offered again. For kv that is a PURGE(ids) SYNC
-operation, by which the server deletes entries (sealed under K_c2s,
-so only a channel-key holder can purge), and a shun entry: an
-ordinary sealed entry under a reserved key, holding the shunned ids.
-It replicates like any entry; each device then drops shunned entries
-from its log, its set hash and its pushes, so a lagging device learns
+Fossil's answer is the shun: delete the artifact and remember its id, refusing
+it when offered again. For kv that is a PURGE(ids) SYNC operation, by which the
+server deletes entries (sealed under K_c2s, so only a channel-key holder can
+purge), and a shun entry: an ordinary sealed entry under a reserved key, holding
+the shunned ids. It replicates like any entry; each device then drops shunned
+entries from its log, its set hash and its pushes, so a lagging device learns
 the shun before it can push the corpse back.
 
-Open questions: whether PURGE needs the shun entry to exist first,
-and how a shun entry is itself ever compacted. (Replaying old shun
-entries on a new device is no question: the skew bounds only the
-future.)
+Open questions: whether PURGE needs the shun entry to exist first, and how a
+shun entry is itself ever compacted. (Replaying old shun entries on a new device
+is no question: the skew bounds only the future.)
 
-Build it when a vault nears its quota, or the first time a secret
-must be removed from every device and the server. It is the more
-important of the two: it is a capability kv lacks outright, and every
-long-lived replicated set comes to need it.
+Build it when a vault nears its quota, or the first time a secret must be
+removed from every device and the server. It is the more important of the two:
+it is a capability kv lacks outright, and every long-lived replicated set comes
+to need it.
 .width 48
 .cols 2
 .font sans

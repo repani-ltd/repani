@@ -6,9 +6,8 @@ QUARTERLY CLIENT STATEMENT
 
 # Holdings summary
 
-Positions held at close of business, valued at the official
-closing price on the last trading day of the quarter. Accrued
-interest is included in market value.
+Positions held at close of business, valued at the official closing price on the
+last trading day of the quarter. Accrued interest is included in market value.
 
 .table *L 12N
 ^Client | Market value
@@ -24,22 +23,21 @@ Epsilon SA | n/a
 = Total | 40,312.21
 .end
 
-Figures in parentheses are net short positions. All valuations
-follow the group pricing policy; deviations above two percent are
-escalated to the risk committee.
+Figures in parentheses are net short positions. All valuations follow the group
+pricing policy; deviations above two percent are escalated to the risk
+committee.
 
 ## Valuation policy
 
-Level one instruments are marked to the exchange close. Level two
-instruments are marked to dealer consensus, and level three to the
-model approved at onboarding, reviewed annually. No client in this
-statement holds level three positions.
+Level one instruments are marked to the exchange close. Level two instruments
+are marked to dealer consensus, and level three to the model approved at
+onboarding, reviewed annually. No client in this statement holds level three
+positions.
 
 # Movements
 
-Deposits and withdrawals settle on a T+2 basis and are reflected
-in the quarter in which they settle, not the quarter in which they
-were instructed.
+Deposits and withdrawals settle on a T+2 basis and are reflected in the quarter
+in which they settle, not the quarter in which they were instructed.
 
 .table 14L *L 10N
 ^Date | Movement | Amount
@@ -52,8 +50,8 @@ were instructed.
 
 ## Settlement instructions
 
-Incoming payments must reference the account designation exactly
-as printed. The receiving details, fixed for the quarter:
+Incoming payments must reference the account designation exactly as printed. The
+receiving details, fixed for the quarter:
 
 .pre
 BENEFICIARY   PICA CUSTODY LTD
@@ -65,7 +63,8 @@ REFERENCE     Q2-2026 / client designation
 Notes to the statement:
 
 .item Valuations are stated net of withholding tax recoverable under treaty.
-.item Custody fees accrue daily and post on the last business day of the quarter.
+.item Custody fees accrue daily and post on the last business day of the
+quarter.
 .item A paper copy follows by registered mail within ten business days.
 
 .link https://example.org/statements Statement portal

@@ -2,18 +2,18 @@ KEA HARBOUR MASTER · ΚΕΑ
 .by Kea Port Authority
 .date Tuesday 02 September 2026, 07:00 LT
 .rights Λιμεναρχείο Κέας · hourly
-.rem The harbour master's notice board (tessera/examples/harbour):
-.rem the same data as a pica document, structure in place of ink.
+.rem The harbour master's notice board (tessera/examples/harbour): the same data
+.rem as a pica document, structure in place of ink.
 
 # Today
 
-Harbour open. Berthing on the south quay only; the north quay is
-reserved for the 18:30 ferry. Stern-to, lazy lines in place.
+Harbour open. Berthing on the south quay only; the north quay is reserved for
+the 18:30 ferry. Stern-to, lazy lines in place.
 
 ## Meltemi tonight
 
-North 7 to 8 from 18:00, gusts 9 in the channel. Double up mooring
-lines and fenders. Anchoring in Vourkari bay is _not_ advised.
+North 7 to 8 from 18:00, gusts 9 in the channel. Double up mooring lines and
+fenders. Anchoring in Vourkari bay is _not_ advised.
 
 ## Services
 

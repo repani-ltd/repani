@@ -12,6 +12,6 @@ canonical reference implementation repository:
   LWC_CXOF_KAT_128_512.txt  crypto_cxof/asconcxof128/  (1089 vectors)
 .end
 
-They are consumed by kat_test.go, which runs every vector against this
-package's implementation. Do not edit them by hand; refresh only by
-re-copying from upstream.
+They are consumed by kat_test.go, which runs every vector against this package's
+implementation. Do not edit them by hand; refresh only by re-copying from
+upstream.

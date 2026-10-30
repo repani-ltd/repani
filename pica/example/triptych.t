@@ -2,36 +2,77 @@ The Pica Triptych
 
 .by the pica engine
 .date 24 July 2026
-.rem This comment renders nowhere. Delete it and the PDF does not change by a byte.
+.rem This comment renders nowhere. Delete it and the PDF does not change by a
+.rem byte.
 
 # Three columns, one argument
 
-A newspaper page is a machine for reading, and the column is its moving part. Set a measure too wide and the eye loses the return sweep; set it too narrow and the justification has nowhere to hide its arithmetic. Three columns on a quarto sheet is the old compositor's compromise, and this document is set that way on purpose: the measure is short enough to stress every part of the line breaker, and long enough to show that the stress does not tear the cloth.
+A newspaper page is a machine for reading, and the column is its moving part.
+Set a measure too wide and the eye loses the return sweep; set it too narrow and
+the justification has nowhere to hide its arithmetic. Three columns on a quarto
+sheet is the old compositor's compromise, and this document is set that way on
+purpose: the measure is short enough to stress every part of the line breaker,
+and long enough to show that the stress does not tear the cloth.
 
-Everything you are reading came from one plain text file. The prose is unmarked, the structure is a handful of dot commands, and the geometry is declared in three lines at the tail of the source. Even the dateline under the masthead is two commands, .by and .date, and beside them in the source sits a .rem comment that has never appeared on any page. The same file produces the same PDF, byte for byte, every time it is rendered. Nothing on this page was nudged by hand, and nothing could be: there is no markup for nudging.
+Everything you are reading came from one plain text file. The prose is unmarked,
+the structure is a handful of dot commands, and the geometry is declared in
+three lines at the tail of the source. Even the dateline under the masthead is
+two commands, .by and .date, and beside them in the source sits a .rem comment
+that has never appeared on any page. The same file produces the same PDF, byte
+for byte, every time it is rendered. Nothing on this page was nudged by hand,
+and nothing could be: there is no markup for nudging.
 
 # The line, measured
 
-Each word on this page was measured in thousandths of an em before a single break was chosen. The breaker is the Knuth-Plass dynamic program: it considers every way the paragraph could be divided, prices each candidate line by how far its spaces must stretch or squeeze, and picks the division whose total cost is least. A greedy breaker fills each line and moves on, exporting its mistakes to the lines below; the dynamic program pays for a slightly loose line early when that purchase buys an even paragraph.
+Each word on this page was measured in thousandths of an em before a single
+break was chosen. The breaker is the Knuth-Plass dynamic program: it considers
+every way the paragraph could be divided, prices each candidate line by how far
+its spaces must stretch or squeeze, and picks the division whose total cost is
+least. A greedy breaker fills each line and moves on, exporting its mistakes to
+the lines below; the dynamic program pays for a slightly loose line early when
+that purchase buys an even paragraph.
 
-The pricing has learned some manners recently. Spaces may now shrink as well as stretch, up to a third of their natural width, so a line that runs a hair long is set snug instead of pushing a word down and leaving a crater behind. Adjacent letters are kerned from the font's own pair tables, so a capital T tucks the following vowel under its bar here just as it would in a book. And when a line ends in a hyphen, the hyphen is hung into the margin: the letters stop at the boundary and only the stroke crosses it, which keeps the right edge of each column optically straight. Run a finger down the edge of this column and the hyphens will overhang it.
+The pricing has learned some manners recently. Spaces may now shrink as well as
+stretch, up to a third of their natural width, so a line that runs a hair long
+is set snug instead of pushing a word down and leaving a crater behind. Adjacent
+letters are kerned from the font's own pair tables, so a capital T tucks the
+following vowel under its bar here just as it would in a book. And when a line
+ends in a hyphen, the hyphen is hung into the margin: the letters stop at the
+boundary and only the stroke crosses it, which keeps the right edge of each
+column optically straight. Run a finger down the edge of this column and the
+hyphens will overhang it.
 
-Hyphenation itself is the embedded Knuth-Liang patterns, the same ones TeX carries — every embedded set at once, since their scripts are disjoint — and the justified breaker treats a syllable break as a cheap purchase rather than a last resort. At this measure that is the correct temperament: a hyphen costs the reader almost nothing, while a gaping line costs the whole paragraph its color.
+Hyphenation itself is the embedded Knuth-Liang patterns, the same ones TeX
+carries — every embedded set at once, since their scripts are disjoint — and the
+justified breaker treats a syllable break as a cheap purchase rather than a last
+resort. At this measure that is the correct temperament: a hyphen costs the
+reader almost nothing, while a gaping line costs the whole paragraph its color.
 
 # The tradition, quoted
 
-A quotation is set apart the old way: indented two characters at each side, filled as one paragraph on its own narrower measure, with the attribution pushed flush to the quotation's right edge. In the source it is three commands and the words themselves.
+A quotation is set apart the old way: indented two characters at each side,
+filled as one paragraph on its own narrower measure, with the attribution pushed
+flush to the quotation's right edge. In the source it is three commands and the
+words themselves.
 
 .quote
-Printing demands a humility of mind, for the lack of which many of the fine arts are even now floundering in self-conscious and maudlin experiments.
+Printing demands a humility of mind, for the lack of which many of the fine arts
+are even now floundering in self-conscious and maudlin experiments.
 .attrib Stanley Morison
 .end
 
-Morison would have recognized everything on this page except the machine. The quotation block above keeps his sentence at the quotation's own measure, and had it needed more than one column's worth of lines, the flow would have cut it under the same refusals that govern paragraphs.
+Morison would have recognized everything on this page except the machine. The
+quotation block above keeps his sentence at the quotation's own measure, and had
+it needed more than one column's worth of lines, the flow would have cut it
+under the same refusals that govern paragraphs.
 
 # Vocabulary of the trade
 
-The table below is a glossary of the words this document keeps using. It is deliberately longer than a column, so somewhere below, the flow will cut it at a row boundary and continue it at the top of the next column. Watch what happens at the cut: the header row travels with the continuation. A reader entering the table mid-stream is never asked to remember what the columns meant.
+The table below is a glossary of the words this document keeps using. It is
+deliberately longer than a column, so somewhere below, the flow will cut it at a
+row boundary and continue it at the top of the next column. Watch what happens
+at the cut: the header row travels with the continuation. A reader entering the
+table mid-stream is never asked to remember what the columns meant.
 
 .table 9L *L
 ^Term | Meaning
@@ -63,13 +104,21 @@ signature | a folded press sheet of consecutive pages
 colophon | the note that records how a book was made
 .end
 
-The specification for that table is one line in the source: a fixed nine-rune column for the term, and a star column that absorbs the rest of the measure. Cells wrap inside their column, rows that wrap are moved whole, and the rule under the header is drawn by the renderer, not typed by the author.
+The specification for that table is one line in the source: a fixed nine-rune
+column for the term, and a star column that absorbs the rest of the measure.
+Cells wrap inside their column, rows that wrap are moved whole, and the rule
+under the header is drawn by the renderer, not typed by the author.
 
 ---
 
 # The ledger splits politely
 
-A verbatim block is normally atomic: code and aligned figures lose their meaning when torn, so the flow moves them whole to a fresh column rather than split them. But a block may declare a repeated lead-in, and then it splits freely, re-issuing the lead-in at every continuation. The press ledger below declares one such line. Wherever the column boundary happens to fall, the continuation opens by repeating the dated header row.
+A verbatim block is normally atomic: code and aligned figures lose their meaning
+when torn, so the flow moves them whole to a fresh column rather than split
+them. But a block may declare a repeated lead-in, and then it splits freely,
+re-issuing the lead-in at every continuation. The press ledger below declares
+one such line. Wherever the column boundary happens to fall, the continuation
+opens by repeating the dated header row.
 
 .pre 1
 DATE        RUN      N  PLATE
@@ -121,11 +170,23 @@ DATE        RUN      N  PLATE
 2026-06-25  morning  4  current
 .end
 
-The ledger and the glossary are both drawn in JuliaMono at the size where the document's declared width fits the column exactly, so the fixed grid and the measured prose share one visual measure. Alignment inside the grid is done by padding with spaces, which is the whole point of a grid; justification never touches it.
+The ledger and the glossary are both drawn in JuliaMono at the size where the
+document's declared width fits the column exactly, so the fixed grid and the
+measured prose share one visual measure. Alignment inside the grid is done by
+padding with spaces, which is the whole point of a grid; justification never
+touches it.
 
 ## The ledger, priced
 
-Three of the table's tricks are newer than the rest of this page, and one small table shows them all. A column typed N aligns every cell on the decimal point, and an accounting negative in parentheses hangs its closing paren in a reserved slot so the digits above and below stay in rank. A row opening with two dots hangs a half-size note under the row before it, set at half the leading with twice the character budget. And a row opening with an equals sign closes the table in bold beneath a rule. The heading over this very paragraph is a fourth trick: a subsection, marked with a doubled hash and set at its own scale between the section heads and the body.
+Three of the table's tricks are newer than the rest of this page, and one small
+table shows them all. A column typed N aligns every cell on the decimal point,
+and an accounting negative in parentheses hangs its closing paren in a reserved
+slot so the digits above and below stay in rank. A row opening with two dots
+hangs a half-size note under the row before it, set at half the leading with
+twice the character budget. And a row opening with an equals sign closes the
+table in bold beneath a rule. The heading over this very paragraph is a fourth
+trick: a subsection, marked with a doubled hash and set at its own scale between
+the section heads and the body.
 
 .table 12L *N
 ^Run | Cost
@@ -138,24 +199,48 @@ special | (312.25)
 = Total | 3,108.25
 .end
 
-The numbers themselves are set in the sans face with tabular figures, every digit on one fixed advance, which is why the total's bold digits sit exactly over the regular ones above them.
+The numbers themselves are set in the sans face with tabular figures, every
+digit on one fixed advance, which is why the total's bold digits sit exactly
+over the regular ones above them.
 
 # What the flow refuses to do
 
-The column flow has a short list of refusals, and the pleasure of a long document is watching it keep them. It refuses to strand a single line of a paragraph at the bottom of a column, and refuses equally to open a column with one; the cut must leave at least two lines on each side, or it is not made at all. It refuses to leave a heading at a column foot with its section beginning elsewhere; the heading stays bonded to the first lines of what follows, and both move together. It refuses to continue a table without repeating its header, or a declared ledger without its lead-in. The house rules, as a compositor would pin them over the frame:
+The column flow has a short list of refusals, and the pleasure of a long
+document is watching it keep them. It refuses to strand a single line of a
+paragraph at the bottom of a column, and refuses equally to open a column with
+one; the cut must leave at least two lines on each side, or it is not made at
+all. It refuses to leave a heading at a column foot with its section beginning
+elsewhere; the heading stays bonded to the first lines of what follows, and both
+move together. It refuses to continue a table without repeating its header, or a
+declared ledger without its lead-in. The house rules, as a compositor would pin
+them over the frame:
 
 .item at least two lines of any paragraph on each side of a cut
 .item no heading parted from the section it opens
 .item no table continued without its header row
 .item no ledger continued without its declared lead-in
 
-Each of those lines is one .item command: a bullet and a hanging indent for the turnovers. Because the items in this run turn over, the renderer sets a half line of air between them; a run of one-liners packs tight.
+Each of those lines is one .item command: a bullet and a hanging indent for the
+turnovers. Because the items in this run turn over, the renderer sets a half
+line of air between them; a run of one-liners packs tight.
 
-None of these refusals are suggestions to the author. They are properties of the flow function, and the flow is pure: the same blocks poured into the same capacities give the same columns, every run. That purity is what makes the final trick affordable. When the document ends before its last page is full, the engine re-runs the whole flow at smaller and smaller column capacities until the last page's columns carry nearly equal weight. The page you finish on should look composed, not abandoned mid-pour.
+None of these refusals are suggestions to the author. They are properties of the
+flow function, and the flow is pure: the same blocks poured into the same
+capacities give the same columns, every run. That purity is what makes the final
+trick affordable. When the document ends before its last page is full, the
+engine re-runs the whole flow at smaller and smaller column capacities until the
+last page's columns carry nearly equal weight. The page you finish on should
+look composed, not abandoned mid-pour.
 
 # The type behind the page
 
-Two faces set everything here. Fira Sans carries the prose, with its kerning read straight from the font's pair-positioning tables and re-expressed as positioning adjustments in the PDF text stream. JuliaMono carries the grids, the masthead's little sibling duties, and anything that must align by character cell. Both are subset before embedding: the PDF contains exactly the glyphs this document uses and no others, which is why the file stays small while carrying two full faces.
+Two faces set everything here. Fira Sans carries the prose, with its kerning
+read straight from the font's pair-positioning tables and re-expressed as
+positioning adjustments in the PDF text stream. JuliaMono carries the grids, the
+masthead's little sibling duties, and anything that must align by character
+cell. Both are subset before embedding: the PDF contains exactly the glyphs this
+document uses and no others, which is why the file stays small while carrying
+two full faces.
 
 The sources for both, and for the machinery, are a short walk away:
 
@@ -167,7 +252,17 @@ The sources for both, and for the machinery, are a short walk away:
 
 # Colophon
 
-This triptych was set by pica from a single source file: plain paragraphs, a score of dot commands, and a three-line trailer declaring a thirty-two rune measure, three columns, and the sans face. A dateline, a quotation with its attribution, a subsection at its own scale, a priced table that aligns on the decimal point and closes bold over a rule, half-size notes, a bulleted list, and one comment that never printed have joined the vocabulary since the first impression. The line breaks were chosen by optimal-fit dynamic programming with shrinkable gaps, pair kerning, and hung hyphens; the pages were broken by a flow that keeps headings bonded, repeats headers, and balances its final page. If every column edge reads straight and no line stopped you on the way here, the machine did its work.
+This triptych was set by pica from a single source file: plain paragraphs, a
+score of dot commands, and a three-line trailer declaring a thirty-two rune
+measure, three columns, and the sans face. A dateline, a quotation with its
+attribution, a subsection at its own scale, a priced table that aligns on the
+decimal point and closes bold over a rule, half-size notes, a bulleted list, and
+one comment that never printed have joined the vocabulary since the first
+impression. The line breaks were chosen by optimal-fit dynamic programming with
+shrinkable gaps, pair kerning, and hung hyphens; the pages were broken by a flow
+that keeps headings bonded, repeats headers, and balances its final page. If
+every column edge reads straight and no line stopped you on the way here, the
+machine did its work.
 
 .width 32
 .cols 3
