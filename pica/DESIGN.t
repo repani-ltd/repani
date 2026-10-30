@@ -1,166 +1,155 @@
 Design notes: pica as a troff successor
 
-Status: design direction agreed 2026-07-22, nothing below is implemented
-unless marked "exists". This document is the handoff for whoever (human or
-agent) picks up the work. Read CLAUDE.md first. References below name
-functions and files; locate them with go doc -u -short and grep.
+Status: design direction agreed 2026-07-22, nothing below is implemented unless
+marked "exists". This document is the handoff for whoever (human or agent) picks
+up the work. Read CLAUDE.md first. References below name functions and files;
+locate them with go doc -u -short and grep.
 
 # 1. The thesis
 
-pica grows into a troff-like typesetting system that keeps troff's
-temperament — imperative streaming galley model, line-oriented plain-text
-source, terse dot-commands, pipeline-friendliness — but has no macro
-language at all. Extension happens in Go, against a typed API.
-The .table command is the precedent and the pattern.
+pica grows into a troff-like typesetting system that keeps troff's temperament —
+imperative streaming galley model, line-oriented plain-text source, terse
+dot-commands, pipeline-friendliness — but has no macro language at all.
+Extension happens in Go, against a typed API. The .table command is the
+precedent and the pattern.
 
 ## Why no macro language
 
-Troff's brittleness has four root causes, and every macro language shares
-some of them:
+Troff's brittleness has four root causes, and every macro language shares some
+of them:
 
-.item 1. Rescanning. Macro bodies are captured text re-read through the
-input machinery, so escape evaluation time is encoded in backslash count
-(\n vs \\n vs \\\\n). This is ~70% of troff's fragility. TeX has the same
-disease via token rewriting.
-.item 2. Stringly-typed global state. Registers/strings/macros share one
-flat namespace; packages collide by construction; dimensions and booleans
-are all "a number register".
-.item 3. Diversions are macros. Captured output is stored as replayable
-input, so measuring a box means diverting and reading side-channel
-registers, and replay may behave differently in a new context.
+.item 1. Rescanning. Macro bodies are captured text re-read through the input
+machinery, so escape evaluation time is encoded in backslash count (\n vs \\n vs
+\\\\n). This is ~70% of troff's fragility. TeX has the same disease via token
+rewriting.
+.item 2. Stringly-typed global state. Registers/strings/macros share one flat
+namespace; packages collide by construction; dimensions and booleans are all "a
+number register".
+.item 3. Diversions are macros. Captured output is stored as replayable input,
+so measuring a box means diverting and reading side-channel registers, and
+replay may behave differently in a new context.
 .item 4. Silence on error. Unknown request = line silently dropped.
 
 Historically macro languages existed because users couldn't recompile the
-formatter. With agents writing extension code, that rationale is gone. Go
-gives the extension layer a type system, tests, debugger, and package
-management for free; compile errors + tests give an agent a feedback loop
-no macro language ever had.
+formatter. With agents writing extension code, that rationale is gone. Go gives
+the extension layer a type system, tests, debugger, and package management for
+free; compile errors + tests give an agent a feedback loop no macro language
+ever had.
 
 ## The architecture
 
-.item Document layer: fully declarative, zero programmability. Content
-lines + .command lines. A document is inert data — this is also the
-security boundary (rendering an untrusted document never executes code).
-.item Every dot-command is a registered Go handler receiving a parsed
-region and a capability-scoped context. A "macro package" is a Go package
-that registers commands (an -ms equivalent is import "pica/ms").
+.item Document layer: fully declarative, zero programmability. Content lines
++ .command lines. A document is inert data — this is also the security boundary
+(rendering an untrusted document never executes code).
+.item Every dot-command is a registered Go handler receiving a parsed region and
+a capability-scoped context. A "macro package" is a Go package that registers
+commands (an -ms equivalent is import "pica/ms").
 .item The one in-band definition facility is .alias (not yet designed in
-detail): single-pass substitution of parsed content, positional
-interpolation only, no recursion, no conditionals. Deliberately crippled
-so it cannot grow into a macro language. Anything needing logic graduates
-to Go.
-.item Distribution: the shipped pica binary is batteries-included
-(rendering plain documents never needs a Go toolchain). Extenders treat
-their document repo as a Go module: a ten-line main.go imports pica
-commands + their handlers; go run . renders; go.mod pins the
-document↔package version coupling (a problem troff never solved). Go
-plugin is explicitly rejected (platform-limited, version-locked). An
-xcaddy-style builder is a later option if third-party users appear.
-.item API discipline (critical): handlers must NOT receive a *Formatter or
-any grab-bag of mutable engine state — that recreates troff's global
-register soup in Go. Each hook point gets a parameter object exposing only
-what that hook may do (e.g. a page handle with Remaining() / Reserve() but
-no galley writer). The contract is enforced by what is unreachable, not by
-documentation.
+detail): single-pass substitution of parsed content, positional interpolation
+only, no recursion, no conditionals. Deliberately crippled so it cannot grow
+into a macro language. Anything needing logic graduates to Go.
+.item Distribution: the shipped pica binary is batteries-included (rendering
+plain documents never needs a Go toolchain). Extenders treat their document repo
+as a Go module: a ten-line main.go imports pica commands + their handlers; go
+run . renders; go.mod pins the document↔package version coupling (a problem
+troff never solved). Go plugin is explicitly rejected (platform-limited,
+version-locked). An xcaddy-style builder is a later option if third-party users
+appear.
+.item API discipline (critical): handlers must NOT receive a *Formatter or any
+grab-bag of mutable engine state — that recreates troff's global register soup
+in Go. Each hook point gets a parameter object exposing only what that hook may
+do (e.g. a page handle with Remaining() / Reserve() but no galley writer). The
+contract is enforced by what is unreachable, not by documentation.
 
 ## Known costs, accepted
 
-.item Documents are no longer self-contained single files; the repo/module
-is the distribution unit.
+.item Documents are no longer self-contained single files; the repo/module is
+the distribution unit.
 .item Macro changes add a go build to the edit-render loop (~1–2 s warm).
 .item The two-line one-off (.de-style shortcut) is covered only by .alias.
 
 ## No intermediate output language (decided 2026-07-22)
 
-There is deliberately NO ditroff-style device-independent output format.
-Each output device is a Go backend consuming post-layout values (composed
-lines / flowed columns) in-process, with full Go available. Rationale: the
-interchange format is Go types — type-checked, compiler-versioned, no
-parser, no x X-style escape hatch (capabilities are typed fields, e.g.
-sline.href). Same reasoning that killed the macro language.
+There is deliberately NO ditroff-style device-independent output format. Each
+output device is a Go backend consuming post-layout values (composed lines /
+flowed columns) in-process, with full Go available. Rationale: the interchange
+format is Go types — type-checked, compiler-versioned, no parser, no x X-style
+escape hatch (capabilities are typed fields, e.g. sline.href). Same reasoning
+that killed the macro language.
 
 Discipline that replaces the format:
 
-.item The shared core owns measurement, wrapping, and flow; backends own
-only drawing. Layout decisions must never be re-implemented per-backend
-(guard against text/PDF drift; today both go through pica wrapping and the
+.item The shared core owns measurement, wrapping, and flow; backends own only
+drawing. Layout decisions must never be re-implemented per-backend (guard
+against text/PDF drift; today both go through pica wrapping and the
 source-declared .width — keep it that way).
-.item fblock/sline stay unexported inside cmd/pica until a second real
-backend forces promotion to a shared package; that promotion is a design
-event (it makes them the load-bearing contract ditroff's format was).
-(Refined 2026-08-29: the address is now pica/press (§10) -- a relocation,
-not the promotion; fblock/sline remain unexported there and the event
-above is still pending.)
-.item A debug backend that dumps composed values as text is fine for
-inspection but must never become a contract.
+.item fblock/sline stay unexported inside cmd/pica until a second real backend
+forces promotion to a shared package; that promotion is a design event (it makes
+them the load-bearing contract ditroff's format was). (Refined 2026-08-29: the
+address is now pica/press (§10) -- a relocation, not the promotion; fblock/sline
+remain unexported there and the event above is still pending.)
+.item A debug backend that dumps composed values as text is fine for inspection
+but must never become a contract.
 
-Refined 2026-07-31: the display list (§5) reifies the draw boundary as
-Go values — still no serialized format, no parser. The discipline above
-stands unchanged; what §5 settles is the shape of the values backends
-consume once a second backend exists.
+Refined 2026-07-31: the display list (§5) reifies the draw boundary as Go values
+— still no serialized format, no parser. The discipline above stands unchanged;
+what §5 settles is the shape of the values backends consume once a second
+backend exists.
 
 ## Semantic markers, never style commands (decided 2026-08-05)
 
-The document layer contains zero presentational instructions, and
-that is a rule, not an accident: authors state what things ARE
-(# heading, .quote, = total row, .. note, N numeric column); writers
-own how everything looks. Bold is a rendering some writers give some
-constructs — never something a document can ask for. Two enforcing
-arguments:
+The document layer contains zero presentational instructions, and that is a
+rule, not an accident: authors state what things ARE (# heading, .quote, = total
+row, .. note, N numeric column); writers own how everything looks. Bold is a
+rendering some writers give some constructs — never something a document can ask
+for. Two enforcing arguments:
 
-.item Every construct must render in every writer, including the
-fixed-width text page. Semantic constructs degrade gracefully (a total row
-becomes a dash rule, a heading stays a marked line); "bold" has no
-monospace-text rendering at all — a style command would be the first
-construct a first-class writer must silently drop.
-.item Presentation-free documents are what keep "same source, N writers"
-true — and volume document fleets uniform, since authors cannot restyle
-statement #4,017 differently from #4,016. \fB is how troff documents
-rotted; the writer owning emphasis is the same principle as the writer
-owning widths.
+.item Every construct must render in every writer, including the fixed-width
+text page. Semantic constructs degrade gracefully (a total row becomes a dash
+rule, a heading stays a marked line); "bold" has no monospace-text rendering at
+all — a style command would be the first construct a first-class writer must
+silently drop.
+.item Presentation-free documents are what keep "same source, N writers" true —
+and volume document fleets uniform, since authors cannot restyle statement
+#4,017 differently from #4,016. \fB is how troff documents rotted; the writer
+owning emphasis is the same principle as the writer owning widths.
 
-Headings and totals both render bold; they share presentation, not
-meaning — and meaning is the interface. sline.style is the shared
-rendering channel inside the engine and stays unreachable from the
-document.
+Headings and totals both render bold; they share presentation, not meaning — and
+meaning is the interface. sline.style is the shared rendering channel inside the
+engine and stays unreachable from the document.
 
-When emphasis-in-prose demand fires, the addition is another
-semantic marker specific to the need (a lead-in construct, not
-"bold"), with its text rendering defined at birth. Note the deeper
-boundary waiting there: inline anything would be the language's
-first in-content syntax — content is escape-free verbatim text by
-design — so that step needs its own recorded decision, never a side
-effect of wanting emphasis. (2026-08-24: the demand fired and the
-decision is recorded, §9. 2026-09-02: the lead-in construct
-itself entered as .term, §11.)
+When emphasis-in-prose demand fires, the addition is another semantic marker
+specific to the need (a lead-in construct, not "bold"), with its text rendering
+defined at birth. Note the deeper boundary waiting there: inline anything would
+be the language's first in-content syntax — content is escape-free verbatim text
+by design — so that step needs its own recorded decision, never a side effect of
+wanting emphasis. (2026-08-24: the demand fired and the decision is recorded,
+§9. 2026-09-02: the lead-in construct itself entered as .term, §11.)
 
-2026-08-05: =, .., and N are KEPT as permanent language surface
-regardless of how the bank-report demand develops — all three are
-semantic (a total, an attachment, a column data type), each with a
-text-writer rendering; none is a style command.
+2026-08-05: =, .., and N are KEPT as permanent language surface regardless of
+how the bank-report demand develops — all three are semantic (a total, an
+attachment, a column data type), each with a text-writer rendering; none is a
+style command.
 
 ## Items fill like prose (decided 2026-08-10)
 
-The .item text was the one place an author had to manage source line
-length: its TEXT ended at the command's line, so hard-wrapping an
-item — legal and idiomatic for every paragraph — silently split it
-into an item plus an orphan paragraph. A real document (qcrf's
-SPEC.t, agent-authored with uniformly hard-wrapped source) hit
-exactly this, and pica check had nothing to say: silent
-structural corruption, the language's own named enemy. Now an
-item's text fills exactly as a paragraph does — the command's line
-plus following unmarked lines, ended by a blank line or any marked
-line (.rem transparent, as for paragraphs). The asymmetry is
-gone: hard-wrapped source means the same thing everywhere. Cost
-accepted: a paragraph can no longer directly follow an item
-without a blank line — an ambiguous pattern no real document used.
+The .item text was the one place an author had to manage source line length: its
+TEXT ended at the command's line, so hard-wrapping an item — legal and idiomatic
+for every paragraph — silently split it into an item plus an orphan paragraph. A
+real document (qcrf's SPEC.t, agent-authored with uniformly hard-wrapped source)
+hit exactly this, and pica check had nothing to say: silent structural
+corruption, the language's own named enemy. Now an item's text fills exactly as
+a paragraph does — the command's line plus following unmarked lines, ended by a
+blank line or any marked line (.rem transparent, as for paragraphs). The
+asymmetry is gone: hard-wrapped source means the same thing everywhere. Cost
+accepted: a paragraph can no longer directly follow an item without a blank line
+— an ambiguous pattern no real document used.
 
-Same day, presentation-side: a tight item run in which any item
-turns over gains half-line gaps between items in the PDF writers —
-conditional like the table row-pitch policy, quantized to the
-half-line, the spacer glued into each item's last seg so a split
-can never strand a gap at a column top. The text page stays tight
-(no half-line in the medium).
+Same day, presentation-side: a tight item run in which any item turns over gains
+half-line gaps between items in the PDF writers — conditional like the table
+row-pitch policy, quantized to the half-line, the spacer glued into each item's
+last seg so a split can never strand a gap at a column top. The text page stays
+tight (no half-line in the medium).
 
 ## The command-existence test (decided 2026-08-07)
 
@@ -173,1089 +162,967 @@ A dot-command earns core existence when all three hold:
 Corollaries, each closing a tempting wrong door:
 
 .item No layout-position commands (.subheader and kin): they name where
-something renders, not what it is — the style-command sin one level up.
-Erased meaning is unrecoverable downstream: .date can feed /CreationDate,
-future PDF/A XMP, a pipeline sort key; a "subheader" string can only ever
-be drawn.
+something renders, not what it is — the style-command sin one level up. Erased
+meaning is unrecoverable downstream: .date can feed /CreationDate, future PDF/A
+XMP, a pipeline sort key; a "subheader" string can only ever be drawn.
 .item No per-presentation command sets. Presentations are writers; writers
-consume shared semantics and never own vocabulary (broadsheet and report
-render the same .by/.date differently with zero presentation syntax). The
-§1 extension-package layer is for semantic DOMAINS (a financial package
-registering financial constructs — passes tests 1–2, fails 3 for core),
-not for presentations. Presentation-specific commands are presentation
-leaking into documents.
-.item No generic .meta key value escape hatch: a flat stringly-typed
-namespace replacing typed fields is the register soup in miniature.
+consume shared semantics and never own vocabulary (broadsheet and report render
+the same .by/.date differently with zero presentation syntax). The §1
+extension-package layer is for semantic DOMAINS (a financial package registering
+financial constructs — passes tests 1–2, fails 3 for core), not for
+presentations. Presentation-specific commands are presentation leaking into
+documents.
+.item No generic .meta key value escape hatch: a flat stringly-typed namespace
+replacing typed fields is the register soup in miniature.
 
-Reviewed under the test, 2026-08-07: .by and .date are KEPT as
-core commands — authorship and date are the most universal document
-metadata there is (Dublin Core creator/date, -ms .AU/.DA), every
-writer renders them, and their typed meaning is load-bearing for
-future PDF metadata.
+Reviewed under the test, 2026-08-07: .by and .date are KEPT as core commands —
+authorship and date are the most universal document metadata there is (Dublin
+Core creator/date, -ms .AU/.DA), every writer renders them, and their typed
+meaning is load-bearing for future PDF metadata.
 
-Admitted under the test, 2026-08-10: .rights — imprint/copyright
-metadata (Dublin Core rights/publisher; -mm's .PF ancestry for the
-rendering). The PDF writers join it to the page number in one
-small gray centered footer line on every page (a left/right split
-was tried first and rejected for symmetry; centered-combined also
-survives the thin newspaper margin, where a stacked second line
-would fall inside printers' unprintable zone); the text page
-closes with it as a final line (no per-page footer in the medium —
-the honest form, like the total row's dash rule). The
-name .footer was rejected first: it names where, not what — the
-layout-position corollary's first live test. Once, before content,
-like .by; the semantic field can feed XMP dc:rights when the
-PDF/A trigger fires.
+Admitted under the test, 2026-08-10: .rights — imprint/copyright metadata
+(Dublin Core rights/publisher; -mm's .PF ancestry for the rendering). The PDF
+writers join it to the page number in one small gray centered footer line on
+every page (a left/right split was tried first and rejected for symmetry;
+centered-combined also survives the thin newspaper margin, where a stacked
+second line would fall inside printers' unprintable zone); the text page closes
+with it as a final line (no per-page footer in the medium — the honest form,
+like the total row's dash rule). The name .footer was rejected first: it names
+where, not what — the layout-position corollary's first live test. Once, before
+content, like .by; the semantic field can feed XMP dc:rights when the PDF/A
+trigger fires.
 
 ## Naming and the DESIGN.t sufficiency check (2026-08-07)
 
-The language and tool are both called pica for now — three names
-(typeset, pica, plus a language name) confuse more than they
-distinguish at this stage. If the tool ever serves external users
-and needs a formal language spec, naming happens then ("galley" was
-the leading candidate: set matter before page makeup, which is
-exactly what a document here is).
+The language and tool are both called pica for now — three names (typeset, pica,
+plus a language name) confuse more than they distinguish at this stage. If the
+tool ever serves external users and needs a formal language spec, naming happens
+then ("galley" was the leading candidate: set matter before page makeup, which
+is exactly what a document here is).
 
-Dogfooding DESIGN.t against the language found one real gap and
-two confirmations. Added: ## heading — a second heading level,
-capped at two permanently (### errors; man's .SH/.SS ran fifty
-years on two). Both levels pass the command-existence test, and the
-presentation side was independently anticipated by §7's parked
-heading roles — need arriving from both sides at once is the
-strongest build-trigger there is. (Both levels rendered body-size
-bold for two days; heading roles landed 2026-08-07 — see §7.)
-Confirmed rather
-than added: no inline markup (identifiers read fine bare, and mono
-presentations show no distinction anyway) and no nested items
-(nesting is where markdown's complexity lives). Numbered lists are
-the open borderline — see §8.
+Dogfooding DESIGN.t against the language found one real gap and two
+confirmations. Added: ## heading — a second heading level, capped at two
+permanently (### errors; man's .SH/.SS ran fifty years on two). Both levels pass
+the command-existence test, and the presentation side was independently
+anticipated by §7's parked heading roles — need arriving from both sides at once
+is the strongest build-trigger there is. (Both levels rendered body-size bold
+for two days; heading roles landed 2026-08-07 — see §7.) Confirmed rather than
+added: no inline markup (identifiers read fine bare, and mono presentations show
+no distinction anyway) and no nested items (nesting is where markdown's
+complexity lives). Numbered lists are the open borderline — see §8.
 
 # 2. Architecture validation (paper check, done against real code)
 
-Three classic troff stress cases were checked against the cmd/pica
-engine (since split into compose.go, flow.go, draw.go, and the
-presentation files; since 2026-08-29 those files live in pica/press
-(§10), and the balance pass named below sits in paged.go). Two
-already exist and are clean; the third defines the next core work
-item.
+Three classic troff stress cases were checked against the cmd/pica engine (since
+split into compose.go, flow.go, draw.go, and the presentation files; since
+2026-08-29 those files live in pica/press (§10), and the balance pass named
+below sits in paged.go). Two already exist and are clean; the third defines the
+next core work item.
 
 ## Existing machinery (the vocabulary of the design)
 
-.item compose (compose.go): pica.Block → fblock. This IS the
-"diversion as value" primitive: an fblock is a pre-formatted, measurable,
-splittable box — segs []seg, height(), rest(k), repeat (lead-in
-re-emitted after splits, e.g. table headers), atomic, keepNext, tight.
+.item compose (compose.go): pica.Block → fblock. This IS the "diversion as
+value" primitive: an fblock is a pre-formatted, measurable, splittable box —
+segs []seg, height(), rest(k), repeat (lead-in re-emitted after splits, e.g.
+table headers), atomic, keepNext, tight.
 .item flow(blocks, capacity func(col int) int) [][]sline (flow.go): a pure
 function distributing blocks into columns. Orphan/widow rules via
 minKeep/splitSegs, forced progress via forceSplit.
-.item The balance pass (broadsheet.go) re-runs flow inside a binary search
-to balance an underfull page. This establishes the house idiom:
-speculative pure re-layout, cheap because flow is pure.
+.item The balance pass (broadsheet.go) re-runs flow inside a binary search to
+balance an underfull page. This establishes the house idiom: speculative pure
+re-layout, cheap because flow is pure.
 
 ## Case results
 
-.item 1. Keeps — exists, clean. .KS/.KE = atomic; heading-keep = keepNext
-+ lookahead; table-header replay = repeat. New keep-like constructs are
+.item 1. Keeps — exists, clean. .KS/.KE = atomic; heading-keep = keepNext +
+lookahead; table-header replay = repeat. New keep-like constructs are
 composer-side only; no core changes.
-.item 2. Multi-column — exists, clean. Variant geometry is just a
-different capacity closure; balancing falls out of flow's purity (troff's
--mc, being one-pass, structurally cannot do this).
+.item 2. Multi-column — exists, clean. Variant geometry is just a different
+capacity closure; balancing falls out of flow's purity (troff's -mc, being
+one-pass, structurally cannot do this).
 .item 3. Footnotes — NOT expressible today, and the failure is precise:
-capacity(colIdx) is pre-committed geometry; there is no channel from
-"content placed on this page" back to "this page's capacity". A note
-referenced in column 3 must retroactively shorten columns 1–2. This is
-essential difficulty (cf. LaTeX multicol+footnotes), not an API wart.
+capacity(colIdx) is pre-committed geometry; there is no channel from "content
+placed on this page" back to "this page's capacity". A note referenced in column
+3 must retroactively shorten columns 1–2. This is essential difficulty (cf.
+LaTeX multicol+footnotes), not an API wart.
 
 ## The footnote design (decided, not implemented)
 
-Decision: pure speculative reflow, NOT mutation hooks. An earlier
-sketch (page.reserve() + on page.end hooks — the TeX insert model) was
-considered and rejected; the balance pass shows reflow is the idiom, and it
-eliminates any trap/re-entrancy contract entirely.
+Decision: pure speculative reflow, NOT mutation hooks. An earlier sketch
+(page.reserve() + on page.end hooks — the TeX insert model) was considered and
+rejected; the balance pass shows reflow is the idiom, and it eliminates any
+trap/re-entrancy contract entirely.
 
 Core additions needed (both in core, once — not per-extension):
 
 .item Attachments: a composed line (sline or seg) may carry attached,
-pre-composed fblocks (the note body, formatted at compose time). Floats
-and margin notes later ride the same mechanism with different placement
-rules.
+pre-composed fblocks (the note body, formatted at compose time). Floats and
+margin notes later ride the same mechanism with different placement rules.
 .item Placement, two modes:
-.item -- Per-column notes (note at bottom of referencing column, as -ms
-does): strictly forward-only. Placement becomes transactional — a line
-commits only if its note's reservation also fits in the column; else line
-and note move to the next column together. No backtracking.
-.item -- Page-spanning notes (broadsheet style): inherent fixpoint. Flow
-the page; sum note heights for refs that landed; re-flow with shrunken
-capacity; repeat. Naive iteration oscillates (evicting a ref frees space
-that re-attracts it), so the contract needs one monotone rule: once a ref
-is pushed off a page it stays off for that page. Terminates in 1–2
-iterations in practice.
+.item -- Per-column notes (note at bottom of referencing column, as -ms does):
+strictly forward-only. Placement becomes transactional — a line commits only if
+its note's reservation also fits in the column; else line and note move to the
+next column together. No backtracking.
+.item -- Page-spanning notes (broadsheet style): inherent fixpoint. Flow the
+page; sum note heights for refs that landed; re-flow with shrunken capacity;
+repeat. Naive iteration oscillates (evicting a ref frees space that re-attracts
+it), so the contract needs one monotone rule: once a ref is pushed off a page it
+stays off for that page. Terminates in 1–2 iterations in practice.
 
 Resulting extension API has exactly two tiers:
 
-.item 1. Block composers (Block → fblock) — exists as compose's switch;
-should become a registry so extensions can add cases.
-.item 2. Geometry claimants (footnotes/floats/margin notes) — extensions
-still only write composers (format the note body to an fblock); the
-reflow fixpoint lives once in core flow.
+.item 1. Block composers (Block → fblock) — exists as compose's switch; should
+become a registry so extensions can add cases.
+.item 2. Geometry claimants (footnotes/floats/margin notes) — extensions still
+only write composers (format the note body to an fblock); the reflow fixpoint
+lives once in core flow.
 
 # 3. Variable-width fonts (stages 1–3 and 5 DONE 2026-07-22)
 
-Implemented: Measurer interface + Line type in wrap.go (monospace is
-the Mono measurer; all golden tests unchanged), WrapLines/JustifyLines
-as the measured structured primitives, Fira Sans Regular+Bold embedded
-(pdf.Sans/pdf.SansBold), pdf.Measure (milli-em widths),
-pdf.AvgAdvance, Page.Words (TJ-array justification — note: PDF's Tw
-word-spacing operator does NOT apply to 2-byte Identity-H text, so gaps
-are TJ position adjustments in integer thousandths of an em),
-the .font mono|sans layout attribute, and the broadsheet sans path
-(typo struct; prose/headings/links measured, pre+tables stay mono at the size
-where .width runes fill the column). .width now means "average
-lowercase advances per line" under sans — same visual density contract.
+Implemented: Measurer interface + Line type in wrap.go (monospace is the Mono
+measurer; all golden tests unchanged), WrapLines/JustifyLines as the measured
+structured primitives, Fira Sans Regular+Bold embedded (pdf.Sans/pdf.SansBold),
+pdf.Measure (milli-em widths), pdf.AvgAdvance, Page.Words (TJ-array
+justification — note: PDF's Tw word-spacing operator does NOT apply to 2-byte
+Identity-H text, so gaps are TJ position adjustments in integer thousandths of
+an em), the .font mono|sans layout attribute, and the broadsheet sans path (typo
+struct; prose/headings/links measured, pre+tables stay mono at the size
+where .width runes fill the column). .width now means "average lowercase
+advances per line" under sans — same visual density contract.
 
-Stage 4 (proportional table cells) is REJECTED (2026-07-28) — tables
-and verbatim blocks stay monospace in both modes as deliberate
-typography: mono tables in a sans page read as set data, the stage is
-the most invasive remaining item (formatCell's pad-with-spaces dies,
-Layout returns structured cells), and no document wants it. This is a
-settled decision, not pending work. Amended 2026-07-31: the
-bank-report document class fired a real-document trigger; stage 4 is
-reopened narrowly — numeric columns only, where statically-applied
-tabular figures preserve the character-grid model (§6). The rejection
-of proportional text cells stands. Everything below is the original
-estimate, kept for context:
+Stage 4 (proportional table cells) is REJECTED (2026-07-28) — tables and
+verbatim blocks stay monospace in both modes as deliberate typography: mono
+tables in a sans page read as set data, the stage is the most invasive remaining
+item (formatCell's pad-with-spaces dies, Layout returns structured cells), and
+no document wants it. This is a settled decision, not pending work. Amended
+2026-07-31: the bank-report document class fired a real-document trigger; stage
+4 is reopened narrowly — numeric columns only, where statically-applied tabular
+figures preserve the character-grid model (§6). The rejection of proportional
+text cells stands. Everything below is the original estimate, kept for context:
 
-.item Metrics already exist. pdf.Width (pdf/page.go) sums per-codepoint
-advances from parsed TTF CIDWidths; pdf/ttf does the parsing. The
-pipeline just needs to call it earlier than draw time.
-.item The wrap DPs are unit-agnostic. raggedDP/justifyDP (wrap.go)
-accumulate scalar word widths vs a scalar line width. Swap
-runeLen(w.text) for measure(w.text) and the Knuth-Plass structure carries
-over. Hyphenation is position-based — untouched.
-.item The flow layer survives untouched. fblock/flow/keeps/balancing
-measure height in line counts, valid while leading is uniform.
+.item Metrics already exist. pdf.Width (pdf/page.go) sums per-codepoint advances
+from parsed TTF CIDWidths; pdf/ttf does the parsing. The pipeline just needs to
+call it earlier than draw time.
+.item The wrap DPs are unit-agnostic. raggedDP/justifyDP (wrap.go) accumulate
+scalar word widths vs a scalar line width. Swap runeLen(w.text) for
+measure(w.text) and the Knuth-Plass structure carries over. Hyphenation is
+position-based — untouched.
+.item The flow layer survives untouched. fblock/flow/keeps/balancing measure
+height in line counts, valid while leading is uniform.
 
-The one real break: a line stops being a string.
-wrapParagraphJustify returns []string and justifyLine justifies by
-inserting literal spaces — impossible with variable widths. The wrapped
-line becomes structured (words + interword gap, or words with x-offsets),
-and that representation change ripples through APIs (not algorithms).
+The one real break: a line stops being a string. wrapParagraphJustify returns
+[]string and justifyLine justifies by inserting literal spaces — impossible with
+variable widths. The wrapped line becomes structured (words + interword gap, or
+words with x-offsets), and that representation change ripples through APIs (not
+algorithms).
 
 ## Staged plan (each step ships with tests green)
 
-.item 1. Measurer + fixed-point in wrap.go. Introduce type Measurer
-interface { ... } (width of a word / word fragment); move widths to
-integer fixed-point (font-units×size or millipoints — NOT float64: DP cost
-comparisons and the byte-identical-PDF guarantee need determinism).
-Monospace becomes a Measurer (1 unit/rune) so the entire existing golden
-test suite keeps passing and pins behavior. Precompute word widths and
-hyphen-fragment widths at tokenization so tryHyphenAt stays cheap. (~1–2
-days)
-.item 2. Structured line type + text flattener. Current space-insertion
-logic in justifyLine becomes the monospace renderer (integral gap
-distribution). Text backend output byte-identical to today. (~1 day)
-.item 3. PDF measurer + drawing. drawColumn draws per-word, or one run
-with the PDF Tw word-spacing operator (exists for exactly this —
-justification at draw time is nearly free). (~1 day)
+.item 1. Measurer + fixed-point in wrap.go. Introduce type Measurer interface {
+... } (width of a word / word fragment); move widths to integer fixed-point
+(font-units×size or millipoints — NOT float64: DP cost comparisons and the
+byte-identical-PDF guarantee need determinism). Monospace becomes a Measurer (1
+unit/rune) so the entire existing golden test suite keeps passing and pins
+behavior. Precompute word widths and hyphen-fragment widths at tokenization so
+tryHyphenAt stays cheap. (~1–2 days)
+.item 2. Structured line type + text flattener. Current space-insertion logic in
+justifyLine becomes the monospace renderer (integral gap distribution). Text
+backend output byte-identical to today. (~1 day)
+.item 3. PDF measurer + drawing. drawColumn draws per-word, or one run with the
+PDF Tw word-spacing operator (exists for exactly this — justification at draw
+time is nearly free). (~1 day)
 .item 4. Tables. tbl.go column widths become points; formatCell's
-pad-with-spaces dies for PDF. Layout returns structured cells (wrapped
-lines + column x/width); text backend joins with padding, PDF backend
-positions. (~1 day)
-.item 5. Geometry contract. "Column holds exactly .width runes" (the
-point-size derivation, now deriveTypo in compose.go) dissolves;
-redefine .width (e.g. as average-character-width units using the font's
-real average advance). Small code, real design decision. (~0.5 day)
+pad-with-spaces dies for PDF. Layout returns structured cells (wrapped lines +
+column x/width); text backend joins with padding, PDF backend positions. (~1
+day)
+.item 5. Geometry contract. "Column holds exactly .width runes" (the point-size
+derivation, now deriveTypo in compose.go) dissolves; redefine .width (e.g. as
+average-character-width units using the font's real average advance). Small
+code, real design decision. (~0.5 day)
 
 ## Deliberately out of scope
 
 .item Kerning (TTF kern/GPOS unparsed; per-codepoint advances are
-ditroff-era-respectable; the Measurer interface can grow pair adjustment
-later without touching the DPs).
+ditroff-era-respectable; the Measurer interface can grow pair adjustment later
+without touching the DPs).
 .item Shaping/ligatures.
-.item Inline bold/italic spans — styles stay per-line (sline.style) for
-now, keeping measurement single-font per paragraph; BUT give the
-structured word a style field from day one so inline markup slots in
-later.
+.item Inline bold/italic spans — styles stay per-line (sline.style) for now,
+keeping measurement single-font per paragraph; BUT give the structured word a
+style field from day one so inline markup slots in later.
 
 # 4. Parked work and its triggers (reframed 2026-07-28)
 
-Variable-width fonts are done (stages 1–3, 5; stage 4 rejected — see
-§3). Nothing below is scheduled; every consumer today is first-party,
-in one repo, feeding one binary, and building extension machinery ahead
-of that demand is the register-soup essay's own sin. Each item instead
-has a trigger, not a date:
+Variable-width fonts are done (stages 1–3, 5; stage 4 rejected — see §3).
+Nothing below is scheduled; every consumer today is first-party, in one repo,
+feeding one binary, and building extension machinery ahead of that demand is the
+register-soup essay's own sin. Each item instead has a trigger, not a date:
 
-.item Footnotes — parked. The design is settled (§2: attachments +
-transactional per-column placement first, page-spanning via the reflow
-fixpoint with the monotone-eviction rule); its value today is as a
-written-down decision. Build when a real document demands notes.
-.item Composer registry — wait for the second real backend or the first
-external extender. compose's switch is the right implementation at N=1.
-.item .alias + doc-repo-as-module — design only when repeated authoring
-pain appears in real documents; the packaging story rides with the
-registry.
-.item .lang — REMOVED 2026-08-09, the command audit's one cut. By doc.go's
-own admission it existed "for when sets sharing a script are added" — a
-command admitted for a hypothetical future, which the vocabulary gate's
-demand test forbids. The embedded sets (en, el) are script-disjoint, so
-the merged all-sets hyphenator is correct for every expressible document;
-removal also deleted Layout.Lang and the lang parameter from all three
-exported wrap primitives. Re-admit when either trigger fires, designed for
-whichever demand arrives: (a) a same-script pattern set lands (the
-original rationale), or (b) PDF /Lang or PDF/A metadata needs a document
-language — in which case the right command is BCP 47 metadata, not a
-pattern selector.
-.item Images — parked; no image block exists. If a real document forces
-one, the boundary is settled (2026-07-31): block-level only, height
-snapped to whole multiples of the leading, no floats, no inline images, no
-text runaround. Block-level keeps the breaker's measure constant per
-paragraph, so wrap/justify never learn images exist; grid-snapping keeps
-flow's integer line-count model intact — an image is just an atomic
-fblock of whole-line height (caption = ordinary gray block via keepNext) —
-and preserves the cross-column baseline grid, a broadsheet virtue in
-itself. Everything past this line (runaround, floats, inline placement) is
-where the second 90% of the complexity hides, and none of it is needed for
-a broadsheet. Grayscale-at-ingest is the leaning: a stance, not a
-limitation.
+.item Footnotes — parked. The design is settled (§2: attachments + transactional
+per-column placement first, page-spanning via the reflow fixpoint with the
+monotone-eviction rule); its value today is as a written-down decision. Build
+when a real document demands notes.
+.item Composer registry — wait for the second real backend or the first external
+extender. compose's switch is the right implementation at N=1.
+.item .alias + doc-repo-as-module — design only when repeated authoring pain
+appears in real documents; the packaging story rides with the registry.
+.item .lang — REMOVED 2026-08-09, the command audit's one cut. By doc.go's own
+admission it existed "for when sets sharing a script are added" — a command
+admitted for a hypothetical future, which the vocabulary gate's demand test
+forbids. The embedded sets (en, el) are script-disjoint, so the merged all-sets
+hyphenator is correct for every expressible document; removal also deleted
+Layout.Lang and the lang parameter from all three exported wrap primitives.
+Re-admit when either trigger fires, designed for whichever demand arrives: (a) a
+same-script pattern set lands (the original rationale), or (b) PDF /Lang or
+PDF/A metadata needs a document language — in which case the right command is
+BCP 47 metadata, not a pattern selector.
+.item Images — parked; no image block exists. If a real document forces one, the
+boundary is settled (2026-07-31): block-level only, height snapped to whole
+multiples of the leading, no floats, no inline images, no text runaround.
+Block-level keeps the breaker's measure constant per paragraph, so wrap/justify
+never learn images exist; grid-snapping keeps flow's integer line-count model
+intact — an image is just an atomic fblock of whole-line height (caption =
+ordinary gray block via keepNext) — and preserves the cross-column baseline
+grid, a broadsheet virtue in itself. Everything past this line (runaround,
+floats, inline placement) is where the second 90% of the complexity hides, and
+none of it is needed for a broadsheet. Grayscale-at-ingest is the leaning: a
+stance, not a limitation.
 
 # 5. The display list (decided 2026-07-31, not implemented)
 
-The viewer discussions (native/phone via Gio, browser via wasm + canvas)
-settled the backend boundary: a retained display list of positioned
-draw ops. This refines, not reverses, §1's no-intermediate-language
-decision — the list is Go values consumed in-process, with no
-serialization requirement and no parser. What moves is the seam: today
-drawColumn and the page chrome drive pdf.Page methods directly;
-the decided form has them emit op values, and each backend consumes
-the slice. Empirical basis: everything pica draws today goes through
-six pdf.Page calls (SetFont, Text, Words, Line, Gray/StrokeGray, Link)
-— the op set below is those six restated as data.
+The viewer discussions (native/phone via Gio, browser via wasm + canvas) settled
+the backend boundary: a retained display list of positioned draw ops. This
+refines, not reverses, §1's no-intermediate-language decision — the list is Go
+values consumed in-process, with no serialization requirement and no parser.
+What moves is the seam: today drawColumn and the page chrome drive pdf.Page
+methods directly; the decided form has them emit op values, and each backend
+consumes the slice. Empirical basis: everything pica draws today goes through
+six pdf.Page calls (SetFont, Text, Words, Line, Gray/StrokeGray, Link) — the op
+set below is those six restated as data.
 
 Decisions, each with its load-bearing reason:
 
-.item Data primary, not a renderer interface. The two are duals but the
-duality is asymmetric: data→API is a range loop and a type switch;
-API→data requires every retained consumer to write a recorder whose output
-is an undesigned ad-hoc display list. And the viewer forces a retained
-form: layout runs once per reflow event, drawing runs every frame — the
-redraw loop must iterate values, not re-invoke the producer. Golden tests
-get cmp.Diff on integer ops instead of parsing PDF content streams;
-backends become pure functions.
-.item Self-contained ops, no state machine. SetFont/Gray stop being ops
-and become fields on each op. Compactness is worthless at a few hundred
-ops per page; independence buys viewport culling and damage redraw without
-replaying a prefix to reconstruct state.
-.item Four ops, refuse a fifth: TextRun, Rule, Link, page structure (a
-list is a slice of pages, each a slice of ops, page size on the page). No
-paths, no transforms, no clip, no RGB — each absence is a typeset design
-fact, and a general Bézier op would be PDF rebuilt with fewer tools.
-Images, if they ever come, are bounded by §4's image entry and would add
-one op plus a document-level resource table.
+.item Data primary, not a renderer interface. The two are duals but the duality
+is asymmetric: data→API is a range loop and a type switch; API→data requires
+every retained consumer to write a recorder whose output is an undesigned ad-hoc
+display list. And the viewer forces a retained form: layout runs once per reflow
+event, drawing runs every frame — the redraw loop must iterate values, not
+re-invoke the producer. Golden tests get cmp.Diff on integer ops instead of
+parsing PDF content streams; backends become pure functions.
+.item Self-contained ops, no state machine. SetFont/Gray stop being ops and
+become fields on each op. Compactness is worthless at a few hundred ops per
+page; independence buys viewport culling and damage redraw without replaying a
+prefix to reconstruct state.
+.item Four ops, refuse a fifth: TextRun, Rule, Link, page structure (a list is a
+slice of pages, each a slice of ops, page size on the page). No paths, no
+transforms, no clip, no RGB — each absence is a typeset design fact, and a
+general Bézier op would be PDF rebuilt with fewer tools. Images, if they ever
+come, are bounded by §4's image entry and would add one op plus a document-level
+resource table.
 .item A TextRun is one composed line, carrying origin, font, size, gray, a
-semantic tag distilled from sline.style, and per-word pen advances from
-run start in integer em-thousandths — computed once by the producer from
-the same Measurer that justified the line. Consumers place words with x +
-dx·size/1000 and need no font metrics at all. This preserves spread's
-integer determinism, keeps line identity (selection, search,
-accessibility want it), and word boxes fall out of consecutive offsets.
-Contract note: renderers must not clip runs to the column rect — the
-hanging hyphen deliberately protrudes.
-.item Link stays a producer-computed rect + URL (as Page.Link today), so
-tap hit-testing needs no metrics either.
+semantic tag distilled from sline.style, and per-word pen advances from run
+start in integer em-thousandths — computed once by the producer from the same
+Measurer that justified the line. Consumers place words with x + dx·size/1000
+and need no font metrics at all. This preserves spread's integer determinism,
+keeps line identity (selection, search, accessibility want it), and word boxes
+fall out of consecutive offsets. Contract note: renderers must not clip runs to
+the column rect — the hanging hyphen deliberately protrudes.
+.item Link stays a producer-computed rect + URL (as Page.Link today), so tap
+hit-testing needs no metrics either.
 .item Integer fixed-point throughout; y-down, origin top-left; y is the
-baseline. Millipoints for page coordinates, em-thousandths within runs.
-Floats in the interchange invite platform-dependent formatting (the PDF
-backend already fights this with ff). PDF is the only y-up consumer and
-flips at its own boundary; the retarget confines today's y-up leak in
-drawColumn to the PDF emitter.
-.item Tagged struct with a Kind field, not an Op interface — four variants
-don't earn dynamic dispatch, and the tagged form serializes trivially if a
-wire use (server-render, cache) ever appears. Fonts stay the closed
-four-value enum: the face set is a design boundary worth keeping visible
-in the type.
-.item Bottom interface only. The display list is post-flow, coordinates
-final; it is discarded on any layout-affecting change. The archival format
-remains the source document. A viewer re-runs compose/flow per layout
-event (open, rotate, type-size change — full reflow, integer arithmetic,
-milliseconds, once per human gesture) and iterates ops per draw event
-(scroll, fling, damage — sustained at refresh rate). Continuous
-pinch-zoom: geometrically scale the stale list during the gesture, one
-real reflow on release.
-.item Pagination-dependent chrome belongs to the presentation pass, not
-the format. Chrome is ordinary ops emitted by the producer (masthead =
-TextRun, gutter hairline = Rule, page number = TextRun); backends cannot
-tell chrome from content, and that ignorance is the design. Document-level
-chrome (masthead, byline, logo) survives any presentation; page numbers,
-gutter rules to content depth, and repeated lead-ins exist only where the
-geometry has pages — a continuous-scroll presentation emits none, as a
-sibling render pass sharing compose/flow. The semantic tag marks chrome
-runs so selection, search, and accessibility skip them.
+baseline. Millipoints for page coordinates, em-thousandths within runs. Floats
+in the interchange invite platform-dependent formatting (the PDF backend already
+fights this with ff). PDF is the only y-up consumer and flips at its own
+boundary; the retarget confines today's y-up leak in drawColumn to the PDF
+emitter.
+.item Tagged struct with a Kind field, not an Op interface — four variants don't
+earn dynamic dispatch, and the tagged form serializes trivially if a wire use
+(server-render, cache) ever appears. Fonts stay the closed four-value enum: the
+face set is a design boundary worth keeping visible in the type.
+.item Bottom interface only. The display list is post-flow, coordinates final;
+it is discarded on any layout-affecting change. The archival format remains the
+source document. A viewer re-runs compose/flow per layout event (open, rotate,
+type-size change — full reflow, integer arithmetic, milliseconds, once per human
+gesture) and iterates ops per draw event (scroll, fling, damage — sustained at
+refresh rate). Continuous pinch-zoom: geometrically scale the stale list during
+the gesture, one real reflow on release.
+.item Pagination-dependent chrome belongs to the presentation pass, not the
+format. Chrome is ordinary ops emitted by the producer (masthead = TextRun,
+gutter hairline = Rule, page number = TextRun); backends cannot tell chrome from
+content, and that ignorance is the design. Document-level chrome (masthead,
+byline, logo) survives any presentation; page numbers, gutter rules to content
+depth, and repeated lead-ins exist only where the geometry has pages — a
+continuous-scroll presentation emits none, as a sibling render pass sharing
+compose/flow. The semantic tag marks chrome runs so selection, search, and
+accessibility skip them.
 
-Context worth keeping: a PDF content stream is a display list —
-PostScript with computation deliberately removed — so the PDF backend
-compiles our list into theirs, which is why it stays small; there is no
-"program in the PDF" alternative (content streams cannot loop, and
-reader JS has no drawing surface). The browser target is the same
-architecture on another surface: the Go typesetter compiled to wasm,
-a small canvas interpreter for the op set, HTML/CSS never doing layout.
+Context worth keeping: a PDF content stream is a display list — PostScript with
+computation deliberately removed — so the PDF backend compiles our list into
+theirs, which is why it stays small; there is no "program in the PDF"
+alternative (content streams cannot loop, and reader JS has no drawing surface).
+The browser target is the same architecture on another surface: the Go
+typesetter compiled to wasm, a small canvas interpreter for the op set, HTML/CSS
+never doing layout.
 
-Trigger: build with the first non-PDF backend or the start of viewer
-work. Until then, drawColumn's direct pdf.Page calls are the right
-implementation at N=1 — reifying the ops today would be the speculative
-machinery §4 warns against.
+Trigger: build with the first non-PDF backend or the start of viewer work. Until
+then, drawColumn's direct pdf.Page calls are the right implementation at N=1 —
+reifying the ops today would be the speculative machinery §4 warns against.
 
 # 6. Financial tables (decided 2026-07-31)
 
-Driver: bank-style reports — the first real document class pressing on
-tables. Two needs: sub-line annotations (a note under a table title,
-or under a value in a cell) and numbers that align in proportional
-type. Both resolve without touching flow's outer contract, the
-display list (§5), or the language's tightness.
+Driver: bank-style reports — the first real document class pressing on tables.
+Two needs: sub-line annotations (a note under a table title, or under a value in
+a cell) and numbers that align in proportional type. Both resolve without
+touching flow's outer contract, the display list (§5), or the language's
+tightness.
 
 ## Half-line notes (the size quantum)
 
-.item Sizes are roles, quantized to the grid — a note line occupies
-exactly half the body leading. Not free point sizes: the closed-set stance
-extended from faces to sizes. Not a block type either — a .notes block may
-come later; nothing here precludes it. (Originally "two sizes only: full
-and half"; the set grew to {display, heading, full, half} on 2026-08-07
-per §7's heading roles — still closed, still whole half-units.)
-.item Flow counts half-lines: a mechanical ×2 on seg heights, capacity,
-and minKeep; block totals snap to whole body lines at placement (the §4
-grid-snap principle again), so prose never learns half-lines exist and the
-cross-column baseline grid survives.
+.item Sizes are roles, quantized to the grid — a note line occupies exactly half
+the body leading. Not free point sizes: the closed-set stance extended from
+faces to sizes. Not a block type either — a .notes block may come later; nothing
+here precludes it. (Originally "two sizes only: full and half"; the set grew to
+{display, heading, full, half} on 2026-08-07 per §7's heading roles — still
+closed, still whole half-units.)
+.item Flow counts half-lines: a mechanical ×2 on seg heights, capacity, and
+minKeep; block totals snap to whole body lines at placement (the §4 grid-snap
+principle again), so prose never learns half-lines exist and the cross-column
+baseline grid survives.
 .item In mono, a half-size note line holds exactly 2×.width runes — the
 arithmetic stays character counting.
-.item Note lines join their row's seg, so a note can never orphan from its
-value at a split; a note row after the header rides in the repeat segs and
-reappears when a table carries over — the header-replay feature composing
-at zero cost.
+.item Note lines join their row's seg, so a note can never orphan from its value
+at a split; a note row after the header rides in the repeat segs and reappears
+when a table carries over — the header-replay feature composing at zero cost.
 .item Caveat to verify early: half of 12pt leading puts glyphs near 5pt —
-legal-disclosure small; render a sample and look. Fallbacks if too small:
-a 2/3 quantum (integer in sixth-lines, uglier) or full-size styleGray
-(exists today).
+legal-disclosure small; render a sample and look. Fallbacks if too small: a 2/3
+quantum (integer in sixth-lines, uglier) or full-size styleGray (exists today).
 
 ## .table grammar extensions
 
-Spec today: "3L *L 4R!" — width (or *), align L/R/C, optional ! clips.
-Two extensions:
+Spec today: "3L *L 4R!" — width (or *), align L/R/C, optional ! clips. Two
+extensions:
 
-.item N align class (tbl heritage — troff tbl's n aligned on the units
-digit): align on the decimal separator; column width = widest integer part
-+ separator + widest fraction. Ships in mono first — pure character
-counting, no font work — and becomes digit-unit arithmetic under tabular
-figures with no grammar change. Detail to settle at implementation:
-accounting negatives (1,234.56) reserve a trailing paren slot when any
-cell in the column uses them.
-.item Note rows: a row prefixed .. renders half-line under the previous
-row, cells aligned to the same columns; an empty cell means no note there.
-A note row directly after the header row is the table-title explanation —
-one mechanism for both uses. (Marker syntax provisional; settle with the
-first implementation.)
+.item N align class (tbl heritage — troff tbl's n aligned on the units digit):
+align on the decimal separator; column width = widest integer part + separator +
+widest fraction. Ships in mono first — pure character counting, no font work —
+and becomes digit-unit arithmetic under tabular figures with no grammar change.
+Detail to settle at implementation: accounting negatives (1,234.56) reserve a
+trailing paren slot when any cell in the column uses them.
+.item Note rows: a row prefixed .. renders half-line under the previous row,
+cells aligned to the same columns; an empty cell means no note there. A note row
+directly after the header row is the table-title explanation — one mechanism for
+both uses. (Marker syntax provisional; settle with the first implementation.)
 
-(2026-08-05: N, .., and the later = total row are kept as permanent
-language surface — see §1's semantic-markers rule.)
+(2026-08-05: N, .., and the later = total row are kept as permanent language
+surface — see §1's semantic-markers rule.)
 
 ## Tabular figures (probe facts, tmp/digitcheck, 2026-07-31)
 
 Embedded Fira Sans advances in milli-ems:
 
-.item Default figures are proportional (1=433, 0=558, 8=551): sans numbers
-do not align today — which is what the §3 stage-4 rejection was
-protecting.
-.item Figure space U+2007 = 560 in Regular AND Bold: the tabular variants
-exist behind GSUB tnum (unparsed — pdf/ttf reads GPOS only), and matching
-advances across weights would mean a bold totals row aligns
-digit-for-digit with regular body rows. Verify post-remap.
+.item Default figures are proportional (1=433, 0=558, 8=551): sans numbers do
+not align today — which is what the §3 stage-4 rejection was protecting.
+.item Figure space U+2007 = 560 in Regular AND Bold: the tabular variants exist
+behind GSUB tnum (unparsed — pdf/ttf reads GPOS only), and matching advances
+across weights would mean a bold totals row aligns digit-for-digit with regular
+body rows. Verify post-remap.
 
-Decision: apply tnum statically at embed time. Parse GSUB
-SingleSubst (lookup type 1 — simpler than the PairPos machinery
-gpos.go already has, same coverage tables) and remap the ten digit
-codepoints in CharToGID to their tabular variants. No shaping engine,
-no runtime feature toggles: "figures are tabular" is a house decision
-like the four faces. Consequence: digits and figure space share one
-advance, so formatCell's padding model survives for numeric columns
-in sans — pad with U+2007 and the character grid is exact.
+Decision: apply tnum statically at embed time. Parse GSUB SingleSubst (lookup
+type 1 — simpler than the PairPos machinery gpos.go already has, same coverage
+tables) and remap the ten digit codepoints in CharToGID to their tabular
+variants. No shaping engine, no runtime feature toggles: "figures are tabular"
+is a house decision like the four faces. Consequence: digits and figure space
+share one advance, so formatCell's padding model survives for numeric columns in
+sans — pad with U+2007 and the character grid is exact.
 
 ## Order of work (1–4 DONE 2026-08-04)
 
 .item 1. N class in mono — done.
 .item 2. Half-line note rows — done.
-.item 3. Static tnum remap in pdf/ttf — done; verified: all ten digits and
-the figure space share one 560 milli-em advance in BOTH Fira Sans weights
-(bold totals align with regular rows), and Fira's tnum coverage brings
-minus and currency signs along for free.
+.item 3. Static tnum remap in pdf/ttf — done; verified: all ten digits and the
+figure space share one 560 milli-em advance in BOTH Fira Sans weights (bold
+totals align with regular rows), and Fira's tnum coverage brings minus and
+currency signs along for free.
 .item 4. Numeric sans columns — done, via separator anchoring rather than
-figure-space padding: numeric cells lift off the mono grid into sans spans
-drawn against the column's fixed decimal cell (integer part
-right-anchored, fraction tail left-anchored), so alignment is exact by
-construction whatever the glyph widths. Text cells stay mono, the
-deliberate look.
+figure-space padding: numeric cells lift off the mono grid into sans spans drawn
+against the column's fixed decimal cell (integer part right-anchored, fraction
+tail left-anchored), so alignment is exact by construction whatever the glyph
+widths. Text cells stay mono, the deliberate look.
 .item 5. Proportional text cells: stay parked per §3's amended rejection;
 trigger — a real report that cannot live with mono or clipped text cells.
 
 # 7. The report presentation (decided 2026-08-05)
 
-The broadsheet output judged as a client report reads "internal
-tool", and the diagnosis is §5's chrome principle in action: almost
-the whole gap is presentation, not engine. Broadsheet is a newspaper
-identity; reports need a sibling presentation sharing compose/flow
-wholesale. pica report is that writer — same source document, third
-writer alongside text and pdf, chosen at render time like the others.
+The broadsheet output judged as a client report reads "internal tool", and the
+diagnosis is §5's chrome principle in action: almost the whole gap is
+presentation, not engine. Broadsheet is a newspaper identity; reports need a
+sibling presentation sharing compose/flow wholesale. pica report is that writer
+— same source document, third writer alongside text and pdf, chosen at render
+time like the others.
 
 The identity, v1:
 
 .item Geometry: one wide column, generous margins, no gutter rules.
-.item Title block, left-aligned: title, gray byline/dateline, rule — no
-masthead scaling.
-.item Footer: "Page N of M", centered, gray. Page totals are known after
-flow; nothing new in the engine.
+.item Title block, left-aligned: title, gray byline/dateline, rule — no masthead
+scaling.
+.item Footer: "Page N of M", centered, gray. Page totals are known after flow;
+nothing new in the engine.
 .item Real rules in tables. The dashed separator row is the text writer's
-necessity leaking into the PDF and is the loudest internal-tool signal on
-the page. Table separators and total-row rules render as hairlines via
-styleRule slines carrying a rune width (rules span the table, not the
-column); the dash form remains the text writer's and broadsheet's
-rendering. The knob is presentation-owned (typo), not document-owned.
-Amended 2026-08-09: hairlines are now universal in the PDF writers —
-agents choosing report over pdf specifically for the hairlines were this
-decision's real-document verdict, real newspapers rule with hairlines too,
-and the typo.tableRules knob is deleted. The dash row is the text writer's
-alone. In the same change the language defaults moved to .cols 1
-and .width 80: the attribute-free document is now a plain single-column
-page, and the newspaper is the presentation you opt into with .cols 2-6 — report
-stays the client-statement identity (title block, footer, margins) and
-stops being advertised as the generic single-column path. 2026-08-10: the
-broadsheet margin now derives from .cols the way point size derives
-from .width — .cols 1 takes the report's book margin (54pt; pica's two
-single-column outputs share one geometry), .cols 2-6 the newspaper's thin
-40pt. Not a knob: geometry stays writer-owned, computed from what the
-document declares. A .margin attribute was considered and rejected as the
-first "render me in this style" trailer attribute — the slope
-to .fontsize. 2026-08-10, same pattern a third time: leading derives from
-the measure (leadingFor) — 1.25 ems up to 50 characters per line, 1.35 beyond
-— the classic rule that longer lines need more air, and the fix for
-long-measure pages reading dense ("too bold"): perceived blackness is page
-color, and leading is half of page color. Parked second lever if density
-still reads dark: swap the sans body weight from Fira Sans Regular (a
-sturdy screen-first weight) to Fira Sans Book (the family's
-continuous-reading weight; same OFL release, TTF must be added to
-pdf/fonts). Note it reflows every sans document — Book's advances differ —
-so judge on the leading first.
-.item Total rows (core, small): a .table row prefixed = sets bold with a
-rule above, kept atomic with its rule. The plain-text writer renders the
-rule as a dash row. This is the one language addition; banks close every
-table with one.
+necessity leaking into the PDF and is the loudest internal-tool signal on the
+page. Table separators and total-row rules render as hairlines via styleRule
+slines carrying a rune width (rules span the table, not the column); the dash
+form remains the text writer's and broadsheet's rendering. The knob is
+presentation-owned (typo), not document-owned. Amended 2026-08-09: hairlines are
+now universal in the PDF writers — agents choosing report over pdf specifically
+for the hairlines were this decision's real-document verdict, real newspapers
+rule with hairlines too, and the typo.tableRules knob is deleted. The dash row
+is the text writer's alone. In the same change the language defaults moved
+to .cols 1 and .width 80: the attribute-free document is now a plain
+single-column page, and the newspaper is the presentation you opt into
+with .cols 2-6 — report stays the client-statement identity (title block,
+footer, margins) and stops being advertised as the generic single-column path.
+2026-08-10: the broadsheet margin now derives from .cols the way point size
+derives from .width — .cols 1 takes the report's book margin (54pt; pica's two
+single-column outputs share one geometry), .cols 2-6 the newspaper's thin 40pt.
+Not a knob: geometry stays writer-owned, computed from what the document
+declares. A .margin attribute was considered and rejected as the first "render
+me in this style" trailer attribute — the slope to .fontsize. 2026-08-10, same
+pattern a third time: leading derives from the measure (leadingFor) — 1.25 ems
+up to 50 characters per line, 1.35 beyond — the classic rule that longer lines
+need more air, and the fix for long-measure pages reading dense ("too bold"):
+perceived blackness is page color, and leading is half of page color. Parked
+second lever if density still reads dark: swap the sans body weight from Fira
+Sans Regular (a sturdy screen-first weight) to Fira Sans Book (the family's
+continuous-reading weight; same OFL release, TTF must be added to pdf/fonts).
+Note it reflows every sans document — Book's advances differ — so judge on the
+leading first.
+.item Total rows (core, small): a .table row prefixed = sets bold with a rule
+above, kept atomic with its rule. The plain-text writer renders the rule as a
+dash row. This is the one language addition; banks close every table with one.
 
 Parked, with triggers (the §4 discipline):
 
-.item Heading size roles — DONE 2026-08-07. The trigger fired on the
-language's own design document (11 report pages of flat hierarchy). The
-closed size set grew exactly as sketched: sizeRole = {display 4 units/1.5x
-for #, heading 3 units/1.2x for ##, full 2/1x, half 1/0.5x}; the half bool
-generalized into the role, flow needed nothing (units were already the
-grid), wrap measures shrink by the glyph scale (2/3 and 5/6 of units).
-Possible later polish: continuation lines of a wrapped display heading
-could take a tighter slot.
-.item Row shading (zebra) — needs a filled-rect primitive in pdf/ (gray
-fill; the grayscale stance holds). Trivial when wanted; wanted only with a
-designer's eye on a real document.
-.item Logo chrome — rides the earlier Form-XObject plan; report's title
-block is where it lands. Trigger: a real brand asset.
-.item Sans text cells — DONE 2026-08-10, narrowed once more: the P column
-class declares a prose column (tbl's T{...T} blocks are the ancestor).
-Mono documents and the text page lay P out exactly as L; in sans documents
-the PDF writers wrap the cell under the real measurer at the column's mono
-measure and draw the lines as positioned sans spans at the column's grid
-offset — the numSpan lift-off pattern generalized, with row heights
-correct by construction because LayoutMeasured owns them. The full
-proportional grid (columns in points, no mono skeleton) remains rejected
-with the original §3 rationale. Follow-up, same day: the "headers stay
-mono (a label is data)" call was reversed on review of real output — a
-label is NOT data, it is the table's own furniture, read as a phrase
-rather than scanned as a grid. The header row is now bold in the body
-face (SansBold / Mono Bold), each label honoring its column's alignment (a
-numeric column's label right-aligns over its numbers), and the separator
-rule draws as one hairline segment per column — restoring the column
-structure the text writer's dash runs always carried and the single
-hairline had flattened.
+.item Heading size roles — DONE 2026-08-07. The trigger fired on the language's
+own design document (11 report pages of flat hierarchy). The closed size set
+grew exactly as sketched: sizeRole = {display 4 units/1.5x for #, heading 3
+units/1.2x for ##, full 2/1x, half 1/0.5x}; the half bool generalized into the
+role, flow needed nothing (units were already the grid), wrap measures shrink by
+the glyph scale (2/3 and 5/6 of units). Possible later polish: continuation
+lines of a wrapped display heading could take a tighter slot.
+.item Row shading (zebra) — needs a filled-rect primitive in pdf/ (gray fill;
+the grayscale stance holds). Trivial when wanted; wanted only with a designer's
+eye on a real document.
+.item Logo chrome — rides the earlier Form-XObject plan; report's title block is
+where it lands. Trigger: a real brand asset.
+.item Sans text cells — DONE 2026-08-10, narrowed once more: the P column class
+declares a prose column (tbl's T{...T} blocks are the ancestor). Mono documents
+and the text page lay P out exactly as L; in sans documents the PDF writers wrap
+the cell under the real measurer at the column's mono measure and draw the lines
+as positioned sans spans at the column's grid offset — the numSpan lift-off
+pattern generalized, with row heights correct by construction because
+LayoutMeasured owns them. The full proportional grid (columns in points, no mono
+skeleton) remains rejected with the original §3 rationale. Follow-up, same day:
+the "headers stay mono (a label is data)" call was reversed on review of real
+output — a label is NOT data, it is the table's own furniture, read as a phrase
+rather than scanned as a grid. The header row is now bold in the body face
+(SansBold / Mono Bold), each label honoring its column's alignment (a numeric
+column's label right-aligns over its numbers), and the separator rule draws as
+one hairline segment per column — restoring the column structure the text
+writer's dash runs always carried and the single hairline had flattened.
 
 # 8. Open questions
 
-Open only when their triggers fire; resolved ones removed (fixed-point
-units landed as abstract integer measurer units — milli-ems at the PDF
-layer; .width under sans is average lowercase advances, §3).
+Open only when their triggers fire; resolved ones removed (fixed-point units
+landed as abstract integer measurer units — milli-ems at the PDF layer; .width
+under sans is average lowercase advances, §3).
 
-.item Note placement default: per-column vs page-spanning (per-column is
-cheaper and cleaner; page-spanning matches the broadsheet identity).
+.item Note placement default: per-column vs page-spanning (per-column is cheaper
+and cleaner; page-spanning matches the broadsheet identity).
 .item .alias exact syntax and interpolation rules.
-.item Registry shape: global Register("table", handler) vs a Renderer
-struct holding its command set (leaning the latter — global registries are
-the register-soup smell in miniature).
+.item Registry shape: global Register("table", handler) vs a Renderer struct
+holding its command set (leaning the latter — global registries are the
+register-soup smell in miniature).
 .item Numbered lists (proposed 2026-08-07, undecided). They pass the
-command-existence test (order is meaning, every writer renders,
-universal), and .item cannot fake them (it prepends its bullet). Proposed
-syntax: .n TEXT — consecutive .n lines form one ordered list, exactly as
-consecutive .item lines form a bulleted one (tight, hanging indent), and
-the WRITER assigns the numbers 1..k. The numbers are presentation, the
-order is semantics: authors never type digits, so inserting an item
-renumbers for free and diffs stay clean. Cost: prose cannot cite "step 3"
-stably. Trigger: the first document where numbering as plain prose
-paragraphs actually reads worse.
+command-existence test (order is meaning, every writer renders, universal),
+and .item cannot fake them (it prepends its bullet). Proposed syntax: .n TEXT —
+consecutive .n lines form one ordered list, exactly as consecutive .item lines
+form a bulleted one (tight, hanging indent), and the WRITER assigns the numbers
+1..k. The numbers are presentation, the order is semantics: authors never type
+digits, so inserting an item renumbers for free and diffs stay clean. Cost:
+prose cannot cite "step 3" stably. Trigger: the first document where numbering
+as plain prose paragraphs actually reads worse.
 
 # 9. Emphasis, the single inline concept (decided 2026-08-24)
 
-The step §"Semantic markers" reserved for its own recorded
-decision: emphasis entered the language as _..._, the first and
-only in-content syntax. The demand was long-form prose (blog-form
-documents mapped onto pica lacked exactly one thing), and the
-concept passed the semantic gate that "bold" never can: emphasis
-is contrastive stress -- it changes the reading of the sentence --
-where bold, small caps and the rest are stylings a writer already
-owns. One concept, deliberately: the document says _stressed_,
-never italic; each writer renders the meaning in its own voice
-(doc.go, Emphasis).
+The step §"Semantic markers" reserved for its own recorded decision: emphasis
+entered the language as _..._, the first and only in-content syntax. The demand
+was long-form prose (blog-form documents mapped onto pica lacked exactly one
+thing), and the concept passed the semantic gate that "bold" never can: emphasis
+is contrastive stress -- it changes the reading of the sentence -- where bold,
+small caps and the rest are stylings a writer already owns. One concept,
+deliberately: the document says _stressed_, never italic; each writer renders
+the meaning in its own voice (doc.go, Emphasis).
 
-Why the old non-goal fell: it read "the monospace wire cannot
-express it", and the chosen marker dissolves that objection
-instead of overriding it. Underscore-wrapping is the typescript
-convention -- typewriter manuscripts underlined what the
-typesetter set italic, and plain-text prose has carried _this_
-ever since -- so the text page renders emphasis by KEEPING the
-markers verbatim: the marker is its own monospace rendering, the
-wire carries it unchanged, and admission test 2 (meaningful in
-every writer) is passed by the same fact that had blocked the
-concept. The mono PDF strokes the underline in exactly the marker
-cells it blanks, so the text/mono-PDF identity survives to the
-cell; the sans PDF sets Fira Sans Italic measured with its own
-metrics; HTML says <em>.
+Why the old non-goal fell: it read "the monospace wire cannot express it", and
+the chosen marker dissolves that objection instead of overriding it.
+Underscore-wrapping is the typescript convention -- typewriter manuscripts
+underlined what the typesetter set italic, and plain-text prose has carried
+_this_ ever since -- so the text page renders emphasis by KEEPING the markers
+verbatim: the marker is its own monospace rendering, the wire carries it
+unchanged, and admission test 2 (meaningful in every writer) is passed by the
+same fact that had blocked the concept. The mono PDF strokes the underline in
+exactly the marker cells it blanks, so the text/mono-PDF identity survives to
+the cell; the sans PDF sets Fira Sans Italic measured with its own metrics; HTML
+says <em>.
 
-Why no escape, again: the word-boundary gates (doc.go) make
-interior underscores literal, so snake_case never matches, and
-the residue -- prose needing a literal underscore at a marker
-position -- goes to .pre, the same answer as literal "|", "=" and
-".." in tables. An unclosed opener is a loud parse error, never a
-silent literal.
+Why no escape, again: the word-boundary gates (doc.go) make interior underscores
+literal, so snake_case never matches, and the residue -- prose needing a literal
+underscore at a marker position -- goes to .pre, the same answer as literal "|",
+"=" and ".." in tables. An unclosed opener is a loud parse error, never a silent
+literal.
 
-Bounds set at birth: emphasis is whole-token in the proportional
-faces (attached punctuation sets with the word, the compositor's
-rule); it lives only in flowing prose (Para, .quote, .item, and
-since §11 the text of .term) -- headings, cells, .pre and
-arguments keep underscores as characters; spans never nest and
-never cross a block; and there is no second inline concept. The
-italic face exists for this one meaning; a document cannot reach
-it any other way.
+Bounds set at birth: emphasis is whole-token in the proportional faces (attached
+punctuation sets with the word, the compositor's rule); it lives only in flowing
+prose (Para, .quote, .item, and since §11 the text of .term) -- headings,
+cells, .pre and arguments keep underscores as characters; spans never nest and
+never cross a block; and there is no second inline concept. The italic face
+exists for this one meaning; a document cannot reach it any other way.
 
 # 11. The labelled entry: .term (decided 2026-09-02)
 
-The lead-in construct §"Semantic markers" reserved in 2026-08-05
-("a lead-in construct, not bold") entered as .term LABEL with the
-entry's text on the lines beneath, the .item shape: a glossary
-term, a command and what it does, a facility and its hours. Its
-troff ancestor is .TP, the tagged paragraph; HTML's is dl/dt/dd.
+The lead-in construct §"Semantic markers" reserved in 2026-08-05 ("a lead-in
+construct, not bold") entered as .term LABEL with the entry's text on the lines
+beneath, the .item shape: a glossary term, a command and what it does, a
+facility and its hours. Its troff ancestor is .TP, the tagged paragraph; HTML's
+is dl/dt/dd.
 
-The demand that admitted it was found in the language's own
-documentation: the command reference in pica spec is a
-tagged-paragraph list hand-aligned inside verbatim text, the
-exact structure the construct names, forced into .pre because
-nothing else could hold it. A second family was the first
-tessera pages (repani/tessera/examples, 2026-09-02): run-in
-labels on a notice board (FUEL, WATER, PORT POLICE), which color
-had been carrying. Weighed and refused for those pages first: a
-headerless two-column table (columnar where the original is
-run-in, and emphasis is barred from cells, so a writer cannot
-single the label out), and .item with an emphasized label (the
-bullet and the marker cells cost rows on a 34-column panel, and
-the document would be saying stressed where it means labelled).
+The demand that admitted it was found in the language's own documentation: the
+command reference in pica spec is a tagged-paragraph list hand-aligned inside
+verbatim text, the exact structure the construct names, forced into .pre because
+nothing else could hold it. A second family was the first tessera pages
+(repani/tessera/examples, 2026-09-02): run-in labels on a notice board (FUEL,
+WATER, PORT POLICE), which color had been carrying. Weighed and refused for
+those pages first: a headerless two-column table (columnar where the original is
+run-in, and emphasis is barred from cells, so a writer cannot single the label
+out), and .item with an emphasized label (the bullet and the marker cells cost
+rows on a 34-column panel, and the document would be saying stressed where it
+means labelled).
 
-Bounds set at birth. The label is a command argument, so it is
-verbatim (an underscore in it is a character) and the entry's
-text is flowing prose (emphasis lives there). An entry with no
-text is an error: a label alone is not an entry. Geometry is the
-item's without the bullet, so the two lists share one shape: the
-label, TermGap (2) spaces, the text run in on the same line, and
-turnovers hanging ItemIndent (2). One rule decides run-in versus
-standing: a label that leaves the text less than half the width
-stands on its own line and the text starts beneath it --
-troff's .TP rule for an over-long tag, made deterministic so every
-writer counts the same lines (pica.TermRunIn). The text page
-renders the run-in structure and nothing else: that structure is
-the monospace rendering, which is how the construct passes
-admission test 2 with no new glyph. The PDFs set the label in the
-bold face, the one rendering that bold was always reserved for
-(§"Semantic markers": bold is what writers give some constructs,
-never what a document asks for); the sans page measures the
-label with the bold metrics so the run-in line justifies exactly.
-The breaker grew a first-line measure for it (WrapLinesRunIn and
-kin): the first line of a paragraph sets on what the lead leaves
-of it, every later line on the full measure -- the DP already
-knew which line was first, since it is the one that starts at
-word 0, so the change is a two-line branch in each cost pass.
+Bounds set at birth. The label is a command argument, so it is verbatim (an
+underscore in it is a character) and the entry's text is flowing prose (emphasis
+lives there). An entry with no text is an error: a label alone is not an entry.
+Geometry is the item's without the bullet, so the two lists share one shape: the
+label, TermGap (2) spaces, the text run in on the same line, and turnovers
+hanging ItemIndent (2). One rule decides run-in versus standing: a label that
+leaves the text less than half the width stands on its own line and the text
+starts beneath it -- troff's .TP rule for an over-long tag, made deterministic
+so every writer counts the same lines (pica.TermRunIn). The text page renders
+the run-in structure and nothing else: that structure is the monospace
+rendering, which is how the construct passes admission test 2 with no new glyph.
+The PDFs set the label in the bold face, the one rendering that bold was always
+reserved for (§"Semantic markers": bold is what writers give some constructs,
+never what a document asks for); the sans page measures the label with the bold
+metrics so the run-in line justifies exactly. The breaker grew a first-line
+measure for it (WrapLinesRunIn and kin): the first line of a paragraph sets on
+what the lead leaves of it, every later line on the full measure -- the DP
+already knew which line was first, since it is the one that starts at word 0, so
+the change is a two-line branch in each cost pass.
 
-Refused alongside, with the tests that would readmit them: a
-severity or alarm mark on rows and headings (the other thing
-color carried on the tessera pages -- caution and alert rows,
-warning headings). It is notice-board vocabulary that no
-ordinary document in the corpus uses, where every other command
-appears in design documents, reports and prose alike; a marked
-row says in its data cell what the mark would say again.
-Readmission test: a pica-to-tessera writer exists and its first
-real page cannot say what it needs with a heading, a .term and
-the data in the cell. Also refused: an "ok" degree (normal is
-the unmarked state), any mark inside .pre, and any inline mark
-(emphasis stays the single inline concept, §9).
+Refused alongside, with the tests that would readmit them: a severity or alarm
+mark on rows and headings (the other thing color carried on the tessera pages --
+caution and alert rows, warning headings). It is notice-board vocabulary that no
+ordinary document in the corpus uses, where every other command appears in
+design documents, reports and prose alike; a marked row says in its data cell
+what the mark would say again. Readmission test: a pica-to-tessera writer exists
+and its first real page cannot say what it needs with a heading, a .term and the
+data in the cell. Also refused: an "ok" degree (normal is the unmarked state),
+any mark inside .pre, and any inline mark (emphasis stays the single inline
+concept, §9).
 
 # 10. The library packages: press and desk (decided 2026-08-29)
 
-Driver: zine (the broadcast hypertext app over quietcast slots)
-will embed pica -- its station generates bulletin pages from data
-and its PDF button prints them -- and the compositor lived only in
-cmd/pica. The command graduated its two library-shaped layers;
-what remains in cmd is flag surface, the html page assembler, and
-the oracles.
+Driver: zine (the broadcast hypertext app over quietcast slots) will embed pica
+-- its station generates bulletin pages from data and its PDF button prints them
+-- and the compositor lived only in cmd/pica. The command graduated its two
+library-shaped layers; what remains in cmd is flag surface, the html page
+assembler, and the oracles.
 
-.item pica/press: the compositor (compose, flow, the paged
-driver, draw) behind two presentations. press.PDF is the default
--- the document rendered as itself, named by what it produces
-because the unmarked case carries no genre name (the old
-"broadsheet" over-specified: at .cols 1 the same function sets a
-book page). press.Report is the marked case, named by what makes
-it deviate; it is held loosely (doc.go says so) and may move if
-house stationery grows weight. The presentation seam stays
-unexported so §5 can reify it freely; §5's trigger and content
-stand unchanged, only the address moved. The mark and its stream
-moved with the driver: an imprint is policy passed where the PDF
-is made, and both presentations take it as the one option.
-.item pica/desk: the copy desk -- Funcs, the value-formatting
-vocabulary (admission rule unchanged: layout belongs to writers,
-never to templates), and Render, which executes a template and
-PARSES the output before returning it, so a bulletin generator
-cannot air an invalid page. Data arrives already bound; loading,
-the txtar convention, and scheduling stay with callers (the CLI
-keeps its loaders; a station keeps its carousel). pica render now
-validates through desk -- the one behavioural change, deliberate.
-.item Package pica itself stays stdlib-only (wire clients parse
-without fonts; since §12 it imports the tab primitive and since
-§16 the wrap primitive, each itself stdlib-only, so the property
-it protects holds); pdf stays primitives. The naming account: the
-desk writes copy, the press prints it, pica is the language
-between them.
-.item The minimal txtar parser was to be duplicated rather than
-shared (two consumers of three lines of grammar do not seat a
-package) -- and then desk's bound-data contract removed its need
-entirely, so the one copy stays in cmd. A second consumer
-duplicates; a third is the trigger to revisit.
+.item pica/press: the compositor (compose, flow, the paged driver, draw) behind
+two presentations. press.PDF is the default -- the document rendered as itself,
+named by what it produces because the unmarked case carries no genre name (the
+old "broadsheet" over-specified: at .cols 1 the same function sets a book page).
+press.Report is the marked case, named by what makes it deviate; it is held
+loosely (doc.go says so) and may move if house stationery grows weight. The
+presentation seam stays unexported so §5 can reify it freely; §5's trigger and
+content stand unchanged, only the address moved. The mark and its stream moved
+with the driver: an imprint is policy passed where the PDF is made, and both
+presentations take it as the one option.
+.item pica/desk: the copy desk -- Funcs, the value-formatting vocabulary
+(admission rule unchanged: layout belongs to writers, never to templates), and
+Render, which executes a template and PARSES the output before returning it, so
+a bulletin generator cannot air an invalid page. Data arrives already bound;
+loading, the txtar convention, and scheduling stay with callers (the CLI keeps
+its loaders; a station keeps its carousel). pica render now validates through
+desk -- the one behavioural change, deliberate.
+.item Package pica itself stays stdlib-only (wire clients parse without fonts;
+since §12 it imports the tab primitive and since §16 the wrap primitive, each
+itself stdlib-only, so the property it protects holds); pdf stays primitives.
+The naming account: the desk writes copy, the press prints it, pica is the
+language between them.
+.item The minimal txtar parser was to be duplicated rather than shared (two
+consumers of three lines of grammar do not seat a package) -- and then desk's
+bound-data contract removed its need entirely, so the one copy stays in cmd. A
+second consumer duplicates; a third is the trigger to revisit.
 
 # 12. The grid is a primitive: tab (decided 2026-09-03)
 
-Driver: a tessera template needs to pad values into aligned
-columns, numbers on the decimal point, and a tessera page will
-not import a typesetting language and 40K of hyphenation
-patterns to do it; copying the alignment arithmetic is what §1
-forbids (layout in one place). The cut is below the wrapping:
-what a table does before any cell wraps -- the column spec, the
-fit against a measure, alignment, the numeric point and paren
-slot, clipping -- is the typewriter's tab stop, and moved to
-repani.com/typeset/tab as a primitive under the module's primitive rule
-(stdlib-only, no sibling imports, no document or font, append-
-only, known-answer tests as the contract). Pica's Table is now a
-client: it normalizes its two decorations (P prose columns, "!"
-clip) and hands tab the grammar tab owns, keeps wrapped cells,
-the header and its rule, note and total rows, and the measured
-sans layout, and re-exports Span and NumCol as aliases so the
-press and every golden are unchanged. Nothing wraps in tab: a
-cell wider than its column is clipped, since a consumer that
-wants wrapping is a typesetter, and has one.
+Driver: a tessera template needs to pad values into aligned columns, numbers on
+the decimal point, and a tessera page will not import a typesetting language and
+40K of hyphenation patterns to do it; copying the alignment arithmetic is what
+§1 forbids (layout in one place). The cut is below the wrapping: what a table
+does before any cell wraps -- the column spec, the fit against a measure,
+alignment, the numeric point and paren slot, clipping -- is the typewriter's tab
+stop, and moved to repani.com/typeset/tab as a primitive under the module's
+primitive rule (stdlib-only, no sibling imports, no document or font, append-
+only, known-answer tests as the contract). Pica's Table is now a client: it
+normalizes its two decorations (P prose columns, "!" clip) and hands tab the
+grammar tab owns, keeps wrapped cells, the header and its rule, note and total
+rows, and the measured sans layout, and re-exports Span and NumCol as aliases so
+the press and every golden are unchanged. Nothing wraps in tab: a cell wider
+than its column is clipped, since a consumer that wants wrapping is a
+typesetter, and has one.
 
 # 13. The stylebook (decided 2026-09-03)
 
-Driver: tessera pages will be generated the way pica bulletins
-are -- authors set structure in the language, templates fill
-data from stations -- and need the same dates, numbers and
-padding. The desk's vocabulary was pica's only by address, so it
-moved to repani.com/typeset/stylebook, a package under the
-primitive rule (stdlib and tab only; it knows no language). The
-cut that decides what moved is one question: does a helper's
-output contain the language's syntax, or only runes? Runes are
-shared; syntax stays with its language. So the stylebook holds
-the value formatters (round, decimal, trunc, pad, join, the time
-helpers), Rows (the object-slice-to-cells shape every data
-helper reads), cells (rows laid into tab stops, returned as
-padded cells rather than lines, so a tessera template can put
-its own ink between the columns), and Render, which takes the
-language's helpers and its check. Pica keeps desk as its own
-desk: Funcs is the stylebook's plus table, the one helper that
-emits a block, and Render is the stylebook's with pica.Parse as
-the check. Loading (fact, txtar) stayed with the CLI per §10:
-the loaders depend on fact, a product, which a primitive-rule
-package may not import, and a station keeps its own loaders
-anyway. "desk" was kept for pica's package and refused for the
-shared one, since a copy desk is a newsroom's, while its
-stylebook is what every desk writes by.
+Driver: tessera pages will be generated the way pica bulletins are -- authors
+set structure in the language, templates fill data from stations -- and need the
+same dates, numbers and padding. The desk's vocabulary was pica's only by
+address, so it moved to repani.com/typeset/stylebook, a package under the
+primitive rule (stdlib and tab only; it knows no language). The cut that decides
+what moved is one question: does a helper's output contain the language's
+syntax, or only runes? Runes are shared; syntax stays with its language. So the
+stylebook holds the value formatters (round, decimal, trunc, pad, join, the time
+helpers), Rows (the object-slice-to-cells shape every data helper reads), cells
+(rows laid into tab stops, returned as padded cells rather than lines, so a
+tessera template can put its own ink between the columns), and Render, which
+takes the language's helpers and its check. Pica keeps desk as its own desk:
+Funcs is the stylebook's plus table, the one helper that emits a block, and
+Render is the stylebook's with pica.Parse as the check. Loading (fact, txtar)
+stayed with the CLI per §10: the loaders depend on fact, a product, which a
+primitive-rule package may not import, and a station keeps its own loaders
+anyway. "desk" was kept for pica's package and refused for the shared one, since
+a copy desk is a newsroom's, while its stylebook is what every desk writes by.
 
-The typeset family (decided 2026-09-03, after §12 and §13 landed
-at the top level): the typesetting libraries share one
-directory, repani.com/typeset, one package per member
-(typeset/tab, typeset/stylebook), never one package -- a single
-namespace would fold the grid into the template vocabulary and
-land text/template on every importer of a column. Every member
-is under the primitive rule. The breaker and the hyphenation
-patterns are the next candidates, the day a tessera panel fills
-a paragraph; pica would then import them back as it imports tab.
-"foundry" was considered and refused for the name; typeset names
+The typeset family (decided 2026-09-03, after §12 and §13 landed at the top
+level): the typesetting libraries share one directory, repani.com/typeset, one
+package per member (typeset/tab, typeset/stylebook), never one package -- a
+single namespace would fold the grid into the template vocabulary and land
+text/template on every importer of a column. Every member is under the primitive
+rule. The breaker and the hyphenation patterns are the next candidates, the day
+a tessera panel fills a paragraph; pica would then import them back as it
+imports tab. "foundry" was considered and refused for the name; typeset names
 the act.
 
 # Admission tests and non-goals (moved from doc.go, 2026-08-20)
 
-These two sections lived in the package comment (so pica spec
-printed them); they are maintainer doctrine, not authoring
-reference, so they moved here. The spec stays what an agent needs
-to write documents and run the tool; this document holds why.
+These two sections lived in the package comment (so pica spec printed them);
+they are maintainer doctrine, not authoring reference, so they moved here. The
+spec stays what an agent needs to write documents and run the tool; this
+document holds why.
 
 # Growing the vocabulary
 
-The vocabulary stays closed by policy, not accident. A new command
-enters the registry only if it passes five tests:
+The vocabulary stays closed by policy, not accident. A new command enters the
+registry only if it passes five tests:
 
- 1. It is expressible as a block with a deterministic line count
-    under the monospace measurer -- the flow arithmetic every keep
-    and split rule relies on (document metadata like .by lives in
-    the title zone, outside block flow, and passes by not flowing).
- 2. It renders meaningfully in EVERY writer, the plain-text page
-    included. Uniformly invisible (.rem) is meaningful; ignored by
-    one writer but not another is not.
- 3. It states content semantics, never geometry: what something IS
-    (a quotation, an item), not where it goes. Page and column
-    control stay writer-owned.
- 4. It has a troff or TeX ancestor to point to (.quote is ms's
-    .QP, .item is .IP, .rem is troff's comment): four decades of
-    typesetting have already named most things worth naming.
- 5. A real document is already waiting to use it: demand precedes
-    entry, so every command ships together with its first user.
-    A command admitted for a hypothetical future is a permanent
-    promise made on no evidence -- the other four tests measure
-    quality, this one measures need.
+1. It is expressible as a block with a deterministic line count under the
+monospace measurer -- the flow arithmetic every keep and split rule relies on
+(document metadata like .by lives in the title zone, outside block flow, and
+passes by not flowing). 2. It renders meaningfully in EVERY writer, the
+plain-text page included. Uniformly invisible (.rem) is meaningful; ignored by
+one writer but not another is not. 3. It states content semantics, never
+geometry: what something IS (a quotation, an item), not where it goes. Page and
+column control stay writer-owned. 4. It has a troff or TeX ancestor to point to
+(.quote is ms's .QP, .item is .IP, .rem is troff's comment): four decades of
+typesetting have already named most things worth naming. 5. A real document is
+already waiting to use it: demand precedes entry, so every command ships
+together with its first user. A command admitted for a hypothetical future is a
+permanent promise made on no evidence -- the other four tests measure quality,
+this one measures need.
 
 # Non-goals
 
-No SECOND inline concept (emphasis, admitted 2026-08-24 as the
-single one, retired the older "no inline emphasis" entry -- §9
-records why its rationale dissolved), no
-third heading level (two, permanently), no block nesting, no
-page-control commands in content, and no round-tripping: rendered
-output is a final artifact, not re-parseable source.
+No SECOND inline concept (emphasis, admitted 2026-08-24 as the single one,
+retired the older "no inline emphasis" entry -- §9 records why its rationale
+dissolved), no third heading level (two, permanently), no block nesting, no
+page-control commands in content, and no round-tripping: rendered output is a
+final artifact, not re-parseable source.
 
 # 14. The stylebook split (decided 2026-09-05)
 
-Driver: qam (repani-lab), the first app to generate raster pages,
-did it without templates -- a vocabulary of raster aliases and a
-Go writer that formats values itself -- and so imported none of
-the stylebook. What it wanted were the value functions as plain
-Go, and the stylebook's other half, the template glue, had one
-consumer, this desk. So the cut of §13 was made all the way: the
-value functions are repani.com/typeset/format, a primitive with
-Go signatures (Round, Decimal, Trunc, Pad, ShortTime, ShortDate,
-Duration) and one known-answer test; Render, Funcs, Rows and
-cells came back into desk, which is where a text/template
-vocabulary belongs; and typeset/stylebook went to the attic with
-its history. The rule of §13 stands and is now visible in the
-import graph: format knows no language, desk knows pica, and a
-writer that wants no templates imports format and tab and nothing
-of pica.
+Driver: qam (repani-lab), the first app to generate raster pages, did it without
+templates -- a vocabulary of raster aliases and a Go writer that formats values
+itself -- and so imported none of the stylebook. What it wanted were the value
+functions as plain Go, and the stylebook's other half, the template glue, had
+one consumer, this desk. So the cut of §13 was made all the way: the value
+functions are repani.com/typeset/format, a primitive with Go signatures (Round,
+Decimal, Trunc, Pad, ShortTime, ShortDate, Duration) and one known-answer test;
+Render, Funcs, Rows and cells came back into desk, which is where a
+text/template vocabulary belongs; and typeset/stylebook went to the attic with
+its history. The rule of §13 stands and is now visible in the import graph:
+format knows no language, desk knows pica, and a writer that wants no templates
+imports format and tab and nothing of pica.
 
 # 15. The cell writer (decided 2026-09-05, retired 2026-10-04)
 
 Retired with the first raster it wrote to: both are in the attic,
-`~/repos/_attic/pica-cell` and `~/repos/_attic/raster`. The raster
-that replaced it is rows of segments (repani/typeset/raster,
-RASTER.t); a writer setting pica documents on it waits for a
-consumer. The record below is kept as the history of the first.
+`~/repos/_attic/pica-cell` and `~/repos/_attic/raster`. The raster that replaced
+it is rows of segments (repani/typeset/raster, RASTER.t); a writer setting pica
+documents on it waits for a consumer. The record below is kept as the history of
+the first.
 
-Driver: publishing pica documents as raster pages (the notice
-board, tessera, the static tree of PUBLISH.t in repani-lab), where
-the app decides the geometry and the panels and pica decides what
-the lines are. The writer is pica/cell: Render takes a parsed
-document, a Layout (a raster Geometry, columns per panel, gutter)
-and a vocabulary, and returns the raster source, the compiled page
-and the links. Package pica stays stdlib-plus-primitives; cell
-imports the raster primitive, as press imports pdf.
+Driver: publishing pica documents as raster pages (the notice board, tessera,
+the static tree of PUBLISH.t in repani-lab), where the app decides the geometry
+and the panels and pica decides what the lines are. The writer is pica/cell:
+Render takes a parsed document, a Layout (a raster Geometry, columns per panel,
+gutter) and a vocabulary, and returns the raster source, the compiled page and
+the links. Package pica stays stdlib-plus-primitives; cell imports the raster
+primitive, as press imports pdf.
 
-.item Raster's language gains nothing. It is a cell painter --
-runs at a cursor in an ink, no fill mode -- and .at with a column
-already places each pre-wrapped line (2026-09-14: .margin, a
-persistent column, was removed as authoring state; the writer
-places every line by its own .at).
-A .width in raster would be a second, weaker pica inside a
-primitive; .cols in the document is consumed as the default
-number of columns per panel, and .width is consumed outright, as
-the HTML writer consumes both: the panel is the measure.
-.item Lines are the mono PDF's lines. Prose -- paragraphs,
-quotes, items, terms -- is set as press sets a mono document:
-the justified Knuth-Plass breaker with its hyphenation (penalty
-6), on the text writer's geometry (quote inset, item indent, term
-run-in), the last line ragged. Tables, verbatim and headings go
-through RenderBlock. The first cut used RenderBlock for prose
-too, the text page's ragged lines with the prose hyphen penalty
-of 100, and at newspaper measures they read as unset: the cell
-page is a printed page, and the PDF is what it should match. The
-writer still adds no geometry of its own; the two mono identities
-in pica are the text page (wire, ragged) and the printed page
+.item Raster's language gains nothing. It is a cell painter -- runs at a cursor
+in an ink, no fill mode -- and .at with a column already places each pre-wrapped
+line (2026-09-14: .margin, a persistent column, was removed as authoring state;
+the writer places every line by its own .at). A .width in raster would be a
+second, weaker pica inside a primitive; .cols in the document is consumed as the
+default number of columns per panel, and .width is consumed outright, as the
+HTML writer consumes both: the panel is the measure.
+.item Lines are the mono PDF's lines. Prose -- paragraphs, quotes, items, terms
+-- is set as press sets a mono document: the justified Knuth-Plass breaker with
+its hyphenation (penalty 6), on the text writer's geometry (quote inset, item
+indent, term run-in), the last line ragged. Tables, verbatim and headings go
+through RenderBlock. The first cut used RenderBlock for prose too, the text
+page's ragged lines with the prose hyphen penalty of 100, and at newspaper
+measures they read as unset: the cell page is a printed page, and the PDF is
+what it should match. The writer still adds no geometry of its own; the two mono
+identities in pica are the text page (wire, ragged) and the printed page
 (justified), and a raster is the second.
-.item The writer names no color. It emits raster source in a
-vocabulary of aliases, one per construct -- title, byline,
-heading, subheading, tablehead, total and rights for whole rows,
-label and emph for spans -- each painting one row's text in an
-ink, and ships a default (vocabulary.rt, teletext's convention:
-white on blue bar, yellow headings, cyan subheadings, labels and
-table heads, white emphasis; red, green and magenta left to the
-app).
-An app restyles by supplying its own definitions of the same
-names, the mechanism qam already uses. Aliases only ink; the
-writer has wrapped and placed every line before an alias sees it.
-.item The margin cell. In-band ink takes the blank cell before a
-glyph, so column 0 of every row is left blank and every column
-after the first follows a blank gutter: a row may then begin in
-any ink and a column's ink never leaks into its neighbor. The
-price is one cell per row -- the measure is Cols-1 -- and a
-document sized for tessera's 34 is authored at .width 33 (the
-harbour example's fixed table specs need a 35-cell page). The one
-exception is the title, set at column 0 so its two codes ride in
-the row's tail, which the bar's fill leaves blank; at column 1
-the background code would take cell 0 and the foreground would
-have no cell.
-.item Emphasis costs nothing. EmphLine blanks the marker
-underscores, and those blank cells are exactly where the ink
-codes go: the span is overpainted with .col and .emph and the
-grid never moves. A .term label is the same overpaint, its reset
-code in the run-in gap.
-.item Content that lexes as a command is peeled. A verbatim line
-beginning with a dot and a lowercase letter, or with "+ ", would
-be a raster command or continuation; the writer paints its first
-rune alone and places the rest after it with .col, so every line
-of a .pre is painted as written and raster keeps its closed
-lexing rule.
-.item The printed page on the grid (2026-09-05, the same evening).
-Compared against press's own column flow for the triptych set
-mono (a dump of its slines), the first raster cut drifted by a
-few lines a column, and every cause was a place where the grid
-had not copied the page. Each was copied, and the columns then
-match press line for line through five pages: a heading wraps
-at the role's shrunken measure (two thirds for a section, five
-sixths for a subsection) and each heading line takes two rows,
-the second blank, which is the display slot's height in body
-lines; a verbatim block with a repeated lead-in splits freely and
-only a bare one is atomic; the masthead is the title and byline centered
-over the columns, a blank row, a rule across them and a blank
-row, and Layout.Head pads it to the printed masthead's height
-(six rows on A4 at .width 32, from press's numbers); Layout.Margin
-and Layout.Gutter take the page's proportions (press's 20-point
-gutter is four cells at that size, its 40-point margin eight),
-and a gutter of three or more cells carries a hairline down its
-middle to content depth, the blank cells either side of it being
-where the columns' codes go. The one difference left is the
-half-line table note: press sets notes at half size on half the
-leading with twice the rune budget, and a grid has one size, so
-a note is a full row and wraps at the measure; a column with
-notes breaks earlier than the page's. Not a defect, a fact of
-the grid, and the writer does not pretend otherwise. Then the
-heading fold was taken out again: line-for-line fidelity was
-the experiment's measure, not the requirement, and a heading
-folded at a larger glyph's measure, on a slot that glyph would
-fill, is on the grid a heading wrapped for no reason over a
-gap. A heading is one row at the full measure, wrapping only
-when longer than it; the rest of what the experiment found --
-the masthead, the head padding, the splitting verbatim block,
-the gutter hairlines, the page's proportions for margin and
-gutter -- costs the grid nothing and stays.
-.item Why the PDF still reads better (2026-09-05). With the lines
-identical, what the page has and the grid lacks is hierarchy by
-weight and size, a face drawn as itself, and hairline rules;
-colour for hierarchy reads as a screen, weight as print. The size
-the grid cannot have. The face it can: raster's HTML page now
-embeds a face subset to the cell repertoire, so the letterforms
-are the same in every browser as the PDF's are in every viewer.
-A print theme that read the palette as weights (bold headings,
-italic emphasis) was tried and taken out: one output, the
-glyphs, is the honest test of the medium, and hierarchy on the
+.item The writer names no color. It emits raster source in a vocabulary of
+aliases, one per construct -- title, byline, heading, subheading, tablehead,
+total and rights for whole rows, label and emph for spans -- each painting one
+row's text in an ink, and ships a default (vocabulary.rt, teletext's convention:
+white on blue bar, yellow headings, cyan subheadings, labels and table heads,
+white emphasis; red, green and magenta left to the app). An app restyles by
+supplying its own definitions of the same names, the mechanism qam already uses.
+Aliases only ink; the writer has wrapped and placed every line before an alias
+sees it.
+.item The margin cell. In-band ink takes the blank cell before a glyph, so
+column 0 of every row is left blank and every column after the first follows a
+blank gutter: a row may then begin in any ink and a column's ink never leaks
+into its neighbor. The price is one cell per row -- the measure is Cols-1 -- and
+a document sized for tessera's 34 is authored at .width 33 (the harbour
+example's fixed table specs need a 35-cell page). The one exception is the
+title, set at column 0 so its two codes ride in the row's tail, which the bar's
+fill leaves blank; at column 1 the background code would take cell 0 and the
+foreground would have no cell.
+.item Emphasis costs nothing. EmphLine blanks the marker underscores, and those
+blank cells are exactly where the ink codes go: the span is overpainted
+with .col and .emph and the grid never moves. A .term label is the same
+overpaint, its reset code in the run-in gap.
+.item Content that lexes as a command is peeled. A verbatim line beginning with
+a dot and a lowercase letter, or with "+ ", would be a raster command or
+continuation; the writer paints its first rune alone and places the rest after
+it with .col, so every line of a .pre is painted as written and raster keeps its
+closed lexing rule.
+.item The printed page on the grid (2026-09-05, the same evening). Compared
+against press's own column flow for the triptych set mono (a dump of its
+slines), the first raster cut drifted by a few lines a column, and every cause
+was a place where the grid had not copied the page. Each was copied, and the
+columns then match press line for line through five pages: a heading wraps at
+the role's shrunken measure (two thirds for a section, five sixths for a
+subsection) and each heading line takes two rows, the second blank, which is the
+display slot's height in body lines; a verbatim block with a repeated lead-in
+splits freely and only a bare one is atomic; the masthead is the title and
+byline centered over the columns, a blank row, a rule across them and a blank
+row, and Layout.Head pads it to the printed masthead's height (six rows on A4
+at .width 32, from press's numbers); Layout.Margin and Layout.Gutter take the
+page's proportions (press's 20-point gutter is four cells at that size, its
+40-point margin eight), and a gutter of three or more cells carries a hairline
+down its middle to content depth, the blank cells either side of it being where
+the columns' codes go. The one difference left is the half-line table note:
+press sets notes at half size on half the leading with twice the rune budget,
+and a grid has one size, so a note is a full row and wraps at the measure; a
+column with notes breaks earlier than the page's. Not a defect, a fact of the
+grid, and the writer does not pretend otherwise. Then the heading fold was taken
+out again: line-for-line fidelity was the experiment's measure, not the
+requirement, and a heading folded at a larger glyph's measure, on a slot that
+glyph would fill, is on the grid a heading wrapped for no reason over a gap. A
+heading is one row at the full measure, wrapping only when longer than it; the
+rest of what the experiment found -- the masthead, the head padding, the
+splitting verbatim block, the gutter hairlines, the page's proportions for
+margin and gutter -- costs the grid nothing and stays.
+.item Why the PDF still reads better (2026-09-05). With the lines identical,
+what the page has and the grid lacks is hierarchy by weight and size, a face
+drawn as itself, and hairline rules; colour for hierarchy reads as a screen,
+weight as print. The size the grid cannot have. The face it can: raster's HTML
+page now embeds a face subset to the cell repertoire, so the letterforms are the
+same in every browser as the PDF's are in every viewer. A print theme that read
+the palette as weights (bold headings, italic emphasis) was tried and taken out:
+one output, the glyphs, is the honest test of the medium, and hierarchy on the
 grid is the vocabulary's, in ink.
-.item One face, every glyph (2026-09-05). The first embedded face
-was JetBrains Mono, which lacks eleven of the repertoire (the
-weather set among them), and a glyph the subset lacks is drawn
-by the browser from the next face in the stack, whose advance
-differs by a hair, and every such cell moves the rest of its
-row. That is what made the gutter rules wander: first the
-missing eleven, then, once the subset was checked, the space
-itself, cut from the printing code points, so every blank cell
-came from Menlo at 0.602em against 0.6 and a row moved by the
-spaces before its rule. Measuring every rule's pixel position in
-the page found it. Eight open monospace families were then
-tested against all 197 printing glyphs: JuliaMono and DejaVu
-Sans Mono hold every one; JetBrains Mono, Fira Mono, Source Code
-Pro, Cascadia, Hack and Iosevka do not. JuliaMono is the face:
-OFL, an advance of exactly 0.6em so a cell is a whole pixel at
-15px and 20px (DejaVu's 0.602em is the fractional drift again),
-eleven weights. The subsets hold the space and every repertoire
-glyph, carry no layout features, about 12K a face, and the page
-tells the browser to shape nothing: a cell is a glyph, one to
-one, and the rules sit on one pixel column through 270 rows.
-The repertoire did not need to change. The PDF's mono face
-followed the same day: pica/pdf embeds JuliaMono Regular and Bold
-in place of Fira Mono, subset to Fira Mono's coverage plus the
-repertoire (about 300K a face against the full 3M), so a mono PDF
-and a raster page set the same letterforms and a table cell with
-a weather mark sets in both. JuliaMono has no proportional
-companion, so a sans document is now a mix, Fira Sans prose with
-JuliaMono tables and code, judged acceptable on the page.
-.item Flow is press's, in whole lines. The column flow (splits
-between segments, minKeep two on either side, repeated lead-ins,
-keep-with-next headings, atomic verbatim) is ported without the
-half-line quantum, since a raster row is the quantum. Two
-deviations: an atomic block taller than a fresh column splits
-rather than overflows, because a raster page cannot overflow; and
-keep-with-next counts the next block's lead-in plus minKeep
-content segments, where press counts minKeep segments of any
-kind and so can leave a heading over a table's header alone at a
-column foot. The second is a latent difference to reconcile when
-the flow is shared.
-.item Not the promotion of fblock/sline. TASKS.t expected this
-writer to make press's block and line the shared contract; it
-did not, because the cell line (text, alias, spans) is simpler
-than sline and press's is bound to proportional metrics. Under
-§10's rule a second consumer duplicates (the flow is a hundred
-lines); a third is the trigger to share. The composer registry
-of §4 waits likewise.
-.item Links are reported, not carried. A .link block is set as
-its title in brackets -- a raster link is bracketed text and
-nothing else -- and Result.Links pairs each with its URL for the
-app to resolve, since the page cannot hold it. Brackets in prose
-become links as on every raster page; there is no escape, and
+.item One face, every glyph (2026-09-05). The first embedded face was JetBrains
+Mono, which lacks eleven of the repertoire (the weather set among them), and a
+glyph the subset lacks is drawn by the browser from the next face in the stack,
+whose advance differs by a hair, and every such cell moves the rest of its row.
+That is what made the gutter rules wander: first the missing eleven, then, once
+the subset was checked, the space itself, cut from the printing code points, so
+every blank cell came from Menlo at 0.602em against 0.6 and a row moved by the
+spaces before its rule. Measuring every rule's pixel position in the page found
+it. Eight open monospace families were then tested against all 197 printing
+glyphs: JuliaMono and DejaVu Sans Mono hold every one; JetBrains Mono, Fira
+Mono, Source Code Pro, Cascadia, Hack and Iosevka do not. JuliaMono is the face:
+OFL, an advance of exactly 0.6em so a cell is a whole pixel at 15px and 20px
+(DejaVu's 0.602em is the fractional drift again), eleven weights. The subsets
+hold the space and every repertoire glyph, carry no layout features, about 12K a
+face, and the page tells the browser to shape nothing: a cell is a glyph, one to
+one, and the rules sit on one pixel column through 270 rows. The repertoire did
+not need to change. The PDF's mono face followed the same day: pica/pdf embeds
+JuliaMono Regular and Bold in place of Fira Mono, subset to Fira Mono's coverage
+plus the repertoire (about 300K a face against the full 3M), so a mono PDF and a
+raster page set the same letterforms and a table cell with a weather mark sets
+in both. JuliaMono has no proportional companion, so a sans document is now a
+mix, Fira Sans prose with JuliaMono tables and code, judged acceptable on the
+page.
+.item Flow is press's, in whole lines. The column flow (splits between segments,
+minKeep two on either side, repeated lead-ins, keep-with-next headings, atomic
+verbatim) is ported without the half-line quantum, since a raster row is the
+quantum. Two deviations: an atomic block taller than a fresh column splits
+rather than overflows, because a raster page cannot overflow; and keep-with-next
+counts the next block's lead-in plus minKeep content segments, where press
+counts minKeep segments of any kind and so can leave a heading over a table's
+header alone at a column foot. The second is a latent difference to reconcile
+when the flow is shared.
+.item Not the promotion of fblock/sline. TASKS.t expected this writer to make
+press's block and line the shared contract; it did not, because the cell line
+(text, alias, spans) is simpler than sline and press's is bound to proportional
+metrics. Under §10's rule a second consumer duplicates (the flow is a hundred
+lines); a third is the trigger to share. The composer registry of §4 waits
+likewise.
+.item Links are reported, not carried. A .link block is set as its title in
+brackets -- a raster link is bracketed text and nothing else -- and Result.Links
+pairs each with its URL for the app to resolve, since the page cannot hold it.
+Brackets in prose become links as on every raster page; there is no escape, and
 none is admitted.
-.item Errors, not substitutions. A rune outside the repertoire, a
-table wider than the measure, and a document longer than the
-panels are errors naming what did not fit; the app shrinks,
-splits or adds a panel. The writer never truncates a table or
-drops a block.
+.item Errors, not substitutions. A rune outside the repertoire, a table wider
+than the measure, and a document longer than the panels are errors naming what
+did not fit; the app shrinks, splits or adds a panel. The writer never truncates
+a table or drops a block.
 
 # 16. The breaker is a primitive: wrap (decided 2026-10-04)
 
-Driver: the table language moved below pica into
-repani.com/typeset/tbl, shared with board (repani-lab/board,
-DESIGN.t), and a cell must break the same in both; tbl cannot
-import pica, which imports it. So the breaker moved where §12 put
-the grid: wrap.go and hyphen.go, with the embedded pattern sets,
-are repani.com/typeset/wrap, under the primitive rule (stdlib
-only, no document or font). It holds the Measurer and Line, the
-ragged and justified Knuth-Plass breakers, the cell breaker with
-its hard cut, and Token for callers that style words. What stayed
-is what is pica's syntax: _emphasis_, tokenized in pica and handed
-over as Tokens. Pica keeps every exported name -- Measurer, Line
-and Mono as aliases, WrapLines, JustifyLines and the rest as
-one-line delegates -- so the press, the cell writer and the PDF
-writer are unchanged. The breaker's tests and benchmarks moved
-with it. Verified by rendering every .t document under ~/repos in
-text, pdf, html and report before and after: 255 outputs, byte for
-byte the same.
+Driver: the table language moved below pica into repani.com/typeset/tbl, shared
+with board (repani-lab/board, DESIGN.t), and a cell must break the same in both;
+tbl cannot import pica, which imports it. So the breaker moved where §12 put the
+grid: wrap.go and hyphen.go, with the embedded pattern sets, are
+repani.com/typeset/wrap, under the primitive rule (stdlib only, no document or
+font). It holds the Measurer and Line, the ragged and justified Knuth-Plass
+breakers, the cell breaker with its hard cut, and Token for callers that style
+words. What stayed is what is pica's syntax: _emphasis_, tokenized in pica and
+handed over as Tokens. Pica keeps every exported name -- Measurer, Line and Mono
+as aliases, WrapLines, JustifyLines and the rest as one-line delegates -- so the
+press, the cell writer and the PDF writer are unchanged. The breaker's tests and
+benchmarks moved with it. Verified by rendering every .t document under ~/repos
+in text, pdf, html and report before and after: 255 outputs, byte for byte the
+same.
 
 # 17. Hyphenation apart, and the breaker cuts (decided 2026-10-04)
 
-Driver: simple programs need the breaker -- optimal ragged-right
-breaks -- without hyphenation, and without paying for it: every
-importer of typeset/wrap compiled the 5,511 pattern lines at
-start-up (1.9 ms, 1.2 MB, 11,111 allocations, measured) and linked
-them, hyphenating or not.
+Driver: simple programs need the breaker -- optimal ragged-right breaks --
+without hyphenation, and without paying for it: every importer of typeset/wrap
+compiled the 5,511 pattern lines at start-up (1.9 ms, 1.2 MB, 11,111
+allocations, measured) and linked them, hyphenating or not.
 
-.item The hyphenator is repani.com/typeset/wrap/hyphen: the
-patterns, compiled on first use, behind wrap.Hyphenator. wrap
-imports nothing of it, and a test fails the day it does. Every
-breaker takes a Hyphenator or none: Ragged none, Hyphenated and
-HyphenatedRunIn one with its penalty, the justified breakers and
-Cell one or nil. Pica passes hyphen.Default everywhere, so its
-breaks are its own as before.
-.item Every line fits. A word wider than the measure was left to
-overflow (prose) or cut after breaking (cells). Now the breaker
-splits it: at the rightmost hyphenation point whose prefix fits,
-else CUT at the longest prefix that fits, with no hyphen, one rune
-at the least. Pieces after the first break at the word's own
-points, shifted -- a word is hyphenated once, as TeX does -- and
-the last piece takes the word's place, so it may share a line with
-the words after it. Truncating stays the caller's (tbl's clip).
-.item Linear in the word. Splitting re-hyphenated and re-measured
-each remainder, every piece: a hyphenatable word of 10,400 runes
-at 6 took 17 s, growing faster than the square. The split measures
-only prefixes near a line's width, and points are found once:
-10 ms. Prefix widths are measured only up to twice the measure.
+.item The hyphenator is repani.com/typeset/wrap/hyphen: the patterns, compiled
+on first use, behind wrap.Hyphenator. wrap imports nothing of it, and a test
+fails the day it does. Every breaker takes a Hyphenator or none: Ragged none,
+Hyphenated and HyphenatedRunIn one with its penalty, the justified breakers and
+Cell one or nil. Pica passes hyphen.Default everywhere, so its breaks are its
+own as before.
+.item Every line fits. A word wider than the measure was left to overflow
+(prose) or cut after breaking (cells). Now the breaker splits it: at the
+rightmost hyphenation point whose prefix fits, else CUT at the longest prefix
+that fits, with no hyphen, one rune at the least. Pieces after the first break
+at the word's own points, shifted -- a word is hyphenated once, as TeX does --
+and the last piece takes the word's place, so it may share a line with the words
+after it. Truncating stays the caller's (tbl's clip).
+.item Linear in the word. Splitting re-hyphenated and re-measured each
+remainder, every piece: a hyphenatable word of 10,400 runes at 6 took 17 s,
+growing faster than the square. The split measures only prefixes near a line's
+width, and points are found once: 10 ms. Prefix widths are measured only up to
+twice the measure.
 
-Verified as §16 was: 255 outputs, one changed -- a corpus table
-cell, `headerless` in four columns, once `head` / `erle` / `ss`, is
-now `head` / `er-` / `less`.
+Verified as §16 was: 255 outputs, one changed -- a corpus table cell,
+`headerless` in four columns, once `head` / `erle` / `ss`, is now `head` / `er-`
+/ `less`.
 
 # 18. Tables are tbl's (decided 2026-10-04)
 
-Driver: one table language for pica and board
-(repani.com/typeset/tbl, its SPEC.t). Pica parses a .table with
-tbl's full format and row grammar and lays it out with tbl's
-Layout and Grid; what stays here is what tbl leaves to a host.
+Driver: one table language for pica and board (repani.com/typeset/tbl, its
+SPEC.t). Pica parses a .table with tbl's full format and row grammar and lays it
+out with tbl's Layout and Grid; what stays here is what tbl leaves to a host.
 
-.item THE LANGUAGE CHANGES IN THREE PLACES. The header is marked,
-"^", and must be the first row; the "-" headerless marker is gone
-(a table without "^" is headerless). A short row's last cell spans
-the remaining columns, where it once left them blank; a row with
-more cells than columns is an error, where its extras were
-dropped. And the S column joins its left neighbour. The leading
+.item THE LANGUAGE CHANGES IN THREE PLACES. The header is marked, "^", and must
+be the first row; the "-" headerless marker is gone (a table without "^" is
+headerless). A short row's last cell spans the remaining columns, where it once
+left them blank; a row with more cells than columns is an error, where its
+extras were dropped. And the S column joins its left neighbour. The leading
 width is tbl's narrowing, the same rule as before.
-.item WHAT PICA REFUSES, as errors at the row: colours and links
-(a row code, a column code, a ":" or "@" mark) -- pica sets
-neither; blank lines and "---" rule rows inside a table, which it
-once skipped silently; a header after the first row; and, from
-tbl, a note with no row above it.
-.item WHAT STAYS PICA'S: the header rule and the total rule; note
-rows on the half-size grid, re-wrapped in their boxes (a box's
-half-grid span is its full-grid span doubled); prose cells and
-header labels measured in a proportional face, now per box --
-TableLayout's RowProse and HeaderProse are ProseCells, each with
-its box and alignment, and ProseCols is gone; HTML, which now
-writes a colspan for a box over several columns.
-.item Every refusal wraps ErrBadAttr and the error that names it,
-tbl's with the column in its line.
+.item WHAT PICA REFUSES, as errors at the row: colours and links (a row code, a
+column code, a ":" or "@" mark) -- pica sets neither; blank lines and "---" rule
+rows inside a table, which it once skipped silently; a header after the first
+row; and, from tbl, a note with no row above it.
+.item WHAT STAYS PICA'S: the header rule and the total rule; note rows on the
+half-size grid, re-wrapped in their boxes (a box's half-grid span is its
+full-grid span doubled); prose cells and header labels measured in a
+proportional face, now per box -- TableLayout's RowProse and HeaderProse are
+ProseCells, each with its box and alignment, and ProseCols is gone; HTML, which
+now writes a colspan for a box over several columns.
+.item Every refusal wraps ErrBadAttr and the error that names it, tbl's with the
+column in its line.
 
-Migrated mechanically: 172 tables in 34 documents gained "^" on
-their header row; the generators that write .table (desk's table
-helper, hosa's eval report, a qcrun test and the templates in
-quietcasting-editors and football_manager) likewise. The
-pica-forth experiment is left as it was: its corpus is the old
-pica's, regenerated from an oracle binary. Verified by rendering
-every document before and after: of 263 outputs, the changes are
-the pica-forth ones and two documents -- gist's one-cell notes now
-span the table instead of wrapping in its first column, and one
-table whose spec had an unused auto column was given four columns
-for its four cells.
+Migrated mechanically: 172 tables in 34 documents gained "^" on their header
+row; the generators that write .table (desk's table helper, hosa's eval report,
+a qcrun test and the templates in quietcasting-editors and football_manager)
+likewise. The pica-forth experiment is left as it was: its corpus is the old
+pica's, regenerated from an oracle binary. Verified by rendering every document
+before and after: of 263 outputs, the changes are the pica-forth ones and two
+documents -- gist's one-cell notes now span the table instead of wrapping in its
+first column, and one table whose spec had an unused auto column was given four
+columns for its four cells.
 
 # 19. One grid, one row (decided 2026-10-05)
 
-Driver: a review of pica and typeset found the table stack built
-twice over after §18. typeset/tab parsed a second, drifted copy of
-tbl's spec ("+6L" passed one, failed the other) for one consumer,
-desk's cells helper, which no template used; pica kept every row in
-its own builder and in tbl, fitted and measured the grid twice per
-layout, laid notes out twice, and handed the writers flat strings
-that the PDF compositor sliced by column to find numbers -- reading
-a span's digits as a number in an N column it crossed.
+Driver: a review of pica and typeset found the table stack built twice over
+after §18. typeset/tab parsed a second, drifted copy of tbl's spec ("+6L" passed
+one, failed the other) for one consumer, desk's cells helper, which no template
+used; pica kept every row in its own builder and in tbl, fitted and measured the
+grid twice per layout, laid notes out twice, and handed the writers flat strings
+that the PDF compositor sliced by column to find numbers -- reading a span's
+digits as a number in an N column it crossed.
 
-.item typeset/tab is gone, and desk's cells with it. Its fitting,
-decimal metrics and number setting are tbl's grid (grid.go): one
-Span, one fit, one pad; cutting is format.Trunc.
-.item tbl.Table.Layout returns the grid it laid the rows on; notes
-are laid L and wrapping, as pica sets them, so pica only re-wraps
-them for the half-size grid.
-.item Pica's Table is the format and tbl's table: no builder (it had
-no caller outside tests, which now build tables by parsing), no
-copy of the rows. The narrowing width is tbl's alone: Block.Width
-and TableWidth are gone, HTML reads Table.Narrow.
-.item TableLayout is a header and rows, each a TableRow -- lines,
-total, measured prose cells, notes at both sizes, and the numbers
-of its single N boxes, split at the point with the column of the
-point -- in place of eight parallel slices. The compositor lifts
-those numbers instead of re-reading columns of text; header and
-row prose share one positioning function.
+.item typeset/tab is gone, and desk's cells with it. Its fitting, decimal
+metrics and number setting are tbl's grid (grid.go): one Span, one fit, one pad;
+cutting is format.Trunc.
+.item tbl.Table.Layout returns the grid it laid the rows on; notes are laid L
+and wrapping, as pica sets them, so pica only re-wraps them for the half-size
+grid.
+.item Pica's Table is the format and tbl's table: no builder (it had no caller
+outside tests, which now build tables by parsing), no copy of the rows. The
+narrowing width is tbl's alone: Block.Width and TableWidth are gone, HTML reads
+Table.Narrow.
+.item TableLayout is a header and rows, each a TableRow -- lines, total,
+measured prose cells, notes at both sizes, and the numbers of its single N
+boxes, split at the point with the column of the point -- in place of eight
+parallel slices. The compositor lifts those numbers instead of re-reading
+columns of text; header and row prose share one positioning function.
 
 Verified: every document renders byte for byte as before.
 
@@ -1263,70 +1130,93 @@ Verified: every document renders byte for byte as before.
 
 Driver: the same review, on the breaker and the writers.
 
-.item THE BREAKER is one dynamic program under a cost model
-(typeset/wrap): ragged and justified differ in a line's cost, the
-last line's, the hyphen penalty, the hang, the shrink and whether a
-fitting word is tried for a hyphen -- no longer in two copies of the
-search. Its entry points are Ragged (no hyphenation, the light
-path), Hyphenated and Justify, each with the first line's measure
-apart, JustifyMono, Cell, and Gaps, which spreads a justified line's
+.item THE BREAKER is one dynamic program under a cost model (typeset/wrap):
+ragged and justified differ in a line's cost, the last line's, the hyphen
+penalty, the hang, the shrink and whether a fitting word is tried for a hyphen
+-- no longer in two copies of the search. Its entry points are Ragged (no
+hyphenation, the light path), Hyphenated and Justify, each with the first line's
+measure apart, JustifyMono, Cell, and Gaps, which spreads a justified line's
 slack for every writer (the PDF compositor's spread was a copy).
-HyphenatedRunIn, JustifyTokens, JustifyParagraph and its run-in
-twin, JustifyLine and HangHyphen are gone; pica keeps WrapLines,
-JustifyLines (emphasis-aware) and JustifyText, its policy and
-nothing else.
-.item A word is hyphenated once: a suffix after a break keeps the
-word's points, shifted (none two runes or fewer from its start),
-as §17 already said and the code did not.
-.item THE GEOMETRY of quotes, items and terms on a monospace grid
-is LayProse, once, the breaker its parameter: ragged for the text
-page, justified for the mono PDF. The sans PDF's prose loop is one
-function.
-.item Fixed on the way: the justified breaker split a line's first
-word that fit; a number wider than its N box printed cut, now an
-error; clipped and wrapped cells disagreed on spaces, and a cell
-could hold text no grid can set, now refused; the mono PDF read
-emphasis line by line and lost it at a hyphen; a spanning cell's
-digits were read as a number; a long sans .term label overflowed;
-desk tables let data choose a row's role.
+HyphenatedRunIn, JustifyTokens, JustifyParagraph and its run-in twin,
+JustifyLine and HangHyphen are gone; pica keeps WrapLines, JustifyLines
+(emphasis-aware) and JustifyText, its policy and nothing else.
+.item A word is hyphenated once: a suffix after a break keeps the word's points,
+shifted (none two runes or fewer from its start), as §17 already said and the
+code did not.
+.item THE GEOMETRY of quotes, items and terms on a monospace grid is LayProse,
+once, the breaker its parameter: ragged for the text page, justified for the
+mono PDF. The sans PDF's prose loop is one function.
+.item Fixed on the way: the justified breaker split a line's first word that
+fit; a number wider than its N box printed cut, now an error; clipped and
+wrapped cells disagreed on spaces, and a cell could hold text no grid can set,
+now refused; the mono PDF read emphasis line by line and lost it at a hyphen; a
+spanning cell's digits were read as a number; a long sans .term label
+overflowed; desk tables let data choose a row's role.
 
-Left as they are, with reasons: the two last-line rules (ragged: a
-line shorter than half the measure; justified: an orphan under five
-characters) and the monospace gap cost (whole spaces, not a
-continuous spread) are each behaviour, not duplication.
+Left as they are, with reasons: the two last-line rules (ragged: a line shorter
+than half the measure; justified: an orphan under five characters) and the
+monospace gap cost (whole spaces, not a continuous spread) are each behaviour,
+not duplication.
 
-Template expansion is one function, desk.Render. pica html had grown
-its own copy for the repani.com site, whose pages are text/templates
-over data.fact inside one archive, built in one command so the
-archive a visitor fetches reproduces the pages; its one difference,
-a missing key an error so a page never states a fact the data does
-not hold, is now Render's parameter: desk.Refuse for html,
-desk.Blank for pica render, whose feed templates test optional keys
-with "if". Both site pages render byte for byte as served.
+Template expansion is one function, desk.Render. pica html had grown its own
+copy for the repani.com site, whose pages are text/templates over data.fact
+inside one archive, built in one command so the archive a visitor fetches
+reproduces the pages; its one difference, a missing key an error so a page never
+states a fact the data does not hold, is now Render's parameter: desk.Refuse for
+html, desk.Blank for pica render, whose feed templates test optional keys with
+"if". Both site pages render byte for byte as served.
 
-Verified at each step by rendering every document: byte for byte,
-but for the PDFs once every stream became compressed.
+Verified at each step by rendering every document: byte for byte, but for the
+PDFs once every stream became compressed.
 
 # 21. Links show on paper (decided 2026-10-26)
 
-A link in the PDFs was its title in 45% gray and nothing else: gray
-alone reads as muted text (the report footer is 40% gray), and a
-titled link printed without its address, which no reader of the
-paper could recover. Both PDF writers now mark and carry it:
+A link in the PDFs was its title in 45% gray and nothing else: gray alone reads
+as muted text (the report footer is 40% gray), and a titled link printed without
+its address, which no reader of the paper could recover. Both PDF writers now
+mark and carry it:
 
-.item The title line leads with "↗ ", the external-link arrow,
-present in the mono and the sans face. Underline was the obvious
-mark and is unavailable: the mono PDF draws emphasis with it, and
-two meanings for one stroke is the confusion being removed.
-.item A titled link adds its URL, scheme stripped, on its own line
-under the title, aligned past the mark, cut to the measure; both
-lines carry the annotation and the block stays atomic. Its own line,
-not after the title: a long URL cut at the column edge loses the
-title's line too. An untitled link is its URL already, one line.
+.item The title line leads with "↗ ", the external-link arrow, present in the
+mono and the sans face. Underline was the obvious mark and is unavailable: the
+mono PDF draws emphasis with it, and two meanings for one stroke is the
+confusion being removed.
+.item A titled link adds its URL, scheme stripped, on its own line under the
+title, aligned past the mark, cut to the measure; both lines carry the
+annotation and the block stays atomic. Its own line, not after the title: a long
+URL cut at the column edge loses the title's line too. An untitled link is its
+URL already, one line.
 
-The text writer is untouched (its .link line is the wire markup) and
-so is the HTML writer (a real <a>; how it looks is the page's CSS).
-No language change: this is how a writer sets a block it already had.
+The text writer is untouched (its .link line is the wire markup) and so is the
+HTML writer (a real <a>; how it looks is the page's CSS). No language change:
+this is how a writer sets a block it already had.
+
+# 22. pica fmt: the source has its own measure (decided 2026-10-29)
+
+Source drifted: hard-wrapped prose, edited a clause at a time, kept lines past
+any measure (a TASKS.t entry had one of 107 runes), and the house measure was
+only a habit (70, an editor's default). pica fmt is the language's gofmt:
+pica.Format refills prose and changes nothing else, so the formatted document
+parses to the one it was given.
+
+.item The measure is a constant, 80, not .width. .width is the page's measure
+and often far narrower (48 in most documents here, 32 in some); filling source
+to it would let a rendering choice reshape the text an author edits. No flag:
+one measure leaves nothing to argue about.
+.item Refilled: paragraphs, .item and .term text, .quote bodies, and runs of
+.rem lines, which refill as a group (each line its own .rem, a bare .rem the
+group's break) -- a comment run is one paragraph to its author. Untouched: the
+title, headings, command lines, .pre and .table bodies, blank lines.
+.item Greedy and ragged, breaking only at spaces: hyphenating source would
+insert content. A word that would make its line structure if it began one (a dot
+command, a heading mark, a rule) stays on the line before; the test is the
+strictest context's, so .attrib and .end are held back everywhere.
+.item A document that does not parse is refused, never formatted.
+
+The test is the corpus: every document in the module keeps its blocks word for
+word and its text page byte for byte, and formats to itself a second time. Every
+pica document under ~/repos was checked the same way when this landed, and
+gohook runs pica fmt -w on each .t file saved under ~/repos, as advice only --
+the research corpora keep invalid documents on purpose.
 
 .width 48
 .cols 2

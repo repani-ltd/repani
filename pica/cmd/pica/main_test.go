@@ -173,6 +173,37 @@ func TestCheckCmd(t *testing.T) {
 	}
 }
 
+func TestFmtCmd(t *testing.T) {
+	dir := writeFiles(t, map[string]string{
+		"loose.t": "T\n\nshort\nlines\n",
+		"tidy.t":  "T\n\nshort lines\n",
+		"bad.t":   "T\n\n.bogus\n",
+	})
+	loose, tidy, bad := filepath.Join(dir, "loose.t"), filepath.Join(dir, "tidy.t"), filepath.Join(dir, "bad.t")
+	var rc int
+	if out, _ := capture(t, func() { rc = fmtCmd([]string{loose}) }); rc != 0 || out != "T\n\nshort lines\n" {
+		t.Errorf("fmt loose = %d, %q", rc, out)
+	}
+	if out, _ := capture(t, func() { rc = fmtCmd([]string{"-l", loose, tidy}) }); rc != 0 || out != loose+"\n" {
+		t.Errorf("fmt -l = %d, %q", rc, out)
+	}
+	if out, _ := capture(t, func() { rc = fmtCmd([]string{"-w", loose, tidy}) }); rc != 0 || out != "" {
+		t.Errorf("fmt -w = %d, %q", rc, out)
+	}
+	if b, _ := os.ReadFile(loose); string(b) != "T\n\nshort lines\n" {
+		t.Errorf("fmt -w wrote %q", b)
+	}
+	if _, errOut := capture(t, func() { rc = fmtCmd([]string{"-w", bad}) }); rc != 1 || !strings.HasPrefix(errOut, "pica fmt: "+bad) {
+		t.Errorf("fmt -w bad = %d, %q", rc, errOut)
+	}
+	if b, _ := os.ReadFile(bad); string(b) != "T\n\n.bogus\n" {
+		t.Errorf("fmt -w rewrote an invalid document: %q", b)
+	}
+	if _, _ = capture(t, func() { rc = fmtCmd([]string{"-w"}) }); rc != 2 {
+		t.Errorf("fmt -w on stdin = %d, want 2", rc)
+	}
+}
+
 // capture runs f with stdout and stderr redirected, returning what
 // it wrote.
 func capture(t *testing.T, f func()) (out, errOut string) {

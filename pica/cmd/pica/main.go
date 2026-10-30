@@ -15,6 +15,10 @@
 //	pica spec                       print the language reference
 //	pica check  [file|-]            parse a source doc, report errors
 //
+// And one for the source itself, gofmt's counterpart:
+//
+//	pica fmt    [-w] [-l] [file...] refill a source doc's prose to 80
+//
 // A typical pipeline:
 //
 //	pica render page.tmpl data.json | pica text     > page.txt
@@ -100,6 +104,8 @@ func main() {
 		os.Exit(specCmd(os.Args[2:]))
 	case "check":
 		os.Exit(checkCmd(os.Args[2:]))
+	case "fmt":
+		os.Exit(fmtCmd(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 		os.Exit(0)
@@ -124,6 +130,7 @@ Usage:
   pica html -txtar -page NAME [-o FILE] [archive|-]
   pica spec [-o FILE]
   pica check [file|-]
+  pica fmt [-w] [-l] [file...|-]
 
 render executes a Go template over JSON, FACT (-fact, implied by a
 .fact filename), or txtar (-txtar) data and emits a pica source
@@ -139,7 +146,12 @@ data.fact typed values,
 *.html and *.svg raw trusted fragments (see the html subcommand's
 source for the data the template sees). spec
 prints the language reference embedded in this binary; check parses
-a document and reports errors without rendering. Layout
+a document and reports errors without rendering. fmt refills a
+source document's prose to 80 columns, the source measure (not
+.width, the page's), and changes nothing else: paragraphs, .item,
+.term and .quote text, and runs of .rem lines; it prints the
+result, or with -w rewrites each file that differs and with -l
+lists it, and refuses a document that does not parse. Layout
 (width, paper, columns, font) comes from the document's trailer
 (.width/.paper/.cols/.font), not from flags. -mark paints the
 Repani mark top-right of page one: a publishing choice made where
