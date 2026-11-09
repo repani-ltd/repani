@@ -12,9 +12,9 @@ import (
 )
 
 // mark.stream is the mark as a PDF content stream in a 64 x 70 unit
-// space (navy line, red and green offset fill). It is derived from
-// the header SVG in the repani.com site repo, the drawing's source
-// of truth (repani.com/docs/mark/README.t records the derivation).
+// space (flat red and green fills). It is derived from the drawing
+// in the repani.com site repo, docs/mark/mark.svg, its source of
+// truth (repani.com/docs/mark/README.t records the derivation).
 //
 //go:embed mark.stream
 var markStream string
