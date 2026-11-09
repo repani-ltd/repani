@@ -143,21 +143,6 @@ parser inside a column was about a format people write and nothing reads this
 one back.
 .item W003 itself, the same field set used as a check.
 
-.term fact validate as an edit-time hook
-Nothing validates a .fact file when an agent edits one: gohook knows nothing
-about .fact (grep -c fact ~/bin/gohook = 0), no hook config mentions it, and the
-only validation in the tree runs inside consumer Go at load time (nyx/load.go,
-gist/forge/registry.go, reckon/build) -- so a turn can end with an invalid file
-and nothing objects until the program runs. The fix is the pattern that already
-works for Go: validate each edited .fact file after the edit, refuse Stop while
-one is invalid. Considered and rejected instead: fact assert/retract, verbs that
-would apply and check a single line. They add no check fact validate does not
-already make -- a sed-deleted instance breaking a ref was caught this session by
-validate alone -- only a guarantee that the check ran, and an agent that skips
-validate would skip assert equally. Enforcement is a hook's job, not a verb's.
-Trigger: ratification; the change is to shared infrastructure every session
-inherits, so it is not made unilaterally.
-
 .term comments are destroyed by fact fmt -w
 fmt -w silently deletes every comment line: nine of them in live
 quietcasting-editors/subjects/football.fact, which are the run instructions an
