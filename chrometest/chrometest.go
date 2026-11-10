@@ -83,7 +83,9 @@ func Start(t *testing.T, opts Options) *Browser {
 		}
 	})
 	b := &Browser{t: t, phone: opts.Phone, first: true}
-	for i := 0; b.port == "" && i < 100; i++ {
+	// Up to 30 s for Chrome to start: it has been seen to take more
+	// than 10 on a busy machine, failing tests that were not at fault.
+	for i := 0; b.port == "" && i < 300; i++ {
 		raw, err := os.ReadFile(filepath.Join(dir, "DevToolsActivePort"))
 		if err == nil && strings.Contains(string(raw), "\n") {
 			b.port = strings.SplitN(string(raw), "\n", 2)[0]
