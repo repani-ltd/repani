@@ -1,6 +1,7 @@
 // Package kvjs embeds the JavaScript ASCON-KV client (kv.js) so Go
 // servers can serve it as a static asset from the module that owns
-// it, keeping a single source of truth.
+// it, keeping a single source of truth. kv.js imports ./ascon.js,
+// which a server serves beside it from repani.com/ascon (ascon.JS).
 package kvjs
 
 import "embed"

@@ -1,6 +1,10 @@
 // Package ascon implements Ascon-XOF128 (extendable-output
 // function) and Ascon-AEAD128 (authenticated encryption with
 // associated data), both as specified in NIST SP 800-232.
+//
+// ascon.js is its JavaScript twin, embedded as JS so a server serves it
+// from this module: the same XOF, CXOF and AEAD, held to the same
+// known-answer vectors (js_test.go).
 package ascon
 
 import "math/bits"

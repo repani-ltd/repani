@@ -25,9 +25,9 @@ import (
 )
 
 // jsSite serves js/ (kv.js and its test modules) at the root of a
-// local origin, a blank page at "/", and whatever routes adds, then
-// opens the page in headless Chrome. It returns the page and the
-// origin.
+// local origin, ascon.js beside kv.js (it imports it), a blank page at
+// "/", and whatever routes adds, then opens the page in headless
+// Chrome. It returns the page and the origin.
 func jsSite(t *testing.T, routes func(*http.ServeMux)) (*chrometest.Page, string) {
 	t.Helper()
 	if !chrometest.Available(chrometest.Options{}) {
@@ -35,6 +35,7 @@ func jsSite(t *testing.T, routes func(*http.ServeMux)) (*chrometest.Page, string
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServerFS(os.DirFS("../js")))
+	mux.Handle("GET /ascon.js", http.FileServerFS(ascon.JS))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		io.WriteString(w, "<!doctype html><title>kv.js</title>")
