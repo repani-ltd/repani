@@ -20,6 +20,9 @@ const mastRuleGap = 4.0
 // the Repani mark top-right of page one: publishing policy,
 // chosen where the PDF is made, never in the document.
 func PDF(doc *pica.Doc, mark bool) ([]byte, error) {
+	if doc.Layout.Kind == "form" {
+		return formPDF(doc, mark)
+	}
 	ncols := doc.Layout.Cols
 	return paged(doc, presentation{
 		ncols:  ncols,

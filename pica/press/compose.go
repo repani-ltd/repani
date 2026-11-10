@@ -410,6 +410,15 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				if even && len(row.Notes) == 0 && !row.Total {
 					lines = append(lines, sline{role: roleHalf})
 				}
+				// A row continuing a box of the row above (^) is one
+				// atomic unit with it, as a wrapped row is: a split
+				// never falls inside a span. (A box of the header,
+				// which repeats, may still part from its continuation.)
+				if row.Cont && len(fb.segs) > fb.repeat {
+					last := &fb.segs[len(fb.segs)-1]
+					last.lines = append(last.lines, lines...)
+					continue
+				}
 				fb.segs = append(fb.segs, seg{lines: lines})
 			}
 

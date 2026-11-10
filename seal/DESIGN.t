@@ -147,7 +147,7 @@ the metadata (client ids, sizes, timing), not for the content.
 
 # Decided
 
-.table 10L *L
+.fmt 10L *L
 ^date | decision
 2026-10-20 | Symmetric Ascon seals rather than JWT-style bearer tokens: nothing parsed before it is authenticated, no algorithm field; throughput is not a goal.
 2026-10-20 | Clients are server processes only. End users authenticate to those systems as they already do.

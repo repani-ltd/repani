@@ -117,7 +117,7 @@ func TestExampleGolden(t *testing.T) {
 		}
 	}
 	// Layout commands never reach the page.
-	for _, cmd := range []string{".width", ".cols", ".paper", ".pre", ".table", ".end"} {
+	for _, cmd := range []string{".width", ".cols", ".paper", ".pre", ".fmt", ".end"} {
 		if strings.Contains(got, cmd+" ") || strings.Contains(got, cmd+"\n") {
 			t.Errorf("consumed command %s leaked into output", cmd)
 		}

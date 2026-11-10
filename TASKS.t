@@ -91,6 +91,19 @@ listing it is a call to make, not work.
 Refused for pica and parked with its readmission test in pica/DESIGN.t §11; in
 tessera it is a template condition over the data, not a language mark. Listed
 here only so the two records point at each other.
+.term colour in pica tables
+Deferred 2026-11-10 until results can be seen and judged. tbl already has the
+colour codes (cell, column, row); pica refuses them (pica/tbl.go) and flattens
+laid rows to strings, dropping each box's colours. Admitting them in tables only
+would need: RGB fill and stroke and a filled rect in pica/pdf; the colours kept
+through pica's table layout; background fills and foreground runs in press;
+classes in HTML; the text page ignoring them; a print palette (pale tints for
+background, dark tones for text). About 300-400 lines with tests, estimated.
+Doctrine it reverses: admission test 2 (only defensible if colour is always
+redundant with the cell's text), the display list's "no RGB", the grayscale
+stance. Cheaper step: gray fills only (the parked filled rect, pica/DESIGN.t).
+First user: the investor analysis cover sheet, via a pica form writer. Trigger:
+that sheet rendered without colour and judged on the page.
 
 
 .term a sans face for the PDF

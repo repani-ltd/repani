@@ -59,7 +59,7 @@ identifiers) are bytes.
 
 ## 2.3 Tags
 
-.table 76 10L 14L *L
+.fmt 76 10L 14L *L
 ^tag | type | payload
 0-241 | short string | that many bytes of UTF-8 (the tag is the length)
 242 | compressed string | varint string length, varint stream length, then the lz4s stream of the UTF-8
@@ -133,7 +133,7 @@ A count, then that many items of any type but list. An empty list is a count of
 A decoder reads items until the bytes end and rejects the row, with the offset
 of the item at fault, when:
 
-.table 76 6L *L
+.fmt 76 6L *L
 ^code | error
 R001 | an item's payload, length or count runs past the end
 R002 | a varint is longer than its shortest form, or than 8 bytes
@@ -159,7 +159,7 @@ Rows have one text spelling, for people and agents: what row decode prints, row
 encode reads and row check validates. A row is its items separated by single
 spaces, on one line.
 
-.table 76 12L *L
+.fmt 76 12L *L
 ^type | spelling
 string | "..." with JSON escaping: \" \\ and control characters only, as \b \f \n \r \t or \u00xx (lower-case hex); every other character as itself
 none | none

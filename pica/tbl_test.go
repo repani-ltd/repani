@@ -8,11 +8,11 @@ import (
 	"repani.com/typeset/tbl"
 )
 
-// table parses a .table block of spec and rows on a page wide enough
+// table parses a .fmt block of spec and rows on a page wide enough
 // for any test table, failing the test on error.
 func table(t *testing.T, spec string, rows ...string) *Table {
 	t.Helper()
-	d, err := Parse("T\n\n.table " + spec + "\n" + strings.Join(rows, "\n") + "\n.end\n\n.width 200\n")
+	d, err := Parse("T\n\n.fmt " + spec + "\n" + strings.Join(rows, "\n") + "\n.end\n\n.width 200\n")
 	if err != nil {
 		t.Fatalf("table %q: %v", spec, err)
 	}
@@ -318,7 +318,8 @@ func TestTable_LayoutMeasuredHeader(t *testing.T) {
 
 func TestTable_InvalidSpec(t *testing.T) {
 	for _, spec := range []string{"", "3X", "abc", "3L *L *R", "r 4L", "4L/b"} {
-		if _, err := newTable(spec, 1, 1); err == nil {
+		var fs tableFormats
+		if _, err := fs.apply(spec, 1, 1); err == nil {
 			t.Errorf("spec %q accepted", spec)
 		}
 	}

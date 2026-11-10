@@ -6,11 +6,11 @@ TBL -- THE TABLE LANGUAGE
 .rem history live in repani-lab/board/DESIGN.t.
 
 Package `repani.com/typeset/tbl` parses and lays out the table language that
-pica's `.table` blocks and board's `.fmt` documents share. It reads FORMAT lines
-(a column spec) and ROW lines, keeps the current format, and lays rows out as
-lines of placed cells on a monospace grid. It imports `repani.com/typeset/wrap`
-with `repani.com/typeset/wrap/hyphen` for cell line breaking,
-`repani.com/typeset/raster` for the rule a cell's text keeps, and
+pica's table blocks and board's documents share, both written with `.fmt`. It
+reads FORMAT lines (a column spec) and ROW lines, keeps the current format, and
+lays rows out as lines of placed cells on a monospace grid. It imports
+`repani.com/typeset/wrap` with `repani.com/typeset/wrap/hyphen` for cell line
+breaking, `repani.com/typeset/raster` for the rule a cell's text keeps, and
 `repani.com/typeset/format` to cut text, and nothing above them. The host --
 pica or board -- recognises its own directives, hands tbl the spec text and the
 row lines, supplies the measure, and renders what tbl lays out.
@@ -42,7 +42,7 @@ code    = [fg] ["/" bg]          at least one of the two present
 fg, bg  = d | r | g | y | b | m | c | w
 .end
 
-.table 12L 8R *L
+.fmt 12L 8R *L
 ^letter | index | colour
 d | 0 | the theme's default
 r | 1 | red
@@ -61,9 +61,8 @@ repeated (`rr`) is an error.
 
 # Format lines
 
-A format line is the spec text a host hands over: for board, what follows
-`.fmt`; for pica, what follows `.table`. It is a sequence of tokens separated by
-spaces:
+A format line is the spec text a host hands over: what follows `.fmt`, in board
+and in pica alike. It is a sequence of tokens separated by spaces:
 
 .pre
 spec      = [rowcode] [narrow] {column}
@@ -71,19 +70,21 @@ rowcode   = code
 narrow    = digits                       a positive integer
 column    = [width] align [code] ["!"]
 width     = digits | "*"                 digits: a positive integer
-align     = L | R | C | N | P | S
+align     = L | R | C | N | P | S | ^
 .end
 
 A token's first character decides what it is: a lower-case colour letter or `/`
 begins the row code, which may only be the first token; a digit begins the
 narrowing width when the token is digits alone, which may only come before any
-column; otherwise a digit, `*` or an upper-case letter begins a column. Anything
-else is an error.
+column; otherwise a digit, `*`, `^` or an upper-case letter begins a column.
+Anything else is an error.
 
 .term align
 L left, R right, C centred (the extra space on the right), N on the decimal
 point (see decimal metrics under Layout), P prose (laid out as L), S span: the
-column joins the column on its left.
+column joins the column on its left, ^ continue: the column continues the box of
+the row above (see Cells on the grid). Only a relative format may hold a ^
+column, and it carries no code or `!`.
 .term "!"
 The column clips instead of wrapping.
 .term code on a column
@@ -114,9 +115,9 @@ full format's.
 
 A bare format -- no tokens -- is therefore the last full format again. A spec
 with widths on some columns and not others, a relative format with a column
-count other than zero or the grid's, an S in the first column, an S column with
-a code or `!`, a second `*`, a narrowing in a relative format, and a token out
-of order are errors.
+count other than zero or the grid's, an S in the first column or after a ^, an S
+or ^ column with a code or `!`, a ^ in a full format, a second `*`, a narrowing
+in a relative format, and a token out of order are errors.
 
 The resolved format, which every row is laid out by, holds the row code (fg and
 bg, each set or unset), the width, and per column: width, auto, align, clip, fg
@@ -159,15 +160,25 @@ anywhere and repeat.
 
 # Cells on the grid
 
-A format's columns form GROUPS: a column that is not S begins a group, and each
-S column after it joins that group. Cell i of a row fills group i. A cell's BOX
-runs from its group's first column's start to its last column's end, so the gaps
-inside the group belong to the box.
+A format's columns form GROUPS: a column that is neither S nor ^ begins a group,
+and each S column after it joins that group; a ^ column is in no group. Cell i
+of a row fills group i. A cell's BOX runs from its group's first column's start
+to its last column's end, so the gaps inside the group belong to the box.
 
 A row with more cells than groups is an error. A row with fewer -- a SHORT ROW
--- puts its last cell across every remaining group, so its box ends at the last
-column's end. A spanning or joined cell takes the alignment, clip and colours of
-its box's first column.
+-- puts its last cell across every remaining group up to the next ^ column, so
+its box ends at the end of the column before it, or of the last column. A
+spanning or joined cell takes the alignment, clip and colours of its box's first
+column.
+
+A row whose format has ^ columns gives them no cell: they CONTINUE the boxes of
+the data row above, which become one box over both rows, and a continued box can
+be continued again by the row below. The ^ columns must cover whole boxes of the
+row above, and every column of the row must be in a box, its own or a continued
+one. A data row above is required: a note, blank or rule row ends every
+continued box, a note row may not continue one, and a full format begins a new
+table, so its rows have none above. A continued box keeps the text, alignment,
+colours and link of the cell that began it.
 
 A cell's colours resolve per property, fg and bg each apart: the cell's mark if
 set, else the format's row code if set, else the box's first column if set, else
@@ -200,7 +211,14 @@ error: cut, it would read as another number. Text that is not a number cuts. A
 note row's cells are L and wrap, whatever their columns.
 .term height
 A data row is as many lines as its tallest cell; a shorter cell's missing lines
-are empty.
+are empty. A box that rows below continue does not count towards the height of
+the row that begins it: its lines run down the rows it covers, each row showing
+the lines that fall within it, and when they are more than those rows' lines the
+last row it covers grows by the difference. The text starts at the top of the
+box.
+.term continued boxes
+Per row, the boxes that continue the row above, for a host that draws rules
+between rows: it draws none across them.
 .term alignment
 Each line of a cell is padded to exactly the box's width by its alignment, every
 line on its own.
@@ -246,10 +264,12 @@ Every error names its kind and its source line and column: the token, cell or
 mark at fault, or for columns that cannot fit, the format's spec. The kinds: a
 bad colour code; a token out of order or unknown; widths on some columns and not
 others; a relative format with the wrong column count, with a narrowing, or with
-no full format before it; S first, or S with a code or `!`; a second `*`;
-columns that cannot fit the width; a bad or repeated mark; cell text a grid
-cannot show; a bad target; more cells than groups; a note row with no row above;
-a number wider than its N box.
+no full format before it; S first or after a ^, or S with a code or `!`; a ^ in
+a full format, with a code or `!`, with no data row above, in a note row, over
+part of a box above, or leaving a column in no box; a second `*`; columns that
+cannot fit the width; a bad or repeated mark; cell text a grid cannot show; a
+bad target; more cells than groups; a note row with no row above; a number wider
+than its N box.
 
 Rationale, history and the choices weighed: `repani-lab/board/DESIGN.t`.
 

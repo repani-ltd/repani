@@ -8,7 +8,7 @@ import (
 // The breaker's benchmarks live with it, in typeset/wrap.
 
 func BenchmarkTableLayout(b *testing.B) {
-	src := []string{"T", "", ".table 3L *L 8N 6R!", "^Day | Forecast | Temp | Wind"}
+	src := []string{"T", "", ".fmt 3L *L 8N 6R!", "^Day | Forecast | Temp | Wind"}
 	for range 12 {
 		src = append(src, "Mon | Isolated thunderstorms inland, clearing by evening | 25.5 | NW 15",
 			".. | Forecast confidence is moderate for the afternoon period | |")

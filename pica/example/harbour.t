@@ -30,7 +30,7 @@ Ioulida 22880 22200
 
 ## Fees per night
 
-.table 10L 5R 10L 5R
+.fmt 10L 5R 10L 5R
 ^Length | Fee | Length | Fee
 up to 10 m | 14 € | 10-15 m | 22 €
 15-20 m | 36 € | over 20 m | ask
@@ -38,7 +38,7 @@ up to 10 m | 14 € | 10-15 m | 22 €
 
 # Ferries · Δρομολόγια
 
-.table 6L 8L 8L *L
+.fmt 6L 8L 8L *L
 ^Dep | To | Vessel | Status
 06:00 | Lavrio | Marmari | on time
 09:30 | Lavrio | Makedon | on time
@@ -56,7 +56,7 @@ up to 10 m | 14 € | 10-15 m | 22 €
 
 ## Berths · Θέσεις
 
-.table 12L 14L 6R
+.fmt 12L 14L 6R
 ^Quay | Occupied | Berths
 south quay | ▓▓▓▓▓▓▓▓░░░░ | 8/12
 north quay | ▓▓░░░░░░░░░░ | 2/12

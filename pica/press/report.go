@@ -17,6 +17,9 @@ import (
 // Report renders a parsed document as the report PDF. mark paints
 // the Repani mark top-right of page one, as in PDF.
 func Report(doc *pica.Doc, mark bool) ([]byte, error) {
+	if doc.Layout.Kind == "form" {
+		return formPDF(doc, mark)
+	}
 	return paged(doc, presentation{
 		ncols:  1,
 		what:   "a report",

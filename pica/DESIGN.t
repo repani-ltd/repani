@@ -1218,6 +1218,82 @@ pica document under ~/repos was checked the same way when this landed, and
 gohook runs pica fmt -w on each .t file saved under ~/repos, as advice only --
 the research corpora keep invalid documents on purpose.
 
+# 23. One table word, and boxes down rows (decided 2026-11-10)
+
+Driver: the investor analysis cover sheet, a bank's one-page form kept as
+fourteen spreadsheets, to be generated from data. A prototype in today's pica
+(~/repos/tmp/coversheet) set it as separate tables and could not match it: the
+sheet's sections are boxes whose bands change shape (a label beside a name, the
+name's identifiers beneath it in three cells) and whose cells run down several
+rows (the label, the key, the comment beside the points to address). Both have
+troff tbl ancestors.
+
+.item .FMT IS THE ONE TABLE WORD. .table SPEC and a leading .fmt SPEC said the
+same thing -- tbl's model is a full format and the rows after it -- so .table is
+gone and pica writes tables as board does: the first .fmt opens a block, a
+relative .fmt changes the format of the rows under it (troff's .T&), a later
+full .fmt begins a new grid stacked under the last with no gap, .end returns to
+prose. The refusal of formats changed mid-table (section 18) falls with it. A
+block is a TableBlk per grid, the later ones Tight, so every writer's spacing
+rule already stacks them. Weighed: keeping .table to open and .fmt to change (no
+migration, reads better) -- refused as two words for one idea. Migrated
+mechanically: the module's documents, the generators that write tables (desk's
+table helper, hosa's eval report, the quietcasting-editors templates and a qcrun
+test, the greatest-xi report template, the site), and every document under
+~/repos but the research corpora and scratch; every migrated document renders
+byte for byte as before, text and PDF. Desk's data guard now refuses a first
+cell that lexes as a dot command, which inside a block would read as a .fmt line
+or as the block's end.
+.item ^ CONTINUES A BOX. In tbl (SPEC.t), so board has it too: a ^ column in a
+relative format takes no cell and continues the box of the data row above;
+troff's ^. Whole boxes only, every column in a box, a data row above required (a
+note, blank or rule row, or a full format, ends every span). The text starts at
+the top of the box and runs down its rows; when it needs more lines than they
+have, the last row grows -- the line count stays deterministic (admission test
+1). Top, not troff's centre: centring is a form-only nicety, and the text page
+would show a blank line above a short label; revisit with the form writer's
+first sample. Writers: the text page shows the text on the first lines and
+blanks below; HTML writes rowspan (a header box continued into the body gets an
+empty cell, since rowspan cannot leave thead); press keeps a continuing row in
+its row's segment, so a split never falls inside a span. A spanned box stays on
+the mono grid in sans documents for now -- its lines run down rows, which
+measured drawing does not; the form writer is where it gets measured.
+
+Next: the form layout, chosen in the trailer (.layout form) and made a command
+only if its logic turns out to be a different writer.
+
+# 24. The form layout (first sample 2026-11-10, not ratified)
+
+Driver: the same cover sheet. .layout flow|form in the trailer (default flow)
+selects it; both PDF commands render it, the text page and HTML ignore it. It is
+its own driver, press/form.go, entered by one test at the top of PDF and Report:
+a form's rows are measured in points, not the flowing presentations' line units,
+so it shares fonts, measurers and the breaker and nothing of compose or flow. If
+more layout-specific branches gather than that one, it becomes its own command
+(the condition set when it was chosen).
+
+.item Geometry: half-inch margins; .width cells across the grid plus half a cell
+each side for the outer rules, so the body size is the cell width over the mono
+advance (9pt at .width 96 on A4). Each box's rules sit in the gaps, half a cell
+outside its text.
+.item Every box ruled (0.4pt, gray); each .fmt block outlined at 1pt, per page
+it falls on. Rows as tall as their measured text at 1.2em leading with 0.15em
+padding; header and total rows bold, header rows shaded at 0.9 gray under their
+rules -- pdf.Page.Fill, the filled rectangle parked since the zebra entry, gray
+as every pica ink is.
+.item Cells are measured in the body face (pica.Table.Grid hands the writer each
+row's boxes, text, alignment and continuations) and broken by the cell breaker;
+N and R right, C centred, clip and N one line.
+.item A box running down rows (^) sets its text from its top at the leading;
+when it needs more than its rows, its last row grows, in points. The rows it
+runs down are one unit of the page.
+.item A small centred bold title; the rights with "Page N of M" in the footer.
+
+Open, to judge on the sample: vertical centring in a spanned box (§23 chose top,
+kept as the easier until the output is reviewed); colour (deferred, TASKS.t);
+the breaker's ragged lines in wide prose boxes, which stop well short of the box
+-- the cell breaker's choice, shared with every pica table.
+
 .width 48
 .cols 2
 .font sans

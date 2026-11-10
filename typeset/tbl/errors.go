@@ -28,6 +28,7 @@ var (
 	ErrNarrowRelative = errors.New("tbl: narrowing in a relative format")
 	ErrNoFull         = errors.New("tbl: relative format with no full format before it")
 	ErrSpan           = errors.New("tbl: bad S column")
+	ErrVSpan          = errors.New("tbl: bad ^ column")
 	ErrAuto           = errors.New("tbl: more than one * column")
 	ErrFit            = errors.New("tbl: columns do not fit the width")
 	ErrMark           = errors.New("tbl: bad or repeated mark")

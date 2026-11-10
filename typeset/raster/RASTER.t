@@ -26,7 +26,7 @@ counts, not indexes.
 
 The first byte of a record says its kind:
 
-.table 12L *L
+.fmt 12L *L
 ^byte | record
 00..FE | a row record, the byte its row number, 0 to 254
 FF | a row count record
@@ -68,7 +68,7 @@ Records follow each other with no separator.
 
 # The palette
 
-.table 8R *L
+.fmt 8R *L
 ^index | colour
 0 | the theme's default: the text colour as foreground, the page as background
 1 | red

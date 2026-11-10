@@ -33,13 +33,14 @@ A document is UTF-8 text, structured by line:
 	                 man pages for fifty years, and unbounded
 	                 depth is where document structure rots
 	---              a horizontal rule (3+ dashes, nothing else)
-	.table [W] SPEC  a table block: rows follow, cells separated by
+	.fmt [W] SPEC    a table block: rows follow, cells separated by
 	  ^a | b | c     "|"; ends with .end. W (optional) narrows the
 	  a | b | c      table to W runes when smaller than the document
-	.end             width (see Block.TableWidth). Rows may be
-	                 marked: "^" the header, which comes first; "="
-	                 a total row; ".." a note row -- see the Tables
-	                 section. A table with no rows is an error
+	.fmt SPEC        width. Further .fmt lines change the format of
+	  d | e          the rows under them -- see the Tables section.
+	.end             Rows may be marked: "^" the header, which
+	                 comes first; "=" a total row; ".." a note row.
+	                 A full format with no rows is an error
 	.pre [N]         a verbatim block: the writer never refills it,
 	  lines...       only truncates overlong lines; ends with .end.
 	.end             N (optional) is the number of leading lines a
@@ -100,7 +101,7 @@ A document is UTF-8 text, structured by line:
 	                 .rem is an ordinary line (unmarked text is
 	                 prose and will be rendered), so a long comment
 	                 is several lines each beginning with .rem.
-	                 Inside .pre, .table, or .quote bodies it is
+	                 Inside .pre, .fmt, or .quote bodies it is
 	                 content, not a comment
 
 The dot-command vocabulary is CLOSED: a line that lexes as a dot
@@ -142,7 +143,7 @@ sets half-size on half the leading, where the text page renders it
 as an ordinary full-size row; a tight item run in which any item
 turns over gains half-line gaps between items, where the text page
 stays tight).
-Structural commands (.table, .pre, .end) and the layout trailer
+Structural commands (.fmt, .pre, .end) and the layout trailer
 never appear in any output.
 
 # Emphasis
@@ -194,8 +195,15 @@ has a default, so an attribute-free document is fully determined:
 	.paper P    pdf paper: a4, a5, or letter   (default a4)
 	.cols N     pdf columns per page           (default 1, 1-6)
 	.font F     pdf body face: mono or sans    (default mono)
+	.layout L   pdf layout: flow or form       (default flow)
 
-Values outside the given ranges are parse errors. Hyphenation
+Values outside the given ranges are parse errors. The FORM layout
+sets the document as a ruled form, for sheets built of tables:
+every cell boxed, a heavier rule round each .fmt block, rows as
+tall as their text, cells set in the body face and measured in
+it, a small centred title and narrow margins; .width is then the
+characters across the grid. Both PDF commands render it (.cols
+does not apply); the text page and HTML ignore .layout. Hyphenation
 always uses every embedded pattern set: the embedded scripts are
 disjoint, so the merged set hyphenates English and Greek prose
 correctly side by side. (A .lang selector existed and was removed
@@ -220,14 +228,24 @@ monospace layout (the text writer ignores .font entirely).
 
 Tables are the table language pica shares with board
 (repani.com/typeset/tbl), less what pica does not set: colours,
-links, blank and "---" rows, and formats changed mid-table. The
+links, and blank and "---" rows. A table block opens with a .fmt
+line and closes with .end. Each .fmt line is a FORMAT: a FULL
+format gives every column a width and defines a grid; a RELATIVE
+format gives none, lists every column of the last full format's
+grid (or none, for that format again), and changes only alignments
+and clips for the rows under it. The block's first format is full.
+A later full format begins a new grid, stacked under the one
+before with no gap -- one block, several grids. A full format's
 column spec is an optional narrowing width, then space-separated
-<width><align>[!] tokens:
+<width><align>[!] tokens; a relative format's tokens are
+<align>[!]:
 
 	width   integer rune count, or "*" to auto-fill the remainder
 	        (at most one auto column)
 	align   L = left, R = right, C = center, S = span: the column
 	        joins the one on its left, so cells there fill both,
+	        ^ = continue (relative formats only): the column
+	        continues the box of the row above -- see below,
 	        N = numeric: cells
 	        align on the decimal point and never wrap; accounting
 	        negatives "(1.23)" reserve a trailing paren slot for
@@ -246,8 +264,28 @@ that column instead ("5L! 4R!"). Columns are joined by a single
 space. "|" always separates cells (there is no escape for a
 literal one). A row with more cells than the spec has columns is
 an error; a row with fewer is a SHORT ROW, whose last cell spans
-every remaining column. A cell may not start with ":" or "@",
-the colour and link marks pica does not set.
+every remaining column, up to the next ^ column. A cell may not
+start with ":" or "@", the colour and link marks pica does not
+set.
+
+A ^ column takes no cell: the row's cells fill its other columns,
+and each run of ^ columns continues a box of the data row above,
+which becomes one box down both rows (a box can run down any
+number of rows). The ^ columns must cover whole boxes of the row
+above, and every column of the row must end up in a box. The text
+of the cell that began the box starts at its top and runs down the
+rows it covers; when it needs more lines than those rows have, the
+last row it covers grows. A note row ends every box running down,
+and may not continue one. A row continuing a box is atomic with
+the row above at a column split. For example, a label beside two
+rows, the second split into three cells:
+
+	.fmt 10L 5L 5L *L
+	.fmt L L S S
+	Investor | Example Pension Fund
+	.fmt ^ L L L
+	RM# | N/A | 1953
+	.end
 
 A row starting with "^" is the HEADER: the table's first row, and
 its labels. The PDF writers set it bold — in the body face under

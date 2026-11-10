@@ -28,7 +28,7 @@ func TestFormatRefills(t *testing.T) {
 			".rem " + strings.Repeat("word ", 14) + "word\n.rem " + strings.Repeat("word ", 14) + "word\nT\n"},
 		{"rem inside a paragraph", "T\n\na\nb\n.rem c\nd\n", "T\n\na b\n.rem c\nd\n"},
 		{"quote", "T\n\n.quote\n  a\n  b\n.attrib  WHO  \n.end\n", "T\n\n.quote\na b\n.attrib  WHO\n.end\n"},
-		{"verbatim kept", "T\n\n.pre\n  a  \nb\n.end\n.table 3L\na\n.end\n", "T\n\n.pre\n  a  \nb\n.end\n.table 3L\na\n.end\n"},
+		{"verbatim kept", "T\n\n.pre\n  a  \nb\n.end\n.fmt 3L\na\n.end\n", "T\n\n.pre\n  a  \nb\n.end\n.fmt 3L\na\n.end\n"},
 		{"crlf and trailing space", "T  \r\n\r\na \r\n\r\n\r\n", "T\n\na\n"},
 		{"structure kept", "T\n# H\n---\n.link u t\ntext\n.width 48\n", "T\n# H\n---\n.link u t\ntext\n.width 48\n"},
 		{"not a heading", "T\n\n#3\nfiled\n", "T\n\n#3 filed\n"},

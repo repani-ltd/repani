@@ -53,7 +53,7 @@ func TestTable_DataDriven(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := ".table 9L 9L 5L\n" +
+	want := ".fmt 9L 9L 5L\n" +
 		"^Spot | When | Level\n" +
 		"Akrotiri | Sat 14:00 | High\n" +
 		"Kourion | Sun 06:00 | Low\n" +
@@ -67,7 +67,7 @@ func TestTable_DataDriven(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(got, "Level") || !strings.HasPrefix(got, ".table 9L 5R\nAkrotiri") {
+	if strings.Contains(got, "Level") || !strings.HasPrefix(got, ".fmt 9L 5R\nAkrotiri") {
 		t.Errorf("headerless form wrong:\n%s", got)
 	}
 
@@ -105,6 +105,10 @@ func TestTable_DataIsNeverSyntax(t *testing.T) {
 		{"..x", "x", false},
 		{"^top", "x", false},
 		{"---", "x", false},
+		{".end", "x", false},
+		{".fmt 4L", "x", false},
+		{".5", "x", true},
+		{"x", ".end", true},
 		{"a", ":r", false},
 		{"a", "@home", false},
 		{"a|b", "x", false},
@@ -124,7 +128,7 @@ func TestTable_DataIsNeverSyntax(t *testing.T) {
 }
 
 func TestTable_EndToEndThroughLanguage(t *testing.T) {
-	// The helper's output must parse as a valid .table block.
+	// The helper's output must parse as a valid .fmt block.
 	rows := []any{map[string]any{"A": "x", "B": "longer cell value here"}}
 	blk, err := table("4L *L", "A | B", rows, "A", "B")
 	if err != nil {

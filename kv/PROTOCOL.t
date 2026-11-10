@@ -94,7 +94,7 @@ sealed = AEAD(K, nonce, ad = header, payload)
 
 `kind` names the message and the key K that seals it:
 
-.table 70 6L 10L 8L *L
+.fmt 70 6L 10L 8L *L
 ^kind | name | K | direction
 0x01 | REGISTER | K_reg | client to server
 0x02 | SYNC | K_c2s | client to server
@@ -147,7 +147,7 @@ response whose `req_nonce` is not its request's.
 
 A RESP carries one status. It is sealed, so it is authentic.
 
-.table 76 4L 12L *L
+.fmt 76 4L 12L *L
 ^code | status | meaning
 0x00 | OK | accepted; a PULL's page follows
 0x01 | DIFFER | PROBE and WAIT only: the sets differ
@@ -161,7 +161,7 @@ Some failures leave the server no key to seal a reply with. It then answers with
 ONE unauthenticated byte and nothing else. A RESP is always longer than one
 byte, so the two never collide.
 
-.table 76 5L 14L *L
+.fmt 76 5L 14L *L
 ^byte | error | when
 0xE0 | BAD_FRAME | the frame is malformed, or a REGISTER payload is not 16 or 17 bytes or sets an unknown flag
 0xE1 | BAD_VERSION | `ver` is not one the server speaks
@@ -272,7 +272,7 @@ left out of the view. It stays in the set, so that set hashes still agree.
 
 # Limits
 
-.table 76 16L 9R *L
+.fmt 76 16L 9R *L
 ^limit | value | meaning
 MAX_ENTRY_BYTES | 65536 | the largest marshaled entry
 PAGE_BYTES | 262144 | the entry bytes in one PULL page; clients batch PUSHes to it too

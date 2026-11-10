@@ -34,7 +34,7 @@
 //
 // render executes a Go text/template with value-formatting helpers
 // (round, decimal, trunc, pad, shortTime, shortDate, dur) and the
-// data-driven "table" helper (emits a .table block from a rows
+// data-driven "table" helper (emits a .fmt table block from a rows
 // slice plus field names); the template's OUTPUT is a pica
 // source document -- templates contain no layout calls. The
 // output is parsed before it is written (repani.com/pica/desk,

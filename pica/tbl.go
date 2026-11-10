@@ -21,52 +21,63 @@ import (
 // The refusals that are pica's own; the language's errors are tbl's.
 // Both come as a *tbl.Error, at the line and column at fault.
 var (
-	ErrTableRelative = errors.New("pica: a .table spec gives every column a width")
+	ErrTableRelative = errors.New("pica: a table's first .fmt gives every column a width")
 	ErrTableColour   = errors.New("pica: tables set no colours or links")
 	ErrTableHeader   = errors.New("pica: the header row (^) is the table's first row")
 	ErrTableRow      = errors.New("pica: a blank line or a --- rule is not a pica table row")
+	ErrTableEmpty    = errors.New("pica: a full .fmt with no rows under it")
 )
 
-// Table is a parsed .table: its format and its rows, laid out at a
-// width when a writer asks.
+// Table is one grid of a parsed .fmt block: the rows from a full
+// format to the next, each under the format it was written under,
+// laid out at a width when a writer asks. A block whose body holds
+// several full formats is several Tables, the later ones Tight.
 type Table struct {
-	fm tbl.Format
-	tt tbl.Table
+	fms []tbl.Format // per row
+	tt  tbl.Table
 }
 
-// newTable parses a column spec -- tbl's full format, a leading width
-// narrowing it -- that starts at line line, column col.
-func newTable(spec string, line, col int) (*Table, error) {
-	var fs tbl.Formats
-	fm, _, err := fs.Apply(spec, line, col)
+// tableFormats reads a .fmt block's formats. Every refusal comes as a
+// *tbl.Error at the line and column at fault.
+type tableFormats struct {
+	fs  tbl.Formats
+	cur tbl.Format
+}
+
+// apply reads one spec, starting at line line, column col, and
+// reports whether it is full -- the start of a new grid. The first
+// spec of a block must be full.
+func (f *tableFormats) apply(spec string, line, col int) (bool, error) {
+	fm, full, err := f.fs.Apply(spec, line, col)
 	if errors.Is(err, tbl.ErrNoFull) {
-		return nil, &tbl.Error{Line: line, Col: col, Err: fmt.Errorf("%w: %q", ErrTableRelative, spec)}
+		return false, &tbl.Error{Line: line, Col: col, Err: fmt.Errorf("%w: %q", ErrTableRelative, spec)}
 	}
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	coloured := fm.Row.HasFG || fm.Row.HasBG
 	for _, c := range fm.Cols {
 		coloured = coloured || c.Code.HasFG || c.Code.HasBG
 	}
 	if coloured {
-		return nil, &tbl.Error{Line: line, Col: col, Err: fmt.Errorf("%w: %q", ErrTableColour, spec)}
+		return false, &tbl.Error{Line: line, Col: col, Err: fmt.Errorf("%w: %q", ErrTableColour, spec)}
 	}
-	return &Table{fm: fm}, nil
+	f.cur = fm
+	return full, nil
 }
 
 // Narrow is the width the spec narrows the table to, or 0.
-func (t *Table) Narrow() int { return t.fm.Narrow }
+func (t *Table) Narrow() int { return t.fms[0].Narrow }
 
-// add appends a parsed row, refusing what pica does not set: blank
-// and rule rows, colours and links, a header after the first row,
-// and what tbl refuses (more cells than groups, a note with no row
-// above it).
-func (t *Table) add(r tbl.Row) error {
+// add appends a parsed row under fm, refusing what pica does not set:
+// blank and rule rows, colours and links, a header after the first
+// row, and what tbl refuses (more cells than groups, a note with no
+// row above it, a ^ with no box to continue).
+func (t *Table) add(fm tbl.Format, r tbl.Row) error {
 	if r.Kind != tbl.Data {
 		return &tbl.Error{Line: r.Line, Col: 1, Err: ErrTableRow}
 	}
-	if r.Role == tbl.Header && len(t.tt.Rows()) > 0 {
+	if r.Role == tbl.Header && len(t.fms) > 0 {
 		return &tbl.Error{Line: r.Line, Col: r.Cells[0].Col, Err: ErrTableHeader}
 	}
 	for _, c := range r.Cells {
@@ -74,7 +85,11 @@ func (t *Table) add(r tbl.Row) error {
 			return &tbl.Error{Line: r.Line, Col: c.Col, Err: ErrTableColour}
 		}
 	}
-	return t.tt.Add(t.fm, r)
+	if err := t.tt.Add(fm, r); err != nil {
+		return err
+	}
+	t.fms = append(t.fms, fm)
+	return nil
 }
 
 // separator is the character used to draw header underline rows.
@@ -111,6 +126,9 @@ type TableRow struct {
 	Prose []ProseCell
 	Nums  []NumCell
 	Notes []string
+	// Cont marks a row that continues a box of the row above (a ^
+	// column): a splitting writer keeps it with that row.
+	Cont bool
 
 	notes []string // the notes on the full-size grid, for Lines
 }
@@ -194,13 +212,37 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 	for _, n := range grid.Nums() {
 		nums[n.Start] = n
 	}
+	spans := grid.Spans()
 	for i, row := range t.tt.Rows() {
-		lines := laid[i].Lines
+		fm := t.fms[i]
 		texts := make([]string, len(row.Cells))
 		for k, c := range row.Cells {
 			texts[k] = c.Text
 		}
-		bs := t.fm.Boxes(len(texts))
+		bs := fm.Boxes(len(texts))
+		// The row's own boxes, as positions in its laid lines, which
+		// also hold the boxes it continues (^) in column order. A box
+		// that begins or continues a span stays on the mono grid:
+		// its lines run down rows, which measured drawing does not.
+		cont := map[int]bool{}
+		for _, b := range laid[i].Cont {
+			cont[spans[b.First].Start] = true
+		}
+		var origin map[int]bool
+		if i+1 < len(laid) {
+			origin = map[int]bool{}
+			for _, b := range laid[i+1].Cont {
+				origin[spans[b.First].Start] = true
+			}
+		}
+		lines := laid[i].Lines
+		var own []int // own box k is lines[h][own[k]]
+		for at, p := range lines[0] {
+			if !cont[p.Start] {
+				own = append(own, at)
+			}
+		}
+		measurable := func(k int) bool { return !origin[lines[0][own[k]].Start] }
 		switch row.Role {
 		case tbl.Note:
 			// Under the row above: the header when no data row has
@@ -219,23 +261,27 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 				// measurer at its box's measure, the formatted lines
 				// reserve the space blank, and the measured lines land
 				// in Prose for the writer to set in the body face.
-				reserve := make([]bool, len(bs))
+				reserve := make([]bool, len(lines[0]))
 				for k, b := range bs {
-					pcs = append(pcs, measure(lines[0][k], texts[k], t.fm.Cols[b.First], mHead, runeUnits))
-					reserve[k] = true
+					if measurable(k) {
+						pcs = append(pcs, measure(lines[0][own[k]], texts[k], fm.Cols[b.First], mHead, runeUnits))
+						reserve[own[k]] = true
+					}
 				}
-				lines = reserveBoxes(lines, reserve, pcs)
+				if pcs != nil {
+					lines = reserveBoxes(lines, reserve, pcs)
+				}
 			}
 			tl.Header = &TableRow{Lines: flatLines(lines), Prose: pcs}
 			continue
 		}
-		r := TableRow{Total: row.Role == tbl.Total}
+		r := TableRow{Total: row.Role == tbl.Total, Cont: len(laid[i].Cont) > 0}
 		if m != nil {
-			reserve := make([]bool, len(bs))
+			reserve := make([]bool, len(lines[0]))
 			for k, b := range bs {
-				if col := t.fm.Cols[b.First]; col.Align == 'P' {
-					r.Prose = append(r.Prose, measure(lines[0][k], texts[k], col, m, runeUnits))
-					reserve[k] = true
+				if col := fm.Cols[b.First]; col.Align == 'P' && measurable(k) {
+					r.Prose = append(r.Prose, measure(lines[0][own[k]], texts[k], col, m, runeUnits))
+					reserve[own[k]] = true
 				}
 			}
 			if r.Prose != nil {
@@ -243,8 +289,8 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 			}
 		}
 		for k, b := range bs {
-			n, isNum := nums[lines[0][k].Start]
-			if !b.Single() || !isNum || t.fm.Cols[b.First].Align != 'N' {
+			n, isNum := nums[lines[0][own[k]].Start]
+			if !b.Single() || !isNum || fm.Cols[b.First].Align != 'N' {
 				continue
 			}
 			if whole, tail, ok := tbl.SplitNumeric(texts[k]); ok {
@@ -255,6 +301,58 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 		tl.Rows = append(tl.Rows, r)
 	}
 	return tl, nil
+}
+
+// GridRow is one row of a table as a writer that draws every box
+// itself sees it (the form layout): its role and its boxes in column
+// order.
+type GridRow struct {
+	Header, Total, Note bool
+	Boxes               []GridBox
+}
+
+// GridBox is one box of a row: its grid columns, and either the
+// cell's text with the alignment and clip of the box's first column,
+// or Cont, a box continuing the box of the row above (^), which has
+// no text of its own -- the text of the cell that began it runs
+// down.
+type GridBox struct {
+	Span
+	Text  string
+	Align byte
+	Clip  bool
+	Cont  bool
+}
+
+// Grid lays the table on its grid at width and returns the column
+// spans and every row's boxes, for a writer that measures and draws
+// the cells itself.
+func (t *Table) Grid(width int) ([]Span, []GridRow, error) {
+	grid, laid, err := t.tt.Layout(width)
+	if err != nil {
+		return nil, nil, err
+	}
+	spans := grid.Spans()
+	at := func(b tbl.Box) Span { return Span{Start: spans[b.First].Start, End: spans[b.Last].End} }
+	rows := make([]GridRow, len(laid))
+	for i, row := range t.tt.Rows() {
+		fm := t.fms[i]
+		r := GridRow{Header: row.Role == tbl.Header, Total: row.Role == tbl.Total, Note: row.Role == tbl.Note}
+		own, cont := fm.Boxes(len(row.Cells)), laid[i].Cont
+		for len(own) > 0 || len(cont) > 0 {
+			if len(cont) == 0 || (len(own) > 0 && own[0].First < cont[0].First) {
+				b, k := own[0], len(row.Cells)-len(own)
+				col := fm.Cols[b.First]
+				r.Boxes = append(r.Boxes, GridBox{Span: at(b), Text: row.Cells[k].Text, Align: col.Align, Clip: col.Clip})
+				own = own[1:]
+			} else {
+				r.Boxes = append(r.Boxes, GridBox{Span: at(cont[0]), Cont: true})
+				cont = cont[1:]
+			}
+		}
+		rows[i] = r
+	}
+	return spans, rows, nil
 }
 
 // measure wraps a cell under m at its box's measure; a clip column's

@@ -33,7 +33,7 @@ Settled 2026-10-02 from the nine mock boards of `bill-mock.html` (Provenance);
 segments and roles 2026-10-04. What the samples use, and which part of the
 record holds it:
 
-.table 72 30L 28L 12L
+.fmt 72 30L 28L 12L
 ^pattern | where | holds it
 title bar, white on blue | every mock board, row 0 | segment
 heading in cyan | TOP STORIES, PROVENANCE | segment

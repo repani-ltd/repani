@@ -21,7 +21,7 @@ const FormatWidth = 80
 // paragraph, the text of an .item or .term, the body of a .quote,
 // and a run of .rem lines (a comment refills as a group, each line
 // its own .rem) each become greedy, ragged lines broken at spaces.
-// The title, headings, command lines, and .pre and .table bodies
+// The title, headings, command lines, and .pre and .fmt bodies
 // are left as they are, blank lines included; line endings become
 // LF, trailing spaces and tabs go, and the result ends in one
 // newline.
@@ -69,7 +69,7 @@ func Format(src string) (string, error) {
 			f.flush()
 			f.emit(line)
 
-		case word == ".pre" || word == ".table" || word == ".quote":
+		case word == ".pre" || word == ".fmt" || word == ".quote":
 			// Parse guarantees the .end, so the body is lines[i+1:j].
 			f.flush()
 			f.emit(line)

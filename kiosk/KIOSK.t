@@ -47,7 +47,7 @@ matches like any other.
 
 # Defaults
 
-.table 64 22L 12R 28P
+.fmt 64 22L 12R 28P
   ^Bound | Default | Why
   ReadHeaderTimeout | 5s | A slowloris costs the attacker nothing
   ReadTimeout | 30s | No kiosk request has a body
@@ -63,7 +63,7 @@ Two policies carry a publication, and they fall out of its shape rather than
 being chosen: a file named by its content can never carry different bytes at
 that URL, and exactly one file changes in place.
 
-.table 64 10L 30L 22P
+.fmt 64 10L 30L 22P
   ^Policy | Header | For
   Immutable | public, max-age=31536000, immutable | A content-named file
   Revalidate | no-cache | The manifest; any URL that outlives its bytes

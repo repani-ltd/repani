@@ -289,7 +289,7 @@ candidate fails (§4.3).
 
 ## 4.2 Wrappers (two, non-composing)
 
-.table 8L 28L *L
+.fmt 8L 28L *L
 ^Wrapper | Meaning | Constraints
 T? | Optional: value may be none | T must be a base type. list(T)? is illegal — the empty list [] is the "none of lists"; two spellings of absence are forbidden
 list(T) | Ordered list, written [v1, v2, ...] | T must be a base type. list(list(T)) is illegal. Empty list [] is valid
@@ -404,7 +404,7 @@ requires the choice be explicit.
 
 # 7. Values — Syntax Summary
 
-.table 10L *L
+.fmt 10L *L
 ^Type | Example value
 bool | true
 int | 8443, -5
@@ -714,7 +714,7 @@ scales in simulation.
 
 Tested and rejected (do not re-litigate without new evidence):
 
-.table 24L 16L *L
+.fmt 24L 16L *L
 ^Proposal | Verdict | Reason
 Sections ([server]) | Rejected | A line's meaning would depend on a distant header; grep hits become ambiguous
 External schema | Rejected | Two sources of truth; the annotation-as-domain property does the schema's work inline

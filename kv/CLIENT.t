@@ -34,7 +34,7 @@ Keys travel between devices as Crockford base32 text, upper case:
 0123456789ABCDEFGHJKMNPQRSTVWXYZ
 .end
 
-.table 76 12L 6R *L
+.fmt 76 12L 6R *L
 ^blob | length | content
 RootKey | 32 | the 20-byte RootKey, no padding bits
 RegisterKey | 26 | the 16-byte RegisterKey; the last 2 bits are zero padding

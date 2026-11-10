@@ -4,7 +4,7 @@
 // is the language between them. The values are written the house
 // way (repani.com/typeset/format); what this package adds is the
 // template: the vocabulary a template composes with, the helper
-// that emits a .table block from rows of data, and Render,
+// that emits a .fmt table block from rows of data, and Render,
 // which parses the result before returning it, so a template bug is
 // an error with a line number, never an invalid document on air.
 //
@@ -153,7 +153,7 @@ func Rows(rows any, fields ...string) ([][]string, error) {
 	return out, nil
 }
 
-// table renders a data-driven .table block, sparing templates the
+// table renders a data-driven .fmt table block, sparing templates the
 // range boilerplate when every cell is a plain field:
 //
 //	{{table "9L 9L 5L" "Spot | When | Level" .Tides "Spot" "When" "Kind"}}
@@ -178,7 +178,7 @@ func table(spec, header string, rows any, fields ...string) (string, error) {
 		}
 	}
 	var b strings.Builder
-	b.WriteString(".table ")
+	b.WriteString(".fmt ")
 	b.WriteString(spec)
 	b.WriteString("\n")
 	if header != "" {
@@ -197,7 +197,8 @@ func table(spec, header string, rows any, fields ...string) (string, error) {
 // plainCell refuses a value that would not read back as its own text
 // in a table row: a "|", which splits cells; a leading ":" or "@", a
 // colour or link mark; and in a row's first cell a leading "^", "="
-// or "..", a role, or the value "---", a rule.
+// or "..", a role, the value "---", a rule, or a dot command such as
+// .fmt or .end, which the block would read as a directive.
 func plainCell(v string, first bool) error {
 	s := strings.TrimSpace(v)
 	switch {
@@ -207,6 +208,8 @@ func plainCell(v string, first bool) error {
 		return fmt.Errorf("%q begins with a colour or link mark", v)
 	case first && (strings.HasPrefix(s, "^") || strings.HasPrefix(s, "=") || strings.HasPrefix(s, "..") || s == "---"):
 		return fmt.Errorf("%q would mark the row", v)
+	case first && len(s) > 1 && s[0] == '.' && s[1] >= 'a' && s[1] <= 'z':
+		return fmt.Errorf("%q would read as a command (.fmt, .end)", v)
 	}
 	return nil
 }

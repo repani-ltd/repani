@@ -11,6 +11,7 @@ package pica
 
 import (
 	"html"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -121,40 +122,76 @@ func htmlTable(w *strings.Builder, t *Table) {
 		open = `<table style="max-width:` + strconv.Itoa(n) + `ch">`
 	}
 	w.WriteString(open + "\n")
-	write := func(r tbl.Row, tag, class string) {
+	rows := t.tt.Rows()
+	header := len(rows) > 0 && rows[0].Role == tbl.Header
+	caret := func(j, col int) bool { return t.fms[j].Cols[col].Align == '^' }
+	type cell struct {
+		box  tbl.Box
+		text string
+		own  bool
+	}
+	write := func(i int, tag, class string) {
+		r, fm := rows[i], t.fms[i]
+		var cells []cell
+		for k, bx := range fm.Boxes(len(r.Cells)) {
+			cells = append(cells, cell{bx, r.Cells[k].Text, true})
+		}
+		// A header box that rows continue (^) cannot span out of
+		// <thead>: each row continuing it holds an empty cell instead.
+		if header && i > 0 {
+			for _, bx := range t.fms[0].Boxes(len(rows[0].Cells)) {
+				j := 1
+				for j <= i && caret(j, bx.First) {
+					j++
+				}
+				if j > i {
+					cells = append(cells, cell{box: bx})
+				}
+			}
+			sort.Slice(cells, func(a, b int) bool { return cells[a].box.First < cells[b].box.First })
+		}
 		w.WriteString("<tr" + class + ">")
-		for k, bx := range t.fm.Boxes(len(r.Cells)) {
-			attrs := ""
+		for _, c := range cells {
+			bx, attrs := c.box, ""
 			if bx.Last > bx.First {
 				attrs = ` colspan="` + strconv.Itoa(bx.Last-bx.First+1) + `"`
 			}
-			switch align := t.fm.Cols[bx.First].Align; {
-			case r.Role == tbl.Note:
+			if c.own && !(header && i == 0) {
+				n := 1
+				for j := i + 1; j < len(rows) && caret(j, bx.First); j++ {
+					n++
+				}
+				if n > 1 {
+					attrs += ` rowspan="` + strconv.Itoa(n) + `"`
+				}
+			}
+			switch align := fm.Cols[bx.First].Align; {
+			case !c.own, r.Role == tbl.Note:
 			case align == 'R' || align == 'N':
 				attrs += ` style="text-align:right"`
 			case align == 'C':
 				attrs += ` style="text-align:center"`
 			}
-			w.WriteString("<" + tag + attrs + ">" + esc(r.Cells[k].Text) + "</" + tag + ">")
+			w.WriteString("<" + tag + attrs + ">" + esc(c.text) + "</" + tag + ">")
 		}
 		w.WriteString("</tr>\n")
 	}
-	rows := t.tt.Rows()
-	if len(rows) > 0 && rows[0].Role == tbl.Header {
+	first := 0
+	if header {
 		w.WriteString("<thead>\n")
-		write(rows[0], "th", "")
+		write(0, "th", "")
 		w.WriteString("</thead>\n")
-		rows = rows[1:]
+		first = 1
 	}
 	w.WriteString("<tbody>\n")
-	for _, r := range rows {
-		switch r.Role {
+	for i := first; i < len(rows); i++ {
+		switch rows[i].Role {
 		case tbl.Total:
-			write(r, "td", ` class="total"`)
+			write(i, "td", ` class="total"`)
 		case tbl.Note:
-			write(r, "td", ` class="note"`)
+			write(i, "td", ` class="note"`)
 		default:
-			write(r, "td", "")
+			write(i, "td", "")
 		}
 	}
 	w.WriteString("</tbody>\n</table>\n")

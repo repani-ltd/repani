@@ -15,7 +15,7 @@ func TestReport_Smoke(t *testing.T) {
 		"",
 		"Positions held at close of business.",
 		"",
-		".table *L 10N",
+		".fmt *L 10N",
 		"^Client | Amount",
 		".. | eur thousands",
 		"Alpha | 1,234.56",

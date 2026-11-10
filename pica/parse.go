@@ -53,10 +53,13 @@ type Layout struct {
 	Paper string // "a4", "a5", or "letter"
 	Cols  int    // pdf columns per page
 	Font  string // "mono" or "sans"; proportional writers honor it
+	Kind  string // "flow" or "form"; the PDF writers honor it
 }
 
 // defaultLayout is the layout of a document with no trailer.
-func defaultLayout() Layout { return Layout{Width: 80, Paper: "a4", Cols: 1, Font: "mono"} }
+func defaultLayout() Layout {
+	return Layout{Width: 80, Paper: "a4", Cols: 1, Font: "mono", Kind: "flow"}
+}
 
 // Doc is a parsed document.
 type Doc struct {
@@ -351,21 +354,19 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		p.add(Block{Kind: Pre, Lines: body, Repeat: repeat})
 		return next, nil
 
-	case ".table":
+	case ".fmt":
 		p.flush()
-		body, next, err := collectUntilEnd(lines, i, ".table")
+		_, next, err := collectUntilEnd(lines, i, ".fmt")
 		if err != nil {
 			return 0, err
 		}
-		col := 1
-		if at := strings.LastIndex(lines[i], rest); rest != "" && at >= 0 {
-			col = utf8.RuneCountInString(lines[i][:at]) + 1
-		}
-		blk, err := parseTableBlock(rest, col, body, n)
+		blks, err := parseTableBlock(lines[i:next], n)
 		if err != nil {
 			return 0, err
 		}
-		p.add(blk)
+		for _, b := range blks {
+			p.add(b) // the first as written, every later grid Tight
+		}
 		return next, nil
 
 	case ".link":
@@ -429,6 +430,13 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 			return set(func() { p.doc.Layout.Font = rest })
 		default:
 			return bad("mono or sans")
+		}
+	case ".layout":
+		switch rest {
+		case "flow", "form":
+			return set(func() { p.doc.Layout.Kind = rest })
+		default:
+			return bad("flow or form")
 		}
 	}
 	return false, nil
@@ -523,30 +531,62 @@ func collectUntilEnd(lines []string, open int, kind string) ([]string, int, erro
 	return nil, 0, fmt.Errorf("%w: %s opened at line %d", ErrUnterminatedBlock, kind, open+1)
 }
 
-// parseTableBlock builds a TableBlk from a .table spec -- tbl's full
-// format, starting at column specCol of its line -- and its rows, in
-// tbl's row grammar: "^" a header, "=" a total, ".." a note. A table
-// with no rows is an error, like an empty .quote. Every refusal wraps
-// ErrBadAttr and the error that names it, a *tbl.Error at its line
-// and column.
-func parseTableBlock(spec string, specCol int, body []string, atLine int) (Block, error) {
-	t, err := newTable(spec, atLine, specCol)
-	if err != nil {
-		return Block{}, fmt.Errorf("%w: %w", ErrBadAttr, err)
+// parseTableBlock builds the TableBlks of a .fmt block: lines are the
+// block from its opening .fmt to the line before its .end, the first
+// at source line atLine. Each .fmt line is a format, tbl's: the first
+// full, a later full one beginning the next grid -- a TableBlk of its
+// own, Tight, so it stacks under the one before -- and a relative one
+// changing the format of the rows under it. Every other line is a row
+// in tbl's grammar: "^" a header, "=" a total, ".." a note. A full
+// format with no rows under it is an error, like an empty .quote.
+// Every refusal wraps ErrBadAttr and the error that names it, a
+// *tbl.Error at its line and column.
+func parseTableBlock(lines []string, atLine int) ([]Block, error) {
+	bad := func(err error) ([]Block, error) { return nil, fmt.Errorf("%w: %w", ErrBadAttr, err) }
+	var (
+		fs   tableFormats
+		out  []Block
+		t    *Table
+		tAt  int
+		tCol int
+	)
+	empty := func() error {
+		return &tbl.Error{Line: tAt, Col: tCol, Err: ErrTableEmpty}
 	}
-	for i, line := range body {
-		r, err := tbl.ParseRow(line, atLine+1+i, 1)
-		if err == nil {
-			err = t.add(r)
+	for i, line := range lines {
+		n := atLine + i
+		trimmed := strings.TrimSpace(line)
+		if commandWord(trimmed) != ".fmt" {
+			r, err := tbl.ParseRow(line, n, 1)
+			if err == nil {
+				err = t.add(fs.cur, r)
+			}
+			if err != nil {
+				return bad(err)
+			}
+			continue
 		}
+		_, rest := splitCommand(trimmed)
+		col := 1
+		if at := strings.LastIndex(line, rest); rest != "" && at >= 0 {
+			col = utf8.RuneCountInString(line[:at]) + 1
+		}
+		full, err := fs.apply(rest, n, col)
 		if err != nil {
-			return Block{}, fmt.Errorf("%w: %w", ErrBadAttr, err)
+			return bad(err)
+		}
+		if full {
+			if t != nil && len(t.fms) == 0 {
+				return bad(empty())
+			}
+			t, tAt, tCol = new(Table), n, col
+			out = append(out, Block{Kind: TableBlk, Table: t, Line: n})
 		}
 	}
-	if len(t.tt.Rows()) == 0 {
-		return Block{}, fmt.Errorf("%w: empty .table (line %d)", ErrBadAttr, atLine)
+	if len(t.fms) == 0 {
+		return bad(empty())
 	}
-	return Block{Kind: TableBlk, Table: t}, nil
+	return out, nil
 }
 
 // commandWord returns the dot command word of a trimmed line

@@ -11,7 +11,7 @@ import (
 type Column struct {
 	Width int  // in code points; 0 for the auto column until fitted
 	Auto  bool // the * column, which takes what the others leave
-	Align byte // L, R, C, N, P or S
+	Align byte // L, R, C, N, P, S or ^
 	Clip  bool // "!": clip instead of wrapping
 	Code  Code // the column's colours, each half set or unset
 }
@@ -118,7 +118,7 @@ func (f *Formats) apply(spec string, col int) (Format, bool, error) {
 				return Format{}, false, errAt(0, t.col, ErrToken, "narrowing %s is not a positive width", t.s)
 			}
 			narrow, narrowCol = n, t.col
-		case b == '*' || (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z'):
+		case b == '*' || b == '^' || (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z'):
 			ct, err := parseColumn(t)
 			if err != nil {
 				return Format{}, false, err
@@ -143,14 +143,23 @@ func (f *Formats) apply(spec string, col int) (Format, bool, error) {
 		}
 	}
 	for i, c := range cols {
-		if c.align != 'S' {
-			continue
-		}
-		switch {
-		case i == 0:
-			return Format{}, false, errAt(0, c.col, ErrSpan, "S joins the column on its left, and the first has none")
-		case c.code.HasFG || c.code.HasBG || c.clip:
-			return Format{}, false, errAt(0, c.col, ErrSpan, "S takes the style of the column it joins, so it carries no code or !")
+		switch c.align {
+		case 'S':
+			switch {
+			case i == 0:
+				return Format{}, false, errAt(0, c.col, ErrSpan, "S joins the column on its left, and the first has none")
+			case cols[i-1].align == '^':
+				return Format{}, false, errAt(0, c.col, ErrSpan, "S joins the column on its left, and a ^ column is no cell of the row")
+			case c.code.HasFG || c.code.HasBG || c.clip:
+				return Format{}, false, errAt(0, c.col, ErrSpan, "S takes the style of the column it joins, so it carries no code or !")
+			}
+		case '^':
+			switch {
+			case c.hasWidth:
+				return Format{}, false, errAt(0, c.col, ErrVSpan, "^ continues the box above, so it belongs in a relative format")
+			case c.code.HasFG || c.code.HasBG || c.clip:
+				return Format{}, false, errAt(0, c.col, ErrVSpan, "^ takes the style of the box it continues, so it carries no code or !")
+			}
 		}
 	}
 
@@ -211,9 +220,9 @@ func parseColumn(t token) (colToken, error) {
 	if i == len(s) || !isAlign(s[i]) {
 		at := t.col + runes(s[:i])
 		if i == len(s) {
-			return ct, errAt(0, at, ErrToken, "%q has no alignment (L R C N P S)", s)
+			return ct, errAt(0, at, ErrToken, "%q has no alignment (L R C N P S ^)", s)
 		}
-		return ct, errAt(0, at, ErrToken, "%s is not an alignment (L R C N P S)", quote(s, i))
+		return ct, errAt(0, at, ErrToken, "%s is not an alignment (L R C N P S ^)", quote(s, i))
 	}
 	ct.align = s[i]
 	i++
@@ -237,7 +246,7 @@ func parseColumn(t token) (colToken, error) {
 
 func isAlign(b byte) bool {
 	switch b {
-	case 'L', 'R', 'C', 'N', 'P', 'S':
+	case 'L', 'R', 'C', 'N', 'P', 'S', '^':
 		return true
 	}
 	return false

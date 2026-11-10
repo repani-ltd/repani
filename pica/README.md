@@ -18,7 +18,8 @@ The design center is the language (see `doc.go` for the spec):
   hanging hyphens). Authors never state widths in content.
 - **Explicit structure, closed vocabulary.** `# heading` and
   `## subsection` (two levels, permanently), `---` rules,
-  `.table … .end` (cells wrap by default, `!` clips, `N` columns
+  `.fmt … .end` tables (further `.fmt` lines change the format,
+  `^` columns continue the box above; cells wrap by default, `!` clips, `N` columns
   align on the decimal point, `P` columns hold prose set in the
   body face under `.font sans`, `=` rows are bold totals, `..`
   rows are half-size notes), `.pre [N] … .end` verbatim blocks,
@@ -78,7 +79,7 @@ line numbers.
 
 `render` executes Go text/templates (via `desk`) with the house
 value formatters (round, decimal, trunc, pad, join, shortTime,
-shortDate, dur, cells) and one structure helper, `table`, which emits a `.table` block
+shortDate, dur, cells) and one structure helper, `table`, which emits a `.fmt` table block
 from a rows slice plus field names (sparing templates the range
 boilerplate) -- no layout functions exist, and the output is
 parsed before it is written, so an invalid render is an error,

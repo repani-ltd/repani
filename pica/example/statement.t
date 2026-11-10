@@ -9,7 +9,7 @@ QUARTERLY CLIENT STATEMENT
 Positions held at close of business, valued at the official closing price on the
 last trading day of the quarter. Accrued interest is included in market value.
 
-.table *L 12N
+.fmt *L 12N
 ^Client | Market value
 .. | eur thousands, accrued interest included
 Alpha Fund | 41,234.56
@@ -39,7 +39,7 @@ positions.
 Deposits and withdrawals settle on a T+2 basis and are reflected in the quarter
 in which they settle, not the quarter in which they were instructed.
 
-.table 14L *L 10N
+.fmt 14L *L 10N
 ^Date | Movement | Amount
 2026-04-14 | client deposit | 500.00
 2026-05-02 | withdrawal | (120.00)

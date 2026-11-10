@@ -74,7 +74,7 @@ row boundary and continue it at the top of the next column. Watch what happens
 at the cut: the header row travels with the continuation. A reader entering the
 table mid-stream is never asked to remember what the columns meant.
 
-.table 9L *L
+.fmt 9L *L
 ^Term | Meaning
 em | the point size squared; the unit of horizontal measure
 measure | the width of a line of type, here one column
@@ -188,7 +188,7 @@ table in bold beneath a rule. The heading over this very paragraph is a fourth
 trick: a subsection, marked with a doubled hash and set at its own scale between
 the section heads and the body.
 
-.table 12L *N
+.fmt 12L *N
 ^Run | Cost
 .. | eur per plate impression
 morning | 1,240.00
