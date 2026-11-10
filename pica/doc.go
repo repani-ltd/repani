@@ -227,8 +227,8 @@ monospace layout (the text writer ignores .font entirely).
 # Tables
 
 Tables are the table language pica shares with board
-(repani.com/typeset/tbl), less what pica does not set: colours,
-links, and blank and "---" rows. A table block opens with a .fmt
+(repani.com/typeset/tbl), less what pica does not set: links, and
+blank and "---" rows. A table block opens with a .fmt
 line and closes with .end. Each .fmt line is a FORMAT: a FULL
 format gives every column a width and defines a grid; a RELATIVE
 format gives none, lists every column of the last full format's
@@ -265,8 +265,18 @@ space. "|" always separates cells (there is no escape for a
 literal one). A row with more cells than the spec has columns is
 an error; a row with fewer is a SHORT ROW, whose last cell spans
 every remaining column, up to the next ^ column. A cell may not
-start with ":" or "@", the colour and link marks pica does not
-set.
+start with "@", the link mark pica does not set.
+
+COLOURS are tbl's codes: a letter for the text (d r g y b m c w:
+default, red, green, yellow, blue, magenta, cyan, white), "/" and
+a letter for the fill -- on a cell as a leading ":code" mark
+(":r REQUIRED"), on a column after its alignment ("20L/y"), or for
+every row under a format as its first token ("/b 10L 5R"); a
+cell's mark wins over the row code, the row code over the column.
+The form layout and HTML set them in a print palette, dark inks
+and pale fills; the text page and the flowing PDF layouts ignore
+them, so a colour must only repeat what the cell's text already
+says (a red REQUIRED, a yellow input).
 
 A ^ column takes no cell: the row's cells fill its other columns,
 and each run of ^ columns continues a box of the data row above,
@@ -275,8 +285,10 @@ number of rows). The ^ columns must cover whole boxes of the row
 above, and every column of the row must end up in a box. The text
 of the cell that began the box starts at its top and runs down the
 rows it covers; when it needs more lines than those rows have, the
-last row it covers grows. A note row ends every box running down,
-and may not continue one. A row continuing a box is atomic with
+last row it covers grows. A note row may continue a box like any
+row (the form layout sets it small beside the box it continues;
+the half-size note of the other PDF writers drops the continued
+text). A row continuing a box is atomic with
 the row above at a column split. For example, a label beside two
 rows, the second split into three cells:
 

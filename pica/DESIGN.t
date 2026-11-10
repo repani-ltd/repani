@@ -1290,9 +1290,37 @@ runs down are one unit of the page.
 .item A small centred bold title; the rights with "Page N of M" in the footer.
 
 Open, to judge on the sample: vertical centring in a spanned box (§23 chose top,
-kept as the easier until the output is reviewed); colour (deferred, TASKS.t);
-the breaker's ragged lines in wide prose boxes, which stop well short of the box
--- the cell breaker's choice, shared with every pica table.
+kept as the easier until the output is reviewed); the breaker's ragged lines in
+wide prose boxes, which stop well short of the box -- the cell breaker's choice,
+shared with every pica table.
+
+# 25. Small notes and colour in tables (decided 2026-11-10)
+
+Driver: the cover sheet in the form layout, judged on the page: without the
+spreadsheet's typographic variation it did not read as the sheet. What that
+variation tells a reader was weighed apart: small type says secondary, red says
+look here, the yellow and blue fills say typed and looked up (Excel workflow,
+whose worth on paper is recognition), italics nothing much.
+
+.item NOTE ROWS CONTINUE BOXES. A note row (..) may continue a box (^) and be
+continued, like any row; only a blank or rule row ends a span now (tbl SPEC.t).
+The form sets a note row at 0.8 of the body size in gray on a leading scaled to
+match: the sheet's identifier lines sit small beside their label. The flowing
+PDFs' half-size notes carry the note's own cells, not a span's text running
+through it.
+.item COLOUR IN TABLES. Pica stops refusing tbl's colour codes (a cell's :code,
+a column's code, a format's row code; links stay refused). The form and HTML set
+them in a print palette, pica.Ink and pica.Tint: dark inks text can be read in,
+pale fills text stays legible on, index 0 black ink and no fill; the yellow and
+blue tints are the spreadsheet's. A filled box covers every row it runs down; a
+header row without a fill keeps its gray. pdf.Page.RGB is the one RGB operator,
+for these cells.
+.item The doctrine it reverses, knowingly: the grayscale stance and the display
+list's "no RGB" (§ display list) yield for table cells only; admission test 2
+holds by a rule, not a renderer -- a colour must only repeat what the cell's
+text says (a red Required, a yellow input), because the text page and the
+flowing PDFs ignore it. Those flowing PDFs are parked in TASKS.t until a flowing
+document wants colour.
 
 .width 48
 .cols 2

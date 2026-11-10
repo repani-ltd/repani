@@ -22,7 +22,7 @@ import (
 // Both come as a *tbl.Error, at the line and column at fault.
 var (
 	ErrTableRelative = errors.New("pica: a table's first .fmt gives every column a width")
-	ErrTableColour   = errors.New("pica: tables set no colours or links")
+	ErrTableLink     = errors.New("pica: tables set no links")
 	ErrTableHeader   = errors.New("pica: the header row (^) is the table's first row")
 	ErrTableRow      = errors.New("pica: a blank line or a --- rule is not a pica table row")
 	ErrTableEmpty    = errors.New("pica: a full .fmt with no rows under it")
@@ -55,13 +55,6 @@ func (f *tableFormats) apply(spec string, line, col int) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	coloured := fm.Row.HasFG || fm.Row.HasBG
-	for _, c := range fm.Cols {
-		coloured = coloured || c.Code.HasFG || c.Code.HasBG
-	}
-	if coloured {
-		return false, &tbl.Error{Line: line, Col: col, Err: fmt.Errorf("%w: %q", ErrTableColour, spec)}
-	}
 	f.cur = fm
 	return full, nil
 }
@@ -70,9 +63,10 @@ func (f *tableFormats) apply(spec string, line, col int) (bool, error) {
 func (t *Table) Narrow() int { return t.fms[0].Narrow }
 
 // add appends a parsed row under fm, refusing what pica does not set:
-// blank and rule rows, colours and links, a header after the first
-// row, and what tbl refuses (more cells than groups, a note with no
-// row above it, a ^ with no box to continue).
+// blank and rule rows, links, a header after the first row, and what
+// tbl refuses (more cells than groups, a note with no row above it, a
+// ^ with no box to continue). Colours pass: the form layout and HTML
+// set them.
 func (t *Table) add(fm tbl.Format, r tbl.Row) error {
 	if r.Kind != tbl.Data {
 		return &tbl.Error{Line: r.Line, Col: 1, Err: ErrTableRow}
@@ -81,8 +75,8 @@ func (t *Table) add(fm tbl.Format, r tbl.Row) error {
 		return &tbl.Error{Line: r.Line, Col: r.Cells[0].Col, Err: ErrTableHeader}
 	}
 	for _, c := range r.Cells {
-		if c.Code.HasFG || c.Code.HasBG || c.Target != "" {
-			return &tbl.Error{Line: r.Line, Col: c.Col, Err: ErrTableColour}
+		if c.Target != "" {
+			return &tbl.Error{Line: r.Line, Col: c.Col, Err: ErrTableLink}
 		}
 	}
 	if err := t.tt.Add(fm, r); err != nil {
@@ -207,12 +201,12 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 	if err != nil {
 		return nil, err
 	}
-	tl := &TableLayout{Cols: grid.Spans()}
+	spans := grid.Spans()
+	tl := &TableLayout{Cols: spans}
 	nums := map[int]tbl.Num{}
 	for _, n := range grid.Nums() {
 		nums[n.Start] = n
 	}
-	spans := grid.Spans()
 	for i, row := range t.tt.Rows() {
 		fm := t.fms[i]
 		texts := make([]string, len(row.Cells))
@@ -220,29 +214,15 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 			texts[k] = c.Text
 		}
 		bs := fm.Boxes(len(texts))
-		// The row's own boxes, as positions in its laid lines, which
-		// also hold the boxes it continues (^) in column order. A box
-		// that begins or continues a span stays on the mono grid:
-		// its lines run down rows, which measured drawing does not.
-		cont := map[int]bool{}
-		for _, b := range laid[i].Cont {
-			cont[spans[b.First].Start] = true
-		}
-		var origin map[int]bool
-		if i+1 < len(laid) {
-			origin = map[int]bool{}
-			for _, b := range laid[i+1].Cont {
-				origin[spans[b.First].Start] = true
-			}
-		}
 		lines := laid[i].Lines
-		var own []int // own box k is lines[h][own[k]]
-		for at, p := range lines[0] {
-			if !cont[p.Start] {
-				own = append(own, at)
-			}
+		own := ownBoxes(laid[i], spans)
+		// A box that begins a span stays on the mono grid: its lines
+		// run down rows, which measured drawing does not.
+		var below []tbl.Box
+		if i+1 < len(laid) {
+			below = laid[i+1].Cont
 		}
-		measurable := func(k int) bool { return !origin[lines[0][own[k]].Start] }
+		measurable := func(k int) bool { return !startsAt(below, spans, lines[0][own[k]].Start) }
 		switch row.Role {
 		case tbl.Note:
 			// Under the row above: the header when no data row has
@@ -251,7 +231,13 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 			if len(tl.Rows) > 0 {
 				r = &tl.Rows[len(tl.Rows)-1]
 			}
-			r.Notes = append(r.Notes, halfNote(lines[0], texts)...)
+			// Its own boxes only: a box it continues (^) holds the
+			// span's text, which the half-size grid does not carry.
+			mine := make([]tbl.Placed, len(own))
+			for k, at := range own {
+				mine[k] = lines[0][at]
+			}
+			r.Notes = append(r.Notes, halfNote(mine, texts)...)
 			r.notes = append(r.notes, flatLines(lines)...)
 			continue
 		case tbl.Header:
@@ -322,7 +308,33 @@ type GridBox struct {
 	Align byte
 	Clip  bool
 	Cont  bool
+	// FG and BG are the box's colours, tbl's palette indexes resolved
+	// (cell, row, column), 0 the default: ink and no fill.
+	FG, BG uint8
 }
+
+// The print palette of tbl's eight colours, by index (d r g y b m c w):
+// as ink, dark enough to read as text on paper; as fill, a pale tint
+// text stays legible on. Index 0, the default, is black ink and no
+// fill. The yellow and blue tints are the spreadsheet's input and
+// lookup fills.
+var (
+	inks = [8][3]float64{
+		{0, 0, 0}, {0.75, 0.08, 0.08}, {0.05, 0.45, 0.15}, {0.6, 0.42, 0},
+		{0.1, 0.25, 0.6}, {0.55, 0.1, 0.5}, {0, 0.45, 0.5}, {1, 1, 1},
+	}
+	tints = [8][3]float64{
+		{1, 1, 1}, {1, 0.87, 0.87}, {0.88, 0.96, 0.88}, {1, 1, 0.88},
+		{0.87, 0.93, 1}, {0.97, 0.88, 0.97}, {0.87, 0.97, 0.97}, {1, 1, 1},
+	}
+)
+
+// Ink is colour c as a text colour, its red, green and blue from 0 to
+// 1.
+func Ink(c uint8) (r, g, b float64) { k := inks[c&7]; return k[0], k[1], k[2] }
+
+// Tint is colour c as a cell's fill.
+func Tint(c uint8) (r, g, b float64) { k := tints[c&7]; return k[0], k[1], k[2] }
 
 // Grid lays the table on its grid at width and returns the column
 // spans and every row's boxes, for a writer that measures and draws
@@ -333,26 +345,50 @@ func (t *Table) Grid(width int) ([]Span, []GridRow, error) {
 		return nil, nil, err
 	}
 	spans := grid.Spans()
-	at := func(b tbl.Box) Span { return Span{Start: spans[b.First].Start, End: spans[b.Last].End} }
 	rows := make([]GridRow, len(laid))
 	for i, row := range t.tt.Rows() {
 		fm := t.fms[i]
 		r := GridRow{Header: row.Role == tbl.Header, Total: row.Role == tbl.Total, Note: row.Role == tbl.Note}
-		own, cont := fm.Boxes(len(row.Cells)), laid[i].Cont
-		for len(own) > 0 || len(cont) > 0 {
-			if len(cont) == 0 || (len(own) > 0 && own[0].First < cont[0].First) {
-				b, k := own[0], len(row.Cells)-len(own)
-				col := fm.Cols[b.First]
-				r.Boxes = append(r.Boxes, GridBox{Span: at(b), Text: row.Cells[k].Text, Align: col.Align, Clip: col.Clip})
-				own = own[1:]
-			} else {
-				r.Boxes = append(r.Boxes, GridBox{Span: at(cont[0]), Cont: true})
-				cont = cont[1:]
+		// The laid boxes, in column order, carry each box's columns
+		// and its colours as tbl resolved them; the row's own ones take
+		// their cell's text in order, the rest continue a box above.
+		own, bs, k := ownBoxes(laid[i], spans), fm.Boxes(len(row.Cells)), 0
+		for at, p := range laid[i].Lines[0] {
+			b := GridBox{Span: Span{Start: p.Start, End: p.End}, FG: uint8(p.FG), BG: uint8(p.BG), Cont: true}
+			if k < len(own) && own[k] == at {
+				col := fm.Cols[bs[k].First]
+				b.Text, b.Align, b.Clip, b.Cont = row.Cells[k].Text, col.Align, col.Clip, false
+				k++
 			}
+			r.Boxes = append(r.Boxes, b)
 		}
 		rows[i] = r
 	}
 	return spans, rows, nil
+}
+
+// ownBoxes returns the positions, in a laid row's lines, of the
+// row's own boxes -- cell k's box is at ownBoxes(...)[k] -- leaving
+// out the boxes it continues (^), which the lines also hold, in
+// column order.
+func ownBoxes(lr tbl.LaidRow, spans []Span) []int {
+	own := make([]int, 0, len(lr.Lines[0]))
+	for at, p := range lr.Lines[0] {
+		if !startsAt(lr.Cont, spans, p.Start) {
+			own = append(own, at)
+		}
+	}
+	return own
+}
+
+// startsAt reports whether one of boxes starts at grid column start.
+func startsAt(boxes []tbl.Box, spans []Span, start int) bool {
+	for _, b := range boxes {
+		if spans[b.First].Start == start {
+			return true
+		}
+	}
+	return false
 }
 
 // measure wraps a cell under m at its box's measure; a clip column's

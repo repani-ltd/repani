@@ -297,7 +297,7 @@ func TestTableErrors(t *testing.T) {
 	if _, rows, err := new(Table).Layout(40); rows != nil || err == nil {
 		t.Errorf("empty table: %v, %v", rows, err)
 	}
-	if _, _, err := (&Table{entries: []entry{{fm, Row{}}}}).Layout(9); !errors.Is(err, ErrFit) {
+	if _, _, err := (&Table{entries: []entry{{fm: fm, row: Row{}}}}).Layout(9); !errors.Is(err, ErrFit) {
 		t.Errorf("layout in 9: %v", err)
 	}
 }

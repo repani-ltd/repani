@@ -145,9 +145,15 @@ func (p *Page) Line(x1, y1, x2, y2, width float64) {
 	fmt.Fprintf(&p.buf, "%s %s m %s %s l S\n", ff(x1), ff(y1), ff(x2), ff(y2))
 }
 
+// RGB sets the non-stroking (text and fill) colour, each component
+// from 0 to 1: the colours of table cells in the form layout, the one
+// place pica sets colour; everything else is gray.
+func (p *Page) RGB(r, g, b float64) {
+	fmt.Fprintf(&p.buf, "%s %s %s rg\n", ff(r), ff(g), ff(b))
+}
+
 // Fill paints the rectangle with its lower-left corner at (x, y), w
-// wide and h high, in the non-stroking gray (Gray): pica's only fill,
-// for shaded cells, gray as every pica ink is.
+// wide and h high, in the non-stroking colour (Gray or RGB).
 func (p *Page) Fill(x, y, w, h float64) {
 	fmt.Fprintf(&p.buf, "%s %s %s %s re f\n", ff(x), ff(y), ff(w), ff(h))
 }

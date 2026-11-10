@@ -66,6 +66,16 @@ func TestFmtBlockHTMLRowspan(t *testing.T) {
 	}
 }
 
+// Colours become inline styles from the print palette: the cell's red
+// ink, the column's yellow fill.
+func TestFmtColourHTML(t *testing.T) {
+	h := mustParse(t, "T\n\n.fmt 10L 10L/y\nLaws | :r Required\n.end\n").HTML()
+	want := `<td>Laws</td><td style="color:#bf1414;background:#ffffe0">Required</td>`
+	if !strings.Contains(h, want) {
+		t.Errorf("HTML lacks %s:\n%s", want, h)
+	}
+}
+
 // A comment beside short rows runs down them; when it needs more
 // lines, the last row it covers grows.
 func TestFmtSpanGrowsLastRow(t *testing.T) {

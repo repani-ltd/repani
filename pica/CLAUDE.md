@@ -5,7 +5,9 @@ package; it imports only the primitives `typeset/tbl`, the table
 language and its grid, and `typeset/wrap` with `typeset/wrap/hyphen`,
 the line breaker and its hyphenation, DESIGN.t sections 12, 16, 17
 and 18), with PDF primitives (`pdf/`, `pdf/ttf/`), the compositor and
-its two presentations (`press/`: `press.PDF` the default, `press.Report`),
+its two presentations (`press/`: `press.PDF` the default, `press.Report`;
+both hand a `.layout form` document to the form writer, `press/form.go`,
+DESIGN.t sections 24 and 25),
 the copy desk (`desk/`: the template vocabulary and the validating
 `Render`; values are formatted by `repani.com/typeset/format`), and
 the `pica` CLI (`cmd/pica`), a thin flag surface over all of it. The

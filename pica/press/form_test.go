@@ -2,7 +2,11 @@ package press
 
 import (
 	"bytes"
+	"compress/zlib"
+	"errors"
+	"io"
 	"regexp"
+	"strings"
 	"testing"
 
 	"repani.com/pica"
@@ -58,6 +62,32 @@ func TestFormRenders(t *testing.T) {
 	}
 }
 
+// A coloured cell sets its ink and its box's fill in RGB; a document
+// without colour sets none (the form is gray otherwise).
+func TestFormColour(t *testing.T) {
+	render := func(src string) string {
+		t.Helper()
+		doc, err := pica.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := PDF(doc, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(inflate(t, out))
+	}
+	coloured := render("T\n\n.fmt 10L 10L/y\nLaws | :r Required\n.end\n\n.width 40\n.layout form\n")
+	for _, want := range []string{"0.75 0.08 0.08 rg", "1 1 0.88 rg"} {
+		if !strings.Contains(coloured, want) {
+			t.Errorf("content lacks %q", want)
+		}
+	}
+	if plain := render("T\n\n.fmt 10L 10L\nLaws | Required\n.end\n\n.width 40\n.layout form\n"); strings.Contains(plain, " rg\n") {
+		t.Error("a document without colour sets RGB")
+	}
+}
+
 func TestFormTooNarrow(t *testing.T) {
 	doc, err := pica.Parse("T\n\nBody.\n\n.width 200\n.paper a5\n.layout form\n")
 	if err != nil {
@@ -66,4 +96,21 @@ func TestFormTooNarrow(t *testing.T) {
 	if _, err := PDF(doc, false); err == nil {
 		t.Error("a 200-cell form on A5 rendered below the size floor")
 	}
+}
+
+// inflate returns every zlib stream of a PDF, decompressed and joined:
+// the page content a test reads operators from.
+func inflate(t *testing.T, pdf []byte) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	for _, m := range regexp.MustCompile(`(?s)stream\r?\n(.*?)endstream`).FindAllSubmatch(pdf, -1) {
+		r, err := zlib.NewReader(bytes.NewReader(m[1]))
+		if err != nil {
+			continue // not a zlib stream (a font program, say)
+		}
+		if _, err := io.Copy(&out, r); err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatal(err)
+		}
+	}
+	return out.Bytes()
 }

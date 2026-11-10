@@ -10,6 +10,7 @@
 package pica
 
 import (
+	"fmt"
 	"html"
 	"sort"
 	"strconv"
@@ -113,9 +114,10 @@ func htmlBlock(w *strings.Builder, b Block) {
 // htmlTable writes a table: the header row in <thead> when the table
 // has one, then data rows, total rows (class "total") and note rows
 // (class "note"); every cell but a note's, which sets left as on
-// every page, carries the text-align of its box's first column, and
-// a box over several columns a colspan. A narrowing width from the
-// spec becomes max-width in ch.
+// every page, carries the text-align of its box's first column, a box
+// over several columns a colspan, a box running down rows (^) a
+// rowspan, and a coloured cell its ink and fill from the print
+// palette. A narrowing width from the spec becomes max-width in ch.
 func htmlTable(w *strings.Builder, t *Table) {
 	open := "<table>"
 	if n := t.Narrow(); n > 0 {
@@ -129,12 +131,14 @@ func htmlTable(w *strings.Builder, t *Table) {
 		box  tbl.Box
 		text string
 		own  bool
+		code tbl.Code // resolved: the cell's mark, the row code, the column's
 	}
 	write := func(i int, tag, class string) {
 		r, fm := rows[i], t.fms[i]
 		var cells []cell
 		for k, bx := range fm.Boxes(len(r.Cells)) {
-			cells = append(cells, cell{bx, r.Cells[k].Text, true})
+			code := r.Cells[k].Code.Over(fm.Row.Over(fm.Cols[bx.First].Code))
+			cells = append(cells, cell{bx, r.Cells[k].Text, true, code})
 		}
 		// A header box that rows continue (^) cannot span out of
 		// <thead>: each row continuing it holds an empty cell instead.
@@ -165,12 +169,22 @@ func htmlTable(w *strings.Builder, t *Table) {
 					attrs += ` rowspan="` + strconv.Itoa(n) + `"`
 				}
 			}
+			var style []string
 			switch align := fm.Cols[bx.First].Align; {
 			case !c.own, r.Role == tbl.Note:
 			case align == 'R' || align == 'N':
-				attrs += ` style="text-align:right"`
+				style = append(style, "text-align:right")
 			case align == 'C':
-				attrs += ` style="text-align:center"`
+				style = append(style, "text-align:center")
+			}
+			if c.code.HasFG && c.code.FG != 0 {
+				style = append(style, "color:"+hexColor(Ink(uint8(c.code.FG))))
+			}
+			if c.code.HasBG && c.code.BG != 0 {
+				style = append(style, "background:"+hexColor(Tint(uint8(c.code.BG))))
+			}
+			if style != nil {
+				attrs += ` style="` + strings.Join(style, ";") + `"`
 			}
 			w.WriteString("<" + tag + attrs + ">" + esc(c.text) + "</" + tag + ">")
 		}
@@ -198,6 +212,11 @@ func htmlTable(w *strings.Builder, t *Table) {
 }
 
 func esc(s string) string { return html.EscapeString(s) }
+
+// hexColor writes a palette colour as CSS #rrggbb.
+func hexColor(r, g, b float64) string {
+	return fmt.Sprintf("#%02x%02x%02x", int(r*255+0.5), int(g*255+0.5), int(b*255+0.5))
+}
 
 // emphHTML renders prose that may carry _..._ emphasis: the element
 // that carries the meaning is <em>, and the markers are consumed.

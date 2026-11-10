@@ -65,6 +65,27 @@ Sponsors   REQ that establish the scheme|
 	}
 }
 
+// A note row continues a box like any row, and its own cells lay out
+// L whatever their columns: the cover sheet's identifier line, set
+// small beside the label it belongs to.
+func TestVSpanNoteContinues(t *testing.T) {
+	rows := build(t, `
+.fmt 9L 5R *L
+Investor | Fund | Pension
+.fmt ^ R L
+.. RM# | N/A
+.fmt
+Sponsor | State | Government`, 30)
+	check(t, rows, 30, `
+Investor   Fund Pension       |
+          RM#   N/A           |
+Sponsor   State Government    |
+`)
+	if rows[1].Role != Note || len(rows[1].Cont) != 1 || rows[1].Cont[0] != (Box{0, 0}) {
+		t.Errorf("note row %+v: a note continuing the label", rows[1])
+	}
+}
+
 // A span over three rows: the box continues through a middle row
 // that continues it too.
 func TestVSpanThreeRows(t *testing.T) {
@@ -114,9 +135,8 @@ func TestVSpanRowErrors(t *testing.T) {
 		name, src, msg string
 	}{
 		{"no row above", "5L 5L\n.fmt ^ L\nb", "no data row above"},
-		{"after a note", "5L 5L\na | b\n.. note\n.fmt ^ L\nc", "no data row above"},
 		{"after a blank", "5L 5L\na | b\n\n.fmt ^ L\nc", "no data row above"},
-		{"a note continuing", "5L 5L\na | b\n.fmt ^ L\n.. note", "note row continues no box"},
+		{"after a rule", "5L 5L\na | b\n---\n.fmt ^ L\nc", "no data row above"},
 		{"part of a box", "5L 5L 5L\n.fmt L L S\na | b\n.fmt L ^ L\nc | d", "whole box"},
 		{"columns in no box", "5L 5L 5L\na | b | c\n.fmt L ^ L\nd", "column 3 is in no box"},
 	} {

@@ -175,10 +175,10 @@ A row whose format has ^ columns gives them no cell: they CONTINUE the boxes of
 the data row above, which become one box over both rows, and a continued box can
 be continued again by the row below. The ^ columns must cover whole boxes of the
 row above, and every column of the row must be in a box, its own or a continued
-one. A data row above is required: a note, blank or rule row ends every
-continued box, a note row may not continue one, and a full format begins a new
-table, so its rows have none above. A continued box keeps the text, alignment,
-colours and link of the cell that began it.
+one. A data row above is required -- a note row is one, and may continue a box
+like any other: a blank or rule row ends every continued box, and a full format
+begins a new table, so its rows have none above. A continued box keeps the text,
+alignment, colours and link of the cell that began it.
 
 A cell's colours resolve per property, fg and bg each apart: the cell's mark if
 set, else the format's row code if set, else the box's first column if set, else
@@ -265,11 +265,10 @@ mark at fault, or for columns that cannot fit, the format's spec. The kinds: a
 bad colour code; a token out of order or unknown; widths on some columns and not
 others; a relative format with the wrong column count, with a narrowing, or with
 no full format before it; S first or after a ^, or S with a code or `!`; a ^ in
-a full format, with a code or `!`, with no data row above, in a note row, over
-part of a box above, or leaving a column in no box; a second `*`; columns that
-cannot fit the width; a bad or repeated mark; cell text a grid cannot show; a
-bad target; more cells than groups; a note row with no row above; a number wider
-than its N box.
+a full format, with a code or `!`, with no data row above, over part of a box
+above, or leaving a column in no box; a second `*`; columns that cannot fit the
+width; a bad or repeated mark; cell text a grid cannot show; a bad target; more
+cells than groups; a note row with no row above; a number wider than its N box.
 
 Rationale, history and the choices weighed: `repani-lab/board/DESIGN.t`.
 

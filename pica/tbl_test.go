@@ -317,7 +317,7 @@ func TestTable_LayoutMeasuredHeader(t *testing.T) {
 }
 
 func TestTable_InvalidSpec(t *testing.T) {
-	for _, spec := range []string{"", "3X", "abc", "3L *L *R", "r 4L", "4L/b"} {
+	for _, spec := range []string{"", "3X", "abc", "3L *L *R", "4L/q"} {
 		var fs tableFormats
 		if _, err := fs.apply(spec, 1, 1); err == nil {
 			t.Errorf("spec %q accepted", spec)

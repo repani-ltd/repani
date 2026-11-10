@@ -16,12 +16,17 @@ import (
 // full format.
 type Table struct {
 	entries []entry
-	prev    []Box // the boxes of the last data row, nil after a note, blank or rule row
+	prev    []Box // the boxes of the last data row, nil after a blank or rule row
 }
 
+// entry is a row, the format it is under, and for a data row its
+// boxes in column order, own[i] false for a box it continues (^) --
+// found once, when Add checks the row, and laid by Layout.
 type entry struct {
-	fm  Format
-	row Row
+	fm    Format
+	row   Row
+	boxes []Box
+	own   []bool
 }
 
 // Add appends a row under its resolved format. It refuses a data row
@@ -44,20 +49,17 @@ func (t *Table) Add(fm Format, r Row) error {
 			return errAt(r.Line, r.Cells[0].Col, ErrNote, "a note annotates the row above it")
 		}
 	}
-	// A ^ continues only a data row's box; a note, blank or rule row
-	// ends every span.
-	var boxes []Box
+	// A ^ continues the box of the data row above, a note's included;
+	// a blank or rule row ends every span.
+	e := entry{fm: fm, row: r}
 	if r.Kind == Data {
 		var err error
-		if boxes, _, err = rowBoxes(fm, r, t.prev); err != nil {
+		if e.boxes, e.own, err = rowBoxes(fm, r, t.prev); err != nil {
 			return err
 		}
-		if r.Role == Note {
-			boxes = nil
-		}
 	}
-	t.prev = boxes
-	t.entries = append(t.entries, entry{fm, r})
+	t.prev = e.boxes
+	t.entries = append(t.entries, e)
 	return nil
 }
 
@@ -186,9 +188,6 @@ func rowBoxes(f Format, r Row, prev []Box) (boxes []Box, own []bool, err error) 
 	if !f.carets() {
 		return mine, trues(len(mine)), nil
 	}
-	if r.Role == Note {
-		return nil, nil, at("a note row continues no box")
-	}
 	if prev == nil {
 		return nil, nil, at("^ continues the box above, and there is no data row above")
 	}
@@ -283,14 +282,10 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 			prev = nil
 			continue
 		}
-		bs, own, err := rowBoxes(e.fm, e.row, boxesOf(prev))
-		if err != nil {
-			return nil, nil, err
-		}
 		var cur []box
 		cell := 0
-		for i, b := range bs {
-			if !own[i] {
+		for i, b := range e.boxes {
+			if !e.own[i] {
 				p := find(prev, b)
 				if p.span == nil {
 					p.span = &span{lines: p.lines, from: p.row}
@@ -309,11 +304,7 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 			cell++
 		}
 		rows[k].boxes = cur
-		if e.row.Role == Note {
-			prev = nil
-		} else {
-			prev = cur
-		}
+		prev = cur
 	}
 	for k := range rows {
 		rows[k].h = 1
@@ -343,20 +334,26 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 			lr.BG = raster.Default
 		}
 		if e.row.Kind == Data {
+			// Each box's lines, and where this row's first line falls
+			// in them: 0 for its own, the rows above it for a span's.
+			bs := rows[k].boxes
+			src, off := make([][]string, len(bs)), make([]int, len(bs))
+			for i, b := range bs {
+				src[i] = b.lines
+				if b.span != nil {
+					src[i] = b.span.lines
+					for j := b.span.from; j < k; j++ {
+						off[i] += rows[j].h
+					}
+				}
+			}
 			lr.Lines = make([][]Placed, rows[k].h)
 			for h := range lr.Lines {
-				line := make([]Placed, len(rows[k].boxes))
-				for i, b := range rows[k].boxes {
-					lines, at := b.lines, h
-					if b.span != nil {
-						lines, at = b.span.lines, h
-						for j := b.span.from; j < k; j++ {
-							at += rows[j].h
-						}
-					}
+				line := make([]Placed, len(bs))
+				for i, b := range bs {
 					p := b.placed
-					if at < len(lines) {
-						p.Text = lines[at]
+					if at := off[i] + h; at < len(src[i]) {
+						p.Text = src[i][at]
 					} else {
 						p.Text = strings.Repeat(" ", p.End-p.Start)
 					}
@@ -391,17 +388,6 @@ type box struct {
 type span struct {
 	lines    []string
 	from, to int
-}
-
-func boxesOf(bs []box) []Box {
-	if bs == nil {
-		return nil
-	}
-	out := make([]Box, len(bs))
-	for i, b := range bs {
-		out[i] = b.Box
-	}
-	return out
 }
 
 func find(bs []box, b Box) *box {

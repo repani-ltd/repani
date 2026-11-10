@@ -320,8 +320,7 @@ func TestParse_TableRows(t *testing.T) {
 		{"a | b\n^h | h", ErrTableHeader},
 		{"a | b\n\nc | d", ErrTableRow},
 		{"a | b\n---", ErrTableRow},
-		{":r a | b", ErrTableColour},
-		{"@https://x.example a | b", ErrTableColour},
+		{"@https://x.example a | b", ErrTableLink},
 		{"a | b | c", tbl.ErrCells},
 		{".. a note first", tbl.ErrNote},
 	} {
@@ -330,8 +329,15 @@ func TestParse_TableRows(t *testing.T) {
 			t.Errorf("%q: err = %v, want %v", tc.src, err, tc.want)
 		}
 	}
-	if _, err := Parse("T\n\n.fmt r 4L 4L\na | b\n.end\n"); !errors.Is(err, ErrTableColour) {
-		t.Errorf("row code: err = %v", err)
+	// Colours parse -- a row code, a column code, a cell mark -- and
+	// reach a writer that sets them through Grid.
+	cd := mustParse(t, "T\n\n.fmt /y 4L 4L/b\n:r a | b\n.end\n")
+	_, grid, err := cd.Blocks[0].Table.Grid(cd.Layout.Width)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := grid[0].Boxes; b[0].FG != 1 || b[0].BG != 3 || b[1].FG != 0 || b[1].BG != 3 {
+		t.Errorf("colours %+v: want a red on the row's yellow, b on yellow (the row code over the column's blue)", b)
 	}
 	d := mustParse(t, "T\n\n.fmt 4L 4L 4R\n^k | v | n\nspan across\n.end\n")
 	tl, err := d.Blocks[0].Table.Layout(20)
