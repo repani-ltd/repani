@@ -248,6 +248,202 @@ Either gap, when a consumer meets it, is a new type from the reserved tags (a
 microsecond datetime, a wide decimal), APPEND-ONLY; no existing type changes
 meaning.
 
+# Text
+
+The text form exists so that exported data is never an opaque blob: a store's
+rows, or an app's, are exported, inspected, edited by hand where needed, and
+imported again. Writing rows from nothing is not its job, so it is shaped for
+reading, diff and the one-line edit, not for typing.
+
+One item per line, path: type = value, the shape of a FACT line (FACT supplied
+the idea; ROW's text is its own notation, not a FACT file). A line is complete
+in itself: a changed amount is one changed line in a diff. The cost is length, a
+dozen or more lines for an iou record. Grep is a convenience here, not the aim
+it is for FACT; the one that matters is a key's grep returning every line of its
+row (see Labels).
+
+Nesting is spelt by the path, not by brackets: a nested item's path is its row's
+path, a dot and its position. A nested row has a line of its own with no value,
+so an empty row is visible and no count can disagree with the lines under it.
+
+Each line states its type, because the type is what makes lenient input safe.
+Where the spelling alone gave the type, an editor typing 9.99 into a float would
+make it a decimal without a word; with the type on the line, a float line reads
+9.99 as the float, a bytes line reads upper-case hex, and both print back
+canonically. Edits need leniency, and leniency stops at the value: input never
+adjusts what a value is, and a decimal's digits are its scale.
+
+Strings stay on one line, line breaks escaped. A string syntax spanning lines
+(heredoc, triple quotes, continuation lines) would end the property every line
+has, being complete in itself: lines could no longer be parsed alone, grep would
+return fragments, and canonical form would need rules for indentation and
+terminators. With one item per line a long string costs its own line, not the
+row's; a reading view that unescapes is a tool's concern.
+
+Rejected: FACT itself as the text (positions are not names, and FACT has no
+decimal, date, time, duration, bytes, none as a value or nesting, its first
+principle forbidding the last); v1's one row per line with bracketed lists (an
+edit means finding a value inside a long line, and the spelling had to carry the
+type); strict input, one spelling accepted (right for a format written by
+programs, wrong for one edited by hand).
+
+## Paths
+
+Paths count from 0, as Go and JavaScript index the decoded row. Gaps, duplicates
+and an item whose row has no line are errors, not repaired: input is lenient
+about spelling, never about structure, since a guessed structure is an altered
+value. Path order compares positions as numbers.
+
+## Labels
+
+Several rows in one text carry a label on every line. Three layouts were
+weighed:
+
+.term two kinds of label
+A number for a sequence (its position, sorted as a number) and a string for
+named rows (a key, sorted byte by byte), one kind to a file. Canonical order is
+then intrinsic, but there are two kinds, and both exist only to give an order.
+.term blocks
+A label line opens a row and its item lines follow unprefixed: the shortest, but
+a line no longer says its row, and a line moved between blocks silently changes
+rows.
+.term strings in file order
+One kind of label, a string; rows keep the order of their labels' first
+appearance, and only the lines within a row are sorted. A store exports in key
+order and a sequence in its own, so order comes from the file and nothing is
+padded ("10" after "9").
+
+The third was taken: one kind of label, every line complete, and a key's grep
+returning every line of its row. Its costs: canonical form is not wholly
+intrinsic (the same rows in another order are another text; fmt sorts lines
+within a row and never moves rows), and labels are unique, a repeated label
+being the same row.
+
+## Type names
+
+Type names are two to four characters and sit in the tag registry beside their
+tags, so a new type registers both at once and neither is reused. They are on
+every line of every export, so short; readable at a glance, so not codes. The
+name is the type's, not the tag's: short and long strings are both str, the
+sixteen decimals dec, short and long rows row, since which form is used is the
+encoding's. Most are the type's own word (none, bool, int, date, time, row) or
+its common short form (str, dec, dur, bin). time is a time of day, as SQL's TIME
+is; tod was weighed, against Go's time.Time and JavaScript's Date being
+instants, but in ROW the instant has its own name and a time line's value
+(09:30:00) cannot be read as one. float is f64, naming its width, so a packed
+f32 could join it. datetime is utc: the type is a UTC instant, and the zone is
+what datetimes are most often got wrong over, so the name says it; a local or
+zoned datetime, if one is ever added, would sit beside it plainly. dt, the usual
+short form, suggests a date and time that may be local (Python's naive
+datetime), and ts (timestamp) leaves the zone to the value's final Z. SQLite was
+a reference: it has no datetime type, and utc is a modifier of its date
+functions. Input takes no aliases: leniency is about how a value is spelt, not
+the vocabulary, so grep and the registry stay exact.
+
+## Spellings
+
+The canonical spellings take v1's where its reasons hold and change where the
+type now on the line makes a mark redundant: a scale-0 decimal is 1500, not v1's
+1500. with a point that only told it from an int. v1 also gave every float an
+exponent (9.99e0), for the same reason; with the type on the line a float is
+plain where plain is readable, 10^-6 <= abs(x) < 10^21, and has an exponent only
+beyond. The range is where JavaScript's Number toString switches, so row.js gets
+the digits and the notation natively, only adding the underscores and dropping
+the plus sign from an exponent (1e+21); Go writes strconv's 'f' and 'e' forms
+with the shortest digits, the same digits (checked), dropping the exponent's
+plus sign and leading zero (1e-07 is 1e-7). A float and a decimal can now look
+alike (f64 = 9.99, dec = 9.99): the type name tells them apart, which is what it
+is on the line for. Input reads any float literal. A datetime always has three
+digits of milliseconds: one shape, readable down a column; input takes it
+without them.
+
+Large numbers are hard to read without separators, so canonical output groups
+the digits of a number in threes with an underscore once it has five or more
+(12_345; 1234 stays whole, as four-digit numbers usually are written): the whole
+part of an int, a decimal and a plain float. Output groups only that: a
+fraction's digits are positions, not a magnitude, and an exponent never reaches
+five digits. Grouping is a rule of canonical output, so input is generous: an
+underscore between two digits anywhere in a number or a duration, and none.
+Dates, times and datetimes take none: their digits are fixed fields, which an
+underscore only blurs. The cost is outside ROW: tools that read numbers from
+text (sort -n, awk, JavaScript's Number) stop at the first underscore, so an
+export is read through ROW, not picked apart by them.
+
+Input accepts what an editor plausibly types for the same value and nothing that
+could be another value. A datetime with an offset is read as the instant it
+names, converted to UTC, since an offset spells the same instant; a leap second
+is refused, the type having none. A duration may be written in whatever parts
+are handy (90m, 1500ms, 1.5h), each part's decimals accepted only when the total
+is whole milliseconds, so leniency never rounds. Durations have no days: a
+calendar day is not always 24 hours, and an exact duration that said d would
+invite the mistake. -0 is 0 for an int, but an error for a float, whose -0 is a
+value of its own that ROW refuses; the two follow their types. Floats are the
+one input that rounds, as every float reader does: decimal digits generally have
+no exact binary64 value, and taking the nearest is reading, not altering.
+
+No comments, as in FACT: what an export needs to say about itself goes beside
+it.
+
+# Errors
+
+Four families: R for bytes, T for text, V for values, and S for a row's shape
+against a program's expectation (see The reader). A value outside its type is
+one error wherever it is met -- in bytes, in text, in a program's value being
+encoded -- which is REFUSE, NEVER TRUNCATE made concrete: one list of value
+errors, not one per reader and writer. A text that reads but lies outside its
+type is a V error, not a T one, so 2026-02-30 (no date) and 10000-01-01 (a date
+ROW does not hold) are told apart. Precision is a range: a nanosecond time.Time
+fails V005 rather than rounding. Ranges and precision share a code per type, the
+type being what the reader needs to know.
+
+There is no error for a non-canonical spelling: input is lenient, and a tool may
+warn that a text is valid but not canonical (as FACT's W002), without a code
+here. The design removed whole classes v1 needed: a varint longer than its
+shortest form (bijective varints have one form), a string or row in the wrong
+form (long lengths and counts are offset), a scale byte out of range (the scale
+is in the tag), an empty row or a break out of place, and a compressed stream
+not canonical. Every error carries the item's path, which a positional format
+otherwise leaves the reader to count.
+
+# Go and JavaScript
+
+The value types keep v1's where its reasons still hold, from scratch and not for
+v1's apps. Day and TimeOfDay, not the registry's date and time: JavaScript's
+Date class would be shadowed by a Date of ROW's whenever it is destructured, and
+Go's row.Time beside time.Time is a trap in reading. Names that do not collide
+are worth more than names that match the text; the registry names the text. utc
+is the language's own instant (time.Time, Date), an exact fit in JavaScript,
+whose Date is milliseconds since the epoch over the whole of 0001 to 9999, and
+finer than ROW in Go, which is why the encoder refuses below a millisecond.
+Duration is ROW's own in Go of necessity: time.Duration counts nanoseconds in an
+int64, about 292 years, where ROW's durations reach 285,000. A row is []any, as
+encoding/json does it; a typed value struct would lengthen every app. Labelled
+text has its own pair of functions, because "" is a label and must not mean "no
+labels". The JavaScript source is JS() string, as lz4s has it: one convention. A
+binary sequence reader (rows laid end to end) waits for a consumer.
+
+## The reader
+
+Every app that reads rows checks positions by hand: iou's record reader is about
+eighty lines of type checks, optional fields, exact field counts and a sharers
+group whose share is a decimal or an int; raid's event reader checks field
+counts. Porting iou is the next consumer, so the reader is designed now, from
+those call sites.
+
+A reader, not indexed getters: a record is read in the order it was written, so
+walking its items removes the index bookkeeping, and End checks the exact count
+that both apps check by hand (S003, a field over; S002, a field short). Typed
+reads are named by the text's type names (Str, Dec, UTC ...), one vocabulary
+across text and code. Three reads serve the shapes the apps have: None an
+optional position, Peek a position of several types (iou's share), More a
+repeating group. Go's first error sticks and End returns it, as bufio.Scanner
+does, so a record reads as straight-line code checked once; JavaScript throws,
+its idiom. Shape errors have codes of their own (S) because the row is valid:
+the mismatch is between the row and what a program expects of it, and the same
+code in both languages lets one test hold them to the same answers.
+
+Writing needs no counterpart: a row is a literal ([]any{...}, an array).
+
 # Ledger
 
 .fmt 76 11L *L
@@ -263,6 +459,12 @@ meaning.
 2026-11-21 | Tag assignment final: 0xC0-0xCB the twelve single-tag types, 0xD0-0xDF decimal, 0xCC-0xCF and 0xE0-0xFF reserved.
 2026-11-21 | Short rows: 0xE0-0xEF, 0 to 15 items, the long row's count stored less 16; twenty tags reserved (0xCC-0xCF, 0xF0-0xFF). Small ints in the tag refused.
 2026-11-21 | Decimal and time types stay in the format, reviewed; REFUSE, NEVER TRUNCATE; the ms and 2^53 gaps stated, filled by new types if needed.
+2026-11-21 | Text: for export, inspection and edits; one item per line, path: type = value, nesting by path, a line for each nested row; canonical output, lenient input; strings on one line.
+2026-11-21 | Text type names, two to four characters, in the tag registry: none bool int f64 date utc time dur str bin dec row.
+2026-11-21 | Text paths from 0, dotted, three deep, contiguous, a line for each nested row, sorted as numbers; several rows by a string label on every line, rows in the order their labels first appear.
+2026-11-21 | Text spellings and lines (ROW.t 6.4, 6.5): datetimes always with .000, floats plain between 10^-6 and 10^21, exponent beyond; whole parts of five or more digits grouped in threes with an underscore (ints, decimals, plain floats), underscores accepted on input in numbers and durations, never in dates or times; lenient input as tabled.
+2026-11-21 | Errors: R001-R005 bytes, T001-T007 text, V001-V009 values wherever met; each with the item's path; no canonical-form error.
+2026-11-21 | Go and JavaScript API (ROW.t 8): v1's value types where their reasons hold, JS() string, labelled text in its own pair; a sequential reader with sticky errors in Go, S001-S003 for shape.
 .end
 .width 72
 .cols 1

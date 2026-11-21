@@ -185,8 +185,9 @@ Decided 2026-11-21. ROW v1 is retired whole, spec, decision log and code, to
 ~/repos/_attic/row with its history (no outside users; ASCON-KV's client, parea,
 webapp, iou and raid are ours to move). A new ROW.t is written from a blank page
 under the same name; nothing of v1 binds it. The draft is row/ROW.t, its reasons
-and ledger row/DESIGN.t; what is open is listed at the end of ROW.t. When the
-new row replaces the old in place (repani/row), lz4s moves to repani-lab as its
+and ledger row/DESIGN.t; the design is complete. Next: the Go and JavaScript
+implementation with new vectors, in place of v1 (repani/row), then the apps
+moved to it (iou first, with the reader). Then lz4s moves to repani-lab as its
 own module (repani.com/lz4s, gist/bundle still imports it), and webapp and parea
 stop serving lz4s.js. lz4s lost Delta and Undelta the same day.
 .term span diff: a positional page delta, not admitted
