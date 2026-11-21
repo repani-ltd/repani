@@ -404,7 +404,7 @@ func parseLine(s string, num int) (line, error) {
 		}
 		if name == "row" {
 			if len(path) == maxDepth {
-				return l, lineErr("R005", num, path, "rows nested deeper than three levels")
+				return l, lineErr("R005", num, path, "rows nested deeper than four levels")
 			}
 			l.header = true
 		}
@@ -437,7 +437,7 @@ func parsePath(s string) ([]int, error) {
 	}
 	parts := strings.Split(s, ".")
 	if len(parts) > maxDepth {
-		return nil, fmt.Errorf("more than three positions")
+		return nil, fmt.Errorf("more than four positions")
 	}
 	out := make([]int, len(parts))
 	for k, p := range parts {

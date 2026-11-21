@@ -46,7 +46,7 @@ const LSTR = 0xc9, LBYTES = 0xca, LROW = 0xcb, DEC = 0xd0, SROW = 0xe0, MAX_SROW
 const MAX_INT = Number.MAX_SAFE_INTEGER; // 2^53-1
 const MAX_SCALE = 15, MIN_DAY = -719162, MAX_DAY = 2932896;
 const MIN_DT = -62135596800000, MAX_DT = 253402300799999, MAX_TIME = 86399999;
-const MAX_VARINT = 8, MAX_DEPTH = 3;
+const MAX_VARINT = 8, MAX_DEPTH = 4;
 
 const te = new TextEncoder();
 const td = new TextDecoder("utf-8", { fatal: true });
@@ -150,7 +150,7 @@ function check(v, path, depth) {
       if (!inInt(v.ms)) throw fail("V007", path, `duration ${v.ms} ms outside ±(2^53-1)`);
       return;
     case "row":
-      if (depth >= MAX_DEPTH) throw fail("R005", path, "rows nested deeper than three levels");
+      if (depth >= MAX_DEPTH) throw fail("R005", path, "rows nested deeper than four levels");
       checkItems(v, path, depth + 1);
       return;
   }
@@ -257,7 +257,7 @@ class Decoder {
     try { return td.decode(s); } catch { throw this.fail("V008", path, off, "string not valid UTF-8"); }
   }
   nested(count, path, depth, off) {
-    if (depth >= MAX_DEPTH) throw this.fail("R005", path, off, "rows nested deeper than three levels");
+    if (depth >= MAX_DEPTH) throw this.fail("R005", path, off, "rows nested deeper than four levels");
     if (count > BigInt(MAX_INT)) throw this.fail("V001", path, off, `a count of ${count} outside 2^53-1`);
     return this.row(path, depth + 1, Number(count));
   }
@@ -469,7 +469,7 @@ function unquote(s) {
 function parsePath(s) {
   if (s === "") throw new Error("an empty path");
   const parts = s.split(".");
-  if (parts.length > MAX_DEPTH) throw new Error("more than three positions");
+  if (parts.length > MAX_DEPTH) throw new Error("more than four positions");
   return parts.map((p) => {
     if (p === "") throw new Error("an empty position");
     if (![...p].every(isDigit)) throw new Error(`"${p}" is not digits`);
@@ -518,7 +518,7 @@ function parseLine(s, num) {
   if (name === "none" || name === "row") {
     if (hasValue) throw lineErr("T004", num, path, `a value on a ${name} line`);
     if (name === "row") {
-      if (path.length === MAX_DEPTH) throw lineErr("R005", num, path, "rows nested deeper than three levels");
+      if (path.length === MAX_DEPTH) throw lineErr("R005", num, path, "rows nested deeper than four levels");
       l.header = true;
     } else l.value = null;
     return l;

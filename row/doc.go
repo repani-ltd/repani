@@ -8,8 +8,8 @@ standard is ROW.t in this directory, its reasons DESIGN.t.
 # Rows
 
 A value is one row: a varint count, then that many items. A row may
-hold rows, three levels deep counting the value: the value's rows may
-hold rows, and those may not. Empty bytes are not a row; the empty
+hold rows, four levels deep counting the value: the value's rows may
+hold rows, those may hold rows, and those may not. Empty bytes are not a row; the empty
 row is 00. A row ends where its count says, so rows laid end to end
 need no framing.
 
@@ -44,7 +44,7 @@ Dates and datetimes run 0001 to 9999, proleptic Gregorian.
 
 One item per line, path: type = value; none and row lines have no
 value. A path counts positions from 0, a nested item's path being its
-row's, a dot, and its position: 0, 3, 3.0, 3.0.2. Every nested row has
+row's, a dot, and its position: 0, 3, 3.0, 3.0.2, 3.0.2.1. Every nested row has
 its own line, and its items follow:
 
 	0: str = "invoice"
@@ -105,9 +105,9 @@ comments. Strings stay on one line.
 	R002  bytes after the row, where one row was expected
 	R003  a varint longer than 8 bytes
 	R004  a reserved tag
-	R005  rows nested deeper than three levels
+	R005  rows nested deeper than four levels
 	T001  a line that is not one: no colon, a broken label, stray text
-	T002  a path that is not one: leading zero, over three positions
+	T002  a path that is not one: leading zero, over four positions
 	T003  an unknown type name
 	T004  a value its type cannot read, a value on a none or row line,
 	      or none where one is due

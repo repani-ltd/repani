@@ -26,8 +26,8 @@ no dictionary, no shared table. What its values mean to an application is the
 application's.
 .item SELF-DELIMITING. A row says where it ends, so rows laid end to end need no
 other framing.
-.item THREE LEVELS. A row may hold rows, and those may hold rows, which hold
-none.
+.item FOUR LEVELS. A row may hold rows, those may hold rows, and those may hold
+rows, which hold none.
 .item NO COMPRESSION. No item has a compressed form. Compression, where wanted,
 belongs to whatever holds many rows.
 .item APPEND-ONLY. A tag, once assigned, means the same forever. New types take
@@ -50,7 +50,9 @@ a tombstone) is theirs.
 A record's fixed tuple (a currency and an amount) is a row or plain positions; a
 repeating group (the lines of an invoice, the sharers of an expense) is a row of
 rows, and may be empty. An invoice is then one row: "invoice", a date, "EUR",
-and a row of its lines, each a row of a name, a quantity and a price.
+and a row of its lines, each a row of a name, a quantity and a price. A record
+that carries another record whole (an edit and its replacement) holds it as a
+row, so a record of three levels is carried in four.
 
 # 3. Tags
 
@@ -176,7 +178,7 @@ after midnight.
 .term duration
 A signed length of time in milliseconds.
 .term row
-Items of any type (section 2), to the depth of THREE LEVELS.
+Items of any type (section 2), to the depth of FOUR LEVELS.
 
 # 6. Text
 
@@ -190,12 +192,14 @@ stay on their line, line breaks escaped.
 ## 6.1 Paths
 
 A path is the item's position in its row, counted from 0; a nested item's path
-is its row's path, a dot, and its position there: 0, 3, 3.0, 3.0.2. A path has
-at most three positions (THREE LEVELS), no leading zeros and no spaces. A nested
-row has a line of its own, its path and type and no value; its items follow on
-lines of their own, and an empty row is that line alone. Every row's items are
-its positions 0 to n-1 with none missing and none twice, and every item's row
-has its line; anything else is an error.
+is its row's path, a dot, and its position there: 0, 3, 3.0, 3.0.2, 3.0.2.1. A
+path has at most four positions (FOUR LEVELS), no leading zeros and no spaces. A
+nested row has a line of its own, its path and type and no value; its items
+follow on lines of their own, and an empty row is that line alone. Every row's
+items are its positions 0 to n-1 with none missing and none twice, and every
+item's row has its line; anything else is an error. A path of five positions or
+more is not a path (T002), whatever its line holds; a row line whose path has
+four positions is a row at the fifth level (R005).
 
 ## 6.2 Labels
 
@@ -286,9 +290,9 @@ R001 | the bytes end inside a count, a length, a payload or a varint (empty byte
 R002 | bytes after the row, where one row was expected
 R003 | a varint longer than 8 bytes
 R004 | a reserved tag
-R005 | rows nested deeper than THREE LEVELS (decoding, encoding and parsing)
+R005 | rows nested deeper than FOUR LEVELS (decoding, encoding and parsing)
 T001 | a line that is not one: no colon, a broken label, stray text
-T002 | a path that is not one: a leading zero, more than three positions, anything but digits and dots
+T002 | a path that is not one: a leading zero, more than four positions, anything but digits and dots
 T003 | an unknown type name
 T004 | a value its type cannot read (abc as an int, 2026-02-30, an underscore in a date), a value on a none or row line, or none where one is due
 T005 | a row whose positions have a gap or a duplicate

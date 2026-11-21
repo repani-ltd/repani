@@ -61,8 +61,27 @@ was never a candidate.
 
 Under two levels a list is what a value is, an ordered sequence of typed items,
 positional or not, so it is named row: one concept, not two, and ROW's only
-structural rule is how deep rows go (THREE LEVELS, counting the value). A set of
-tags is then "a row of strings", the one place the name reads oddly.
+structural rule is how deep rows go (counting the value). A set of tags is then
+"a row of strings", the one place the name reads oddly.
+
+## Four levels
+
+Two levels of lists are three levels of rows, and a record with a repeating
+group of tuples fills all three: an invoice, its lines, each line; an expense,
+its sharers, each sharer an id and a share. The use for a fourth came the same
+day, from iou: a record that carries another record whole -- an edit and its
+replacement -- holds it as a row, one level down, and a record of three levels
+is then carried in four. Under three levels the carried record was spliced into
+its carrier, its items after the carrier's own: a stride again, a rule in each
+app, and only one carried record, last.
+
+FOUR LEVELS is that rule and no more: a record of tuples, carried once. Carrying
+for transport takes no level, since parea, kv and an outbox hold a value as
+bytes; only a record that holds another by meaning does, and one such level
+covers every case known (an edit, a merge, a before and after). A fifth would be
+a record carried by a carried record. Raising the bound later would break every
+decoder that refuses the new depth, so it was settled before the freeze; it
+costs no byte and no tag, and every value of three levels is unchanged.
 
 Rejected, and recorded because they will be asked again:
 
@@ -435,8 +454,10 @@ binary sequence reader (rows laid end to end) waits for a consumer.
 Every app that reads rows checks positions by hand: iou's record reader is about
 eighty lines of type checks, optional fields, exact field counts and a sharers
 group whose share is a decimal or an int; raid's event reader checks field
-counts. Porting iou is the next consumer, so the reader is designed now, from
-those call sites.
+counts. The reader was designed from those call sites, before iou was ported;
+iou then kept its own record reader, whose every check is iou's (a scale per
+currency, the sharers, the edit's replacement), so the reader would only have
+renamed its errors. It awaits a consumer whose checks are shape alone.
 
 A reader, not indexed getters: a record is read in the order it was written, so
 walking its items removes the index bookkeeping, and End checks the exact count
@@ -469,11 +490,12 @@ Writing needs no counterpart: a row is a literal ([]any{...}, an array).
 2026-11-21 | Decimal and time types stay in the format, reviewed; REFUSE, NEVER TRUNCATE; the ms and 2^53 gaps stated, filled by new types if needed.
 2026-11-21 | Text: for export, inspection and edits; one item per line, path: type = value, nesting by path, a line for each nested row; canonical output, lenient input; strings on one line.
 2026-11-21 | Text type names, two to four characters, in the tag registry: none bool int f64 date utc time dur str bin dec row.
-2026-11-21 | Text paths from 0, dotted, three deep, contiguous, a line for each nested row, sorted as numbers; several rows by a string label on every line, rows in the order their labels first appear.
+2026-11-21 | Text paths from 0, dotted, three deep (four since, below), contiguous, a line for each nested row, sorted as numbers; several rows by a string label on every line, rows in the order their labels first appear.
 2026-11-21 | A labelled row has a line of its own ("k": row), so an empty row can be labelled.
 2026-11-21 | Text spellings and lines (ROW.t 6.4, 6.5): datetimes always with .000, floats plain between 10^-6 and 10^21, exponent beyond; whole parts of five or more digits grouped in threes with an underscore (ints, decimals, plain floats), underscores accepted on input in numbers and durations, never in dates or times; lenient input as tabled.
 2026-11-21 | Errors: R001-R005 bytes, T001-T007 text, V001-V009 values wherever met; each with the item's path; no canonical-form error.
 2026-11-21 | Go and JavaScript API (ROW.t 8): v1's value types where their reasons hold, JS() string, labelled text in its own pair; a sequential reader with sticky errors in Go, S001-S003 for shape.
+2026-11-21 | Four levels, not three: a record of tuples, carried once (iou's edits and pair sharers).
 2026-11-21 | parea, raid, webapp and iou moved to it (iou's export labelled text, a row per record keyed by its key); lz4s, used by none, to repani-lab with its history.
 .end
 .width 72

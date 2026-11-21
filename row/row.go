@@ -130,7 +130,7 @@ const (
 	maxDatetime = 253402300799999
 	maxTime     = 86399999
 	maxVarint   = 8
-	maxDepth    = 3
+	maxDepth    = 4
 )
 
 // typeName is a decoded value's name in the tag registry, "" for a
@@ -274,7 +274,7 @@ func checkFloat(f float64, path []int) (any, error) {
 // depth 1, is normalised by normValue).
 func normRow(r Row, path []int, depth int) (any, error) {
 	if depth >= maxDepth {
-		return nil, errAt("R005", path, "rows nested deeper than three levels")
+		return nil, errAt("R005", path, "rows nested deeper than four levels")
 	}
 	return normItems(r, path, depth+1)
 }
@@ -592,7 +592,7 @@ func (d *decoder) str(n uint64, path []int, off int) (any, error) {
 // nested reads a row of count items inside the row at depth.
 func (d *decoder) nested(count uint64, path []int, depth int, off int) (any, error) {
 	if depth >= maxDepth {
-		return nil, d.fail("R005", path, off, "rows nested deeper than three levels")
+		return nil, d.fail("R005", path, off, "rows nested deeper than four levels")
 	}
 	if count > maxInt {
 		return nil, d.fail("V001", path, off, "a count of %d outside 2^53-1", count)

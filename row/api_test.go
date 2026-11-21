@@ -58,7 +58,7 @@ func TestRefused(t *testing.T) {
 		{"\xff", "V008"},
 		{map[string]int{}, "V009"},
 		{struct{}{}, "V009"},
-		{Row{Row{Row{}}}, "R005"},
+		{Row{Row{Row{Row{}}}}, "R005"},
 	}
 	for _, c := range cases {
 		for name, f := range map[string]func(Row) error{

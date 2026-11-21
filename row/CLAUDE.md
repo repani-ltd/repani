@@ -1,7 +1,7 @@
 # row (repani.com/row) — typed rows
 
 ROW: a row of typed items as bytes, each item's first byte its type,
-no field names, rows within rows three levels deep; and a text, one
+no field names, rows within rows four levels deep; and a text, one
 item per line, for export, inspection and edits. **ROW.t is the
 normative source of truth**, DESIGN.t its reasons and ledger. ROW v1
 (spec, decisions, history) is retired to `~/repos/_attic/row` and binds
