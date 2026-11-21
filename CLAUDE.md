@@ -43,8 +43,6 @@ are the contract.
   binary) and `TOOL check|validate` (errors on a file); any other
   CLI ships `help` and `version`. The full rule: "Tools explain
   themselves" in `~/repos/CLAUDE.md`.
-- Documentation in pica: `pica spec`, `pica check FILE.t` (see
-  `~/repos/CLAUDE.md`).
 - Build and test the whole module: `go build ./... && go test ./...`.
 - Versions are annotated git tags `vMAJOR.MINOR.PATCH` on `main`,
   one series for the whole module; v0.x while the API moves (MINOR
