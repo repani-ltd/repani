@@ -134,10 +134,14 @@ rounded or truncated to fit.
 
 # Go and JavaScript
 
-Encode, Decode, Format, Parse, FormatLabeled and ParseLabeled, and
-Read for a reader; row.js (embedded as JS) exports encode, decode,
-format, parse, formatLabeled, parseLabeled and reader, with no
-imports. Values, Go then JavaScript:
+Encode, Decode, Format, Parse, FormatLabeled and ParseLabeled,
+FormatValue, ParseValue and TypeName, and Read for a reader; row.js
+(embedded as JS) exports encode, decode, format, parse,
+formatLabeled, parseLabeled, formatValue, parseValue, typeName and
+reader, with no imports. ParseValue(type, text) reads one value's
+text, as after a line's =, no spaces around it; FormatValue writes
+one value's canonical text; none and row have no value text (T004),
+an unknown type name is T003. Values, Go then JavaScript:
 
 	none  nil                       null
 	bool  bool                      boolean

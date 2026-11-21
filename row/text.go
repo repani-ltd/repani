@@ -423,6 +423,56 @@ func parseLine(s string, num int) (line, error) {
 	return l, nil
 }
 
+// ParseValue returns the value that text spells in the type named typ
+// (ROW.t 6.5): one value as it stands after the = of a line, with no
+// spaces around it, in any spelling its type reads, never altered to
+// fit. none and row have no value text, so naming them is T004; an
+// unknown type name is T003.
+func ParseValue(typ, text string) (any, error) {
+	switch {
+	case !knownType(typ):
+		return nil, &Error{Code: "T003", Offset: -1, Msg: fmt.Sprintf("unknown type name %q", typ)}
+	case typ == "none" || typ == "row":
+		return nil, &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("a %s has no value text", typ)}
+	case text == "":
+		return nil, &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("no value for %s", typ)}
+	}
+	return parseValue(typ, text)
+}
+
+// FormatValue returns the canonical text of one value (ROW.t 6.5),
+// checking it first as Encode does. none and a row have no value text
+// (T004): a row's text is Format's.
+func FormatValue(v any) (string, error) {
+	n, err := norm(v, nil, 1)
+	if err != nil {
+		return "", err
+	}
+	if t := typeName(n); t == "none" || t == "row" {
+		return "", &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("a %s has no value text", t)}
+	}
+	var b strings.Builder
+	writeValue(&b, n)
+	return b.String(), nil
+}
+
+// TypeName returns the type name (ROW.t 5's text column) of a value
+// Decode gives or Encode takes, "" for one with no ROW type. It names
+// the type only: whether the value is in range is Encode's check.
+func TypeName(v any) string {
+	switch v.(type) {
+	case int, int8, int16, int32, uint, uint8, uint16, uint32, uint64:
+		return "int"
+	case float32:
+		return "f64"
+	case time.Duration:
+		return "dur"
+	case []any:
+		return "row"
+	}
+	return typeName(v)
+}
+
 func knownType(name string) bool {
 	switch name {
 	case "none", "bool", "int", "dec", "f64", "date", "utc", "time", "dur", "str", "bin", "row":

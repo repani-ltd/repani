@@ -1,6 +1,6 @@
 // Runs row.js against the vectors; js_test.go loads it in headless
 // Chrome and reads the failures it returns.
-import { encode, decode, format, parse, formatLabeled, parseLabeled, RowError } from "/row.js";
+import { encode, decode, format, parse, formatLabeled, parseLabeled, parseValue, formatValue, typeName, Decimal, RowError } from "/row.js";
 
 const unhex = (h) => Uint8Array.from(h.match(/../g) ?? [], (x) => parseInt(x, 16));
 const tohex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -54,6 +54,43 @@ export async function run() {
     check(e instanceof RowError && e.code === c.code && path(e) === c.path && e.line === c.line,
       `parseLabeled ${JSON.stringify(c.text)}: ${e ? e.message : "no error"}; want ${c.code} at "${c.path}" line ${c.line}`);
   }
+  // parseValue and formatValue read and write each value as parse and
+  // format do, and refuse a bad one with the code parse gives it.
+  const valueLine = /^[ \t]*([0-9.]+)[ \t]*:[ \t]*([a-z0-9]+)[ \t]*=[ \t]*(.*?)[ \t]*$/;
+  const at = (r, p) => p.split(".").reduce((x, i) => x[Number(i)], r);
+  let values = 0;
+  for (const text of [...v.valid.map((c) => c.text), ...v.lenient.map((c) => c.text)]) {
+    const row = parse(text);
+    for (const l of text.split("\n")) {
+      const m = valueLine.exec(l);
+      if (!m) continue;
+      const want = at(row, m[1]);
+      const [got, e] = attempt(() => parseValue(m[2], m[3]));
+      if (e) { fails.push(`parseValue(${m[2]}, ${JSON.stringify(m[3])}): ${e.message}`); continue; }
+      check(tohex(encode([got])) === tohex(encode([want])) && typeName(got) === m[2],
+        `parseValue(${m[2]}, ${JSON.stringify(m[3])}) is not what parse reads`);
+      const canon = format([want]).replace(/\n$/, "").split(" = ").slice(1).join(" = ");
+      const [s, e2] = attempt(() => formatValue(want));
+      check(s === canon, `formatValue = ${JSON.stringify(s)} ${e2 ? e2.message : ""}; want ${JSON.stringify(canon)}`);
+      values++;
+    }
+  }
+  for (const c of v.badText) {
+    const t = c.text.replace(/\n$/, "");
+    const m = valueLine.exec(t);
+    if (!m || t.includes("\n") || c.path !== "0") continue;
+    const [, e] = attempt(() => parseValue(m[2], m[3]));
+    check(e instanceof RowError && e.code === c.code, `parseValue(${m[2]}, ${JSON.stringify(m[3])}): ${e ? e.message : "no error"}; want ${c.code}`);
+  }
+  for (const [ty, tx, cd] of [["none", "", "T004"], ["row", "x", "T004"], ["int", "", "T004"], ["abc", "1", "T003"]]) {
+    const [, e] = attempt(() => parseValue(ty, tx));
+    check(e instanceof RowError && e.code === cd, `parseValue(${ty}, ${JSON.stringify(tx)}): ${e ? e.message : "no error"}; want ${cd}`);
+  }
+  for (const [val, cd] of [[null, "T004"], [[], "T004"], [new Decimal(1, 16), "V002"], [{}, "V009"]]) {
+    const [, e] = attempt(() => formatValue(val));
+    check(e instanceof RowError && e.code === cd, `formatValue(${JSON.stringify(val)}): ${e ? e.message : "no error"}; want ${cd}`);
+  }
+  check(values > 100, `only ${values} value lines checked`);
   const count = v.valid.length + v.labeled.length + v.lenient.length + v.badBinary.length + v.badText.length + v.badLabeled.length;
   return { fails, count };
 }

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -160,4 +162,106 @@ func TestBad(t *testing.T) {
 			t.Errorf("parseLabeled %q: %v; want %s at %q line %d", c.Text, err, c.Code, c.Path, c.Line)
 		}
 	}
+}
+
+// valueLine is a line of an unlabelled text that holds a value: its
+// path, its type name, and the value's text.
+var valueLine = regexp.MustCompile(`^[ \t]*([0-9.]+)[ \t]*:[ \t]*([a-z0-9]+)[ \t]*=[ \t]*(.*?)[ \t]*$`)
+
+func itemAt(r Row, p []int) any {
+	var v any = r
+	for _, i := range p {
+		v = v.(Row)[i]
+	}
+	return v
+}
+
+// TestValue: ParseValue and FormatValue read and write each value as
+// Parse and Format do, on every value line of the vectors, and refuse
+// a bad one with the code Parse gives it.
+func TestValue(t *testing.T) {
+	v := load(t)
+	texts := []string{}
+	for _, c := range v.Valid {
+		texts = append(texts, c.Text)
+	}
+	for _, c := range v.Lenient {
+		texts = append(texts, c.Text)
+	}
+	n := 0
+	for _, text := range texts {
+		r, err := Parse(text)
+		if err != nil {
+			t.Fatalf("parse %q: %v", text, err)
+		}
+		for _, l := range strings.Split(text, "\n") {
+			m := valueLine.FindStringSubmatch(l)
+			if m == nil {
+				continue
+			}
+			p, err := parsePath(m[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := itemAt(r, p)
+			got, err := ParseValue(m[2], m[3])
+			if err != nil {
+				t.Errorf("ParseValue(%q, %q): %v", m[2], m[3], err)
+				continue
+			}
+			gb, _ := Encode(Row{got})
+			wb, _ := Encode(Row{want})
+			if !bytes.Equal(gb, wb) || TypeName(got) != m[2] {
+				t.Errorf("ParseValue(%q, %q) = %#v, want %#v", m[2], m[3], got, want)
+			}
+			line, _ := Format(Row{want})
+			_, canon, _ := strings.Cut(strings.TrimSuffix(line, "\n"), " = ")
+			if s, err := FormatValue(want); err != nil || s != canon {
+				t.Errorf("FormatValue(%#v) = %q, %v; want %q", want, s, err, canon)
+			}
+			n++
+		}
+	}
+	bad := 0
+	for _, c := range v.BadText {
+		m := valueLine.FindStringSubmatch(strings.TrimSuffix(c.Text, "\n"))
+		if m == nil || strings.Count(strings.TrimSuffix(c.Text, "\n"), "\n") > 0 || c.Path != "0" {
+			continue
+		}
+		_, err := ParseValue(m[2], m[3])
+		if e, ok := code(err); !ok || e.Code != c.Code {
+			t.Errorf("ParseValue(%q, %q): %v; want %s", m[2], m[3], err, c.Code)
+		}
+		bad++
+	}
+	for _, c := range []struct {
+		typ, text, code string
+	}{
+		{"none", "", "T004"}, {"row", "x", "T004"}, {"int", "", "T004"}, {"abc", "1", "T003"},
+	} {
+		if _, err := ParseValue(c.typ, c.text); err == nil {
+			t.Errorf("ParseValue(%q, %q) accepted", c.typ, c.text)
+		} else if e, _ := code(err); e.Code != c.code {
+			t.Errorf("ParseValue(%q, %q): %v; want %s", c.typ, c.text, err, c.code)
+		}
+	}
+	for _, c := range []struct {
+		v    any
+		code string
+	}{
+		{nil, "T004"}, {Row{}, "T004"}, {Decimal{1, 16}, "V002"}, {map[string]int{}, "V009"},
+	} {
+		if _, err := FormatValue(c.v); err == nil {
+			t.Errorf("FormatValue(%#v) accepted", c.v)
+		} else if e, _ := code(err); e.Code != c.code {
+			t.Errorf("FormatValue(%#v): %v; want %s", c.v, err, c.code)
+		}
+	}
+	if TypeName(int(3)) != "int" || TypeName([]any{}) != "row" || TypeName(map[string]int{}) != "" {
+		t.Error("TypeName of the accepted variants")
+	}
+	if n < 100 || bad == 0 {
+		t.Errorf("only %d value lines and %d bad ones checked", n, bad)
+	}
+	t.Logf("%d value lines, %d bad values", n, bad)
 }

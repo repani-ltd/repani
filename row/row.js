@@ -378,7 +378,8 @@ function quote(s) {
 }
 const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 
-function formatValue(v) {
+// writeValue is a checked value's canonical spelling (ROW.t 6.5).
+function writeValue(v) {
   switch (typeName(v)) {
     case "bool": return String(v);
     case "int": return group(String(v));
@@ -405,7 +406,7 @@ function writeItems(lines, prefix, r, path) {
       lines.push(`${prefix}${p.join(".")}: row`);
       writeItems(lines, prefix, v, p);
     } else if (name === "none") lines.push(`${prefix}${p.join(".")}: none`);
-    else lines.push(`${prefix}${p.join(".")}: ${name} = ${formatValue(v)}`);
+    else lines.push(`${prefix}${p.join(".")}: ${name} = ${writeValue(v)}`);
   });
 }
 
@@ -524,7 +525,7 @@ function parseLine(s, num) {
     return l;
   }
   if (!hasValue || rest === "") throw lineErr("T004", num, path, `no value for ${name}`);
-  try { l.value = parseValue(name, rest); } catch (e) {
+  try { l.value = readValue(name, rest); } catch (e) {
     if (e instanceof RowError) throw lineErr(e.code, num, path, e.message.replace(/^row: \S+: /, ""));
     throw e;
   }
@@ -794,7 +795,7 @@ function parseDuration(s) {
   return new Duration(Number(ms) || 0);
 }
 
-function parseValue(name, s) {
+function readValue(name, s) {
   switch (name) {
     case "bool":
       if (s === "true") return true;
@@ -828,6 +829,28 @@ function parseValue(name, s) {
     }
   }
   throw bad(`unknown type ${name}`);
+}
+
+// parseValue returns the value text spells in the type named type
+// (ROW.t 6.5): one value as it stands after the = of a line, with no
+// spaces around it, in any spelling its type reads, never altered to
+// fit. none and row have no value text (T004); an unknown type name is
+// T003.
+export function parseValue(type, text) {
+  if (!KNOWN.has(type)) throw fail("T003", null, `unknown type name ${JSON.stringify(type)}`);
+  if (type === "none" || type === "row") throw bad(`a ${type} has no value text`);
+  if (text === "") throw bad(`no value for ${type}`);
+  return readValue(type, text);
+}
+
+// formatValue returns the canonical text of one value (ROW.t 6.5),
+// checking it first as encode does. none and a row have no value text
+// (T004): a row's text is format's.
+export function formatValue(v) {
+  const t = typeName(v);
+  if (t === "none" || t === "row") throw bad(`a ${t} has no value text`);
+  check(v, null, 1);
+  return writeValue(v);
 }
 
 // The reader (ROW.t 8.1): a row's items in order; every read throws

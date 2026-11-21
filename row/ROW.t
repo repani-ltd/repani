@@ -344,12 +344,23 @@ Format (format) | a row to the text of one row, no labels
 Parse (parse) | the text of one row to the row
 FormatLabeled (formatLabeled) | labelled rows, in order, to one text
 ParseLabeled (parseLabeled) | a labelled text to its rows, in order
+FormatValue (formatValue) | one value to its canonical text, as after a line's =
+ParseValue (parseValue) | a type name and one value's text to the value
+TypeName (typeName) | a value's type name, "" for one with no ROW type
 Read (reader) | a reader of a row's items, in order
 Spec, JS | the reference, and row.js's source
 .end
 
 Encode and Format check every value (V codes), so both can fail. Errors (section
 7) are *Error in Go and RowError in JavaScript.
+
+ParseValue and FormatValue are section 6.5 for one value, for programs that read
+and write values outside a row's text: the text is the value alone, as it stands
+after a line's equals sign, with no spaces around it; input is lenient and
+output canonical, as on a line. ParseValue fails as a line would (T004, or a V
+code), and T003 for an unknown type name; none and row have no value text, so
+both functions refuse them (T004). FormatValue checks its value as Encode does.
+TypeName names a value's type without checking that it is in range.
 
 ## 8.1 The reader
 
