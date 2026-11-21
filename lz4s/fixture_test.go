@@ -14,24 +14,17 @@ import (
 var update = flag.Bool("update", false, "rewrite js/fixture.json from the Go implementation")
 
 // The fixture is the Go implementation's streams for the benchmark
-// inputs and a delta between two of them, plus the known answers;
-// js/lz4s.js must decode every one to the same bytes.
+// inputs, plus the known answers; js/lz4s.js must decode every one to
+// the same bytes.
 type fixture struct {
-	Pages  []fixturePage  `json:"pages"`
-	Deltas []fixtureDelta `json:"deltas"`
-	Known  []fixtureKnown `json:"known"`
+	Pages []fixturePage  `json:"pages"`
+	Known []fixtureKnown `json:"known"`
 }
 
 type fixturePage struct {
 	Name string `json:"name"`
 	Page string `json:"page"` // hex
 	Comp string `json:"comp"` // hex
-}
-
-type fixtureDelta struct {
-	Base  string `json:"base"`
-	Src   string `json:"src"`
-	Delta string `json:"delta"` // hex
 }
 
 type fixtureKnown struct {
@@ -45,11 +38,9 @@ func buildFixture(t *testing.T) fixture {
 	t.Helper()
 	var f fixture
 	in := benchInputs()
-	in["text-edited"] = edited(in["text"])
-	for _, n := range []string{"random", "text", "text-edited"} {
+	for _, n := range []string{"random", "text"} {
 		f.Pages = append(f.Pages, fixturePage{n, hex.EncodeToString(in[n]), hex.EncodeToString(Compress(in[n]))})
 	}
-	f.Deltas = append(f.Deltas, fixtureDelta{"text", "text-edited", hex.EncodeToString(Delta(in["text"], in["text-edited"]))})
 	for _, src := range []string{"abc", "abcabc", "abcdefg", "abcdefgh", strings.Repeat("x", 300), "the quick brown fox jumps over the lazy dog the quick brown fox"} {
 		f.Known = append(f.Known, fixtureKnown{hex.EncodeToString([]byte(src)), hex.EncodeToString(Compress([]byte(src)))})
 	}
@@ -91,7 +82,7 @@ func TestJS(t *testing.T) {
 	if err != nil || !strings.Contains(string(out), "# fail 0") {
 		t.Fatalf("node --test: %v\n%s", err, out)
 	}
-	if s := JS(); !strings.Contains(s, "export function undelta(") {
+	if s := JS(); !strings.Contains(s, "export function decompress(") {
 		t.Fatal("JS() is not the decoder")
 	}
 }

@@ -1,20 +1,15 @@
 // lz4s.js: lz4s (repani.com/lz4s) in JavaScript, beside the Go one:
-// the decoder, and Compress (no base) for formats that require its
-// canonical stream; the fixture test holds the two to the same answers.
-// ES module, no dependencies.
+// the decoder and the compressor; the fixture test holds the two to
+// the same answers. ES module, no dependencies.
 
-// undelta decodes comp, a stream made against base (a Uint8Array, or
-// null for none), into exactly dsize bytes, and returns them as a
-// Uint8Array, or null if the stream is malformed, truncated, or does
-// not produce exactly dsize bytes. A wrong base decodes to wrong
-// bytes: the caller names the base.
-export function undelta(base, comp, dsize) {
-  const b = base ? base.length : 0;
+// decompress decodes comp into exactly dsize bytes, and returns them
+// as a Uint8Array, or null if the stream is malformed, truncated, or
+// does not produce exactly dsize bytes.
+export function decompress(comp, dsize) {
   if (dsize < 0) return null;
-  const out = new Uint8Array(b + dsize);
-  if (b) out.set(base, 0);
-  let n = b, i = 0;
-  const total = b + dsize;
+  const out = new Uint8Array(dsize);
+  let n = 0, i = 0;
+  const total = dsize;
   const ext = v => {
     for (;;) {
       if (i >= comp.length) return -1;
@@ -51,15 +46,12 @@ export function undelta(base, comp, dsize) {
     n += ml;
   }
   if (n !== total) return null;
-  return b ? out.subarray(b) : out;
+  return out;
 }
 
-// decompress is undelta with no base.
-export const decompress = (comp, dsize) => undelta(null, comp, dsize);
-
-// compress is Go's lz4s.Compress, byte for byte: the same greedy parse
-// over the same hash chain, so its stream is the canonical one. src is
-// a Uint8Array; so is the result.
+// compress is Go's lz4s.Compress: the same greedy parse over the same
+// hash chain, so the fixture test can compare their streams. src is a
+// Uint8Array; so is the result.
 export function compress(src) {
   const n = src.length;
   const out = [];

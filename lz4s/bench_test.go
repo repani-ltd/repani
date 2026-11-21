@@ -14,14 +14,6 @@ func benchInputs() map[string][]byte {
 	return map[string][]byte{"text": text, "random": random}
 }
 
-// edited is src with a run replaced in its middle: the next version of
-// an input, for Delta.
-func edited(src []byte) []byte {
-	e := bytes.Clone(src)
-	copy(e[len(e)/2:], "THE QUICK RED FOX")
-	return e
-}
-
 func BenchmarkCompress(b *testing.B) {
 	for name, src := range benchInputs() {
 		b.Run(name, func(b *testing.B) {

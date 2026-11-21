@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { undelta, decompress, compress } from './lz4s.js';
+import { decompress, compress } from './lz4s.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixture.json', import.meta.url)));
 const hex = h => Uint8Array.from((h.match(/../g) || []).map(x => parseInt(x, 16)));
@@ -15,14 +15,6 @@ for (const p of fixture.pages) {
     assert.deepEqual(compress(page), hex(p.comp), 'compress');
     assert.equal(decompress(hex(p.comp), page.length - 1), null, 'wrong size');
     assert.equal(decompress(hex(p.comp).subarray(0, -3), page.length), null, 'truncated');
-  });
-}
-for (const d of fixture.deltas) {
-  test(`${d.src} against ${d.base}`, () => {
-    const base = hex(fixture.pages.find(p => p.name === d.base).page);
-    const src = hex(fixture.pages.find(p => p.name === d.src).page);
-    assert.deepEqual(undelta(base, hex(d.delta), src.length), src);
-    assert.equal(undelta(null, hex(d.delta), src.length), null, 'no base');
   });
 }
 test('known answers', () => {
