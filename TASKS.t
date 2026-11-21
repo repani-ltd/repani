@@ -188,11 +188,12 @@ under the same name; nothing of v1 binds it: row/ROW.t, its reasons and ledger
 row/DESIGN.t. Done 2026-11-21: the Go and JavaScript implementation in
 repani/row, on vectors from an independent encoder
 (~/repos/research/row-vectors); parea, raid and webapp build and pass on it
-(nested rows assert row.Row), and webapp and parea no longer serve lz4s.js.
-Next: iou moved to it (its text export and import are v1's one-line rows; its
-record reader becomes the row reader), then lz4s moves to repani-lab as its own
-module (repani.com/lz4s; gist/bundle still imports it). lz4s lost Delta and
-Undelta the same day.
+(nested rows assert row.Row), and webapp and parea no longer serve lz4s.js;
+iou's export is ROW's labelled text, each record a row labelled with its key,
+and its tests write records as items. iou's record reader still reads decoded
+items, not through the row reader: its checks are iou's own. Next: lz4s moves to
+repani-lab as its own module (repani.com/lz4s; gist/bundle still imports it).
+lz4s lost Delta and Undelta the same day.
 .term span diff: a positional page delta, not admitted
 Measured 2026-09-05 against lz4s Delta on the fixture pairs in lz4s/testdata. A
 span diff over the page bytes ([offset u16] [len u8] bytes, gaps of three or
