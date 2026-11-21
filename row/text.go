@@ -1,658 +1,1041 @@
 package row
 
 import (
-	"encoding/hex"
+	"fmt"
+	"math"
+	"math/big"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 )
 
-// Format returns a row's text notation (ROW.t section 5): its items
-// in their one spelling, separated by single spaces. Items are the Go
-// values Encode takes, and break the same rules.
-func Format(items []any) (string, error) {
-	vals := make([]val, len(items))
-	for i, it := range items {
-		var err error
-		if vals[i], err = fromGo(it, false, 0); err != nil {
+// Labeled is one row of a labelled text (ROW.t 6.2).
+type Labeled struct {
+	Label string
+	Row   Row
+}
+
+// Format returns the canonical text of r (ROW.t section 6), checking
+// every value first: one line per item, each ended by a newline; the
+// empty row is the empty text.
+func Format(r Row) (string, error) {
+	n, err := normItems(r, nil, 1)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	writeItems(&b, "", n, nil)
+	return b.String(), nil
+}
+
+// FormatLabeled returns the canonical text of rows, in their order.
+func FormatLabeled(rows []Labeled) (string, error) {
+	var b strings.Builder
+	seen := map[string]bool{}
+	for _, l := range rows {
+		if seen[l.Label] {
+			return "", errAt("T005", nil, "label %q twice", l.Label)
+		}
+		seen[l.Label] = true
+		n, err := normItems(l.Row, nil, 1)
+		if err != nil {
 			return "", err
 		}
+		var q strings.Builder
+		quote(&q, l.Label)
+		b.WriteString(q.String())
+		b.WriteString(": row\n")
+		q.WriteByte(' ')
+		writeItems(&b, q.String(), n, nil)
 	}
-	return formatVals(vals), nil
+	return b.String(), nil
 }
 
-func formatVals(vals []val) string {
-	var sb strings.Builder
-	for i, v := range vals {
-		if i > 0 {
-			sb.WriteByte(' ')
+func writeItems(b *strings.Builder, prefix string, r Row, path []int) {
+	p := append(clonePath(path), 0)
+	for i, v := range r {
+		p[len(p)-1] = i
+		b.WriteString(prefix)
+		b.WriteString(pathString(p))
+		b.WriteString(": ")
+		b.WriteString(typeName(v))
+		if sub, ok := v.(Row); ok {
+			b.WriteByte('\n')
+			writeItems(b, prefix, sub, p)
+			continue
 		}
-		v.format(&sb)
-	}
-	return sb.String()
-}
-
-func (v val) format(sb *strings.Builder) {
-	switch v.k {
-	case kString:
-		quote(sb, v.s)
-	case kNone:
-		sb.WriteString("none")
-	case kFalse:
-		sb.WriteString("false")
-	case kTrue:
-		sb.WriteString("true")
-	case kInt:
-		sb.WriteString(strconv.FormatInt(v.n, 10))
-	case kDecimal:
-		sb.WriteString(formatDecimal(v.n, v.scale))
-	case kFloat:
-		sb.WriteString(formatFloat(v.f))
-	case kDate:
-		sb.WriteString(formatDate(v.n))
-	case kDatetime:
-		day, ms := floorDiv(v.n, 86400000)
-		sb.WriteString(formatDate(day) + "T" + formatTime(ms) + "Z")
-	case kTime:
-		sb.WriteString(formatTime(v.n))
-	case kDuration:
-		sb.WriteString(formatDuration(v.n))
-	case kBytes:
-		sb.WriteString("0x" + hex.EncodeToString(v.b))
-	case kList:
-		sb.WriteByte('[')
-		for i, it := range v.list {
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-			it.format(sb)
+		if v != nil {
+			b.WriteString(" = ")
+			writeValue(b, v)
 		}
-		sb.WriteByte(']')
+		b.WriteByte('\n')
 	}
 }
 
-// quote writes s as a JSON string with only the escapes JSON
-// requires: " \ and control characters.
-func quote(sb *strings.Builder, s string) {
-	sb.WriteByte('"')
-	for _, r := range s {
-		switch r {
-		case '"':
-			sb.WriteString(`\"`)
-		case '\\':
-			sb.WriteString(`\\`)
-		case '\b':
-			sb.WriteString(`\b`)
-		case '\f':
-			sb.WriteString(`\f`)
-		case '\n':
-			sb.WriteString(`\n`)
-		case '\r':
-			sb.WriteString(`\r`)
-		case '\t':
-			sb.WriteString(`\t`)
-		default:
-			if r < 0x20 {
-				sb.WriteString(`\u00`)
-				sb.WriteByte("0123456789abcdef"[r>>4])
-				sb.WriteByte("0123456789abcdef"[r&15])
-			} else {
-				sb.WriteRune(r)
-			}
+// writeValue writes a normalised value's canonical spelling (ROW.t 6.5).
+func writeValue(b *strings.Builder, v any) {
+	switch x := v.(type) {
+	case bool:
+		b.WriteString(strconv.FormatBool(x))
+	case int64:
+		b.WriteString(group(strconv.FormatInt(x, 10)))
+	case Decimal:
+		b.WriteString(formatDecimal(x))
+	case float64:
+		b.WriteString(formatFloat(x))
+	case Day:
+		b.WriteString(formatDate(int64(x)))
+	case time.Time:
+		ms := x.UnixMilli()
+		day, rem := floorDiv(ms, 86400000)
+		b.WriteString(formatDate(day))
+		b.WriteByte('T')
+		b.WriteString(formatTime(rem))
+		b.WriteByte('Z')
+	case TimeOfDay:
+		b.WriteString(formatTime(int64(x)))
+	case Duration:
+		b.WriteString(formatDuration(int64(x)))
+	case string:
+		quote(b, x)
+	case []byte:
+		b.WriteString("0x")
+		const hexdigits = "0123456789abcdef"
+		for _, c := range x {
+			b.WriteByte(hexdigits[c>>4])
+			b.WriteByte(hexdigits[c&0x0F])
 		}
 	}
-	sb.WriteByte('"')
 }
 
-func formatDecimal(m int64, scale int) string {
-	neg := m < 0
-	if neg {
-		m = -m
+// group puts an underscore between every three digits of a number's
+// whole part when it has five digits or more: 12345 is 12_345, 1234
+// stays. s is an optional minus and digits.
+func group(s string) string {
+	sign := ""
+	if strings.HasPrefix(s, "-") {
+		sign, s = "-", s[1:]
 	}
-	s := strconv.FormatInt(m, 10)
-	if len(s) <= scale {
-		s = strings.Repeat("0", scale+1-len(s)) + s
+	if len(s) < 5 {
+		return sign + s
 	}
-	s = s[:len(s)-scale] + "." + s[len(s)-scale:]
-	if neg {
-		s = "-" + s
+	var b strings.Builder
+	b.WriteString(sign)
+	first := len(s) % 3
+	if first == 0 {
+		first = 3
 	}
-	return s
+	b.WriteString(s[:first])
+	for i := first; i < len(s); i += 3 {
+		b.WriteByte('_')
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
 }
 
-// formatFloat is the shortest round-trip digits in exponent form:
-// 9.05e1, 1e-3, 0e0.
+func formatDecimal(x Decimal) string {
+	m := x.Mantissa
+	sign := ""
+	if m < 0 {
+		sign, m = "-", -m
+	}
+	digits := strconv.FormatInt(m, 10)
+	if x.Scale == 0 {
+		return group(sign + digits)
+	}
+	for len(digits) <= x.Scale {
+		digits = "0" + digits
+	}
+	cut := len(digits) - x.Scale
+	return group(sign+digits[:cut]) + "." + digits[cut:]
+}
+
+// formatFloat writes the shortest digits that read back as f: plain
+// when 1e-6 <= |f| < 1e21 or f is 0, else with an exponent, its plus
+// sign and leading zeros dropped (ROW.t 6.5).
 func formatFloat(f float64) string {
-	s := strconv.FormatFloat(f, 'e', -1, 64) // 9.05e+01
-	i := strings.IndexByte(s, 'e')
-	exp, _ := strconv.Atoi(s[i+1:])
-	return s[:i] + "e" + strconv.Itoa(exp)
+	a := math.Abs(f)
+	if f == 0 || (a >= 1e-6 && a < 1e21) {
+		s := strconv.FormatFloat(f, 'f', -1, 64)
+		whole, frac, hasPoint := strings.Cut(s, ".")
+		if hasPoint {
+			return group(whole) + "." + frac
+		}
+		return group(whole)
+	}
+	s := strconv.FormatFloat(f, 'e', -1, 64)
+	mant, exp, _ := strings.Cut(s, "e")
+	sign := ""
+	if exp[0] == '-' {
+		sign = "-"
+	}
+	exp = strings.TrimLeft(exp[1:], "0")
+	return mant + "e" + sign + exp
 }
 
 func formatDate(day int64) string {
 	y, m, d := civilFromDays(day)
-	return pad(y, 4) + "-" + pad(m, 2) + "-" + pad(d, 2)
+	return fmt.Sprintf("%04d-%02d-%02d", y, m, d)
 }
 
 func formatTime(ms int64) string {
-	return pad(ms/3600000, 2) + ":" + pad(ms/60000%60, 2) + ":" + pad(ms/1000%60, 2) + "." + pad(ms%1000, 3)
+	return fmt.Sprintf("%02d:%02d:%02d.%03d", ms/3600000, ms/60000%60, ms/1000%60, ms%1000)
 }
 
 func formatDuration(ms int64) string {
-	var sb strings.Builder
+	if ms == 0 {
+		return "0s"
+	}
+	var b strings.Builder
 	if ms < 0 {
-		sb.WriteByte('-')
+		b.WriteByte('-')
 		ms = -ms
 	}
-	h, m, s := ms/3600000, ms%3600000/60000, ms%60000
+	h, m, s, r := ms/3600000, ms/60000%60, ms/1000%60, ms%1000
 	if h > 0 {
-		sb.WriteString(strconv.FormatInt(h, 10) + "h")
+		b.WriteString(strconv.FormatInt(h, 10))
+		b.WriteByte('h')
 	}
 	if m > 0 {
-		sb.WriteString(strconv.FormatInt(m, 10) + "m")
+		b.WriteString(strconv.FormatInt(m, 10))
+		b.WriteByte('m')
 	}
-	if s > 0 || h == 0 && m == 0 {
-		sb.WriteString(strconv.FormatInt(s/1000, 10))
-		if frac := s % 1000; frac > 0 {
-			sb.WriteString("." + strings.TrimRight(pad(frac, 3), "0"))
+	if s > 0 || r > 0 {
+		b.WriteString(strconv.FormatInt(s, 10))
+		if r > 0 {
+			b.WriteByte('.')
+			b.WriteString(strings.TrimRight(fmt.Sprintf("%03d", r), "0"))
 		}
-		sb.WriteByte('s')
+		b.WriteByte('s')
 	}
-	return sb.String()
-}
-
-func pad(n int64, width int) string {
-	s := strconv.FormatInt(n, 10)
-	if len(s) < width {
-		s = strings.Repeat("0", width-len(s)) + s
-	}
-	return s
+	return b.String()
 }
 
 func floorDiv(a, b int64) (q, r int64) {
 	q, r = a/b, a%b
 	if r < 0 {
-		q, r = q-1, r+b
+		q--
+		r += b
 	}
 	return q, r
 }
 
-// Parse reads one row in text notation. Every value has one spelling:
-// text that reads as a row but is spelt otherwise is a T002 *Error at
-// the first byte that differs, whose message gives the canonical row;
-// text that is no row is T001; a value outside its type is its R code.
-// Offsets are bytes into line.
-func Parse(line string) ([]any, error) {
-	vals, err := parseVals(line)
+// quote writes s as a canonical string: escaping only the quote, the
+// backslash and characters below U+0020.
+func quote(b *strings.Builder, s string) {
+	b.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if c < 0x20 {
+				fmt.Fprintf(b, `\u%04x`, c)
+			} else {
+				b.WriteByte(c)
+			}
+		}
+	}
+	b.WriteByte('"')
+}
+
+// Parse returns the row of an unlabelled text, its lines in any order
+// and its values in any spelling their types read (ROW.t 6.3).
+func Parse(text string) (Row, error) {
+	lines, err := scan(text)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]any, len(vals))
-	for i, v := range vals {
-		out[i] = v.toGo()
+	for _, l := range lines {
+		if l.labeled {
+			return nil, &Error{Code: "T007", Offset: -1, Line: l.num, Msg: "a labelled line in an unlabelled text (ParseLabeled reads labelled ones)"}
+		}
+	}
+	return assemble(lines, false)
+}
+
+// ParseLabeled returns the rows of a labelled text, in the order their
+// labels first appear.
+func ParseLabeled(text string) ([]Labeled, error) {
+	lines, err := scan(text)
+	if err != nil {
+		return nil, err
+	}
+	var order []string
+	byLabel := map[string][]line{}
+	for _, l := range lines {
+		if !l.labeled {
+			return nil, &Error{Code: "T007", Offset: -1, Line: l.num, Msg: "an unlabelled line in a labelled text"}
+		}
+		if _, ok := byLabel[l.label]; !ok {
+			order = append(order, l.label)
+		}
+		byLabel[l.label] = append(byLabel[l.label], l)
+	}
+	out := make([]Labeled, 0, len(order))
+	for _, lab := range order {
+		r, err := assemble(byLabel[lab], true)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Labeled{Label: lab, Row: r})
 	}
 	return out, nil
 }
 
-func parseVals(line string) ([]val, error) {
-	if !utf8.ValidString(line) {
-		off := 0
-		for off < len(line) {
-			r, n := utf8.DecodeRuneInString(line[off:])
-			if r == utf8.RuneError && n == 1 {
-				break
-			}
-			off += n
+// line is one parsed line: its item, or a row's own line (header).
+type line struct {
+	num     int
+	labeled bool
+	label   string
+	path    []int
+	header  bool
+	value   any
+}
+
+func scan(text string) ([]line, error) {
+	var out []line
+	for num, s := range strings.Split(text, "\n") {
+		if strings.Trim(s, " \t") == "" {
+			continue
 		}
-		return nil, errf("R006", off, "text is not valid UTF-8")
-	}
-	p := parser{s: line}
-	var vals []val
-	p.space()
-	for p.pos < len(p.s) {
-		v, err := p.item(false)
+		l, err := parseLine(s, num+1)
 		if err != nil {
 			return nil, err
 		}
-		vals = append(vals, v)
-		if p.pos < len(p.s) && !isSpace(p.s[p.pos]) {
-			return nil, errf("T001", p.pos, "expected a space between items")
-		}
-		p.space()
+		out = append(out, l)
 	}
-	if canon := formatVals(vals); canon != line {
-		i := 0
-		for i < len(canon) && i < len(line) && canon[i] == line[i] {
-			i++
-		}
-		return nil, errf("T002", i, "not canonical; the row is spelt: %s", canon)
-	}
-	return vals, nil
-}
-
-type parser struct {
-	s   string
-	pos int
+	return out, nil
 }
 
 func isSpace(c byte) bool { return c == ' ' || c == '\t' }
-
-func (p *parser) space() {
-	for p.pos < len(p.s) && isSpace(p.s[p.pos]) {
-		p.pos++
-	}
-}
-
-func (p *parser) item(inList bool) (val, error) {
-	switch p.s[p.pos] {
-	case '"':
-		return p.str()
-	case '[':
-		if inList {
-			return val{}, errf("R008", p.pos, "a list holds a list")
-		}
-		return p.list()
-	}
-	start := p.pos
-	for p.pos < len(p.s) && !strings.ContainsRune(" \t,[]\"", rune(p.s[p.pos])) {
-		p.pos++
-	}
-	if p.pos == start {
-		return val{}, errf("T001", start, "expected an item")
-	}
-	return bare(p.s[start:p.pos], start)
-}
-
-func (p *parser) list() (val, error) {
-	start := p.pos
-	p.pos++ // [
-	l := val{k: kList, list: []val{}}
-	p.space()
-	if p.pos < len(p.s) && p.s[p.pos] == ']' {
-		p.pos++
-		return l, nil
-	}
-	for {
-		if p.pos >= len(p.s) {
-			return val{}, errf("T001", start, "list is not closed")
-		}
-		v, err := p.item(true)
-		if err != nil {
-			return val{}, err
-		}
-		l.list = append(l.list, v)
-		p.space()
-		if p.pos >= len(p.s) {
-			return val{}, errf("T001", start, "list is not closed")
-		}
-		switch p.s[p.pos] {
-		case ',':
-			p.pos++
-			p.space()
-		case ']':
-			p.pos++
-			return l, nil
-		default:
-			return val{}, errf("T001", p.pos, "expected , or ] in a list")
-		}
-	}
-}
-
-// str reads a JSON string, accepting every JSON spelling; the
-// canonical comparison afterwards rejects all but one.
-func (p *parser) str() (val, error) {
-	start := p.pos
-	p.pos++ // "
-	var sb strings.Builder
-	for {
-		if p.pos >= len(p.s) {
-			return val{}, errf("T001", start, "string is not closed")
-		}
-		c := p.s[p.pos]
-		switch {
-		case c == '"':
-			p.pos++
-			return val{k: kString, s: sb.String()}, nil
-		case c != '\\':
-			sb.WriteByte(c)
-			p.pos++
-			continue
-		}
-		if p.pos+1 >= len(p.s) {
-			return val{}, errf("T001", start, "string is not closed")
-		}
-		e := p.s[p.pos+1]
-		p.pos += 2
-		switch e {
-		case '"', '\\', '/':
-			sb.WriteByte(e)
-		case 'b':
-			sb.WriteByte('\b')
-		case 'f':
-			sb.WriteByte('\f')
-		case 'n':
-			sb.WriteByte('\n')
-		case 'r':
-			sb.WriteByte('\r')
-		case 't':
-			sb.WriteByte('\t')
-		case 'u':
-			r, ok := p.hex4()
-			if !ok {
-				return val{}, errf("T001", start, `\u needs four hex digits`)
-			}
-			if utf16.IsSurrogate(r) {
-				lo, ok := rune(0), false
-				if r < 0xdc00 && strings.HasPrefix(p.s[p.pos:], `\u`) {
-					p.pos += 2
-					lo, ok = p.hex4()
-				}
-				if !ok || lo < 0xdc00 || lo > 0xdfff {
-					return val{}, errf("R006", start, "string holds a lone surrogate")
-				}
-				r = utf16.DecodeRune(r, lo)
-			}
-			sb.WriteRune(r)
-		default:
-			return val{}, errf("T001", start, `unknown escape \%c`, e)
-		}
-	}
-}
-
-func (p *parser) hex4() (rune, bool) {
-	if p.pos+4 > len(p.s) {
-		return 0, false
-	}
-	n, err := strconv.ParseUint(p.s[p.pos:p.pos+4], 16, 32)
-	if err != nil {
-		return 0, false
-	}
-	p.pos += 4
-	return rune(n), true
-}
-
-// The bare items' shapes, matched by hand, with no regular
-// expressions (row.js is the same scan, for engines that lack some
-// regexp syntax). Each match returns submatches in the manner of
-// FindStringSubmatch: m[0] the whole token, "" for a group that is
-// absent; nil for no match. Digits are ASCII 0-9.
-
 func isDigit(c byte) bool { return '0' <= c && c <= '9' }
 
-func isHex(c byte) bool { return isDigit(c) || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F' }
-
-// digitRun is the end of the run of digits in t from i.
-func digitRun(t string, i int) int {
-	for i < len(t) && isDigit(t[i]) {
+func skipSpace(s string, i int) int {
+	for i < len(s) && isSpace(s[i]) {
 		i++
 	}
 	return i
 }
 
-// minus reads an optional leading '-': the group, and where the rest
-// begins.
-func minus(t string) (string, int) {
-	if strings.HasPrefix(t, "-") {
-		return "-", 1
-	}
-	return "", 0
+func lineErr(code string, num int, path []int, format string, a ...any) *Error {
+	return &Error{Code: code, Path: clonePath(path), Offset: -1, Line: num, Msg: fmt.Sprintf(format, a...)}
 }
 
-// Fixed shapes: each 'd' one digit, any other byte itself; the groups
-// are the runs of 'd'.
-const (
-	shapeDatetime = "dddd-dd-ddTdd:dd:dd.dddZ"
-	shapeDate     = "dddd-dd-dd"
-	shapeTime     = "dd:dd:dd.ddd"
-)
-
-func matchShape(t, shape string) []string {
-	if len(t) != len(shape) {
-		return nil
+func parseLine(s string, num int) (line, error) {
+	l := line{num: num}
+	if !utf8.ValidString(s) {
+		return l, lineErr("V008", num, nil, "the line is not valid UTF-8")
 	}
-	m := []string{t}
-	start := -1
-	for i := 0; i <= len(shape); i++ {
-		if i < len(shape) && shape[i] == 'd' {
-			if !isDigit(t[i]) {
-				return nil
+	i := skipSpace(s, 0)
+	if s[i] == '"' {
+		lab, n, err := unquote(s[i:])
+		if err != nil {
+			return l, lineErr("T001", num, nil, "a broken label: %v", err)
+		}
+		if !utf8.ValidString(lab) {
+			return l, lineErr("V008", num, nil, "a label not valid UTF-8")
+		}
+		l.labeled, l.label = true, lab
+		i = skipSpace(s, i+n)
+	}
+	colon := strings.IndexByte(s[i:], ':')
+	if colon < 0 {
+		return l, lineErr("T001", num, nil, "no colon")
+	}
+	ptext := strings.TrimRight(s[i:i+colon], " \t")
+	var path []int
+	if ptext == "" && l.labeled {
+		path = []int{} // the labelled row's own line
+	} else {
+		var err error
+		if path, err = parsePath(ptext); err != nil {
+			return l, lineErr("T002", num, nil, "%q: %v", ptext, err)
+		}
+	}
+	l.path = path
+	i = skipSpace(s, i+colon+1)
+	j := i
+	for j < len(s) && (isDigit(s[j]) || ('a' <= s[j] && s[j] <= 'z')) {
+		j++
+	}
+	name := s[i:j]
+	if name == "" {
+		return l, lineErr("T001", num, path, "no type name")
+	}
+	k := skipSpace(s, j)
+	rest := ""
+	hasValue := false
+	if k < len(s) {
+		if s[k] != '=' {
+			if !knownType(name) || j == k {
+				return l, lineErr("T003", num, path, "unknown type name %q", s[i:strings.IndexAny(s[i:]+" ", " \t=")+i])
 			}
-			if start < 0 {
-				start = i
+			return l, lineErr("T001", num, path, "stray text after the type")
+		}
+		hasValue = true
+		rest = strings.TrimRight(s[skipSpace(s, k+1):], " \t")
+	}
+	if !knownType(name) {
+		return l, lineErr("T003", num, path, "unknown type name %q", name)
+	}
+	if len(path) == 0 && name != "row" {
+		return l, lineErr("T002", num, nil, "a line without a path is its row's own, of type row")
+	}
+	if name == "none" || name == "row" {
+		if hasValue {
+			return l, lineErr("T004", num, path, "a value on a %s line", name)
+		}
+		if name == "row" {
+			if len(path) == maxDepth {
+				return l, lineErr("R005", num, path, "rows nested deeper than three levels")
 			}
+			l.header = true
+		}
+		return l, nil
+	}
+	if !hasValue || rest == "" {
+		return l, lineErr("T004", num, path, "no value for %s", name)
+	}
+	v, err := parseValue(name, rest)
+	if err != nil {
+		e := err.(*Error)
+		e.Line, e.Path, e.Offset = num, clonePath(path), -1
+		return l, e
+	}
+	l.value = v
+	return l, nil
+}
+
+func knownType(name string) bool {
+	switch name {
+	case "none", "bool", "int", "dec", "f64", "date", "utc", "time", "dur", "str", "bin", "row":
+		return true
+	}
+	return false
+}
+
+func parsePath(s string) ([]int, error) {
+	if s == "" {
+		return nil, fmt.Errorf("an empty path")
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) > maxDepth {
+		return nil, fmt.Errorf("more than three positions")
+	}
+	out := make([]int, len(parts))
+	for k, p := range parts {
+		if p == "" {
+			return nil, fmt.Errorf("an empty position")
+		}
+		for i := 0; i < len(p); i++ {
+			if !isDigit(p[i]) {
+				return nil, fmt.Errorf("%q is not digits", p)
+			}
+		}
+		if len(p) > 1 && p[0] == '0' {
+			return nil, fmt.Errorf("a leading zero in %q", p)
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil || n > maxInt {
+			return nil, fmt.Errorf("position %q too large", p)
+		}
+		out[k] = n
+	}
+	return out, nil
+}
+
+// assemble builds a row from its lines (ROW.t 6.1); a labelled row's
+// lines include its own, with no path (6.2).
+func assemble(lines []line, labelled bool) (Row, error) {
+	byPath := map[string]*line{}
+	for k := range lines {
+		l := &lines[k]
+		key := pathString(l.path)
+		if prev, ok := byPath[key]; ok {
+			return nil, lineErr("T005", l.num, l.path, "position given twice (also line %d)", prev.num)
+		}
+		byPath[key] = l
+	}
+	root, hasRoot := byPath[""]
+	if labelled && !hasRoot {
+		return nil, lineErr("T006", lines[0].num, nil, "row %q has no line of its own", lines[0].label)
+	}
+	rootLine := 0
+	if hasRoot {
+		rootLine = root.num
+	}
+	// Every item's row has its line, a row line.
+	children := map[string][]*line{}
+	for k := range lines {
+		l := &lines[k]
+		if len(l.path) == 0 {
 			continue
 		}
-		if start >= 0 {
-			m = append(m, t[start:i])
-			start = -1
-		}
-		if i < len(shape) && t[i] != shape[i] {
-			return nil
-		}
-	}
-	return m
-}
-
-// matchDuration: -? (N h)? (N m)? (N (.F)? s)?, F one to three
-// digits; m[1] the sign, m[2], m[3], m[4] hours, minutes, seconds,
-// m[5] the fraction. Every part may be absent, so the empty token
-// matches; the caller asks for one of m[2..4].
-func matchDuration(t string) []string {
-	m := make([]string, 6)
-	m[0] = t
-	var i int
-	m[1], i = minus(t)
-	for g, unit := range []byte{'h', 'm'} {
-		if j := digitRun(t, i); j > i && j < len(t) && t[j] == unit {
-			m[2+g], i = t[i:j], j+1
-		}
-	}
-	if j := digitRun(t, i); j > i {
-		k := j
-		if k < len(t) && t[k] == '.' {
-			e := digitRun(t, k+1)
-			if n := e - (k + 1); n < 1 || n > 3 {
-				return nil
+		parent := pathString(l.path[:len(l.path)-1])
+		if len(l.path) > 1 {
+			p, ok := byPath[parent]
+			if !ok {
+				return nil, lineErr("T006", l.num, l.path, "its row %s has no line", parent)
 			}
-			m[5], k = t[k+1:e], e
+			if !p.header {
+				return nil, lineErr("T006", l.num, l.path, "its row %s is not a row", parent)
+			}
 		}
-		if k == len(t) || t[k] != 's' {
-			return nil
+		children[parent] = append(children[parent], l)
+	}
+	var build func(key string, path []int, headerLine int) (Row, error)
+	build = func(key string, path []int, headerLine int) (Row, error) {
+		kids := children[key]
+		sort.Slice(kids, func(a, b int) bool { return kids[a].path[len(path)] < kids[b].path[len(path)] })
+		r := make(Row, len(kids))
+		for i, l := range kids {
+			if pos := l.path[len(path)]; pos != i {
+				missing := append(clonePath(path), i)
+				return nil, lineErr("T005", headerLine, missing, "position %s missing", pathString(missing))
+			}
+			if l.header {
+				sub, err := build(pathString(l.path), l.path, l.num)
+				if err != nil {
+					return nil, err
+				}
+				r[i] = sub
+			} else {
+				r[i] = l.value
+			}
 		}
-		m[4], i = t[i:j], k+1
+		return r, nil
 	}
-	if i != len(t) {
-		return nil
-	}
-	return m
+	return build("", nil, rootLine)
 }
 
-// isFloat: -? D+ (. D+)? [eE] [+-]? D+.
-func isFloat(t string) bool {
-	_, i := minus(t)
-	j := digitRun(t, i)
-	if j == i {
-		return false
+// parseValue reads a value in any spelling its type reads as the same
+// value (ROW.t 6.5). Errors carry only the code and message; the
+// caller adds where.
+func parseValue(name, s string) (any, error) {
+	bad := func(format string, a ...any) error {
+		return &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf(format, a...)}
 	}
-	if j < len(t) && t[j] == '.' {
-		k := digitRun(t, j+1)
-		if k == j+1 {
-			return false
+	outside := func(code, format string, a ...any) error {
+		return &Error{Code: code, Offset: -1, Msg: fmt.Sprintf(format, a...)}
+	}
+	switch name {
+	case "bool":
+		switch s {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		}
+		return nil, bad("%q is not a bool", s)
+	case "int":
+		sign, digits, ok := readSigned(s)
+		if !ok {
+			return nil, bad("%q is not an int", s)
+		}
+		n, ok := new(big.Int).SetString(sign+digits, 10)
+		if !ok {
+			return nil, bad("%q is not an int", s)
+		}
+		if !n.IsInt64() || n.Int64() > maxInt || n.Int64() < -maxInt {
+			return nil, outside("V001", "int %s outside ±(2^53-1)", s)
+		}
+		return n.Int64(), nil
+	case "dec":
+		return parseDecimal(s)
+	case "f64":
+		return parseFloat(s)
+	case "date":
+		day, ok, inRange := parseDate(s)
+		if !ok {
+			return nil, bad("%q is not a date", s)
+		}
+		if !inRange {
+			return nil, outside("V004", "date %s outside 0001-01-01 to 9999-12-31", s)
+		}
+		return Day(day), nil
+	case "utc":
+		return parseDatetime(s)
+	case "time":
+		return parseTimeOfDay(s)
+	case "dur":
+		return parseDuration(s)
+	case "str":
+		v, n, err := unquote(s)
+		if err != nil {
+			return nil, bad("%v", err)
+		}
+		if n != len(s) {
+			return nil, bad("text after the string")
+		}
+		if !utf8.ValidString(v) {
+			return nil, outside("V008", "string not valid UTF-8")
+		}
+		return v, nil
+	case "bin":
+		if len(s) < 2 || s[0] != '0' || (s[1] != 'x' && s[1] != 'X') {
+			return nil, bad("%q does not start 0x", s)
+		}
+		h := s[2:]
+		if len(h)%2 != 0 {
+			return nil, bad("%q has an odd number of hex digits", s)
+		}
+		out := make([]byte, len(h)/2)
+		for i := range out {
+			hi, ok1 := hexVal(h[2*i])
+			lo, ok2 := hexVal(h[2*i+1])
+			if !ok1 || !ok2 {
+				return nil, bad("%q is not hex", s)
+			}
+			out[i] = hi<<4 | lo
+		}
+		return out, nil
+	}
+	return nil, bad("unknown type %q", name)
+}
+
+func hexVal(c byte) (byte, bool) {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0', true
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10, true
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10, true
+	}
+	return 0, false
+}
+
+// digitRun reads digits with single underscores between two digits,
+// from s[i]; it returns them without the underscores and the index
+// after the run. ok is false for an underscore not between digits.
+func digitRun(s string, i int) (digits string, j int, ok bool) {
+	var b strings.Builder
+	j = i
+	for j < len(s) {
+		c := s[j]
+		if isDigit(c) {
+			b.WriteByte(c)
+			j++
+			continue
+		}
+		if c == '_' {
+			if j == i || j+1 >= len(s) || !isDigit(s[j-1]) || !isDigit(s[j+1]) {
+				return "", j, false
+			}
+			j++
+			continue
+		}
+		break
+	}
+	return b.String(), j, true
+}
+
+// readSigned reads an optional sign and a digit run that is all of s.
+func readSigned(s string) (sign, digits string, ok bool) {
+	i := 0
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		if s[i] == '-' {
+			sign = "-"
+		}
+		i++
+	}
+	digits, j, ok := digitRun(s, i)
+	if !ok || digits == "" || j != len(s) {
+		return "", "", false
+	}
+	return sign, digits, true
+}
+
+func parseDecimal(s string) (any, error) {
+	bad := &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("%q is not a decimal", s)}
+	i := 0
+	sign := ""
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		if s[i] == '-' {
+			sign = "-"
+		}
+		i++
+	}
+	whole, j, ok := digitRun(s, i)
+	if !ok {
+		return nil, bad
+	}
+	frac := ""
+	if j < len(s) && s[j] == '.' {
+		var k int
+		frac, k, ok = digitRun(s, j+1)
+		if !ok {
+			return nil, bad
 		}
 		j = k
 	}
-	if j == len(t) || t[j] != 'e' && t[j] != 'E' {
-		return false
+	if j != len(s) || whole+frac == "" {
+		return nil, bad
 	}
-	j++
-	if j < len(t) && (t[j] == '+' || t[j] == '-') {
+	if len(frac) > maxScale {
+		return nil, &Error{Code: "V002", Offset: -1, Msg: fmt.Sprintf("decimal %s: scale %d above 15", s, len(frac))}
+	}
+	n, _ := new(big.Int).SetString(sign+whole+frac, 10)
+	if !n.IsInt64() || n.Int64() > maxInt || n.Int64() < -maxInt {
+		return nil, &Error{Code: "V002", Offset: -1, Msg: fmt.Sprintf("decimal %s: mantissa outside ±(2^53-1)", s)}
+	}
+	return Decimal{Mantissa: n.Int64(), Scale: len(frac)}, nil
+}
+
+func parseFloat(s string) (any, error) {
+	bad := &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("%q is not a float", s)}
+	var b strings.Builder
+	i := 0
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		b.WriteByte(s[i])
+		i++
+	}
+	whole, j, ok := digitRun(s, i)
+	if !ok {
+		return nil, bad
+	}
+	b.WriteString(whole)
+	frac := ""
+	if j < len(s) && s[j] == '.' {
+		frac, j, ok = digitRun(s, j+1)
+		if !ok {
+			return nil, bad
+		}
+		b.WriteByte('.')
+		b.WriteString(frac)
+	}
+	if whole+frac == "" {
+		return nil, bad
+	}
+	if j < len(s) && (s[j] == 'e' || s[j] == 'E') {
+		b.WriteByte('e')
 		j++
+		if j < len(s) && (s[j] == '+' || s[j] == '-') {
+			b.WriteByte(s[j])
+			j++
+		}
+		exp, k, ok := digitRun(s, j)
+		if !ok || exp == "" {
+			return nil, bad
+		}
+		b.WriteString(exp)
+		j = k
 	}
-	k := digitRun(t, j)
-	return k > j && k == len(t)
+	if j != len(s) {
+		return nil, bad
+	}
+	f, err := strconv.ParseFloat(b.String(), 64)
+	if err != nil && !math.IsInf(f, 0) && f != 0 {
+		return nil, bad
+	}
+	if math.IsInf(f, 0) || (f == 0 && math.Signbit(f)) {
+		return nil, &Error{Code: "V003", Offset: -1, Msg: fmt.Sprintf("float %s is infinite or -0", s)}
+	}
+	return f, nil
 }
 
-// matchDecimal: -? D+ . D*; m[1] the sign, m[2] the whole digits,
-// m[3] the fraction's.
-func matchDecimal(t string) []string {
-	s, i := minus(t)
-	j := digitRun(t, i)
-	if j == i || j == len(t) || t[j] != '.' || digitRun(t, j+1) != len(t) {
-		return nil
+// fixed reads exactly n digits at s[i:].
+func fixed(s string, i, n int) (int64, bool) {
+	if i+n > len(s) {
+		return 0, false
 	}
-	return []string{t, s, t[i:j], t[j+1:]}
+	var v int64
+	for k := i; k < i+n; k++ {
+		if !isDigit(s[k]) {
+			return 0, false
+		}
+		v = v*10 + int64(s[k]-'0')
+	}
+	return v, true
 }
 
-// matchInt: -? D+; m[1] the sign, m[2] the digits.
-func matchInt(t string) []string {
-	s, i := minus(t)
-	if j := digitRun(t, i); j == i || j != len(t) {
-		return nil
+// parseDate reads YYYY-MM-DD: ok if it is a date, inRange if within
+// 0001 to 9999 (a four-digit year is, but for 0000).
+func parseDate(s string) (day int64, ok, inRange bool) {
+	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+		return 0, false, false
 	}
-	return []string{t, s, t[i:]}
+	y, ok1 := fixed(s, 0, 4)
+	m, ok2 := fixed(s, 5, 2)
+	d, ok3 := fixed(s, 8, 2)
+	if !ok1 || !ok2 || !ok3 || m < 1 || m > 12 || d < 1 || d > daysIn(max(y, 1), m) {
+		return 0, false, false
+	}
+	if y < 1 {
+		return 0, true, false
+	}
+	return daysFromCivil(y, m, d), true, true
 }
 
-// matchBytes: 0x or 0X, then hex digits in pairs; m[1] the hex.
-func matchBytes(t string) []string {
-	if len(t) < 2 || t[0] != '0' || t[1] != 'x' && t[1] != 'X' || len(t)%2 != 0 {
-		return nil
+// clock reads HH:MM[:SS[.fff...]] at the start of s: the milliseconds,
+// whether a fraction finer than a millisecond was nonzero, the index
+// after it, and ok. seconds says whether seconds are required.
+func clock(s string, seconds bool) (ms int64, fine bool, j int, ok bool) {
+	h, ok1 := fixed(s, 0, 2)
+	if !ok1 || len(s) < 5 || s[2] != ':' {
+		return 0, false, 0, false
 	}
-	for i := 2; i < len(t); i++ {
-		if !isHex(t[i]) {
-			return nil
+	mi, ok2 := fixed(s, 3, 2)
+	if !ok2 || h > 23 || mi > 59 {
+		return 0, false, 0, false
+	}
+	ms = (h*60 + mi) * 60000
+	j = 5
+	if j < len(s) && s[j] == ':' {
+		sec, ok3 := fixed(s, 6, 2)
+		if !ok3 || sec > 59 {
+			if ok3 && sec == 60 {
+				return 0, false, 8, false
+			}
+			return 0, false, 0, false
 		}
+		ms += sec * 1000
+		j = 8
+		if j < len(s) && s[j] == '.' {
+			k := j + 1
+			for k < len(s) && isDigit(s[k]) {
+				k++
+			}
+			f := s[j+1 : k]
+			if f == "" {
+				return 0, false, 0, false
+			}
+			for len(f) < 3 {
+				f += "0"
+			}
+			v, _ := strconv.ParseInt(f[:3], 10, 64)
+			ms += v
+			fine = strings.Trim(f[3:], "0") != ""
+			j = k
+		}
+	} else if seconds {
+		return 0, false, 0, false
 	}
-	return []string{t, t[2:]}
+	return ms, fine, j, true
 }
 
-// bare reads an unquoted item: a keyword, number, date, time,
-// duration or bytes.
-func bare(t string, off int) (val, error) {
-	switch t {
-	case "none":
-		return val{k: kNone}, nil
-	case "false":
-		return val{k: kFalse}, nil
-	case "true":
-		return val{k: kTrue}, nil
+func parseTimeOfDay(s string) (any, error) {
+	ms, fine, j, ok := clock(s, false)
+	if !ok || j != len(s) {
+		return nil, &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("%q is not a time", s)}
 	}
-	if m := matchBytes(t); m != nil {
-		b, _ := hex.DecodeString(m[1])
-		return val{k: kBytes, b: b}, nil
+	if fine {
+		return nil, &Error{Code: "V006", Offset: -1, Msg: fmt.Sprintf("time %s finer than a millisecond", s)}
 	}
-	if m := matchShape(t, shapeDatetime); m != nil {
-		day, err := civil(m[1], m[2], m[3], off)
-		if err != nil {
-			return val{}, err
-		}
-		ms, err := clock(m[4], m[5], m[6], m[7], off)
-		if err != nil {
-			return val{}, err
-		}
-		return val{k: kDatetime, n: day*86400000 + ms}, nil
-	}
-	if m := matchShape(t, shapeDate); m != nil {
-		day, err := civil(m[1], m[2], m[3], off)
-		return val{k: kDate, n: day}, err
-	}
-	if m := matchShape(t, shapeTime); m != nil {
-		ms, err := clock(m[1], m[2], m[3], m[4], off)
-		return val{k: kTime, n: ms}, err
-	}
-	if m := matchDuration(t); m != nil && (m[2] != "" || m[3] != "" || m[4] != "") {
-		return duration(m, off)
-	}
-	if isFloat(t) {
-		// The syntax is isFloat's; a range error is only the value
-		// rounding to an infinity (R005 below) or to zero (then not
-		// canonical), as JavaScript's Number reads it.
-		f, _ := strconv.ParseFloat(t, 64)
-		if err := checkFloat(f, off); err != nil {
-			return val{}, err
-		}
-		return val{k: kFloat, f: f}, nil
-	}
-	if m := matchDecimal(t); m != nil {
-		if len(m[3]) > maxScale {
-			return val{}, errf("R004", off, "decimal scale %d is above 15", len(m[3]))
-		}
-		n, err := digits(m[2]+m[3], off, "decimal mantissa")
-		if err != nil {
-			return val{}, err
-		}
-		if m[1] == "-" {
-			n = -n
-		}
-		return val{k: kDecimal, n: n, scale: len(m[3])}, nil
-	}
-	if m := matchInt(t); m != nil {
-		n, err := digits(m[2], off, "int")
-		if err != nil {
-			return val{}, err
-		}
-		if m[1] == "-" {
-			n = -n
-		}
-		return val{k: kInt, n: n}, nil
-	}
-	return val{}, errf("T001", off, "%q is not an item", t)
+	return TimeOfDay(ms), nil
 }
 
-// digits reads a run of decimal digits within 2^53-1.
-func digits(s string, off int, what string) (int64, error) {
-	s = strings.TrimLeft(s, "0")
-	if s == "" {
-		return 0, nil
+func parseDatetime(s string) (any, error) {
+	bad := &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("%q is not a datetime", s)}
+	if len(s) < 11 || (s[10] != 'T' && s[10] != 't' && s[10] != ' ') {
+		return nil, bad
 	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n > maxInt {
-		return 0, errf("R003", off, "%s is outside ±(2^53-1)", what)
+	day, ok, inRange := parseDate(s[:10])
+	if !ok {
+		return nil, bad
 	}
-	return n, nil
+	rest := s[11:]
+	ms, fine, j, ok := clock(rest, true)
+	if !ok {
+		if j == 8 {
+			return nil, &Error{Code: "V005", Offset: -1, Msg: fmt.Sprintf("datetime %s: a leap second", s)}
+		}
+		return nil, bad
+	}
+	zone := rest[j:]
+	var offset int64
+	switch {
+	case zone == "Z" || zone == "z":
+	case len(zone) == 6 && (zone[0] == '+' || zone[0] == '-') && zone[3] == ':':
+		oh, ok1 := fixed(zone, 1, 2)
+		om, ok2 := fixed(zone, 4, 2)
+		if !ok1 || !ok2 || oh > 23 || om > 59 {
+			return nil, bad
+		}
+		offset = (oh*60 + om) * 60000
+		if zone[0] == '-' {
+			offset = -offset
+		}
+	default:
+		return nil, bad
+	}
+	if fine {
+		return nil, &Error{Code: "V005", Offset: -1, Msg: fmt.Sprintf("datetime %s finer than a millisecond", s)}
+	}
+	if !inRange && day == 0 {
+		return nil, &Error{Code: "V005", Offset: -1, Msg: fmt.Sprintf("datetime %s outside 0001 to 9999", s)}
+	}
+	t := day*86400000 + ms - offset
+	if t < minDatetime || t > maxDatetime {
+		return nil, &Error{Code: "V005", Offset: -1, Msg: fmt.Sprintf("datetime %s outside 0001 to 9999", s)}
+	}
+	return time.UnixMilli(t).UTC(), nil
 }
 
-func num(s string) int64 { n, _ := strconv.ParseInt(s, 10, 64); return n }
-
-func civil(y, m, d string, off int) (int64, error) {
-	yy, mm, dd := num(y), num(m), num(d)
-	if !validCivil(yy, mm, dd) {
-		return 0, errf("R003", off, "%s-%s-%s is not a date from 0001-01-01 to 9999-12-31", y, m, d)
+// parseDuration reads parts h, m, s and ms, in that order, each once,
+// each a number that may have a fraction, the total whole milliseconds.
+func parseDuration(s string) (any, error) {
+	bad := &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("%q is not a duration", s)}
+	i := 0
+	neg := false
+	if i < len(s) && s[i] == '-' {
+		neg = true
+		i++
 	}
-	return daysFromCivil(yy, mm, dd), nil
+	units := []struct {
+		name string
+		ms   int64
+	}{{"h", 3600000}, {"m", 60000}, {"s", 1000}, {"ms", 1}}
+	total := new(big.Rat)
+	next := 0
+	parts := 0
+	for i < len(s) {
+		whole, j, ok := digitRun(s, i)
+		if !ok {
+			return nil, bad
+		}
+		frac := ""
+		if j < len(s) && s[j] == '.' {
+			frac, j, ok = digitRun(s, j+1)
+			if !ok {
+				return nil, bad
+			}
+		}
+		if whole+frac == "" {
+			return nil, bad
+		}
+		k := j
+		for k < len(s) && 'a' <= s[k] && s[k] <= 'z' {
+			k++
+		}
+		unit := s[j:k]
+		u := -1
+		for n := next; n < len(units); n++ {
+			if units[n].name == unit {
+				u = n
+				break
+			}
+		}
+		if u < 0 {
+			return nil, bad
+		}
+		next = u + 1
+		num, ok := new(big.Rat).SetString(whole + "." + frac + "0")
+		if !ok {
+			return nil, bad
+		}
+		total.Add(total, num.Mul(num, new(big.Rat).SetInt64(units[u].ms)))
+		parts++
+		i = k
+	}
+	if parts == 0 {
+		return nil, bad
+	}
+	if !total.IsInt() {
+		return nil, &Error{Code: "V007", Offset: -1, Msg: fmt.Sprintf("duration %s finer than a millisecond", s)}
+	}
+	n := total.Num()
+	if neg {
+		n.Neg(n)
+	}
+	if !n.IsInt64() || n.Int64() > maxInt || n.Int64() < -maxInt {
+		return nil, &Error{Code: "V007", Offset: -1, Msg: fmt.Sprintf("duration %s outside ±(2^53-1) ms", s)}
+	}
+	return Duration(n.Int64()), nil
 }
 
-func clock(h, m, s, ms string, off int) (int64, error) {
-	hh, mm, ss := num(h), num(m), num(s)
-	if hh > 23 || mm > 59 || ss > 59 {
-		return 0, errf("R003", off, "%s:%s:%s is not a time of day", h, m, s)
+// unquote reads a JSON string at the start of s and returns it and the
+// bytes it took.
+func unquote(s string) (string, int, error) {
+	if s == "" || s[0] != '"' {
+		return "", 0, fmt.Errorf("no opening quote")
 	}
-	return ((hh*60+mm)*60+ss)*1000 + num(ms), nil
-}
-
-func duration(m []string, off int) (val, error) {
-	var total int64
-	for i, unit := range []int64{3600000, 60000, 1000} {
-		if m[2+i] == "" {
+	var b strings.Builder
+	i := 1
+	for i < len(s) {
+		c := s[i]
+		switch {
+		case c == '"':
+			return b.String(), i + 1, nil
+		case c < 0x20:
+			return "", 0, fmt.Errorf("a raw control character in a string")
+		case c != '\\':
+			b.WriteByte(c)
+			i++
 			continue
 		}
-		n, err := digits(m[2+i], off, "duration")
-		if err != nil {
-			return val{}, err
+		if i+1 >= len(s) {
+			return "", 0, fmt.Errorf("a string ends in a backslash")
 		}
-		if n > maxInt/unit {
-			return val{}, errf("R003", off, "duration is outside ±(2^53-1) ms")
+		e := s[i+1]
+		i += 2
+		switch e {
+		case '"', '\\', '/':
+			b.WriteByte(e)
+		case 'b':
+			b.WriteByte('\b')
+		case 'f':
+			b.WriteByte('\f')
+		case 'n':
+			b.WriteByte('\n')
+		case 'r':
+			b.WriteByte('\r')
+		case 't':
+			b.WriteByte('\t')
+		case 'u':
+			r, ok := hex4(s, i)
+			if !ok {
+				return "", 0, fmt.Errorf("a broken \\u escape")
+			}
+			i += 4
+			if utf16.IsSurrogate(r) {
+				if r < 0xDC00 && i+6 <= len(s) && s[i] == '\\' && s[i+1] == 'u' {
+					if r2, ok := hex4(s, i+2); ok && r2 >= 0xDC00 && r2 <= 0xDFFF {
+						b.WriteRune(utf16.DecodeRune(r, r2))
+						i += 6
+						continue
+					}
+				}
+				// A lone surrogate is no character: invalid UTF-8.
+				b.WriteString("\xed\xa0\x80")
+				continue
+			}
+			b.WriteRune(r)
+		default:
+			return "", 0, fmt.Errorf("an unknown escape \\%c", e)
 		}
-		total += n * unit
 	}
-	if frac := m[5]; frac != "" {
-		total += num((frac + "00")[:3])
+	return "", 0, fmt.Errorf("no closing quote")
+}
+
+func hex4(s string, i int) (rune, bool) {
+	if i+4 > len(s) {
+		return 0, false
 	}
-	if total > maxInt {
-		return val{}, errf("R003", off, "duration is outside ±(2^53-1) ms")
+	var r rune
+	for k := i; k < i+4; k++ {
+		v, ok := hexVal(s[k])
+		if !ok {
+			return 0, false
+		}
+		r = r<<4 | rune(v)
 	}
-	if m[1] == "-" {
-		total = -total
-	}
-	return val{k: kDuration, n: total}, nil
+	return r, true
 }

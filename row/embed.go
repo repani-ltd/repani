@@ -1,9 +1,11 @@
 package row
 
-import "embed"
+import _ "embed"
 
-// JS holds row.js, the JavaScript implementation, at its root, so a
-// server can serve it from the module that owns it.
-//
 //go:embed row.js
-var JS embed.FS
+var js string
+
+// JS returns row.js, the JavaScript implementation, embedded at build
+// time so a server ships the code its Go side was built beside. It is
+// an ES module with no imports: serve it as text/javascript.
+func JS() string { return js }

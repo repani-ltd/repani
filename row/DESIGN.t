@@ -319,6 +319,14 @@ intrinsic (the same rows in another order are another text; fmt sorts lines
 within a row and never moves rows), and labels are unique, a repeated label
 being the same row.
 
+Each labelled row also has a line of its own, its label with no path, as every
+nested row has one. Without it an empty row had no lines and could not be in a
+labelled text at all, so a store entry whose value is the empty row could not be
+exported (the independent encoder written for the vectors found the gap). The
+line costs one per row, and keeps one rule at every level: a row is its own line
+and its items. An unlabelled text needs none, being one row whose empty text is
+the empty row.
+
 ## Type names
 
 Type names are two to four characters and sit in the tag registry beside their
@@ -462,6 +470,7 @@ Writing needs no counterpart: a row is a literal ([]any{...}, an array).
 2026-11-21 | Text: for export, inspection and edits; one item per line, path: type = value, nesting by path, a line for each nested row; canonical output, lenient input; strings on one line.
 2026-11-21 | Text type names, two to four characters, in the tag registry: none bool int f64 date utc time dur str bin dec row.
 2026-11-21 | Text paths from 0, dotted, three deep, contiguous, a line for each nested row, sorted as numbers; several rows by a string label on every line, rows in the order their labels first appear.
+2026-11-21 | A labelled row has a line of its own ("k": row), so an empty row can be labelled.
 2026-11-21 | Text spellings and lines (ROW.t 6.4, 6.5): datetimes always with .000, floats plain between 10^-6 and 10^21, exponent beyond; whole parts of five or more digits grouped in threes with an underscore (ints, decimals, plain floats), underscores accepted on input in numbers and durations, never in dates or times; lenient input as tabled.
 2026-11-21 | Errors: R001-R005 bytes, T001-T007 text, V001-V009 values wherever met; each with the item's path; no canonical-form error.
 2026-11-21 | Go and JavaScript API (ROW.t 8): v1's value types where their reasons hold, JS() string, labelled text in its own pair; a sequential reader with sticky errors in Go, S001-S003 for shape.

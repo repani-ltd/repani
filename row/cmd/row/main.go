@@ -1,16 +1,16 @@
-// Command row checks, encodes and decodes ROW v1 typed rows; row spec
-// prints the reference (package repani.com/row).
+// Command row checks, formats, encodes and decodes ROW typed rows;
+// row spec prints the reference (package repani.com/row).
 //
-//	row check FILE   validate text rows, one per line
-//	row encode       text rows on stdin to hex, one per line
-//	row decode       hex rows on stdin to text, one per line
-//	row spec         the reference
+//	row check FILE      validate a text, labelled or not; warn if not canonical
+//	row fmt [-w] FILE   print the canonical text (-w: rewrite FILE)
+//	row encode          a one-row text on stdin to hex
+//	row decode          hex on stdin to the canonical text
+//	row spec            the reference
 //
 // Exit codes: 0 ok, 1 invalid input, 2 usage.
 package main
 
 import (
-	"bufio"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,127 +18,172 @@ import (
 	"os"
 	"strings"
 
+	"repani.com/durable"
 	"repani.com/row"
 )
 
-const usage = `usage: row check FILE   validate text rows, one per line (blank lines skipped)
-       row encode       text rows on stdin to hex, one row per line
-       row decode       hex rows on stdin to text, one row per line
-       row spec         the reference
-       row help         this text
+const usage = `usage: row check FILE      validate a text, labelled or not; warn if not canonical
+       row fmt [-w] FILE   print the canonical text (-w: rewrite FILE)
+       row encode          a one-row text on stdin to hex
+       row decode          hex on stdin to the canonical text
+       row spec            the reference
+       row help            this text
 `
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
 	}
-	switch os.Args[1] {
+	switch args[0] {
 	case "check":
-		if len(os.Args) != 3 {
-			fmt.Fprint(os.Stderr, usage)
-			os.Exit(2)
+		if len(args) != 2 {
+			fmt.Fprint(stderr, usage)
+			return 2
 		}
-		f, err := os.Open(os.Args[2])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "row:", err)
-			os.Exit(1)
+		return check(args[1], stdout)
+	case "fmt":
+		write := len(args) == 3 && args[1] == "-w"
+		if len(args) != 2 && !write {
+			fmt.Fprint(stderr, usage)
+			return 2
 		}
-		defer f.Close()
-		os.Exit(check(f, os.Args[2], os.Stdout))
+		return format(args[len(args)-1], write, stdout, stderr)
 	case "encode":
-		os.Exit(lines(os.Stdin, os.Stdout, "stdin", encodeLine))
-	case "decode":
-		os.Exit(lines(os.Stdin, os.Stdout, "stdin", decodeLine))
-	case "spec":
-		fmt.Print(row.Spec())
-	case "help", "-h", "--help":
-		fmt.Print(usage)
-	default:
-		fmt.Fprintf(os.Stderr, "row: unknown command %q\n\n%s", os.Args[1], usage)
-		os.Exit(2)
-	}
-}
-
-// check reports every invalid row in r as NAME:LINE:COL: CODE message,
-// and returns the exit code.
-func check(r io.Reader, name string, w io.Writer) int {
-	code := 0
-	sc := scanner(r)
-	for n := 1; sc.Scan(); n++ {
-		line := sc.Text()
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if _, err := row.Parse(line); err != nil {
-			report(w, name, n, err)
-			code = 1
-		}
-	}
-	if err := sc.Err(); err != nil {
-		fmt.Fprintf(w, "%s: %v\n", name, err)
-		return 1
-	}
-	return code
-}
-
-func encodeLine(line string) (string, error) {
-	items, err := row.Parse(line)
-	if err != nil {
-		return "", err
-	}
-	b, err := row.Encode(items)
-	return hex.EncodeToString(b), err
-}
-
-func decodeLine(line string) (string, error) {
-	b, err := hex.DecodeString(strings.TrimSpace(line))
-	if err != nil {
-		return "", fmt.Errorf("not hex: %v", err)
-	}
-	items, err := row.Decode(b)
-	if err != nil {
-		return "", err
-	}
-	return row.Format(items)
-}
-
-// lines maps each line of r through f, writing results to w and
-// errors to stderr; it returns the exit code.
-func lines(r io.Reader, w io.Writer, name string, f func(string) (string, error)) int {
-	code := 0
-	sc := scanner(r)
-	out := bufio.NewWriter(w)
-	defer out.Flush()
-	for n := 1; sc.Scan(); n++ {
-		res, err := f(sc.Text())
+		text, err := io.ReadAll(stdin)
 		if err != nil {
-			report(os.Stderr, name, n, err)
-			code = 1
-			continue
+			fmt.Fprintln(stderr, "row:", err)
+			return 1
 		}
-		fmt.Fprintln(out, res)
-	}
-	if err := sc.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+		r, err := row.Parse(string(text))
+		if err == nil {
+			var b []byte
+			if b, err = row.Encode(r); err == nil {
+				fmt.Fprintln(stdout, hex.EncodeToString(b))
+				return 0
+			}
+		}
+		report(stderr, "stdin", err)
 		return 1
+	case "decode":
+		in, err := io.ReadAll(stdin)
+		if err != nil {
+			fmt.Fprintln(stderr, "row:", err)
+			return 1
+		}
+		b, err := hex.DecodeString(strings.TrimSpace(string(in)))
+		if err != nil {
+			fmt.Fprintln(stderr, "row: stdin is not hex:", err)
+			return 1
+		}
+		r, err := row.Decode(b)
+		if err == nil {
+			var s string
+			if s, err = row.Format(r); err == nil {
+				fmt.Fprint(stdout, s)
+				return 0
+			}
+		}
+		report(stderr, "stdin", err)
+		return 1
+	case "spec":
+		fmt.Fprint(stdout, row.Spec())
+		return 0
+	case "help", "-h", "--help":
+		fmt.Fprint(stdout, usage)
+		return 0
 	}
-	return code
+	fmt.Fprintf(stderr, "row: unknown command %q\n\n%s", args[0], usage)
+	return 2
 }
 
-func report(w io.Writer, name string, n int, err error) {
+// canonical parses text, labelled when its first line is, and returns
+// its canonical text.
+func canonical(text string) (string, error) {
+	if labelled(text) {
+		rows, err := row.ParseLabeled(text)
+		if err != nil {
+			return "", err
+		}
+		return row.FormatLabeled(rows)
+	}
+	r, err := row.Parse(text)
+	if err != nil {
+		return "", err
+	}
+	return row.Format(r)
+}
+
+func labelled(text string) bool {
+	for _, l := range strings.Split(text, "\n") {
+		if l = strings.TrimLeft(l, " \t"); l != "" {
+			return l[0] == '"'
+		}
+	}
+	return false
+}
+
+func check(name string, w io.Writer) int {
+	b, err := os.ReadFile(name)
+	if err != nil {
+		fmt.Fprintln(w, "row:", err)
+		return 1
+	}
+	c, err := canonical(string(b))
+	if err != nil {
+		report(w, name, err)
+		return 1
+	}
+	if c != string(b) {
+		fmt.Fprintf(w, "%s: valid, not canonical (row fmt -w %s)\n", name, name)
+	}
+	return 0
+}
+
+func format(name string, write bool, stdout, stderr io.Writer) int {
+	b, err := os.ReadFile(name)
+	if err != nil {
+		fmt.Fprintln(stderr, "row:", err)
+		return 1
+	}
+	c, err := canonical(string(b))
+	if err != nil {
+		report(stderr, name, err)
+		return 1
+	}
+	if !write {
+		fmt.Fprint(stdout, c)
+		return 0
+	}
+	if c == string(b) {
+		return 0
+	}
+	info, err := os.Stat(name)
+	if err == nil {
+		err = durable.WriteFile(name, []byte(c), info.Mode().Perm())
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "row:", err)
+		return 1
+	}
+	return 0
+}
+
+// report writes an error as NAME:LINE: CODE message (NAME: for one
+// with no line).
+func report(w io.Writer, name string, err error) {
 	var re *row.Error
 	if errors.As(err, &re) {
-		fmt.Fprintf(w, "%s:%d:%d: %s %s\n", name, n, re.Offset+1, re.Code, re.Msg)
+		where := name
+		if re.Line > 0 {
+			where = fmt.Sprintf("%s:%d", name, re.Line)
+		}
+		fmt.Fprintf(w, "%s: %s\n", where, strings.TrimPrefix(re.Error(), "row: "))
 		return
 	}
-	fmt.Fprintf(w, "%s:%d: %v\n", name, n, err)
-}
-
-// scanner reads lines up to 1 MiB: a row is at most an ASCON-KV
-// value (64 KiB), twice that as hex.
-func scanner(r io.Reader) *bufio.Scanner {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64*1024), 1<<20)
-	return sc
+	fmt.Fprintf(w, "%s: %v\n", name, err)
 }

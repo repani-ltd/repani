@@ -2,10 +2,10 @@ ROW — Typed Rows
 .by Pavlos Christoforou
 .date 2026-11-21
 .rights All rights reserved © repani.com
-.rem DRAFT, written from a blank page on 2026-11-21. ROW v1 (frozen 2026-10-12)
-.rem is retired whole to ~/repos/_attic/row and binds nothing here. The code in
-.rem this directory is still v1 until this draft replaces it. The reasons and
-.rem the decision ledger are DESIGN.t.
+.rem Normative, not yet frozen. Written from a blank page on 2026-11-21; ROW v1
+.rem (frozen 2026-10-12) is retired whole to ~/repos/_attic/row and binds
+.rem nothing here. The code in this directory implements this document. The
+.rem reasons and the decision ledger are DESIGN.t.
 
 A row is a short sequence of typed items, encoded as bytes. Each item starts
 with one byte, its tag, that says what it is. There are no field names: what
@@ -201,19 +201,27 @@ has its line; anything else is an error.
 
 A text with no labels is one row. Several rows -- a store's entries, a sequence
 of rows -- are one text when every line begins with its row's label, a string
-spelt as str values are, before the path:
+spelt as str values are, before the path. Each row has a line of its own, as a
+nested row does: its label, no path, a colon and row. Its items follow, and an
+empty row is that line alone:
 
 .pre
+"g/X/start": row
 "g/X/start" 0: str = "start"
 "g/X/start" 1: row
 "g/X/start" 1.0: str = "raiders"
+"m/0001": row
 "m/0001" 0: str = "say"
+"empty": row
 .end
 
-Lines with the same label are one row. Rows keep the order in which their labels
-first appear: a store's export writes its keys in their order, a sequence its
-rows in theirs, labelled by position ("0", "1", ...) or by ids it already has.
-What a label means beyond naming its row is the exporter's.
+Lines with the same label are one row; a row without its own line is an error
+(T006), as is a path-less line of any type but row (T002). An unlabelled text
+has no such line: it is one row, and the empty text is the empty row. Rows keep
+the order in which their labels first appear: a store's export writes its keys
+in their order, a sequence its rows in theirs, labelled by position ("0", "1",
+...) or by ids it already has. What a label means beyond naming its row is the
+exporter's.
 
 ## 6.3 Canonical output, lenient input
 
@@ -230,12 +238,12 @@ input takes the nearest, which is reading the value, not altering it.
 
 ## 6.4 Lines
 
-A line is its label (in a text of several rows), its path, a colon, its type
-name, and, unless the type is none or row, an equals sign and its value.
-Canonical lines have single spaces: "k" 1.0: str = "x", or 1.0: str = "x". Input
-accepts any run of spaces or tabs around the label, the colon and the equals
-sign, and after the value. Blank lines are ignored and never written. There are
-no comments.
+A line is its label (in a text of several rows), its path (none for a labelled
+row's own line), a colon, its type name, and, unless the type is none or row, an
+equals sign and its value. Canonical lines have single spaces: "k": row, "k"
+1.0: str = "x", or 1.0: str = "x". Input accepts any run of spaces or tabs
+around the label, the colon and the equals sign, and after the value. Blank
+lines are ignored and never written. There are no comments.
 
 ## 6.5 Values
 
@@ -278,7 +286,7 @@ R001 | the bytes end inside a count, a length, a payload or a varint (empty byte
 R002 | bytes after the row, where one row was expected
 R003 | a varint longer than 8 bytes
 R004 | a reserved tag
-R005 | rows nested deeper than THREE LEVELS (decoding and encoding)
+R005 | rows nested deeper than THREE LEVELS (decoding, encoding and parsing)
 T001 | a line that is not one: no colon, a broken label, stray text
 T002 | a path that is not one: a leading zero, more than three positions, anything but digits and dots
 T003 | an unknown type name

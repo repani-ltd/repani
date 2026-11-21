@@ -7,21 +7,22 @@ import (
 	"testing"
 
 	"repani.com/chrometest"
-	"repani.com/lz4s"
 )
 
-// TestJS runs row.js against the same frozen vectors in headless
-// Chrome. Skips when there is no Chrome.
+// TestJS runs row.js against the same vectors in headless Chrome.
+// Skips when there is no Chrome.
 func TestJS(t *testing.T) {
 	if !chrometest.Available(chrometest.Options{}) {
 		t.Skip("no Chrome; set CHROMETEST_CHROME to its binary to test row.js")
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/row.js", http.FileServerFS(JS))
-	mux.HandleFunc("/lz4s.js", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/javascript")
-		w.Write([]byte(lz4s.JS()))
-	})
+	serve := func(path, ctype string, body func() []byte) {
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", ctype)
+			w.Write(body())
+		})
+	}
+	serve("/row.js", "text/javascript", func() []byte { return []byte(JS()) })
 	mux.HandleFunc("/vectors.json", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "testdata/vectors.json")
 	})
@@ -29,10 +30,7 @@ func TestJS(t *testing.T) {
 		w.Header().Set("Content-Type", "text/javascript")
 		http.ServeFile(w, r, "testdata/row_test.js")
 	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte("<!doctype html><title>row.js</title>"))
-	})
+	serve("/", "text/html", func() []byte { return []byte("<!doctype html><title>row.js</title>") })
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 

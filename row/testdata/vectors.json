@@ -1,762 +1,1018 @@
 {
  "valid": [
   {
-   "text": "\"EUR\"",
-   "hex": "03455552"
-  },
-  {
-   "text": "\"\"",
+   "text": "",
    "hex": "00"
   },
   {
-   "text": "\"€ und ü\"",
-   "hex": "0ae282ac20756e6420c3bc"
+   "text": "0: none\n",
+   "hex": "01c0"
   },
   {
-   "text": "\"q\\\"b\\\\s\\b\\f\\n\\r\\t\\u0001\\u001f\"",
-   "hex": "0d7122625c73080c0a0d09011f7f"
+   "text": "0: bool = true\n",
+   "hex": "01c2"
   },
   {
-   "text": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
-   "hex": "f161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161"
+   "text": "0: bool = false\n",
+   "hex": "01c1"
   },
   {
-   "text": "\"AaYdacJ0WHQe8ozdkoJ44JoeMI5PuBhVIif4v2rMKTPCNesSUgfz1DJ38vesNcasVizuKHjADT5es1Gc4zH8qSfoum0YdgxBHcTElv35AkUEE1mMfyfLGfbu2kojqEDqb9Vjo0BbDLaoWUXhZdkbi9mW0XA5lFa6mNJLtlVQoMT01HBqx49CjJvagmYbLnZBRIXC0kuKVA5D5CRL2uz9cv3iRg5Bk2o2DbVhGzfWzmgfpMak7e\"",
-   "hex": "fef2014161596461634a3057485165386f7a646b6f4a34344a6f654d49355075426856496966347632724d4b5450434e6573535567667a31444a33387665734e63617356697a754b486a414454356573314763347a48387153666f756d305964677842486354456c763335416b554545316d4d6679664c47666275326b6f6a714544716239566a6f304262444c616f575558685a646b6269396d57305841356c4661366d4e4a4c746c56516f4d543031484271783439436a4a7661676d59624c6e5a4252495843306b754b564135443543524c32757a3963763369526735426b326f3244625668477a66577a6d6766704d616b3765"
+   "text": "0: none\n1: bool = true\n2: bool = false\n",
+   "hex": "03c0c2c1"
   },
   {
-   "text": "\"Li1MDwNF0cGK5xPnLSaxAJbrUGCSdvIkWvKi1V4J0HhpR2bPxksBn0ofGM0MXtOvwhV1qrhUkeXhhCQTJjwIRALGUGqVGrZeM0Eu70Cz4FYLXi6tKPAuDDl2l3TEKJC8zYsKujHJkEoh51gxPpz9S8gPdMVv9vjx2fQH51Wia9P9rMEQQ6SnUMfsI3NMCTMWG9Jf1kwihMXMC4WWPR0yfRR9MSIcSpxGPinaJHMakB9IQ7kCGJdt46lnLgdnLXabQ91PrG1P06kgdVX65Hk6XUVvoM9oc7eTmDqO5oTfemTP\"",
-   "hex": "feac024c69314d44774e463063474b3578506e4c536178414a6272554743536476496b57764b693156344a3048687052326250786b73426e306f66474d304d58744f7677685631717268556b655868684351544a6a774952414c475547715647725a654d3045753730437a3446594c586936744b50417544446c326c3354454b4a43387a59734b756a484a6b456f683531677850707a3953386750644d567639766a78326651483531576961395039724d45515136536e554d667349334e4d43544d5747394a66316b7769684d584d4334575750523079665252394d5349635370784750696e614a484d616b42394951376b43474a647434366c6e4c67646e4c586162513931507247315030366b676456583635486b36585556766f4d396f633765546d44714f356f5466656d5450"
+   "text": "0: str = \"\"\n",
+   "hex": "0100"
   },
   {
-   "text": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
-   "hex": "f2f201041f6100e0"
+   "text": "0: str = \"a\"\n",
+   "hex": "010161"
   },
   {
-   "text": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
-   "hex": "f2ac02051f6100ff1b"
+   "text": "0: str = \"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvw\"\n",
+   "hex": "017f6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f7071727374757677"
   },
   {
-   "text": "\"Συνάντηση στο γραφείο, € 90.00 ανά άτομο. Συνάντηση στο γραφείο, € 90.00 ανά άτομο. Συνάντηση στο γραφείο, € 90.00 ανά άτομο. Συνάντηση στο γραφείο, € 90.00 ανά άτομο. Συνάντηση στο γραφείο, € 90.00 ανά άτομο. Συνάντηση στο γραφείο, € 90.00 ανά άτομο. Συνάντηση στο γραφείο, € 90.00 ανά άτομο. Συνάντηση στο γραφείο, € 90.00 ανά άτομο. \"",
-   "hex": "f2b80448710ecea3cf85cebdceaccebdcf84ceb7cf83ceb720cf830a7217bf20ceb3cf81ceb1cf86ceb5ceafcebf2c20e282ac2039302e303020ceb1313220ceac276fcebccebf2e2046ffe1"
+   "text": "0: str = \"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx\"\n",
+   "hex": "01c9006162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778"
   },
   {
-   "text": "\"5HnG86CXvLI5vdP9sLZuMuAevPNiWD6suGGkmjDfhoZqsRCUh5R4cVxzoPwzjg8aJf3f1KCEzFWxMHhc1rDCeoN5DcQdrlBABfKTMXRryuzBBne6Mw2ukzgchrjxeqrZdEsm2HlUahLX6Ni6LjGsjE3DmistjPAa4MQDjDch1NBrwZOvOilxLKvmSzlwEmYkFLTY3RHxNsFmhM9weXyjlmbOwaEztsjB9UZ8PgFBqRUjjbvoZV4e8bvqWk5HnG8\"",
-   "hex": "feff0135486e4738364358764c493576645039734c5a754d75416576504e69574436737547476b6d6a4466686f5a7173524355683552346356787a6f50777a6a6738614a663366314b43457a4657784d48686331724443656f4e3544635164726c424142664b544d58527279757a42426e65364d7732756b7a676368726a786571725a6445736d32486c5561684c58364e69364c6a47736a4533446d6973746a504161344d51446a446368314e4272775a4f764f696c784c4b766d537a6c77456d596b464c5459335248784e73466d684d39776558796a6c6d624f7761457a74736a4239555a38506746427152556a6a62766f5a56346538627671576b35486e4738"
+   "text": "0: str = \"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr\"\n",
+   "hex": "01c9486162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172"
   },
   {
-   "text": "\"OEdAM0xoOu8QgfLqpW5xxVYAHYa2oHWXMbtYFOMqo2CkLPj64buCgRp1piRjJX9SB8CFB5PbhurlK2nGmTaeKZQKPi9GXjRJRZIPZHcUxeB0YZdUA9zfeI6s5vn5ZvDCIX6cGZVlL0WJNro4dvG34ivEZqOQi26T48HxpwqjgeZ7oWyWBakocz2IH7P7bSeJOkaPCaA6kIBuPKSTE7CNU3QcaXJRzwCy0gmABG5LCvvLEbqKpxLlpVTHNfOEdAM0\"",
-   "hex": "f28002fd0174f34f4564414d30786f4f75385167664c717057357878565941485961326f4857584d627459464f4d716f32436b4c506a3634627543675270317069526a4a58395342384346423550626875726c4b326e476d5461654b5a514b50693947586a524a525a49505a48635578654230595a645541397a666549367335766e355a76444349583663475a566c4c30574a4e726f3464764733346976455a714f5169323654343848787077716a67655a376f57795742616b6f637a3249483750376253654a4f6b6150436141366b494275504b53544537434e5533516361584a527a77437930676d414247354c4376764c4562714b70784c6c705654484e66f9"
+   "text": "0: str = \"héllo wörld — ΑΒΓ 日本語 🙂\"\n",
+   "hex": "012768c3a96c6c6f2077c3b6726c6420e2809420ce91ce92ce9320e697a5e69cace8aa9e20f09f9982"
   },
   {
-   "text": "none",
-   "hex": "f3"
+   "text": "0: str = \"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"\n",
+   "hex": "01c900c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9"
   },
   {
-   "text": "false",
-   "hex": "f4"
+   "text": "0: str = \"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééx\"\n",
+   "hex": "017fc3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a978"
   },
   {
-   "text": "true",
-   "hex": "f5"
+   "text": "0: str = \"quote\\\" backslash\\\\ bs\\b ff\\f nl\\n cr\\r tab\\t nul\\u0000 soh\\u0001 us\\u001f esc\\u001b space slash/ del ls  nbsp \"\n",
+   "hex": "015871756f746522206261636b736c6173685c206273082066660c206e6c0a2063720d2074616209206e756c0020736f68012075731f206573631b20737061636520736c6173682f2064656c7f206c73e280a8206e627370c2a0"
   },
   {
-   "text": "0",
-   "hex": "f600"
+   "text": "0: str = \"\\\"\"\n1: str = \"\\\\\"\n2: str = \"\\n\"\n3: str = \"\\u0000\"\n4: str = \"\\u001f\"\n",
+   "hex": "050122015c010a0100011f"
   },
   {
-   "text": "-7",
-   "hex": "f60d"
+   "text": "0: bin = 0x\n",
+   "hex": "0180"
   },
   {
-   "text": "300",
-   "hex": "f6d804"
+   "text": "0: bin = 0x00\n",
+   "hex": "018100"
   },
   {
-   "text": "63",
-   "hex": "f67e"
+   "text": "0: bin = 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e\n",
+   "hex": "01bf000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e"
   },
   {
-   "text": "64",
-   "hex": "f68001"
+   "text": "0: bin = 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f\n",
+   "hex": "01ca00000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
   },
   {
-   "text": "-64",
-   "hex": "f67f"
+   "text": "0: bin = 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60616263\n",
+   "hex": "01ca24000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60616263"
   },
   {
-   "text": "-65",
-   "hex": "f68101"
+   "text": "0: bin = 0x00ff10ab\n",
+   "hex": "018400ff10ab"
   },
   {
-   "text": "9007199254740991",
-   "hex": "f6feffffffffffff1f"
+   "text": "0: int = 0\n",
+   "hex": "01c300"
   },
   {
-   "text": "-9007199254740991",
-   "hex": "f6fdffffffffffff1f"
+   "text": "0: int = 1\n",
+   "hex": "01c302"
   },
   {
-   "text": "90.00",
-   "hex": "f702d08c01"
+   "text": "0: int = -1\n",
+   "hex": "01c301"
   },
   {
-   "text": "1500.",
-   "hex": "f700b817"
+   "text": "0: int = 63\n",
+   "hex": "01c37e"
   },
   {
-   "text": "-0.05",
-   "hex": "f70209"
+   "text": "0: int = -64\n",
+   "hex": "01c37f"
   },
   {
-   "text": "0.00",
-   "hex": "f70200"
+   "text": "0: int = 64\n",
+   "hex": "01c38000"
   },
   {
-   "text": "0.",
-   "hex": "f70000"
+   "text": "0: int = 1234\n",
+   "hex": "01c39224"
   },
   {
-   "text": "0.000000000000001",
-   "hex": "f70f02"
+   "text": "0: int = 12_345\n",
+   "hex": "01c380bf72"
   },
   {
-   "text": "9.007199254740991",
-   "hex": "f70ffeffffffffffff1f"
+   "text": "0: int = -12_345\n",
+   "hex": "01c380bf71"
   },
   {
-   "text": "-9007199254740991.",
-   "hex": "f700fdffffffffffff1f"
+   "text": "0: int = 9_007_199_254_740_991\n",
+   "hex": "01c39efefefefefefe7e"
   },
   {
-   "text": "123456.789",
-   "hex": "f703aab4de75"
+   "text": "0: int = -9_007_199_254_740_991\n",
+   "hex": "01c39efefefefefefe7d"
   },
   {
-   "text": "9.05e1",
-   "hex": "f80000000000a05640"
+   "text": "0: int = -8256\n",
+   "hex": "01c3ff7f"
   },
   {
-   "text": "1e-3",
-   "hex": "f8fca9f1d24d62503f"
+   "text": "0: int = 8256\n",
+   "hex": "01c3808000"
   },
   {
-   "text": "0e0",
-   "hex": "f80000000000000000"
+   "text": "0: int = -1_056_832\n",
+   "hex": "01c3ffff7f"
   },
   {
-   "text": "-1.5e-7",
-   "hex": "f876830df4f52184be"
+   "text": "0: int = 1_056_832\n",
+   "hex": "01c380808000"
   },
   {
-   "text": "1e21",
-   "hex": "f850efe2d6e41a4b44"
+   "text": "0: int = 100_000\n",
+   "hex": "01c38b9940"
   },
   {
-   "text": "5e-324",
-   "hex": "f80100000000000000"
+   "text": "0: int = -1_000_000\n",
+   "hex": "01c3f9877f"
   },
   {
-   "text": "1.7976931348623157e308",
-   "hex": "f8ffffffffffffef7f"
+   "text": "0: int = 99_999\n",
+   "hex": "01c38b993e"
   },
   {
-   "text": "1e-1",
-   "hex": "f89a9999999999b93f"
+   "text": "0: int = 123_456_789\n",
+   "hex": "01c3f4ddb32a"
   },
   {
-   "text": "1e0",
-   "hex": "f8000000000000f03f"
+   "text": "0: dec = 1500\n",
+   "hex": "01d09638"
   },
   {
-   "text": "-2e0",
-   "hex": "f800000000000000c0"
+   "text": "0: dec = 9.99\n",
+   "hex": "01d28e4e"
   },
   {
-   "text": "1.23456789e5",
-   "hex": "f8c976be9f0c24fe40"
+   "text": "0: dec = -0.05\n",
+   "hex": "01d209"
   },
   {
-   "text": "1e-5",
-   "hex": "f8f168e388b5f8e43e"
+   "text": "0: dec = 0.00\n",
+   "hex": "01d200"
   },
   {
-   "text": "2026-10-08",
-   "hex": "f9fcc302"
+   "text": "0: dec = 0\n",
+   "hex": "01d000"
   },
   {
-   "text": "1969-12-31",
-   "hex": "f901"
+   "text": "0: dec = 12_345.50\n",
+   "hex": "01d28095d86c"
   },
   {
-   "text": "1970-01-01",
-   "hex": "f900"
+   "text": "0: dec = 1234.50\n",
+   "hex": "01d28e8774"
   },
   {
-   "text": "0001-01-01",
-   "hex": "f9f3e457"
+   "text": "0: dec = -12_345.50\n",
+   "hex": "01d28095d86b"
   },
   {
-   "text": "9999-12-31",
-   "hex": "f9c082e602"
+   "text": "0: dec = 0.000000000000001\n",
+   "hex": "01df02"
   },
   {
-   "text": "2000-02-29",
-   "hex": "f990ac01"
+   "text": "0: dec = 0.123456789012345\n",
+   "hex": "01dfb7918fdfedfc72"
   },
   {
-   "text": "2026-10-08T09:30:00.000Z",
-   "hex": "fa8087c9ada368"
+   "text": "0: dec = 9.007199254740991\n",
+   "hex": "01df9efefefefefefe7e"
   },
   {
-   "text": "1970-01-01T00:00:00.000Z",
-   "hex": "fa00"
+   "text": "0: dec = -9.007199254740991\n",
+   "hex": "01df9efefefefefefe7d"
   },
   {
-   "text": "1969-12-31T23:59:59.999Z",
-   "hex": "fa01"
+   "text": "0: dec = 9_007_199_254_740_991\n",
+   "hex": "01d09efefefefefefe7e"
   },
   {
-   "text": "0001-01-01T00:00:00.000Z",
-   "hex": "faffdfe6a2e2a01c"
+   "text": "0: dec = -90_071_992_547_409.91\n",
+   "hex": "01d29efefefefefefe7d"
   },
   {
-   "text": "9999-12-31T23:59:59.999Z",
-   "hex": "fafeeffea1fa9d73"
+   "text": "0: dec = 90.00\n1: dec = 90.0\n",
+   "hex": "02d2808b50d18d08"
   },
   {
-   "text": "00:00:00.000",
-   "hex": "fb00"
+   "text": "0: f64 = 0\n",
+   "hex": "01c40000000000000000"
   },
   {
-   "text": "09:30:00.000",
-   "hex": "fbc0b3a710"
+   "text": "0: f64 = 3\n",
+   "hex": "01c40000000000000840"
   },
   {
-   "text": "23:59:59.999",
-   "hex": "fbffb79929"
+   "text": "0: f64 = 9.99\n",
+   "hex": "01c47b14ae47e1fa2340"
   },
   {
-   "text": "0s",
-   "hex": "fc00"
+   "text": "0: f64 = -1.5\n",
+   "hex": "01c4000000000000f8bf"
   },
   {
-   "text": "-0.5s",
-   "hex": "fce707"
+   "text": "0: f64 = 0.30000000000000004\n",
+   "hex": "01c4343333333333d33f"
   },
   {
-   "text": "1h30m15.25s",
-   "hex": "fca4859505"
+   "text": "0: f64 = 0.000001\n",
+   "hex": "01c48dedb5a0f7c6b03e"
   },
   {
-   "text": "1h",
-   "hex": "fc80bab703"
+   "text": "0: f64 = 9.99e-7\n",
+   "hex": "01c4d8e3bb1dacc2b03e"
   },
   {
-   "text": "1m1s",
-   "hex": "fc90b907"
+   "text": "0: f64 = 100_000_000_000_000_000_000\n",
+   "hex": "01c4408cb5781daf1544"
   },
   {
-   "text": "0.001s",
-   "hex": "fc02"
+   "text": "0: f64 = 1e21\n",
+   "hex": "01c450efe2d6e41a4b44"
   },
   {
-   "text": "1m",
-   "hex": "fcc0a907"
+   "text": "0: f64 = 123_456_789.5\n",
+   "hex": "01c400000056346f9d41"
   },
   {
-   "text": "-25h1m1.001s",
-   "hex": "fc91e3f155"
+   "text": "0: f64 = -1.5e-7\n",
+   "hex": "01c476830df4f52184be"
   },
   {
-   "text": "2501999792h59m0.991s",
-   "hex": "fcfeffffffffffff1f"
+   "text": "0: f64 = 5e-324\n",
+   "hex": "01c40100000000000000"
   },
   {
-   "text": "-2501999792h59m0.991s",
-   "hex": "fcfdffffffffffff1f"
+   "text": "0: f64 = 1.7976931348623157e308\n",
+   "hex": "01c4ffffffffffffef7f"
   },
   {
-   "text": "0x",
-   "hex": "fd00"
+   "text": "0: f64 = 0.001\n",
+   "hex": "01c4fca9f1d24d62503f"
   },
   {
-   "text": "0x00ff",
-   "hex": "fd0200ff"
+   "text": "0: f64 = 12_345.6\n",
+   "hex": "01c4cdcccccccc1cc840"
   },
   {
-   "text": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-   "hex": "fdac02000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+   "text": "0: f64 = 1234.5\n",
+   "hex": "01c400000000004a9340"
   },
   {
-   "text": "[]",
-   "hex": "ff00"
+   "text": "0: f64 = -12_345_678.25\n",
+   "hex": "01c4000000c8298c67c1"
   },
   {
-   "text": "[\"ben\", 1]",
-   "hex": "ff020362656ef602"
+   "text": "0: f64 = 9_007_199_254_740_992\n",
+   "hex": "01c40000000000004043"
   },
   {
-   "text": "[none, true, 0x01, 1.50, 2026-10-08, \"a\"]",
-   "hex": "ff06f3f5fd0101f702ac02f9fcc3020161"
+   "text": "0: f64 = 1e100\n",
+   "hex": "01c47dc39425ad49b254"
   },
   {
-   "text": "",
-   "hex": ""
+   "text": "0: f64 = 0.5\n",
+   "hex": "01c4000000000000e03f"
   },
   {
-   "text": "\"x\" 2026-10-08 \"EUR\" 90.00 none \"8FVC9G8F+6X\" \"pavlos\" none \"ben\" [\"pavlos\", 1, \"ben\", 1] \"taxi\"",
-   "hex": "0178f9fcc30203455552f702d08c01f30b38465643394738462b3658067061766c6f73f30362656eff04067061766c6f73f6020362656ef6020474617869"
+   "text": "0: date = 0001-01-01\n",
+   "hex": "01c5d6e373"
   },
   {
-   "text": "1 2 3",
-   "hex": "f602f604f606"
+   "text": "0: date = 1970-01-01\n",
+   "hex": "01c500"
+  },
+  {
+   "text": "0: date = 2026-11-21\n",
+   "hex": "01c581c354"
+  },
+  {
+   "text": "0: date = 9999-12-31\n",
+   "hex": "01c581e58140"
+  },
+  {
+   "text": "0: date = 1969-12-31\n",
+   "hex": "01c501"
+  },
+  {
+   "text": "0: utc = 0001-01-01T00:00:00.000Z\n",
+   "hex": "01c69b9fe1a1e5de7f"
+  },
+  {
+   "text": "0: utc = 9999-12-31T23:59:59.999Z\n",
+   "hex": "01c6f29cf9a0fdee7e"
+  },
+  {
+   "text": "0: utc = 1970-01-01T00:00:00.000Z\n",
+   "hex": "01c600"
+  },
+  {
+   "text": "0: utc = 2026-11-21T09:30:00.123Z\n",
+   "hex": "01c6e7bed686c776"
+  },
+  {
+   "text": "0: utc = 1969-12-31T23:59:59.999Z\n",
+   "hex": "01c601"
+  },
+  {
+   "text": "0: time = 00:00:00.000\n",
+   "hex": "01c700"
+  },
+  {
+   "text": "0: time = 23:59:59.999\n",
+   "hex": "01c7a898b67f"
+  },
+  {
+   "text": "0: time = 09:30:00.000\n",
+   "hex": "01c78fa6b240"
+  },
+  {
+   "text": "0: dur = 0s\n",
+   "hex": "01c800"
+  },
+  {
+   "text": "0: dur = -0.5s\n",
+   "hex": "01c88667"
+  },
+  {
+   "text": "0: dur = 1h30m15.25s\n",
+   "hex": "01c884948424"
+  },
+  {
+   "text": "0: dur = 2501999792h59m0.991s\n",
+   "hex": "01c89efefefefefefe7e"
+  },
+  {
+   "text": "0: dur = -2501999792h59m0.991s\n",
+   "hex": "01c89efefefefefefe7d"
+  },
+  {
+   "text": "0: dur = 0.001s\n",
+   "hex": "01c802"
+  },
+  {
+   "text": "0: dur = 1m\n",
+   "hex": "01c886a840"
+  },
+  {
+   "text": "0: dur = 1h\n",
+   "hex": "01c882b6b900"
+  },
+  {
+   "text": "0: dur = 25h1m1.001s\n",
+   "hex": "01c8d4f0e212"
+  },
+  {
+   "text": "0: dur = -1h0.5s\n",
+   "hex": "01c882b6c067"
+  },
+  {
+   "text": "0: row\n",
+   "hex": "01e0"
+  },
+  {
+   "text": "0: row\n0.0: int = 0\n",
+   "hex": "01e1c300"
+  },
+  {
+   "text": "0: row\n0.0: int = 0\n0.1: int = 1\n0.2: int = 2\n0.3: int = 3\n0.4: int = 4\n0.5: int = 5\n0.6: int = 6\n0.7: int = 7\n0.8: int = 8\n0.9: int = 9\n0.10: int = 10\n0.11: int = 11\n0.12: int = 12\n0.13: int = 13\n0.14: int = 14\n",
+   "hex": "01efc300c302c304c306c308c30ac30cc30ec310c312c314c316c318c31ac31c"
+  },
+  {
+   "text": "0: row\n0.0: int = 0\n0.1: int = 1\n0.2: int = 2\n0.3: int = 3\n0.4: int = 4\n0.5: int = 5\n0.6: int = 6\n0.7: int = 7\n0.8: int = 8\n0.9: int = 9\n0.10: int = 10\n0.11: int = 11\n0.12: int = 12\n0.13: int = 13\n0.14: int = 14\n0.15: int = 15\n",
+   "hex": "01cb00c300c302c304c306c308c30ac30cc30ec310c312c314c316c318c31ac31cc31e"
+  },
+  {
+   "text": "0: row\n0.0: int = 0\n0.1: int = 1\n0.2: int = 2\n0.3: int = 3\n0.4: int = 4\n0.5: int = 5\n0.6: int = 6\n0.7: int = 7\n0.8: int = 8\n0.9: int = 9\n0.10: int = 10\n0.11: int = 11\n0.12: int = 12\n0.13: int = 13\n0.14: int = 14\n0.15: int = 15\n0.16: int = 16\n0.17: int = 17\n0.18: int = 18\n0.19: int = 19\n",
+   "hex": "01cb04c300c302c304c306c308c30ac30cc30ec310c312c314c316c318c31ac31cc31ec320c322c324c326"
+  },
+  {
+   "text": "0: row\n1: row\n2: row\n2.0: row\n",
+   "hex": "03e0e0e1e0"
+  },
+  {
+   "text": "0: str = \"top\"\n1: row\n1.0: str = \"mid\"\n1.1: row\n1.1.0: str = \"leaf\"\n1.1.1: int = 1\n1.2: row\n1.3: int = 2\n2: int = 3\n",
+   "hex": "0303746f70e4036d6964e2046c656166c302e0c304c306"
+  },
+  {
+   "text": "0: row\n0.0: row\n0.0.0: int = 7\n",
+   "hex": "01e1e1c30e"
+  },
+  {
+   "text": "0: int = 0\n1: int = 1\n2: int = 2\n3: row\n3.0: int = 0\n3.1: int = 10\n3.2: int = 20\n3.3: int = 30\n3.4: int = 40\n3.5: int = 50\n3.6: int = 60\n3.7: int = 70\n3.8: int = 80\n3.9: int = 90\n3.10: int = 100\n3.11: int = 110\n",
+   "hex": "04c300c302c304ecc300c314c328c33cc350c364c378c3800cc38020c38034c38048c3805c"
+  },
+  {
+   "text": "0: int = 42\n",
+   "hex": "01c354"
+  },
+  {
+   "text": "0: int = 0\n1: int = 1\n2: int = 2\n3: int = 3\n4: int = 4\n5: int = 5\n6: int = 6\n7: int = 7\n8: int = 8\n9: int = 9\n10: int = 10\n11: int = 11\n12: int = 12\n13: int = 13\n14: int = 14\n15: int = 15\n16: int = 16\n17: int = 17\n18: int = 18\n19: int = 19\n20: int = 20\n21: int = 21\n22: int = 22\n23: int = 23\n24: int = 24\n25: int = 25\n26: int = 26\n27: int = 27\n28: int = 28\n29: int = 29\n30: int = 30\n31: int = 31\n32: int = 32\n33: int = 33\n34: int = 34\n35: int = 35\n36: int = 36\n37: int = 37\n38: int = 38\n39: int = 39\n40: int = 40\n41: int = 41\n42: int = 42\n43: int = 43\n44: int = 44\n45: int = 45\n46: int = 46\n47: int = 47\n48: int = 48\n49: int = 49\n50: int = 50\n51: int = 51\n52: int = 52\n53: int = 53\n54: int = 54\n55: int = 55\n56: int = 56\n57: int = 57\n58: int = 58\n59: int = 59\n60: int = 60\n61: int = 61\n62: int = 62\n63: int = 63\n64: int = 64\n65: int = 65\n66: int = 66\n67: int = 67\n68: int = 68\n69: int = 69\n70: int = 70\n71: int = 71\n72: int = 72\n73: int = 73\n74: int = 74\n75: int = 75\n76: int = 76\n77: int = 77\n78: int = 78\n79: int = 79\n80: int = 80\n81: int = 81\n82: int = 82\n83: int = 83\n84: int = 84\n85: int = 85\n86: int = 86\n87: int = 87\n88: int = 88\n89: int = 89\n90: int = 90\n91: int = 91\n92: int = 92\n93: int = 93\n94: int = 94\n95: int = 95\n96: int = 96\n97: int = 97\n98: int = 98\n99: int = 99\n100: int = 100\n101: int = 101\n102: int = 102\n103: int = 103\n104: int = 104\n105: int = 105\n106: int = 106\n107: int = 107\n108: int = 108\n109: int = 109\n110: int = 110\n111: int = 111\n112: int = 112\n113: int = 113\n114: int = 114\n115: int = 115\n116: int = 116\n117: int = 117\n118: int = 118\n119: int = 119\n120: int = 120\n121: int = 121\n122: int = 122\n123: int = 123\n124: int = 124\n125: int = 125\n126: int = 126\n127: int = 127\n128: int = 128\n129: int = 129\n130: int = 130\n131: int = 131\n132: int = 132\n133: int = 133\n134: int = 134\n135: int = 135\n136: int = 136\n137: int = 137\n138: int = 138\n139: int = 139\n140: int = 140\n141: int = 141\n142: int = 142\n143: int = 143\n144: int = 144\n145: int = 145\n146: int = 146\n147: int = 147\n148: int = 148\n149: int = 149\n150: int = 150\n151: int = 151\n152: int = 152\n153: int = 153\n154: int = 154\n155: int = 155\n156: int = 156\n157: int = 157\n158: int = 158\n159: int = 159\n160: int = 160\n161: int = 161\n162: int = 162\n163: int = 163\n164: int = 164\n165: int = 165\n166: int = 166\n167: int = 167\n168: int = 168\n169: int = 169\n170: int = 170\n171: int = 171\n172: int = 172\n173: int = 173\n174: int = 174\n175: int = 175\n176: int = 176\n177: int = 177\n178: int = 178\n179: int = 179\n180: int = 180\n181: int = 181\n182: int = 182\n183: int = 183\n184: int = 184\n185: int = 185\n186: int = 186\n187: int = 187\n188: int = 188\n189: int = 189\n190: int = 190\n191: int = 191\n192: int = 192\n193: int = 193\n194: int = 194\n195: int = 195\n196: int = 196\n197: int = 197\n198: int = 198\n199: int = 199\n",
+   "hex": "8048c300c302c304c306c308c30ac30cc30ec310c312c314c316c318c31ac31cc31ec320c322c324c326c328c32ac32cc32ec330c332c334c336c338c33ac33cc33ec340c342c344c346c348c34ac34cc34ec350c352c354c356c358c35ac35cc35ec360c362c364c366c368c36ac36cc36ec370c372c374c376c378c37ac37cc37ec38000c38002c38004c38006c38008c3800ac3800cc3800ec38010c38012c38014c38016c38018c3801ac3801cc3801ec38020c38022c38024c38026c38028c3802ac3802cc3802ec38030c38032c38034c38036c38038c3803ac3803cc3803ec38040c38042c38044c38046c38048c3804ac3804cc3804ec38050c38052c38054c38056c38058c3805ac3805cc3805ec38060c38062c38064c38066c38068c3806ac3806cc3806ec38070c38072c38074c38076c38078c3807ac3807cc3807ec38100c38102c38104c38106c38108c3810ac3810cc3810ec38110c38112c38114c38116c38118c3811ac3811cc3811ec38120c38122c38124c38126c38128c3812ac3812cc3812ec38130c38132c38134c38136c38138c3813ac3813cc3813ec38140c38142c38144c38146c38148c3814ac3814cc3814ec38150c38152c38154c38156c38158c3815ac3815cc3815ec38160c38162c38164c38166c38168c3816ac3816cc3816ec38170c38172c38174c38176c38178c3817ac3817cc3817ec38200c38202c38204c38206c38208c3820ac3820cc3820e"
+  },
+  {
+   "text": "0: str = \"0\"\n1: str = \"1\"\n2: str = \"2\"\n3: str = \"3\"\n4: str = \"4\"\n5: str = \"5\"\n6: str = \"6\"\n7: str = \"7\"\n8: str = \"8\"\n9: str = \"9\"\n10: str = \"10\"\n11: str = \"11\"\n12: str = \"12\"\n13: str = \"13\"\n14: str = \"14\"\n15: str = \"15\"\n",
+   "hex": "100130013101320133013401350136013701380139023130023131023132023133023134023135"
+  },
+  {
+   "text": "0: none\n1: none\n2: none\n3: none\n4: none\n5: none\n6: none\n7: none\n8: none\n9: none\n10: none\n11: none\n12: none\n13: none\n14: none\n15: none\n16: none\n17: none\n18: none\n19: none\n20: none\n21: none\n22: none\n23: none\n24: none\n25: none\n26: none\n27: none\n28: none\n29: none\n30: none\n31: none\n32: none\n33: none\n34: none\n35: none\n36: none\n37: none\n38: none\n39: none\n40: none\n41: none\n42: none\n43: none\n44: none\n45: none\n46: none\n47: none\n48: none\n49: none\n50: none\n51: none\n52: none\n53: none\n54: none\n55: none\n56: none\n57: none\n58: none\n59: none\n60: none\n61: none\n62: none\n63: none\n64: none\n65: none\n66: none\n67: none\n68: none\n69: none\n70: none\n71: none\n72: none\n73: none\n74: none\n75: none\n76: none\n77: none\n78: none\n79: none\n80: none\n81: none\n82: none\n83: none\n84: none\n85: none\n86: none\n87: none\n88: none\n89: none\n90: none\n91: none\n92: none\n93: none\n94: none\n95: none\n96: none\n97: none\n98: none\n99: none\n100: none\n101: none\n102: none\n103: none\n104: none\n105: none\n106: none\n107: none\n108: none\n109: none\n110: none\n111: none\n112: none\n113: none\n114: none\n115: none\n116: none\n117: none\n118: none\n119: none\n120: none\n121: none\n122: none\n123: none\n124: none\n125: none\n126: none\n127: none\n",
+   "hex": "8000c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"
+  },
+  {
+   "text": "0: none\n1: bool = false\n2: bool = true\n3: int = -7\n4: f64 = 9.99\n5: date = 2026-11-21\n6: utc = 2026-11-21T09:30:00.000Z\n7: time = 09:30:00.000\n8: dur = 1h30m15.25s\n9: str = \"x\"\n10: bin = 0x00ff\n11: dec = 9.99\n12: row\n12.0: str = \"nested\"\n",
+   "hex": "0dc0c1c2c30dc47b14ae47e1fa2340c581c354c6e7bed686c600c78fa6b240c88494842401788200ffd28e4ee1066e6573746564"
+  },
+  {
+   "text": "0: str = \"invoice\"\n1: date = 2026-11-21\n2: str = \"EUR\"\n3: row\n3.0: row\n3.0.0: str = \"Widget\"\n3.0.1: int = 3\n3.0.2: dec = 9.99\n3.1: row\n3.1.0: str = \"Gadget, large\"\n3.1.1: int = 1\n3.1.2: dec = 12_345.50\n3.2: row\n3.2.0: str = \"Shipping\"\n3.2.1: int = 1\n3.2.2: dec = 0.00\n",
+   "hex": "0407696e766f696365c581c35403455552e3e306576964676574c306d28e4ee30d4761646765742c206c61726765c302d28095d86ce3085368697070696e67c302d200"
+  },
+  {
+   "text": "0: str = \"invoice\"\n1: date = 2026-01-02\n2: str = \"EUR\"\n3: row\n",
+   "hex": "0407696e766f696365c581be4e03455552e0"
+  },
+  {
+   "text": "0: str = \"expense\"\n1: utc = 2026-11-20T19:45:00.000Z\n2: str = \"Dinner\"\n3: dec = 86.40\n4: str = \"EUR\"\n5: none\n6: row\n6.0: row\n6.0.0: str = \"alice\"\n6.0.1: dec = 43.20\n6.1: row\n6.1.0: str = \"bob\"\n6.1.1: dec = 43.20\n",
+   "hex": "0707657870656e7365c6e7bea6ec88400644696e6e6572d280860003455552c0e2e205616c696365d2c240e203626f62d2c240"
+  },
+  {
+   "text": "0: str = \"expense\"\n1: date = 2026-11-21\n2: str = \"Taxi\"\n3: dec = 25.00\n4: str = \"GBP\"\n5: str = \"receipt 0042\"\n6: row\n6.0: row\n6.0.0: str = \"carol\"\n6.0.1: dec = 25.00\n6.0.2: none\n",
+   "hex": "0707657870656e7365c581c3540454617869d2a608034742500c726563656970742030303432e1e3056361726f6cd2a608c0"
+  }
+ ],
+ "labeled": [
+  {
+   "text": "\"g/X/start\": row\n\"g/X/start\" 0: str = \"start\"\n\"g/X/start\" 1: row\n\"g/X/start\" 1.0: str = \"raiders\"\n\"m/0001\": row\n\"m/0001\" 0: str = \"say\"\n\"m/0001\" 1: str = \"hello\"\n\"m/0001\" 2: utc = 2026-11-21T09:30:00.005Z\n\"0\": row\n\"0\" 0: int = 0\n\"10\": row\n\"10\" 0: int = 10\n\"10\" 1: none\n\"9\": row\n\"9\" 0: int = 9\n\"9\" 1: row\n\"9\" 1.0: row\n\"9\" 1.0.0: dec = -0.05\n",
+   "rows": [
+    {
+     "label": "g/X/start",
+     "hex": "02057374617274e10772616964657273"
+    },
+    {
+     "label": "m/0001",
+     "hex": "03037361790568656c6c6fc6e7bed686c60a"
+    },
+    {
+     "label": "0",
+     "hex": "01c300"
+    },
+    {
+     "label": "10",
+     "hex": "02c314c0"
+    },
+    {
+     "label": "9",
+     "hex": "02c312e1e1d209"
+    }
+   ]
+  },
+  {
+   "text": "\"10\": row\n\"10\" 0: str = \"ten\"\n\"9\": row\n\"9\" 0: str = \"nine\"\n\"9\" 1: f64 = 9.99\n\"0\": row\n\"0\" 0: str = \"zero\"\n\"0\" 1: bool = true\n\"1\": row\n\"1\" 0: str = \"one\"\n\"1\" 1: bin = 0x01\n",
+   "rows": [
+    {
+     "label": "10",
+     "hex": "010374656e"
+    },
+    {
+     "label": "9",
+     "hex": "02046e696e65c47b14ae47e1fa2340"
+    },
+    {
+     "label": "0",
+     "hex": "02047a65726fc2"
+    },
+    {
+     "label": "1",
+     "hex": "02036f6e658101"
+    }
+   ]
+  },
+  {
+   "text": "\"m/0002\": row\n\"m/0002\" 0: str = \"line\\nbreak \\\"quoted\\\"\"\n\"m/0002\" 1: dur = -0.5s\n\"label with \\\"quote\\\" and \\\\\": row\n\"label with \\\"quote\\\" and \\\\\" 0: date = 9999-12-31\n\"\": row\n\"\" 0: time = 23:59:59.999\n\"m/0001\": row\n\"m/0001\" 0: int = 0\n\"m/0001\" 1: int = 1\n\"m/0001\" 2: int = 2\n\"m/0001\" 3: int = 3\n\"m/0001\" 4: int = 4\n\"m/0001\" 5: int = 5\n\"m/0001\" 6: int = 6\n\"m/0001\" 7: int = 7\n\"m/0001\" 8: int = 8\n\"m/0001\" 9: int = 9\n\"m/0001\" 10: int = 10\n\"m/0001\" 11: int = 11\n\"m/0001\" 12: int = 12\n\"m/0001\" 13: int = 13\n\"m/0001\" 14: int = 14\n\"m/0001\" 15: int = 15\n\"é/日本\": row\n\"é/日本\" 0: str = \"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"\n",
+   "rows": [
+    {
+     "label": "m/0002",
+     "hex": "02136c696e650a627265616b202271756f74656422c88667"
+    },
+    {
+     "label": "label with \"quote\" and \\",
+     "hex": "01c581e58140"
+    },
+    {
+     "label": "",
+     "hex": "01c7a898b67f"
+    },
+    {
+     "label": "m/0001",
+     "hex": "10c300c302c304c306c308c30ac30cc30ec310c312c314c316c318c31ac31cc31e"
+    },
+    {
+     "label": "é/日本",
+     "hex": "01c900c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9"
+    }
+   ]
+  },
+  {
+   "text": "\"g/X/start\": row\n\"g/X/start\" 0: str = \"start\"\n\"empty\": row\n\"m/0001\": row\n\"m/0001\" 0: str = \"say\"\n\"m/0001\" 1: row\n",
+   "rows": [
+    {
+     "label": "g/X/start",
+     "hex": "01057374617274"
+    },
+    {
+     "label": "empty",
+     "hex": "00"
+    },
+    {
+     "label": "m/0001",
+     "hex": "0203736179e0"
+    }
+   ]
+  },
+  {
+   "text": "\"empty\": row\n\"9\": row\n\"9\" 0: int = 9\n\"10\": row\n",
+   "rows": [
+    {
+     "label": "empty",
+     "hex": "00"
+    },
+    {
+     "label": "9",
+     "hex": "01c312"
+    },
+    {
+     "label": "10",
+     "hex": "00"
+    }
+   ]
+  },
+  {
+   "text": "\"\": row\n",
+   "rows": [
+    {
+     "label": "",
+     "hex": "00"
+    }
+   ]
+  }
+ ],
+ "lenient": [
+  {
+   "text": "0 : int = +007\n",
+   "canonical": "0: int = 7\n"
+  },
+  {
+   "text": "0: int = 1_2345\n",
+   "canonical": "0: int = 12_345\n"
+  },
+  {
+   "text": "0: int = -0\n",
+   "canonical": "0: int = 0\n"
+  },
+  {
+   "text": "0: dec = +09.99\n",
+   "canonical": "0: dec = 9.99\n"
+  },
+  {
+   "text": "0: dec = .5\n",
+   "canonical": "0: dec = 0.5\n"
+  },
+  {
+   "text": "0: dec = -0.00\n",
+   "canonical": "0: dec = 0.00\n"
+  },
+  {
+   "text": "0: dec = 1500.\n",
+   "canonical": "0: dec = 1500\n"
+  },
+  {
+   "text": "0: dec = 1_234.5_0\n",
+   "canonical": "0: dec = 1234.50\n"
+  },
+  {
+   "text": "0: f64 = 9.99e0\n",
+   "canonical": "0: f64 = 9.99\n"
+  },
+  {
+   "text": "0: f64 = 1E3\n",
+   "canonical": "0: f64 = 1000\n"
+  },
+  {
+   "text": "0: f64 = +1.5\n",
+   "canonical": "0: f64 = 1.5\n"
+  },
+  {
+   "text": "0: f64 = .5\n",
+   "canonical": "0: f64 = 0.5\n"
+  },
+  {
+   "text": "0: f64 = 5.\n",
+   "canonical": "0: f64 = 5\n"
+  },
+  {
+   "text": "0: f64 = 1_000.5\n",
+   "canonical": "0: f64 = 1000.5\n"
+  },
+  {
+   "text": "0: f64 = 0.000000999\n",
+   "canonical": "0: f64 = 9.99e-7\n"
+  },
+  {
+   "text": "0: f64 = 1e+21\n",
+   "canonical": "0: f64 = 1e21\n"
+  },
+  {
+   "text": "0: utc = 2026-11-21T09:30:00Z\n",
+   "canonical": "0: utc = 2026-11-21T09:30:00.000Z\n"
+  },
+  {
+   "text": "0: utc = 2026-11-21t09:30:00.5z\n",
+   "canonical": "0: utc = 2026-11-21T09:30:00.500Z\n"
+  },
+  {
+   "text": "0: utc = 2026-11-21 09:30:00.000Z\n",
+   "canonical": "0: utc = 2026-11-21T09:30:00.000Z\n"
+  },
+  {
+   "text": "0: utc = 2026-11-21T11:30:00+02:00\n",
+   "canonical": "0: utc = 2026-11-21T09:30:00.000Z\n"
+  },
+  {
+   "text": "0: utc = 2026-11-21T00:30:00+01:00\n",
+   "canonical": "0: utc = 2026-11-20T23:30:00.000Z\n"
+  },
+  {
+   "text": "0: utc = 2026-11-21T09:30:00.123000Z\n",
+   "canonical": "0: utc = 2026-11-21T09:30:00.123Z\n"
+  },
+  {
+   "text": "0: time = 09:30\n",
+   "canonical": "0: time = 09:30:00.000\n"
+  },
+  {
+   "text": "0: time = 09:30:05.5\n",
+   "canonical": "0: time = 09:30:05.500\n"
+  },
+  {
+   "text": "0: dur = 90m\n",
+   "canonical": "0: dur = 1h30m\n"
+  },
+  {
+   "text": "0: dur = 1500ms\n",
+   "canonical": "0: dur = 1.5s\n"
+  },
+  {
+   "text": "0: dur = 1.5h\n",
+   "canonical": "0: dur = 1h30m\n"
+  },
+  {
+   "text": "0: dur = 1h90m\n",
+   "canonical": "0: dur = 2h30m\n"
+  },
+  {
+   "text": "0: dur = 1_000ms\n",
+   "canonical": "0: dur = 1s\n"
+  },
+  {
+   "text": "0: dur = -0s\n",
+   "canonical": "0: dur = 0s\n"
+  },
+  {
+   "text": "0: str = \"\\u00e9\\u00E9\\/\"\n",
+   "canonical": "0: str = \"éé/\"\n"
+  },
+  {
+   "text": "0: str = \"\\ud83d\\ude00\"\n",
+   "canonical": "0: str = \"😀\"\n"
+  },
+  {
+   "text": "0: bin = 0X00FF\n",
+   "canonical": "0: bin = 0x00ff\n"
+  },
+  {
+   "text": "\n1:\tstr  =  \"b\"   \n\n0: str = \"a\"\n",
+   "canonical": "0: str = \"a\"\n1: str = \"b\"\n"
+  },
+  {
+   "text": "0.1: int = 2\n0.0: int = 1\n0: row\n",
+   "canonical": "0: row\n0.0: int = 1\n0.1: int = 2\n"
+  },
+  {
+   "text": "0: row\n0.10: int = 10\n0.0: int = 0\n0.1: int = 1\n0.2: int = 2\n0.3: int = 3\n0.4: int = 4\n0.5: int = 5\n0.6: int = 6\n0.7: int = 7\n0.8: int = 8\n0.9: int = 9\n",
+   "canonical": "0: row\n0.0: int = 0\n0.1: int = 1\n0.2: int = 2\n0.3: int = 3\n0.4: int = 4\n0.5: int = 5\n0.6: int = 6\n0.7: int = 7\n0.8: int = 8\n0.9: int = 9\n0.10: int = 10\n"
   }
  ],
  "badBinary": [
   {
-   "hex": "056162",
+   "hex": "",
    "code": "R001",
-   "offset": 0
+   "path": ""
   },
   {
-   "hex": "f6",
+   "hex": "01",
    "code": "R001",
-   "offset": 0
+   "path": "0"
   },
   {
-   "hex": "f7",
+   "hex": "0105616263",
    "code": "R001",
-   "offset": 0
+   "path": "0"
   },
   {
-   "hex": "f702",
-   "code": "R001",
-   "offset": 0
-  },
-  {
-   "hex": "f80000",
-   "code": "R001",
-   "offset": 0
-  },
-  {
-   "hex": "fd0500",
-   "code": "R001",
-   "offset": 0
-  },
-  {
-   "hex": "fef301",
-   "code": "R001",
-   "offset": 0
-  },
-  {
-   "hex": "ff02f3",
-   "code": "R001",
-   "offset": 0
-  },
-  {
-   "hex": "f3f680",
-   "code": "R001",
-   "offset": 1
-  },
-  {
-   "hex": "ff010561",
-   "code": "R001",
-   "offset": 2
-  },
-  {
-   "hex": "f68000",
+   "hex": "010000",
    "code": "R002",
-   "offset": 0
+   "path": ""
   },
   {
-   "hex": "fd8000",
-   "code": "R002",
-   "offset": 0
-  },
-  {
-   "hex": "ff8100",
-   "code": "R002",
-   "offset": 0
-  },
-  {
-   "hex": "f68080808080808020",
+   "hex": "01c3ffffffffffffffff00",
    "code": "R003",
-   "offset": 0
+   "path": "0"
   },
   {
-   "hex": "f6ffffffffffffff1f",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "f6808080808080808001",
-   "code": "R002",
-   "offset": 0
-  },
-  {
-   "hex": "f7028080808080808020",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "f9f5e457",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "f9c282e602",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "fa81e0e6a2e2a01c",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "fa80f0fea1fa9d73",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "fb80b89929",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "fc8080808080808020",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "f71000",
+   "hex": "01cc",
    "code": "R004",
-   "offset": 0
+   "path": "0"
   },
   {
-   "hex": "f7ff00",
+   "hex": "01f0",
    "code": "R004",
-   "offset": 0
+   "path": "0"
   },
   {
-   "hex": "f8000000000000f87f",
+   "hex": "01e1e1e100",
    "code": "R005",
-   "offset": 0
+   "path": "0.0.0"
   },
   {
-   "hex": "f8000000000000f07f",
-   "code": "R005",
-   "offset": 0
+   "hex": "01c39efefefefefeff00",
+   "code": "V001",
+   "path": "0"
   },
   {
-   "hex": "f8000000000000f0ff",
-   "code": "R005",
-   "offset": 0
+   "hex": "01e2c300c39efefefefefefe7f",
+   "code": "V001",
+   "path": "0.1"
   },
   {
-   "hex": "f80000000000000080",
-   "code": "R005",
-   "offset": 0
+   "hex": "01d29efefefefefeff00",
+   "code": "V002",
+   "path": "0"
   },
   {
-   "hex": "02c328",
-   "code": "R006",
-   "offset": 0
+   "hex": "01c4000000000000f87f",
+   "code": "V003",
+   "path": "0"
   },
   {
-   "hex": "01ff",
-   "code": "R006",
-   "offset": 0
+   "hex": "01c40000000000000080",
+   "code": "V003",
+   "path": "0"
   },
   {
-   "hex": "03eda080",
-   "code": "R006",
-   "offset": 0
+   "hex": "01c581e58142",
+   "code": "V004",
+   "path": "0"
   },
   {
-   "hex": "f302c080",
-   "code": "R006",
-   "offset": 1
+   "hex": "01c6f29cf9a0fdef00",
+   "code": "V005",
+   "path": "0"
   },
   {
-   "hex": "fe03414243",
-   "code": "R007",
-   "offset": 0
+   "hex": "01c7a898b700",
+   "code": "V006",
+   "path": "0"
   },
   {
-   "hex": "fef10161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161",
-   "code": "R007",
-   "offset": 0
+   "hex": "01c89efefefefefeff00",
+   "code": "V007",
+   "path": "0"
   },
   {
-   "hex": "fef2016161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161",
-   "code": "R007",
-   "offset": 0
-  },
-  {
-   "hex": "fe80024f4564414d30786f4f75385167664c717057357878565941485961326f4857584d627459464f4d716f32436b4c506a3634627543675270317069526a4a58395342384346423550626875726c4b326e476d5461654b5a514b50693947586a524a525a49505a48635578654230595a645541397a666549367335766e355a76444349583663475a566c4c30574a4e726f3464764733346976455a714f5169323654343848787077716a67655a376f57795742616b6f637a3249483750376253654a4f6b6150436141366b494275504b53544537434e5533516361584a527a77437930676d414247354c4376764c4562714b70784c6c705654484e664f4564414d30",
-   "code": "R007",
-   "offset": 0
-  },
-  {
-   "hex": "f2f201f40170eb4161596461634a3057485165386f7a646b6f4a34344a6f654d49355075426856496966347632724d4b5450434e6573535567667a31444a33387665734e63617356697a754b486a414454356573314763347a48387153666f756d305964677842486354456c763335416b554545316d4d6679664c47666275326b6f6a714544716239566a6f304262444c616f575558685a646b6269396d57305841356c4661366d4e4a4c746c56516f4d543031484271783439436a4a7661676d59624c6e5a4252495843306b754b564135443543524c32757a3963763369526735426b326f3244625668477a66577a6d6766704d616b3765",
-   "code": "R007",
-   "offset": 0
-  },
-  {
-   "hex": "f2ff01fd0173f335486e4738364358764c493576645039734c5a754d75416576504e69574436737547476b6d6a4466686f5a7173524355683552346356787a6f50777a6a6738614a663366314b43457a4657784d48686331724443656f4e3544635164726c424142664b544d58527279757a42426e65364d7732756b7a676368726a786571725a6445736d32486c5561684c58364e69364c6a47736a4533446d6973746a504161344d51446a446368314e4272775a4f764f696c784c4b766d537a6c77456d596b464c5459335248784e73466d684d39776558796a6c6d624f7761457a74736a4239555a38506746427152556a6a62766f5a56346538627671576bf9",
-   "code": "R007",
-   "offset": 0
-  },
-  {
-   "hex": "f2050100",
-   "code": "R007",
-   "offset": 0
-  },
-  {
-   "hex": "f2f2010500",
-   "code": "R001",
-   "offset": 0
-  },
-  {
-   "hex": "f2f2",
-   "code": "R001",
-   "offset": 0
-  },
-  {
-   "hex": "f280808080808080100100",
-   "code": "R003",
-   "offset": 0
-  },
-  {
-   "hex": "f2e8070100",
-   "code": "R009",
-   "offset": 0
-  },
-  {
-   "hex": "f2ac02020000",
-   "code": "R009",
-   "offset": 0
-  },
-  {
-   "hex": "f2ac02061f6100ff1b00",
-   "code": "R009",
-   "offset": 0
-  },
-  {
-   "hex": "f2ac02051fff00ff1b",
-   "code": "R006",
-   "offset": 0
-  },
-  {
-   "hex": "f3f2ac02051f6100ff1a",
-   "code": "R009",
-   "offset": 1
-  },
-  {
-   "hex": "ff01ff00",
-   "code": "R008",
-   "offset": 2
-  },
-  {
-   "hex": "f3ff02f3ff00",
-   "code": "R008",
-   "offset": 4
+   "hex": "0101ff",
+   "code": "V008",
+   "path": "0"
   }
  ],
  "badText": [
   {
-   "text": "nope",
-   "code": "T001"
+   "text": "0 str = \"a\"\n",
+   "code": "T001",
+   "path": "",
+   "line": 1
   },
   {
-   "text": ".5",
-   "code": "T001"
+   "text": "01: int = 1\n",
+   "code": "T002",
+   "path": "",
+   "line": 1
   },
   {
-   "text": "\"open",
-   "code": "T001"
+   "text": "0.0.0.0: int = 1\n",
+   "code": "T002",
+   "path": "",
+   "line": 1
   },
   {
-   "text": "[1, 2",
-   "code": "T001"
+   "text": "0: strg = \"a\"\n",
+   "code": "T003",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "0x0",
-   "code": "T001"
+   "text": "0: int = abc\n",
+   "code": "T004",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "2026-1-8",
-   "code": "T001"
+   "text": "0: date = 2026-02-30\n",
+   "code": "T004",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "\"\\q\"",
-   "code": "T001"
+   "text": "0: date = 2026_11_21\n",
+   "code": "T004",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "1,",
-   "code": "T001"
+   "text": "0: none = 1\n",
+   "code": "T004",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "[1 2]",
-   "code": "T001"
+   "text": "0: int\n",
+   "code": "T004",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "]",
-   "code": "T001"
+   "text": "0: int = 1\n2: int = 2\n",
+   "code": "T005",
+   "path": "1",
+   "line": 0
   },
   {
-   "text": "1:2",
-   "code": "T001"
+   "text": "0: int = 1\n0: int = 2\n",
+   "code": "T005",
+   "path": "0",
+   "line": 2
   },
   {
-   "text": "1x",
-   "code": "T001"
+   "text": "0.0: int = 1\n",
+   "code": "T006",
+   "path": "0.0",
+   "line": 1
   },
   {
-   "text": "-",
-   "code": "T001"
+   "text": "0: int = 1\n0.0: int = 2\n",
+   "code": "T006",
+   "path": "0.0",
+   "line": 2
   },
   {
-   "text": "NaN",
-   "code": "T001"
+   "text": "\"k\" 0: int = 1\n",
+   "code": "T007",
+   "path": "",
+   "line": 1
   },
   {
-   "text": "-0",
-   "code": "T002"
+   "text": "0: int = 9_007_199_254_740_992\n",
+   "code": "V001",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "007",
-   "code": "T002"
+   "text": "0: dec = 1.0000000000000000\n",
+   "code": "V002",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "1.50e1",
-   "code": "T002"
+   "text": "0: f64 = 1e400\n",
+   "code": "V003",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "9.05e+1",
-   "code": "T002"
+   "text": "0: f64 = -0\n",
+   "code": "V003",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "-0.00",
-   "code": "T002"
+   "text": "0: date = 0000-01-01\n",
+   "code": "V004",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "0x00FF",
-   "code": "T002"
+   "text": "0: utc = 9999-12-31T23:30:00-02:00\n",
+   "code": "V005",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "\"\\u0041\"",
-   "code": "T002"
+   "text": "0: utc = 2026-06-30T23:59:60Z\n",
+   "code": "V005",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "1h0m",
-   "code": "T002"
+   "text": "0: utc = 2026-11-21T09:30:00.0001Z\n",
+   "code": "V005",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "60m",
-   "code": "T002"
+   "text": "0: time = 09:30:00.0005\n",
+   "code": "V006",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "1  2",
-   "code": "T002"
+   "text": "0: dur = 0.5ms\n",
+   "code": "V007",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": "1 ",
-   "code": "T002"
+   "text": "0: str = \"\\ud800\"\n",
+   "code": "V008",
+   "path": "0",
+   "line": 1
   },
   {
-   "text": " 1",
-   "code": "T002"
+   "text": "0: row\n0.0: row\n0.0.0: row\n",
+   "code": "R005",
+   "path": "0.0.0",
+   "line": 3
   },
   {
-   "text": "[1,2]",
-   "code": "T002"
+   "text": ": row\n",
+   "code": "T002",
+   "path": "",
+   "line": 1
+  }
+ ],
+ "badLabeled": [
+  {
+   "text": "\"k\" 0: int = 1\n",
+   "code": "T006",
+   "path": "",
+   "line": 1
   },
   {
-   "text": "90.0e0",
-   "code": "T002"
+   "text": "\"k\": int = 1\n",
+   "code": "T002",
+   "path": "",
+   "line": 1
   },
   {
-   "text": "1E5",
-   "code": "T002"
+   "text": "\"k\": row = 1\n",
+   "code": "T004",
+   "path": "",
+   "line": 1
   },
   {
-   "text": "1000ms",
-   "code": "T001"
+   "text": "\"k\": row\n\"k\": row\n",
+   "code": "T005",
+   "path": "",
+   "line": 2
   },
   {
-   "text": "1.500s",
-   "code": "T002"
-  },
-  {
-   "text": "\"a\tb\"",
-   "code": "T002"
-  },
-  {
-   "text": "00.5",
-   "code": "T002"
-  },
-  {
-   "text": "0.5e0",
-   "code": "T002"
-  },
-  {
-   "text": "[ 1]",
-   "code": "T002"
-  },
-  {
-   "text": "9007199254740992",
-   "code": "R003"
-  },
-  {
-   "text": "-9007199254740992",
-   "code": "R003"
-  },
-  {
-   "text": "24:00:00.000",
-   "code": "R003"
-  },
-  {
-   "text": "2026-02-30",
-   "code": "R003"
-  },
-  {
-   "text": "0000-12-31",
-   "code": "R003"
-  },
-  {
-   "text": "2026-13-01",
-   "code": "R003"
-  },
-  {
-   "text": "2026-10-08T24:00:00.000Z",
-   "code": "R003"
-  },
-  {
-   "text": "12:60:00.000",
-   "code": "R003"
-  },
-  {
-   "text": "0.0000000000000001",
-   "code": "R004"
-  },
-  {
-   "text": "-0e0",
-   "code": "R005"
-  },
-  {
-   "text": "1e400",
-   "code": "R005"
-  },
-  {
-   "text": "[[1]]",
-   "code": "R008"
-  },
-  {
-   "text": "\"\\ud800\"",
-   "code": "R006"
+   "text": "\"k\": row\n0: int = 1\n",
+   "code": "T007",
+   "path": "",
+   "line": 2
   }
  ]
 }

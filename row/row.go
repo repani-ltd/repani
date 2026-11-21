@@ -1,16 +1,19 @@
 package row
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
-
-	"repani.com/lz4s"
 )
+
+// Row is a row's items in order. Decode and Parse fill it with the Go
+// values of ROW.t section 8: nil, bool, int64, Decimal, float64, Day,
+// time.Time (UTC), TimeOfDay, Duration, string, []byte and Row.
+type Row []any
 
 // Decimal is the exact number Mantissa x 10^-Scale. The scale is part
 // of the value: 90.00 is {9000, 2}, 90.0 is {900, 1}.
@@ -27,8 +30,8 @@ type TimeOfDay int64
 
 // Duration is a duration in milliseconds. Not time.Duration: that
 // counts nanoseconds in an int64 and so ends at about 292 years, where
-// a row's durations reach ±(2^53-1) ms, about 285,000 years. Encode
-// takes a time.Duration too.
+// a row's durations reach ±(2^53-1) ms. Encode takes a time.Duration
+// of whole milliseconds too.
 type Duration int64
 
 // Std returns d as a time.Duration, and false when it is beyond
@@ -41,47 +44,83 @@ func (d Duration) Std() (time.Duration, bool) {
 	return time.Duration(d) * time.Millisecond, true
 }
 
-// Error is a row that breaks ROW.t: Code is its R or T code, Offset
-// the byte offset of the item at fault (in the bytes for binary, in
-// the line for text).
+// Error is a failure with its ROW.t code (R, T, V or S), the path of
+// the item at fault (nil when there is none), and where it was found:
+// Offset in bytes (-1 when not in bytes), Line in text (0 when not in
+// text).
 type Error struct {
 	Code   string
+	Path   []int
 	Offset int
+	Line   int
 	Msg    string
 }
 
 func (e *Error) Error() string {
-	return "row: " + e.Code + " at " + strconv.Itoa(e.Offset) + ": " + e.Msg
+	var b strings.Builder
+	b.WriteString("row: ")
+	b.WriteString(e.Code)
+	if e.Path != nil {
+		b.WriteString(" at ")
+		b.WriteString(pathString(e.Path))
+	}
+	if e.Line > 0 {
+		b.WriteString(", line ")
+		b.WriteString(strconv.Itoa(e.Line))
+	} else if e.Offset >= 0 {
+		b.WriteString(", byte ")
+		b.WriteString(strconv.Itoa(e.Offset))
+	}
+	b.WriteString(": ")
+	b.WriteString(e.Msg)
+	return b.String()
 }
 
-func errf(code string, off int, format string, a ...any) *Error {
-	return &Error{Code: code, Offset: off, Msg: fmt.Sprintf(format, a...)}
+func errAt(code string, path []int, format string, a ...any) *Error {
+	return &Error{Code: code, Path: clonePath(path), Offset: -1, Msg: fmt.Sprintf(format, a...)}
 }
 
-// The tags (ROW.t 2.3); 0 to maxShort are short strings, 242 a
-// compressed string, and the thirteen types take the rest, 243 to 255.
+func clonePath(p []int) []int {
+	if p == nil {
+		return nil
+	}
+	return append([]int(nil), p...)
+}
+
+func pathString(p []int) string {
+	var b strings.Builder
+	for i, n := range p {
+		if i > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(strconv.Itoa(n))
+	}
+	return b.String()
+}
+
+// The tags (ROW.t sections 3 and 5).
 const (
-	maxShort      = 241
-	tagCompressed = 242
+	maxShortString = 127
+	tagShortBytes  = 0x80
+	maxShortBytes  = 63
+	tagNone        = 0xC0
+	tagFalse       = 0xC1
+	tagTrue        = 0xC2
+	tagInt         = 0xC3
+	tagFloat       = 0xC4
+	tagDate        = 0xC5
+	tagDatetime    = 0xC6
+	tagTime        = 0xC7
+	tagDuration    = 0xC8
+	tagLongString  = 0xC9
+	tagLongBytes   = 0xCA
+	tagLongRow     = 0xCB
+	tagDecimal     = 0xD0 // to 0xDF, the scale in the low nibble
+	tagShortRow    = 0xE0 // to 0xEF, the count in the low nibble
+	maxShortRow    = 15
 )
 
-const (
-	tagNone = tagCompressed + 1 + iota
-	tagFalse
-	tagTrue
-	tagInt
-	tagDecimal
-	tagFloat
-	tagDate
-	tagDatetime
-	tagTime
-	tagDuration
-	tagBytes
-	tagLongString
-	tagList
-)
-
-// The ranges (ROW.t 2.2 and 3).
+// The ranges (ROW.t sections 4 and 5).
 const (
 	maxInt      = 1<<53 - 1
 	maxScale    = 15
@@ -91,476 +130,472 @@ const (
 	maxDatetime = 253402300799999
 	maxTime     = 86399999
 	maxVarint   = 8
-	maxExpand   = 255 // bytes an lz4s stream yields at most per byte
+	maxDepth    = 3
 )
 
-type kind uint8
-
-const (
-	kString kind = iota
-	kNone
-	kFalse
-	kTrue
-	kInt
-	kDecimal
-	kFloat
-	kDate
-	kDatetime
-	kTime
-	kDuration
-	kBytes
-	kList
-)
-
-// val is an item that has passed every rule: what Encode writes,
-// Format prints, and Decode and Parse produce. n holds the int, the
-// decimal's mantissa, and the date, datetime, time and duration.
-type val struct {
-	k     kind
-	s     string
-	n     int64
-	scale int
-	f     float64
-	b     []byte
-	list  []val
+// typeName is a decoded value's name in the tag registry, "" for a
+// value that is not one.
+func typeName(v any) string {
+	switch v.(type) {
+	case nil:
+		return "none"
+	case bool:
+		return "bool"
+	case int64:
+		return "int"
+	case Decimal:
+		return "dec"
+	case float64:
+		return "f64"
+	case Day:
+		return "date"
+	case time.Time:
+		return "utc"
+	case TimeOfDay:
+		return "time"
+	case Duration:
+		return "dur"
+	case string:
+		return "str"
+	case []byte:
+		return "bin"
+	case Row:
+		return "row"
+	}
+	return ""
 }
 
-// fromGo checks a Go value against the rules and returns it as a val.
-// off is the byte offset the item would have, for errors.
-func fromGo(v any, inList bool, off int) (val, error) {
+// norm checks a program's value against its type and returns it as
+// the Go value Decode would give for it: the accepted variants (any
+// integer type, float32, a time.Time in any zone, a time.Duration,
+// []any) become the canonical ones. depth is the level of the row the
+// value stands in, 1 for the value row.
+func norm(v any, path []int, depth int) (any, error) {
 	switch x := v.(type) {
-	case nil:
-		return val{k: kNone}, nil
-	case bool:
-		if x {
-			return val{k: kTrue}, nil
-		}
-		return val{k: kFalse}, nil
-	case string:
-		if !utf8.ValidString(x) {
-			return val{}, errf("R006", off, "string is not valid UTF-8")
-		}
-		return val{k: kString, s: x}, nil
-	case int:
-		return intVal(int64(x), off)
+	case nil, bool:
+		return x, nil
 	case int64:
-		return intVal(x, off)
+		return checkInt(x, path)
+	case int:
+		return checkInt(int64(x), path)
+	case int8:
+		return int64(x), nil
+	case int16:
+		return int64(x), nil
+	case int32:
+		return int64(x), nil
+	case uint8:
+		return int64(x), nil
+	case uint16:
+		return int64(x), nil
+	case uint32:
+		return int64(x), nil
+	case uint:
+		if uint64(x) > maxInt {
+			return nil, errAt("V001", path, "int %d outside ±(2^53-1)", x)
+		}
+		return int64(x), nil
+	case uint64:
+		if x > maxInt {
+			return nil, errAt("V001", path, "int %d outside ±(2^53-1)", x)
+		}
+		return int64(x), nil
 	case Decimal:
 		if x.Scale < 0 || x.Scale > maxScale {
-			return val{}, errf("R004", off, "decimal scale %d is outside 0 to 15", x.Scale)
+			return nil, errAt("V002", path, "decimal scale %d outside 0 to 15", x.Scale)
 		}
-		if !inRange(x.Mantissa) {
-			return val{}, errf("R003", off, "decimal mantissa %d is outside ±(2^53-1)", x.Mantissa)
+		if x.Mantissa < -maxInt || x.Mantissa > maxInt {
+			return nil, errAt("V002", path, "decimal mantissa %d outside ±(2^53-1)", x.Mantissa)
 		}
-		return val{k: kDecimal, n: x.Mantissa, scale: x.Scale}, nil
+		return x, nil
 	case float64:
-		if err := checkFloat(x, off); err != nil {
-			return val{}, err
-		}
-		return val{k: kFloat, f: x}, nil
+		return checkFloat(x, path)
+	case float32:
+		return checkFloat(float64(x), path)
 	case Day:
 		if x < minDay || x > maxDay {
-			return val{}, errf("R003", off, "day %d is outside 0001-01-01 to 9999-12-31", x)
+			return nil, errAt("V004", path, "date %d days outside 0001-01-01 to 9999-12-31", x)
 		}
-		return val{k: kDate, n: int64(x)}, nil
+		return x, nil
 	case time.Time:
 		if x.Nanosecond()%int(time.Millisecond) != 0 {
-			return val{}, errf("R003", off, "datetime %v has a fraction of a millisecond", x)
+			return nil, errAt("V005", path, "datetime finer than a millisecond")
 		}
 		ms := x.UnixMilli()
 		if ms < minDatetime || ms > maxDatetime {
-			return val{}, errf("R003", off, "datetime %v is outside years 0001 to 9999", x)
+			return nil, errAt("V005", path, "datetime outside 0001 to 9999")
 		}
-		return val{k: kDatetime, n: ms}, nil
+		return time.UnixMilli(ms).UTC(), nil
 	case TimeOfDay:
 		if x < 0 || x > maxTime {
-			return val{}, errf("R003", off, "time of day %d ms is outside 0 to 86399999", x)
+			return nil, errAt("V006", path, "time %d ms outside one day", x)
 		}
-		return val{k: kTime, n: int64(x)}, nil
+		return x, nil
 	case Duration:
-		if !inRange(int64(x)) {
-			return val{}, errf("R003", off, "duration %d ms is outside ±(2^53-1)", x)
+		if x < -maxInt || x > maxInt {
+			return nil, errAt("V007", path, "duration %d ms outside ±(2^53-1)", x)
 		}
-		return val{k: kDuration, n: int64(x)}, nil
+		return x, nil
 	case time.Duration:
 		if x%time.Millisecond != 0 {
-			return val{}, errf("R003", off, "duration %v has a fraction of a millisecond", x)
+			return nil, errAt("V007", path, "duration finer than a millisecond")
 		}
-		return val{k: kDuration, n: int64(x / time.Millisecond)}, nil // always within ±(2^53-1)
+		return Duration(x / time.Millisecond), nil
+	case string:
+		if !utf8.ValidString(x) {
+			return nil, errAt("V008", path, "string not valid UTF-8")
+		}
+		return x, nil
 	case []byte:
-		return val{k: kBytes, b: x}, nil
+		return x, nil
+	case Row:
+		return normRow(x, path, depth)
 	case []any:
-		if inList {
-			return val{}, errf("R008", off, "a list holds a list")
-		}
-		l := val{k: kList, list: make([]val, len(x))}
-		for i, it := range x {
-			var err error
-			if l.list[i], err = fromGo(it, true, off); err != nil {
-				return val{}, err
-			}
-		}
-		return l, nil
+		return normRow(Row(x), path, depth)
 	}
-	return val{}, fmt.Errorf("row: %T is not a row type", v)
+	return nil, errAt("V009", path, "%T has no ROW type", v)
 }
 
-func intVal(n int64, off int) (val, error) {
-	if !inRange(n) {
-		return val{}, errf("R003", off, "int %d is outside ±(2^53-1)", n)
+func checkInt(n int64, path []int) (any, error) {
+	if n < -maxInt || n > maxInt {
+		return nil, errAt("V001", path, "int %d outside ±(2^53-1)", n)
 	}
-	return val{k: kInt, n: n}, nil
+	return n, nil
 }
 
-func inRange(n int64) bool { return n >= -maxInt && n <= maxInt }
-
-func checkFloat(f float64, off int) error {
-	switch {
-	case math.IsNaN(f):
-		return errf("R005", off, "float is NaN")
-	case math.IsInf(f, 0):
-		return errf("R005", off, "float is infinite")
-	case f == 0 && math.Signbit(f):
-		return errf("R005", off, "float is -0")
+func checkFloat(f float64, path []int) (any, error) {
+	if math.IsNaN(f) || math.IsInf(f, 0) || (f == 0 && math.Signbit(f)) {
+		return nil, errAt("V003", path, "float %v: NaN, infinite or -0", f)
 	}
-	return nil
+	return f, nil
 }
 
-// toGo is the Go value Decode and Parse return for a val.
-func (v val) toGo() any {
-	switch v.k {
-	case kString:
-		return v.s
-	case kNone:
-		return nil
-	case kFalse:
-		return false
-	case kTrue:
-		return true
-	case kInt:
-		return v.n
-	case kDecimal:
-		return Decimal{Mantissa: v.n, Scale: v.scale}
-	case kFloat:
-		return v.f
-	case kDate:
-		return Day(v.n)
-	case kDatetime:
-		return time.UnixMilli(v.n).UTC()
-	case kTime:
-		return TimeOfDay(v.n)
-	case kDuration:
-		return Duration(v.n)
-	case kBytes:
-		return v.b
+// normRow normalises a row inside a row at depth (the value row, at
+// depth 1, is normalised by normValue).
+func normRow(r Row, path []int, depth int) (any, error) {
+	if depth >= maxDepth {
+		return nil, errAt("R005", path, "rows nested deeper than three levels")
 	}
-	out := make([]any, len(v.list))
-	for i, it := range v.list {
-		out[i] = it.toGo()
-	}
-	return out
+	return normItems(r, path, depth+1)
 }
 
-// Encode returns a row's bytes. Items are Go values of the row types:
-// nil (none), bool, string, int or int64, Decimal, float64, Day,
-// time.Time (datetime), TimeOfDay, Duration or time.Duration, []byte
-// and []any (list). A value outside its type's rules is an *Error with the
-// R code Decode would give its bytes.
-func Encode(items []any) ([]byte, error) {
-	var b []byte
-	for _, it := range items {
-		v, err := fromGo(it, false, len(b))
+func normItems(r Row, path []int, depth int) (Row, error) {
+	out := make(Row, len(r))
+	p := append(clonePath(path), 0)
+	for i, v := range r {
+		p[len(p)-1] = i
+		n, err := norm(v, p, depth)
 		if err != nil {
 			return nil, err
 		}
-		b = v.append(b)
+		out[i] = n
 	}
-	return b, nil
+	return out, nil
 }
 
-func (v val) append(b []byte) []byte {
-	switch v.k {
-	case kString:
-		if len(v.s) <= maxShort {
-			return append(append(b, byte(len(v.s))), v.s...)
-		}
-		if c := lz4s.Compress([]byte(v.s)); smaller(len(c), len(v.s)) {
-			b = binary.AppendUvarint(append(b, tagCompressed), uint64(len(v.s)))
-			b = binary.AppendUvarint(b, uint64(len(c)))
-			return append(b, c...)
-		}
-		b = binary.AppendUvarint(append(b, tagLongString), uint64(len(v.s)))
-		return append(b, v.s...)
-	case kNone:
-		return append(b, tagNone)
-	case kFalse:
-		return append(b, tagFalse)
-	case kTrue:
-		return append(b, tagTrue)
-	case kInt:
-		return binary.AppendUvarint(append(b, tagInt), zigzag(v.n))
-	case kDecimal:
-		return binary.AppendUvarint(append(b, tagDecimal, byte(v.scale)), zigzag(v.n))
-	case kFloat:
-		return binary.LittleEndian.AppendUint64(append(b, tagFloat), math.Float64bits(v.f))
-	case kDate:
-		return binary.AppendUvarint(append(b, tagDate), zigzag(v.n))
-	case kDatetime:
-		return binary.AppendUvarint(append(b, tagDatetime), zigzag(v.n))
-	case kTime:
-		return binary.AppendUvarint(append(b, tagTime), uint64(v.n))
-	case kDuration:
-		return binary.AppendUvarint(append(b, tagDuration), zigzag(v.n))
-	case kBytes:
-		b = binary.AppendUvarint(append(b, tagBytes), uint64(len(v.b)))
-		return append(b, v.b...)
+// Encode returns the bytes of r (ROW.t sections 2 to 5), checking
+// every value first.
+func Encode(r Row) ([]byte, error) {
+	n, err := normItems(r, nil, 1)
+	if err != nil {
+		return nil, err
 	}
-	b = binary.AppendUvarint(append(b, tagList), uint64(len(v.list)))
-	for _, it := range v.list {
-		b = it.append(b)
+	out := appendVarint(nil, uint64(len(n)))
+	for _, v := range n {
+		out = appendItem(out, v)
 	}
-	return b
+	return out, nil
 }
 
-// smaller says whether a string of n bytes whose lz4s stream is c
-// bytes is written compressed: when that item is the shorter, the
-// tag and the length being common to both (ROW.t 3).
-func smaller(c, n int) bool {
-	return len(binary.AppendUvarint(nil, uint64(c)))+c < n
+func appendVarint(b []byte, v uint64) []byte {
+	var buf [10]byte
+	i := len(buf) - 1
+	buf[i] = byte(v & 0x7F)
+	for v >>= 7; v != 0; v >>= 7 {
+		v--
+		i--
+		buf[i] = 0x80 | byte(v&0x7F)
+	}
+	return append(b, buf[i:]...)
 }
 
 func zigzag(n int64) uint64   { return uint64(n<<1) ^ uint64(n>>63) }
 func unzigzag(u uint64) int64 { return int64(u>>1) ^ -int64(u&1) }
 
-// Decode returns a row's items as the Go values Encode takes (int as
-// int64, a datetime in UTC). A row that breaks a rule of ROW.t
-// section 4 is an *Error with its R code and the offset of the item
-// at fault.
-func Decode(b []byte) ([]any, error) {
-	vals, err := decodeVals(b)
+// appendItem writes a normalised value.
+func appendItem(b []byte, v any) []byte {
+	switch x := v.(type) {
+	case nil:
+		return append(b, tagNone)
+	case bool:
+		if x {
+			return append(b, tagTrue)
+		}
+		return append(b, tagFalse)
+	case int64:
+		return appendVarint(append(b, tagInt), zigzag(x))
+	case Decimal:
+		return appendVarint(append(b, tagDecimal|byte(x.Scale)), zigzag(x.Mantissa))
+	case float64:
+		return binary.LittleEndian.AppendUint64(append(b, tagFloat), math.Float64bits(x))
+	case Day:
+		return appendVarint(append(b, tagDate), zigzag(int64(x)))
+	case time.Time:
+		return appendVarint(append(b, tagDatetime), zigzag(x.UnixMilli()))
+	case TimeOfDay:
+		return appendVarint(append(b, tagTime), uint64(x))
+	case Duration:
+		return appendVarint(append(b, tagDuration), zigzag(int64(x)))
+	case string:
+		if len(x) <= maxShortString {
+			b = append(b, byte(len(x)))
+		} else {
+			b = appendVarint(append(b, tagLongString), uint64(len(x)-maxShortString-1))
+		}
+		return append(b, x...)
+	case []byte:
+		if len(x) <= maxShortBytes {
+			b = append(b, tagShortBytes|byte(len(x)))
+		} else {
+			b = appendVarint(append(b, tagLongBytes), uint64(len(x)-maxShortBytes-1))
+		}
+		return append(b, x...)
+	case Row:
+		if len(x) <= maxShortRow {
+			b = append(b, tagShortRow|byte(len(x)))
+		} else {
+			b = appendVarint(append(b, tagLongRow), uint64(len(x)-maxShortRow-1))
+		}
+		for _, item := range x {
+			b = appendItem(b, item)
+		}
+		return b
+	}
+	panic(fmt.Sprintf("row: appendItem of unnormalised %T", v))
+}
+
+// Decode returns the row b holds; an error if b breaks ROW.t, or holds
+// bytes after its row (R002).
+func Decode(b []byte) (Row, error) {
+	d := decoder{b: b}
+	r, err := d.row(nil, 1, -1)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]any, len(vals))
-	for i, v := range vals {
-		out[i] = v.toGo()
+	if d.i != len(b) {
+		return nil, &Error{Code: "R002", Offset: d.i, Msg: fmt.Sprintf("%d bytes after the row", len(b)-d.i)}
 	}
-	return out, nil
-}
-
-func decodeVals(b []byte) ([]val, error) {
-	d := decoder{b: b}
-	var out []val
-	for d.pos < len(b) {
-		v, err := d.item(false)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, v)
-	}
-	return out, nil
+	return r, nil
 }
 
 type decoder struct {
-	b   []byte
-	pos int
+	b []byte
+	i int
 }
 
-func (d *decoder) left() int { return len(d.b) - d.pos }
+func (d *decoder) fail(code string, path []int, off int, format string, a ...any) *Error {
+	return &Error{Code: code, Path: clonePath(path), Offset: off, Msg: fmt.Sprintf(format, a...)}
+}
 
-// uvarint reads a varint of the item starting at start.
-func (d *decoder) uvarint(start int) (uint64, error) {
-	var u uint64
-	for i := 0; ; i++ {
-		if i == maxVarint {
-			return 0, errf("R002", start, "a varint is longer than 8 bytes")
+func (d *decoder) varint(path []int, off int) (uint64, error) {
+	var v uint64
+	for n := 0; ; n++ {
+		if d.i >= len(d.b) {
+			return 0, d.fail("R001", path, off, "the bytes end inside a varint")
 		}
-		if d.pos >= len(d.b) {
-			return 0, errf("R001", start, "a varint runs past the end")
+		if n == maxVarint {
+			return 0, d.fail("R003", path, off, "a varint longer than 8 bytes")
 		}
-		c := d.b[d.pos]
-		d.pos++
-		u |= uint64(c&0x7f) << (7 * i)
-		if c < 0x80 {
-			if c == 0 && i > 0 {
-				return 0, errf("R002", start, "a varint is longer than its shortest form")
-			}
-			return u, nil
+		c := d.b[d.i]
+		d.i++
+		if n == 0 {
+			v = uint64(c & 0x7F)
+		} else {
+			v = (v+1)<<7 | uint64(c&0x7F)
+		}
+		if c&0x80 == 0 {
+			return v, nil
 		}
 	}
 }
 
-// signed reads a zigzag varint within ±(2^53-1).
-func (d *decoder) signed(start int, what string) (int64, error) {
-	u, err := d.uvarint(start)
+// take returns the next n bytes.
+func (d *decoder) take(n uint64, path []int, off int) ([]byte, error) {
+	if n > uint64(len(d.b)-d.i) {
+		return nil, d.fail("R001", path, off, "the bytes end inside a payload of %d", n)
+	}
+	s := d.b[d.i : d.i+int(n)]
+	d.i += int(n)
+	return s, nil
+}
+
+// row reads a row of count items. count < 0 means the value row, whose
+// count is a varint at d.i.
+func (d *decoder) row(path []int, depth int, count int64) (Row, error) {
+	if count < 0 {
+		c, err := d.varint(path, d.i)
+		if err != nil {
+			return nil, err
+		}
+		if c > maxInt {
+			return nil, d.fail("V001", path, 0, "a count of %d outside 2^53-1", c)
+		}
+		count = int64(c)
+	}
+	// Every item takes a byte at least, so the bytes left bound what a
+	// count may allocate; a count past them fails at its first missing
+	// item.
+	r := make(Row, 0, min(count, int64(len(d.b)-d.i)))
+	p := append(clonePath(path), 0)
+	for k := int64(0); k < count; k++ {
+		p[len(p)-1] = int(k)
+		v, err := d.item(p, depth)
+		if err != nil {
+			return nil, err
+		}
+		r = append(r, v)
+	}
+	return r, nil
+}
+
+func (d *decoder) zz(path []int, off int) (int64, error) {
+	u, err := d.varint(path, off)
 	if err != nil {
 		return 0, err
-	}
-	if u > 2*maxInt {
-		return 0, errf("R003", start, "%s is outside ±(2^53-1)", what)
 	}
 	return unzigzag(u), nil
 }
 
-// length reads a length or count and checks it fits what is left.
-func (d *decoder) length(start int, what string) (int, error) {
-	u, err := d.uvarint(start)
-	if err != nil {
-		return 0, err
+func (d *decoder) item(path []int, depth int) (any, error) {
+	off := d.i
+	if d.i >= len(d.b) {
+		return nil, d.fail("R001", path, off, "the bytes end before the item")
 	}
-	if u > maxInt {
-		return 0, errf("R003", start, "%s %d is outside 2^53-1", what, u)
-	}
-	if u > uint64(d.left()) {
-		return 0, errf("R001", start, "%s %d runs past the end", what, u)
-	}
-	return int(u), nil
-}
-
-func (d *decoder) str(start, n int) (val, error) {
-	s := d.b[d.pos : d.pos+n]
-	d.pos += n
-	if !utf8.Valid(s) {
-		return val{}, errf("R006", start, "string is not valid UTF-8")
-	}
-	return val{k: kString, s: string(s)}, nil
-}
-
-func (d *decoder) item(inList bool) (val, error) {
-	start := d.pos
-	tag := d.b[d.pos]
-	d.pos++
+	t := d.b[d.i]
+	d.i++
 	switch {
-	case tag <= maxShort:
-		if int(tag) > d.left() {
-			return val{}, errf("R001", start, "string of %d bytes runs past the end", tag)
-		}
-		return d.str(start, int(tag))
-	case tag == tagNone:
-		return val{k: kNone}, nil
-	case tag == tagFalse:
-		return val{k: kFalse}, nil
-	case tag == tagTrue:
-		return val{k: kTrue}, nil
-	case tag == tagInt:
-		n, err := d.signed(start, "int")
-		return val{k: kInt, n: n}, err
-	case tag == tagDecimal:
-		if d.left() < 1 {
-			return val{}, errf("R001", start, "decimal runs past the end")
-		}
-		scale := int(d.b[d.pos])
-		d.pos++
-		if scale > maxScale {
-			return val{}, errf("R004", start, "decimal scale %d is above 15", scale)
-		}
-		n, err := d.signed(start, "decimal mantissa")
-		return val{k: kDecimal, n: n, scale: scale}, err
-	case tag == tagFloat:
-		if d.left() < 8 {
-			return val{}, errf("R001", start, "float runs past the end")
-		}
-		f := math.Float64frombits(binary.LittleEndian.Uint64(d.b[d.pos:]))
-		d.pos += 8
-		if err := checkFloat(f, start); err != nil {
-			return val{}, err
-		}
-		return val{k: kFloat, f: f}, nil
-	case tag == tagDate:
-		n, err := d.signed(start, "date")
-		if err == nil && (n < minDay || n > maxDay) {
-			err = errf("R003", start, "day %d is outside 0001-01-01 to 9999-12-31", n)
-		}
-		return val{k: kDate, n: n}, err
-	case tag == tagDatetime:
-		n, err := d.signed(start, "datetime")
-		if err == nil && (n < minDatetime || n > maxDatetime) {
-			err = errf("R003", start, "datetime %d ms is outside years 0001 to 9999", n)
-		}
-		return val{k: kDatetime, n: n}, err
-	case tag == tagTime:
-		u, err := d.uvarint(start)
-		if err == nil && u > maxTime {
-			err = errf("R003", start, "time of day %d ms is outside 0 to 86399999", u)
-		}
-		return val{k: kTime, n: int64(u)}, err
-	case tag == tagDuration:
-		n, err := d.signed(start, "duration")
-		return val{k: kDuration, n: n}, err
-	case tag == tagBytes:
-		n, err := d.length(start, "bytes length")
+	case t <= maxShortString:
+		return d.str(uint64(t), path, off)
+	case t < tagNone:
+		s, err := d.take(uint64(t-tagShortBytes), path, off)
+		return append([]byte{}, s...), err
+	case t >= tagDecimal && t < tagShortRow:
+		m, err := d.zz(path, off)
 		if err != nil {
-			return val{}, err
+			return nil, err
 		}
-		b := append([]byte{}, d.b[d.pos:d.pos+n]...)
-		d.pos += n
-		return val{k: kBytes, b: b}, nil
-	case tag == tagLongString:
-		n, err := d.length(start, "string length")
-		if err != nil {
-			return val{}, err
+		if m < -maxInt || m > maxInt {
+			return nil, d.fail("V002", path, off, "decimal mantissa %d outside ±(2^53-1)", m)
 		}
-		if n <= maxShort {
-			return val{}, errf("R007", start, "a long string of %d bytes could be a short one", n)
-		}
-		v, err := d.str(start, n)
-		if err == nil && smaller(len(lz4s.Compress([]byte(v.s))), n) {
-			err = errf("R007", start, "a long string of %d bytes could be a compressed one", n)
-		}
-		return v, err
-	case tag == tagCompressed:
-		u, err := d.uvarint(start)
-		if err != nil {
-			return val{}, err
-		}
-		if u > maxInt {
-			return val{}, errf("R003", start, "string length %d is outside 2^53-1", u)
-		}
-		c, err := d.length(start, "stream length")
-		if err != nil {
-			return val{}, err
-		}
-		stream := d.b[d.pos : d.pos+c]
-		d.pos += c
-		if u <= maxShort {
-			return val{}, errf("R007", start, "a compressed string of %d bytes could be a short one", u)
-		}
-		// A stream yields at most maxExpand bytes for each of its own,
-		// so a longer claim is refused before anything is allocated.
-		if u > maxExpand*uint64(c) {
-			return val{}, errf("R009", start, "a stream of %d bytes cannot make %d", c, u)
-		}
-		text, ok := lz4s.Decompress(stream, int(u))
-		if !ok {
-			return val{}, errf("R009", start, "the stream does not decompress to %d bytes", u)
-		}
-		if !utf8.Valid(text) {
-			return val{}, errf("R006", start, "string is not valid UTF-8")
-		}
-		if !bytes.Equal(lz4s.Compress(text), stream) {
-			return val{}, errf("R009", start, "the stream is not lz4s.Compress of its string")
-		}
-		if !smaller(c, int(u)) {
-			return val{}, errf("R007", start, "a compressed string of %d bytes could be a long one", u)
-		}
-		return val{k: kString, s: string(text)}, nil
+		return Decimal{Mantissa: m, Scale: int(t & 0x0F)}, nil
+	case t >= tagShortRow && t <= tagShortRow+maxShortRow:
+		return d.nested(uint64(t&0x0F), path, depth, off)
 	}
-	// tagList
-	if inList {
-		return val{}, errf("R008", start, "a list holds a list")
+	switch t {
+	case tagNone:
+		return nil, nil
+	case tagFalse:
+		return false, nil
+	case tagTrue:
+		return true, nil
+	case tagInt:
+		n, err := d.zz(path, off)
+		if err != nil {
+			return nil, err
+		}
+		if n < -maxInt || n > maxInt {
+			return nil, d.fail("V001", path, off, "int %d outside ±(2^53-1)", n)
+		}
+		return n, nil
+	case tagFloat:
+		s, err := d.take(8, path, off)
+		if err != nil {
+			return nil, err
+		}
+		f := math.Float64frombits(binary.LittleEndian.Uint64(s))
+		if _, err := checkFloat(f, path); err != nil {
+			e := err.(*Error)
+			e.Offset = off
+			return nil, e
+		}
+		return f, nil
+	case tagDate:
+		n, err := d.zz(path, off)
+		if err != nil {
+			return nil, err
+		}
+		if n < minDay || n > maxDay {
+			return nil, d.fail("V004", path, off, "date %d days outside 0001-01-01 to 9999-12-31", n)
+		}
+		return Day(n), nil
+	case tagDatetime:
+		n, err := d.zz(path, off)
+		if err != nil {
+			return nil, err
+		}
+		if n < minDatetime || n > maxDatetime {
+			return nil, d.fail("V005", path, off, "datetime %d ms outside 0001 to 9999", n)
+		}
+		return time.UnixMilli(n).UTC(), nil
+	case tagTime:
+		u, err := d.varint(path, off)
+		if err != nil {
+			return nil, err
+		}
+		if u > maxTime {
+			return nil, d.fail("V006", path, off, "time %d ms outside one day", u)
+		}
+		return TimeOfDay(u), nil
+	case tagDuration:
+		n, err := d.zz(path, off)
+		if err != nil {
+			return nil, err
+		}
+		if n < -maxInt || n > maxInt {
+			return nil, d.fail("V007", path, off, "duration %d ms outside ±(2^53-1)", n)
+		}
+		return Duration(n), nil
+	case tagLongString:
+		u, err := d.varint(path, off)
+		if err != nil {
+			return nil, err
+		}
+		return d.str(u+maxShortString+1, path, off)
+	case tagLongBytes:
+		u, err := d.varint(path, off)
+		if err != nil {
+			return nil, err
+		}
+		s, err := d.take(u+maxShortBytes+1, path, off)
+		return append([]byte{}, s...), err
+	case tagLongRow:
+		u, err := d.varint(path, off)
+		if err != nil {
+			return nil, err
+		}
+		return d.nested(u+maxShortRow+1, path, depth, off)
 	}
-	n, err := d.length(start, "list count")
+	return nil, d.fail("R004", path, off, "reserved tag 0x%02X", t)
+}
+
+func (d *decoder) str(n uint64, path []int, off int) (any, error) {
+	s, err := d.take(n, path, off)
 	if err != nil {
-		return val{}, err
+		return nil, err
 	}
-	l := val{k: kList, list: make([]val, n)}
-	for i := range n {
-		if d.pos >= len(d.b) {
-			return val{}, errf("R001", start, "list of %d items runs past the end", n)
-		}
-		if l.list[i], err = d.item(true); err != nil {
-			return val{}, err
-		}
+	if !utf8.Valid(s) {
+		return nil, d.fail("V008", path, off, "string not valid UTF-8")
 	}
-	return l, nil
+	return string(s), nil
+}
+
+// nested reads a row of count items inside the row at depth.
+func (d *decoder) nested(count uint64, path []int, depth int, off int) (any, error) {
+	if depth >= maxDepth {
+		return nil, d.fail("R005", path, off, "rows nested deeper than three levels")
+	}
+	if count > maxInt {
+		return nil, d.fail("V001", path, off, "a count of %d outside 2^53-1", count)
+	}
+	return d.row(path, depth+1, int64(count))
 }
