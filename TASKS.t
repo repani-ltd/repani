@@ -182,13 +182,12 @@ a candidate. Reconsider only for a transport that pays per byte for first pages,
 and then as an app's optimisation over its own held page, never as the format's.
 .term row afresh, then lz4s to the lab
 Decided 2026-11-21. ROW v1 is retired whole, spec, decision log and code, to
-~/repos/_attic/row with its history (no outside users; ascon-kv, parea, webapp
-and raid are ours to move). A new ROW.t is written from a blank page under the
-same name; nothing of v1 binds it. Settled already: a row carries no compressed
-form and no decoder ever recompresses to check an encoding -- compression, where
-wanted, belongs to a sequence of rows, outside the format. When the new row
-replaces the old in place (repani/row), lz4s moves to repani-lab as its own
-module (repani.com/lz4s, gist/bundle still imports it), and webapp and parea
+~/repos/_attic/row with its history (no outside users; ASCON-KV's client, parea,
+webapp, iou and raid are ours to move). A new ROW.t is written from a blank page
+under the same name; nothing of v1 binds it. The draft is row/ROW.t, its reasons
+and ledger row/DESIGN.t; what is open is listed at the end of ROW.t. When the
+new row replaces the old in place (repani/row), lz4s moves to repani-lab as its
+own module (repani.com/lz4s, gist/bundle still imports it), and webapp and parea
 stop serving lz4s.js. lz4s lost Delta and Undelta the same day.
 .term span diff: a positional page delta, not admitted
 Measured 2026-09-05 against lz4s Delta on the fixture pairs in lz4s/testdata. A

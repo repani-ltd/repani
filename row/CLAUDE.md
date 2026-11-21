@@ -1,19 +1,22 @@
 # row (repani.com/row) — typed rows
 
+**In transition (2026-11-21).** `ROW.t` is the DRAFT of a new ROW,
+written from a blank page and kept clean (decided design only); its
+reasons, the alternatives weighed and the decision ledger are
+`DESIGN.t`. ROW v1 (its spec, decisions and history) is in
+`~/repos/_attic/row`. Everything below describes the v1 code still in
+this directory, which stays until the draft replaces it; do not read
+v1's rules into the draft.
+
 ROW v1: a short sequence of typed values as bytes, each item's first
-byte its type, no field names. Made for ASCON-KV values (client format
-byte 0x01) and independent of it. **ROW.t is the normative source of
-truth** -- FROZEN 2026-10-12, permanently: the type set is closed and
-every tag is assigned, so a change is a new format, never a revision.
-Code may change only to match ROW.t more exactly (fixes, speed);
-anything that changes bytes, text or errors is not allowed. Read ROW.t
-before touching the encoder, decoder or text notation.
+byte its type, no field names. Its spec, `~/repos/_attic/row/ROW.t`,
+is what the code implements; until the code is replaced it may change
+only to match that spec more exactly (fixes, speed).
 
 ## Layout
 
-- `ROW.t` -- the specification and its decisions (Appendix A).
-- `doc.go` -- the reference `row spec` prints (embedded); keep it in
-  step with ROW.t.
+- `ROW.t`, `DESIGN.t` -- the draft and its reasons (above).
+- `doc.go` -- the reference `row spec` prints (embedded), v1's.
 - `row.go` (types, the one validator `fromGo`, binary Encode/Decode),
   `text.go` (Format/Parse), `civil.go` (Hinnant's day algorithms, the
   same as row.js's).
