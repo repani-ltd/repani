@@ -20,12 +20,18 @@ reader.
 - `read.go` -- the reader (ROW.t 8.1).
 - `civil.go` -- Hinnant's day algorithms, the same as row.js's.
 - `row.js` -- the JavaScript twin, no imports, embedded as `JS()`.
-- `testdata/vectors.json` -- THE VECTORS. `valid` and `labeled` were
-  written by an independent encoder from ROW.t alone
-  (`~/repos/research/row-vectors/gen.py`); `lenient`, `badBinary` and
-  `badText` by hand from ROW.t's tables (`extra.py` there merges them).
-  Go and JS must both pass them. A changed vector is a changed format:
-  never edit one to make a test pass.
+- `testdata/vectors.json` -- THE VECTORS. `valid` and `labeled` come
+  from an independent encoder written from ROW.t alone
+  (`testdata/gen/gen.py`); `lenient`, `badBinary`, `badText` and
+  `badLabeled` were written by hand from ROW.t's tables
+  (`testdata/gen/extra.py`, which merges the two). Go and JS must
+  both pass them. A changed vector is a changed format: never edit
+  one to make a test pass. Regenerate, from `row/`:
+  `python3 -I testdata/gen/gen.py /tmp/valid.json && python3 -I
+  testdata/gen/extra.py /tmp/valid.json testdata/vectors.json`.
+- `gen.py` stays independent by how it is changed: whoever updates it
+  (an agent of its own, after a ROW.t change) reads ROW.t and nothing
+  else here -- no Go, no row.js, no vectors, not extra.py.
 - `cmd/row` -- `check`, `fmt [-w]`, `encode`, `decode`, `spec`.
 
 ## Test
