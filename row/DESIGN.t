@@ -474,6 +474,7 @@ Writing needs no counterpart: a row is a literal ([]any{...}, an array).
 2026-11-21 | Text spellings and lines (ROW.t 6.4, 6.5): datetimes always with .000, floats plain between 10^-6 and 10^21, exponent beyond; whole parts of five or more digits grouped in threes with an underscore (ints, decimals, plain floats), underscores accepted on input in numbers and durations, never in dates or times; lenient input as tabled.
 2026-11-21 | Errors: R001-R005 bytes, T001-T007 text, V001-V009 values wherever met; each with the item's path; no canonical-form error.
 2026-11-21 | Go and JavaScript API (ROW.t 8): v1's value types where their reasons hold, JS() string, labelled text in its own pair; a sequential reader with sticky errors in Go, S001-S003 for shape.
+2026-11-21 | parea, raid, webapp and iou moved to it (iou's export labelled text, a row per record keyed by its key); lz4s, used by none, to repani-lab with its history.
 .end
 .width 72
 .cols 1

@@ -190,14 +190,11 @@ apps are its consumers and it was made for them.
 
 Compression is a security decision, not a format one: compressed plaintext leaks
 through ciphertext length, and the server sees every length. ROW compresses
-strings of 242 bytes and more with lz4s, whenever that is shorter, so a ROW
-value's length says something about how repetitive its long strings are, not
-only how long they are. Each string is compressed alone, never with its
-neighbours or with other entries, so the leak stays inside one string: it
-matters only when attacker-chosen text and a secret share one long string and
-the attacker sees the lengths of many such writes (CRIME). An app that puts
-outside input and secrets in one long string keeps them in separate positions,
-or writes that value raw.
+nothing (row/DESIGN.t, No compression), so a ROW value's length says how long
+its items are and nothing about what they hold. An app that compresses before
+writing takes on the leak that matters when attacker-chosen text and a secret
+are compressed together and the attacker sees the lengths of many such writes
+(CRIME).
 
 # Registration and rotation
 

@@ -180,20 +180,6 @@ failure when they differ -- which the raster line "nothing in the bytes says
 what format they are" refuses, and on the web the saving is under a packet. Not
 a candidate. Reconsider only for a transport that pays per byte for first pages,
 and then as an app's optimisation over its own held page, never as the format's.
-.term row afresh, then lz4s to the lab
-Decided 2026-11-21. ROW v1 is retired whole, spec, decision log and code, to
-~/repos/_attic/row with its history (no outside users; ASCON-KV's client, parea,
-webapp, iou and raid are ours to move). A new ROW.t is written from a blank page
-under the same name; nothing of v1 binds it: row/ROW.t, its reasons and ledger
-row/DESIGN.t. Done 2026-11-21: the Go and JavaScript implementation in
-repani/row, on vectors from an independent encoder
-(~/repos/research/row-vectors); parea, raid and webapp build and pass on it
-(nested rows assert row.Row), and webapp and parea no longer serve lz4s.js;
-iou's export is ROW's labelled text, each record a row labelled with its key,
-and its tests write records as items. iou's record reader still reads decoded
-items, not through the row reader: its checks are iou's own. Next: lz4s moves to
-repani-lab as its own module (repani.com/lz4s; gist/bundle still imports it).
-lz4s lost Delta and Undelta the same day.
 .term span diff: a positional page delta, not admitted
 Measured 2026-09-05 against lz4s Delta on the fixture pairs in lz4s/testdata. A
 span diff over the page bytes ([offset u16] [len u8] bytes, gaps of three or

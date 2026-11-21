@@ -28,7 +28,7 @@ cautionary case: `store.LogStore.Rewrite` was deleted on 2026-07-21 as
 dead code while quietcasting-go's qcpub depended on it, and that tool
 silently stopped building for a month. Conversely, nothing in kv is a
 general primitive: vault types, client, server and wire are ASCON-KV
-protocol surface and stay here; primitives (ascon, golay, lz4s) are
+protocol surface and stay here; primitives (ascon, golay) are
 their own top-level directories (`durable` among them). `store` included: see DESIGN.t, "The
 store is protocol, not a primitive".
 
