@@ -35,6 +35,17 @@ func TestAccepted(t *testing.T) {
 	}
 }
 
+// TestLabelAndValue: FormatLabeled checks its labels, and FormatValue
+// checks its value before refusing a row, as row.js does.
+func TestLabelAndValue(t *testing.T) {
+	if _, err := FormatLabeled([]Labeled{{"\xff", Row{}}}); err == nil || err.(*Error).Code != "V008" {
+		t.Errorf("a label that is no UTF-8: %v, want V008", err)
+	}
+	if _, err := FormatValue(Row{math.NaN()}); err == nil || err.(*Error).Code != "V003" {
+		t.Errorf("FormatValue(Row{NaN}): %v, want V003", err)
+	}
+}
+
 // TestRefused: a value outside its type fails Encode and Format alike,
 // never rounded.
 func TestRefused(t *testing.T) {
@@ -76,74 +87,4 @@ func TestRefused(t *testing.T) {
 			}
 		}
 	}
-}
-
-// TestReader reads an iou-shaped expense: fixed positions, an optional
-// one, and a sharers group whose share is a decimal or an int.
-func TestReader(t *testing.T) {
-	r := Row{"x", Day(20778), "EUR", Decimal{9000, 2}, nil, "pavlos",
-		Row{Row{"ben", Decimal{4500, 2}}, Row{"pavlos", int64(1)}}, "taxi"}
-	rd := Read(r)
-	kind, day, cur, amt := rd.Str(), rd.Date(), rd.Str(), rd.Dec()
-	place := "-"
-	if !rd.None() {
-		place = rd.Str()
-	}
-	payer := rd.Str()
-	var fixed []Decimal
-	var weights []int64
-	sh := rd.Row()
-	for sh.More() {
-		s := sh.Row()
-		s.Str()
-		if s.Peek() == "dec" {
-			fixed = append(fixed, s.Dec())
-		} else {
-			weights = append(weights, s.Int())
-		}
-		s.End()
-	}
-	sh.End()
-	desc := rd.Str()
-	if err := rd.End(); err != nil {
-		t.Fatal(err)
-	}
-	if kind != "x" || day != 20778 || cur != "EUR" || amt != (Decimal{9000, 2}) || place != "-" ||
-		payer != "pavlos" || len(fixed) != 1 || len(weights) != 1 || desc != "taxi" {
-		t.Errorf("read %q %v %q %v %q %q %v %v %q", kind, day, cur, amt, place, payer, fixed, weights, desc)
-	}
-}
-
-// TestReaderErrors: S001 to S003 with the item's path, and the first
-// error sticks across nested readers.
-func TestReaderErrors(t *testing.T) {
-	check := func(name string, err error, want, path string) {
-		t.Helper()
-		e, ok := code(err)
-		if !ok || e.Code != want || pathString(e.Path) != path {
-			t.Errorf("%s: %v, want %s at %s", name, err, want, path)
-		}
-	}
-	rd := Read(Row{"a", int64(1)})
-	rd.Str()
-	rd.Str() // an int: S001, and it sticks
-	if rd.Int() != 0 || rd.More() || rd.Peek() != "" {
-		t.Error("reads after an error did not return zero values")
-	}
-	check("wrong type", rd.End(), "S001", "1")
-
-	rd = Read(Row{"a"})
-	rd.Str()
-	rd.Int()
-	check("short", rd.End(), "S002", "1")
-
-	rd = Read(Row{"a", "b"})
-	rd.Str()
-	check("long", rd.End(), "S003", "1")
-
-	rd = Read(Row{Row{"a", int64(2)}})
-	sub := rd.Row()
-	sub.Str()
-	sub.Str()
-	check("nested sticks to the outer End", rd.End(), "S001", "0.1")
 }

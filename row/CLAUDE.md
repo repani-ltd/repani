@@ -5,8 +5,7 @@ no field names, rows within rows four levels deep; and a text, one
 item per line, for export, inspection and edits. **ROW.t is the
 normative source of truth**, DESIGN.t its reasons and ledger. ROW v1
 (spec, decisions, history) is retired to `~/repos/_attic/row` and binds
-nothing here. Read ROW.t before touching the encoder, decoder, text or
-reader.
+nothing here. Read ROW.t before touching the encoder, decoder or text.
 
 ## Layout
 
@@ -17,7 +16,6 @@ reader.
   shared by Encode and Format), Encode/Decode.
 - `text.go` -- Format/Parse and the labelled pair; canonical output,
   lenient input (ROW.t 6.5's table).
-- `read.go` -- the reader (ROW.t 8.1).
 - `civil.go` -- Hinnant's day algorithms, the same as row.js's.
 - `row.js` -- the JavaScript twin, no imports, embedded as `JS()`.
 - `testdata/vectors.json` -- THE VECTORS. `valid` and `labeled` come

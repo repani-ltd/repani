@@ -117,15 +117,13 @@ comments. Strings stay on one line.
 	V001  an int outside ±(2^53-1)
 	V002  a decimal scale above 15 or mantissa outside ±(2^53-1)
 	V003  a float that is NaN, infinite or -0
-	V004  a date outside 0001-01-01 to 9999-12-31
+	V004  a date outside 0001-01-01 to 9999-12-31 (10000-01-01,
+	      0000-02-29: a year of four digits or more, year 0 a leap year)
 	V005  a datetime outside its range or finer than a millisecond
 	V006  a time outside one day or finer than a millisecond
 	V007  a duration outside ±(2^53-1) ms or finer than a millisecond
-	V008  a string that is not valid UTF-8
+	V008  a string, or a label, that is not valid UTF-8
 	V009  a program's value with no ROW type
-	S001  an item of another type than the reader asked for
-	S002  the row ends where the reader asked for an item
-	S003  items left where the reader expected the row's end
 
 Every error carries the item's path when there is one, and the byte
 offset (bytes) or line (text). V errors are the same wherever met:
@@ -135,10 +133,9 @@ rounded or truncated to fit.
 # Go and JavaScript
 
 Encode, Decode, Format, Parse, FormatLabeled and ParseLabeled,
-FormatValue, ParseValue and TypeName, and Read for a reader; row.js
-(embedded as JS) exports encode, decode, format, parse,
-formatLabeled, parseLabeled, formatValue, parseValue, typeName and
-reader, with no imports. ParseValue(type, text) reads one value's
+FormatValue, ParseValue and TypeName; row.js (embedded as JS)
+exports encode, decode, format, parse, formatLabeled, parseLabeled,
+formatValue, parseValue and typeName, with no imports. ParseValue(type, text) reads one value's
 text, as after a line's =, no spaces around it; FormatValue writes
 one value's canonical text; none and row have no value text (T004),
 an unknown type name is T003. Values, Go then JavaScript:
@@ -155,12 +152,6 @@ an unknown type name is T003. Values, Go then JavaScript:
 	str   string                    string
 	bin   []byte                    Uint8Array
 	row   Row ([]any in)            Array
-
-A reader takes a decoded row's items in order: Str Bin Int Dec F64
-Bool Date UTC Time Dur, Row (a reader of the nested row), None (takes
-a none and reports it), Peek (the next item's type name), More, End
-(S003 if items are left). In Go the first error sticks and End
-returns it; in JavaScript each read throws.
 
 # CLI
 

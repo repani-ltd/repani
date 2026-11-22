@@ -277,12 +277,12 @@ bin | 0x, then two lower-case hex digits a byte: 0x00ff; empty is 0x | upper-cas
 
 # 7. Errors
 
-Errors fall in four families: R, the structure of the bytes; T, the structure of
-the text; V, a value outside its type, found the same wherever it is met --
-decoding bytes, parsing text, or encoding a program's value; and S, a valid row
-not of the shape a program reading it expects (section 8). Every error carries
-the path of the item at fault when there is one, and the byte offset (bytes) or
-the line (text). Go and JavaScript report the same codes.
+Errors fall in three families: R, the structure of the bytes; T, the structure
+of the text; and V, a value outside its type, found the same wherever it is met
+-- decoding bytes, parsing text, or encoding a program's value. Whether a valid
+row is of the shape a program expects is the program's to say. Every error
+carries the path of the item at fault when there is one, and the byte offset
+(bytes) or the line (text). Go and JavaScript report the same codes.
 
 .fmt 76 6L *L
 ^code | error
@@ -305,16 +305,16 @@ V004 | a date outside 0001-01-01 to 9999-12-31
 V005 | a datetime outside its range, or finer than a millisecond
 V006 | a time outside one day, or finer than a millisecond
 V007 | a duration outside -(2^53-1) to 2^53-1 milliseconds, or finer than a millisecond
-V008 | a string that is not valid UTF-8
+V008 | a string, or a label, that is not valid UTF-8
 V009 | a program's value that has no ROW type (encoding only)
-S001 | an item of another type than the reader asked for
-S002 | the row ends where the reader asked for an item
-S003 | items left where the reader expected the row's end
 .end
 
 Text that reads is not therefore in range: 2026-02-30 is no date (T004), while
-10000-01-01 is a date outside the type (V004), as is a datetime whose offset
-carries it past 9999.
+10000-01-01 and 0000-02-29 are dates outside the type (V004): a year has four
+digits or more, and the calendar is proleptic Gregorian, so year 0 is a leap
+year. A datetime is in range by its instant, whatever the year written:
+0000-12-31T23:30:00-01:00 is 0001-01-01T00:30:00Z, and an offset can as well
+carry a datetime past 9999 (V005).
 
 # 8. Go and JavaScript
 
@@ -347,7 +347,6 @@ ParseLabeled (parseLabeled) | a labelled text to its rows, in order
 FormatValue (formatValue) | one value to its canonical text, as after a line's =
 ParseValue (parseValue) | a type name and one value's text to the value
 TypeName (typeName) | a value's type name, "" for one with no ROW type
-Read (reader) | a reader of a row's items, in order
 Spec, JS | the reference, and row.js's source
 .end
 
@@ -361,27 +360,6 @@ output canonical, as on a line. ParseValue fails as a line would (T004, or a V
 code), and T003 for an unknown type name; none and row have no value text, so
 both functions refuse them (T004). FormatValue checks its value as Encode does.
 TypeName names a value's type without checking that it is in range.
-
-## 8.1 The reader
-
-A program reads a row the way it was written: position by position. A reader
-walks the row's items in order; each typed read takes the next item and fails
-(S001) if it is of another type, or (S002) if the row has ended.
-
-.fmt 76 22L *L
-^read | takes the next item
-Str Bin Int Dec F64 | as that type
-Bool Date UTC Time Dur | as that type
-Row | as a row, returning a reader of its items
-None | if it is none, reporting so; else leaves it
-Peek | nothing: names its type (str, dec, ...)
-More | nothing: reports whether an item is left
-End | nothing: S003 if an item is left
-.end
-
-In Go a reader's first error sticks: later reads return zero values, and End, of
-the row or of any row within it, returns that first error. In JavaScript every
-read throws.
 .width 72
 .cols 1
 .font sans

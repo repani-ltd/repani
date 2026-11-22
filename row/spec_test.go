@@ -14,12 +14,15 @@ func TestSpec(t *testing.T) {
 			t.Errorf("spec has no %q section", h)
 		}
 	}
-	for _, c := range []string{"R001", "R005", "T001", "T007", "V001", "V009", "S001", "S003"} {
+	for _, c := range []string{"R001", "R005", "T001", "T007", "V001", "V009"} {
 		if !strings.Contains(s, c) {
 			t.Errorf("spec lists no %s", c)
 		}
 	}
 	if strings.Contains(s, "lz4s") || strings.Contains(s, "compressed") {
 		t.Error("spec still speaks of compression")
+	}
+	if strings.Contains(s, "S001") || strings.Contains(s, "reader") {
+		t.Error("spec still speaks of the reader")
 	}
 }

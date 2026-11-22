@@ -34,17 +34,7 @@ type TimeOfDay int64
 // of whole milliseconds too.
 type Duration int64
 
-// Std returns d as a time.Duration, and false when it is beyond
-// time.Duration's range.
-func (d Duration) Std() (time.Duration, bool) {
-	const limit = int64(math.MaxInt64 / int64(time.Millisecond))
-	if int64(d) > limit || int64(d) < -limit {
-		return 0, false
-	}
-	return time.Duration(d) * time.Millisecond, true
-}
-
-// Error is a failure with its ROW.t code (R, T, V or S), the path of
+// Error is a failure with its ROW.t code (R, T or V), the path of
 // the item at fault (nil when there is none), and where it was found:
 // Offset in bytes (-1 when not in bytes), Line in text (0 when not in
 // text).
@@ -466,6 +456,18 @@ func (d *decoder) zz(path []int, off int) (int64, error) {
 	return unzigzag(u), nil
 }
 
+// checked is a decoded value through norm, the one check of a value
+// against its type, its error placed at the item's offset.
+func (d *decoder) checked(v any, path []int, off int) (any, error) {
+	n, err := norm(v, path, 1)
+	if err != nil {
+		e := err.(*Error)
+		e.Offset = off
+		return nil, e
+	}
+	return n, nil
+}
+
 func (d *decoder) item(path []int, depth int) (any, error) {
 	off := d.i
 	if d.i >= len(d.b) {
@@ -484,10 +486,7 @@ func (d *decoder) item(path []int, depth int) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if m < -maxInt || m > maxInt {
-			return nil, d.fail("V002", path, off, "decimal mantissa %d outside ±(2^53-1)", m)
-		}
-		return Decimal{Mantissa: m, Scale: int(t & 0x0F)}, nil
+		return d.checked(Decimal{Mantissa: m, Scale: int(t & 0x0F)}, path, off)
 	case t >= tagShortRow && t <= tagShortRow+maxShortRow:
 		return d.nested(uint64(t&0x0F), path, depth, off)
 	}
@@ -498,63 +497,33 @@ func (d *decoder) item(path []int, depth int) (any, error) {
 		return false, nil
 	case tagTrue:
 		return true, nil
-	case tagInt:
+	case tagInt, tagDate, tagDatetime, tagDuration:
 		n, err := d.zz(path, off)
 		if err != nil {
 			return nil, err
 		}
-		if n < -maxInt || n > maxInt {
-			return nil, d.fail("V001", path, off, "int %d outside ±(2^53-1)", n)
+		var v any = n
+		switch t {
+		case tagDate:
+			v = Day(n)
+		case tagDatetime:
+			v = time.UnixMilli(n)
+		case tagDuration:
+			v = Duration(n)
 		}
-		return n, nil
+		return d.checked(v, path, off)
 	case tagFloat:
 		s, err := d.take(8, path, off)
 		if err != nil {
 			return nil, err
 		}
-		f := math.Float64frombits(binary.LittleEndian.Uint64(s))
-		if _, err := checkFloat(f, path); err != nil {
-			e := err.(*Error)
-			e.Offset = off
-			return nil, e
-		}
-		return f, nil
-	case tagDate:
-		n, err := d.zz(path, off)
-		if err != nil {
-			return nil, err
-		}
-		if n < minDay || n > maxDay {
-			return nil, d.fail("V004", path, off, "date %d days outside 0001-01-01 to 9999-12-31", n)
-		}
-		return Day(n), nil
-	case tagDatetime:
-		n, err := d.zz(path, off)
-		if err != nil {
-			return nil, err
-		}
-		if n < minDatetime || n > maxDatetime {
-			return nil, d.fail("V005", path, off, "datetime %d ms outside 0001 to 9999", n)
-		}
-		return time.UnixMilli(n).UTC(), nil
+		return d.checked(math.Float64frombits(binary.LittleEndian.Uint64(s)), path, off)
 	case tagTime:
 		u, err := d.varint(path, off)
 		if err != nil {
 			return nil, err
 		}
-		if u > maxTime {
-			return nil, d.fail("V006", path, off, "time %d ms outside one day", u)
-		}
-		return TimeOfDay(u), nil
-	case tagDuration:
-		n, err := d.zz(path, off)
-		if err != nil {
-			return nil, err
-		}
-		if n < -maxInt || n > maxInt {
-			return nil, d.fail("V007", path, off, "duration %d ms outside ±(2^53-1)", n)
-		}
-		return Duration(n), nil
+		return d.checked(TimeOfDay(u), path, off) // 8 varint bytes fit an int64
 	case tagLongString:
 		u, err := d.varint(path, off)
 		if err != nil {

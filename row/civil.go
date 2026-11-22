@@ -50,14 +50,7 @@ func civilFromDays(z int64) (y, m, d int64) {
 	return y, m, d
 }
 
-// validCivil reports whether y-m-d is a real date in years 1 to 9999.
-func validCivil(y, m, d int64) bool {
-	if y < 1 || y > 9999 || m < 1 || m > 12 || d < 1 {
-		return false
-	}
-	return d <= daysIn(y, m)
-}
-
+// daysIn is the days in month m of year y; year 0 is a leap year.
 func daysIn(y, m int64) int64 {
 	switch m {
 	case 2:

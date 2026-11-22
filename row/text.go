@@ -36,6 +36,9 @@ func FormatLabeled(rows []Labeled) (string, error) {
 	var b strings.Builder
 	seen := map[string]bool{}
 	for _, l := range rows {
+		if !utf8.ValidString(l.Label) {
+			return "", errAt("V008", nil, "a label that is no UTF-8 string")
+		}
 		if seen[l.Label] {
 			return "", errAt("T005", nil, "label %q twice", l.Label)
 		}
@@ -523,13 +526,8 @@ func assemble(lines []line, labelled bool) (Row, error) {
 		}
 		byPath[key] = l
 	}
-	root, hasRoot := byPath[""]
-	if labelled && !hasRoot {
+	if _, ok := byPath[""]; labelled && !ok {
 		return nil, lineErr("T006", lines[0].num, nil, "row %q has no line of its own", lines[0].label)
-	}
-	rootLine := 0
-	if hasRoot {
-		rootLine = root.num
 	}
 	// Every item's row has its line, a row line.
 	children := map[string][]*line{}
@@ -550,18 +548,19 @@ func assemble(lines []line, labelled bool) (Row, error) {
 		}
 		children[parent] = append(children[parent], l)
 	}
-	var build func(key string, path []int, headerLine int) (Row, error)
-	build = func(key string, path []int, headerLine int) (Row, error) {
+	var build func(key string, path []int) (Row, error)
+	build = func(key string, path []int) (Row, error) {
 		kids := children[key]
 		sort.Slice(kids, func(a, b int) bool { return kids[a].path[len(path)] < kids[b].path[len(path)] })
 		r := make(Row, len(kids))
 		for i, l := range kids {
 			if pos := l.path[len(path)]; pos != i {
 				missing := append(clonePath(path), i)
-				return nil, lineErr("T005", headerLine, missing, "position %s missing", pathString(missing))
+				// at the line after the gap: a top-level row has no line of its own
+				return nil, lineErr("T005", l.num, missing, "position %s missing", pathString(missing))
 			}
 			if l.header {
-				sub, err := build(pathString(l.path), l.path, l.num)
+				sub, err := build(pathString(l.path), l.path)
 				if err != nil {
 					return nil, err
 				}
@@ -572,7 +571,7 @@ func assemble(lines []line, labelled bool) (Row, error) {
 		}
 		return r, nil
 	}
-	return build("", nil, rootLine)
+	return build("", nil)
 }
 
 // parseValue reads a value in any spelling its type reads as the same
@@ -612,8 +611,8 @@ func parseValue(name, s string) (any, error) {
 	case "f64":
 		return parseFloat(s)
 	case "date":
-		day, ok, inRange := parseDate(s)
-		if !ok {
+		day, n, ok, inRange := parseDate(s)
+		if !ok || n != len(s) {
 			return nil, bad("%q is not a date", s)
 		}
 		if !inRange {
@@ -816,22 +815,28 @@ func fixed(s string, i, n int) (int64, bool) {
 	return v, true
 }
 
-// parseDate reads YYYY-MM-DD: ok if it is a date, inRange if within
-// 0001 to 9999 (a four-digit year is, but for 0000).
-func parseDate(s string) (day int64, ok, inRange bool) {
-	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
-		return 0, false, false
+// parseDate reads the date YYYY-MM-DD at the start of s, a year of four
+// digits or more: its day, the length it took, ok if it is a date, and
+// inRange if within 0001 to 9999. Year 0 is a leap year, as the
+// proleptic calendar has it; a year past 99999 is far enough beyond to
+// stand as 100000.
+func parseDate(s string) (day int64, n int, ok, inRange bool) {
+	k := strings.IndexByte(s, '-')
+	if k < 4 || len(s) < k+6 || s[k+3] != '-' {
+		return 0, 0, false, false
 	}
-	y, ok1 := fixed(s, 0, 4)
-	m, ok2 := fixed(s, 5, 2)
-	d, ok3 := fixed(s, 8, 2)
-	if !ok1 || !ok2 || !ok3 || m < 1 || m > 12 || d < 1 || d > daysIn(max(y, 1), m) {
-		return 0, false, false
+	y, ok1 := int64(100000), true
+	if k <= 5 {
+		y, ok1 = fixed(s, 0, k)
+	} else {
+		ok1 = strings.Trim(s[:k], "0123456789") == ""
 	}
-	if y < 1 {
-		return 0, true, false
+	m, ok2 := fixed(s, k+1, 2)
+	d, ok3 := fixed(s, k+4, 2)
+	if !ok1 || !ok2 || !ok3 || m < 1 || m > 12 || d < 1 || d > daysIn(y, m) {
+		return 0, 0, false, false
 	}
-	return daysFromCivil(y, m, d), true, true
+	return daysFromCivil(y, m, d), k + 6, true, y >= 1 && y <= 9999
 }
 
 // clock reads HH:MM[:SS[.fff...]] at the start of s: the milliseconds,
@@ -894,14 +899,11 @@ func parseTimeOfDay(s string) (any, error) {
 
 func parseDatetime(s string) (any, error) {
 	bad := &Error{Code: "T004", Offset: -1, Msg: fmt.Sprintf("%q is not a datetime", s)}
-	if len(s) < 11 || (s[10] != 'T' && s[10] != 't' && s[10] != ' ') {
+	day, n, ok, _ := parseDate(s)
+	if !ok || len(s) <= n || (s[n] != 'T' && s[n] != 't' && s[n] != ' ') {
 		return nil, bad
 	}
-	day, ok, inRange := parseDate(s[:10])
-	if !ok {
-		return nil, bad
-	}
-	rest := s[11:]
+	rest := s[n+1:]
 	ms, fine, j, ok := clock(rest, true)
 	if !ok {
 		if j == 8 {
@@ -929,9 +931,8 @@ func parseDatetime(s string) (any, error) {
 	if fine {
 		return nil, &Error{Code: "V005", Offset: -1, Msg: fmt.Sprintf("datetime %s finer than a millisecond", s)}
 	}
-	if !inRange && day == 0 {
-		return nil, &Error{Code: "V005", Offset: -1, Msg: fmt.Sprintf("datetime %s outside 0001 to 9999", s)}
-	}
+	// in range by the instant, whatever the year written: an offset can
+	// carry 0000-12-31 into 0001
 	t := day*86400000 + ms - offset
 	if t < minDatetime || t > maxDatetime {
 		return nil, &Error{Code: "V005", Offset: -1, Msg: fmt.Sprintf("datetime %s outside 0001 to 9999", s)}

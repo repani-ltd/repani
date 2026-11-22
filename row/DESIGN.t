@@ -413,9 +413,9 @@ it.
 
 # Errors
 
-Four families: R for bytes, T for text, V for values, and S for a row's shape
-against a program's expectation (see The reader). A value outside its type is
-one error wherever it is met -- in bytes, in text, in a program's value being
+Three families: R for bytes, T for text, V for values (a fourth, S for a row's
+shape, went with the reader; see No reader). A value outside its type is one
+error wherever it is met -- in bytes, in text, in a program's value being
 encoded -- which is REFUSE, NEVER TRUNCATE made concrete: one list of value
 errors, not one per reader and writer. A text that reads but lies outside its
 type is a V error, not a T one, so 2026-02-30 (no date) and 10000-01-01 (a date
@@ -449,29 +449,15 @@ text has its own pair of functions, because "" is a label and must not mean "no
 labels". The JavaScript source is JS() string, as lz4s has it: one convention. A
 binary sequence reader (rows laid end to end) waits for a consumer.
 
-## The reader
+## No reader
 
-Every app that reads rows checks positions by hand: iou's record reader is about
-eighty lines of type checks, optional fields, exact field counts and a sharers
-group whose share is a decimal or an int; raid's event reader checks field
-counts. The reader was designed from those call sites, before iou was ported;
-iou then kept its own record reader, whose every check is iou's (a scale per
-currency, the sharers, the edit's replacement), so the reader would only have
-renamed its errors. It awaits a consumer whose checks are shape alone.
-
-A reader, not indexed getters: a record is read in the order it was written, so
-walking its items removes the index bookkeeping, and End checks the exact count
-that both apps check by hand (S003, a field over; S002, a field short). Typed
-reads are named by the text's type names (Str, Dec, UTC ...), one vocabulary
-across text and code. Three reads serve the shapes the apps have: None an
-optional position, Peek a position of several types (iou's share), More a
-repeating group. Go's first error sticks and End returns it, as bufio.Scanner
-does, so a record reads as straight-line code checked once; JavaScript throws,
-its idiom. Shape errors have codes of their own (S) because the row is valid:
-the mismatch is between the row and what a program expects of it, and the same
-code in both languages lets one test hold them to the same answers.
-
-Writing needs no counterpart: a row is a literal ([]any{...}, an array).
+A sequential reader (typed reads in order, sticky errors in Go, S001-S003 for
+shape) was built from iou's and raid's hand-written record readers and removed
+the same day, used by none. Whether a valid row has the shape a program expects
+is the program's question, and a records dialect answers it whole: REC
+(repani.com/rec) reads a row by its record type, with the checks a shape reader
+cannot say (a scale per currency, sharers, an edit's replacement). A row is read
+as the []any or Array it decodes to, and written as a literal.
 
 # Ledger
 
@@ -497,6 +483,7 @@ Writing needs no counterpart: a row is a literal ([]any{...}, an array).
 2026-11-21 | Go and JavaScript API (ROW.t 8): v1's value types where their reasons hold, JS() string, labelled text in its own pair; a sequential reader with sticky errors in Go, S001-S003 for shape.
 2026-11-21 | Four levels, not three: a record of tuples, carried once (iou's edits and pair sharers).
 2026-11-21 | parea, raid, webapp and iou moved to it (iou's export labelled text, a row per record keyed by its key); lz4s, used by none, to repani-lab with its history.
+2026-11-22 | The reader removed, used by none: shape is a records dialect's (REC), not ROW's; S001-S003 retired with it, and the error families are three.
 .end
 .width 72
 .cols 1

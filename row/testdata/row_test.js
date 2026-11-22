@@ -1,6 +1,6 @@
 // Runs row.js against the vectors; js_test.go loads it in headless
 // Chrome and reads the failures it returns.
-import { encode, decode, format, parse, formatLabeled, parseLabeled, parseValue, formatValue, typeName, Decimal, RowError } from "/row.js";
+import { encode, decode, format, parse, formatLabeled, parseLabeled, parseValue, formatValue, typeName, Decimal, Float, RowError } from "/row.js";
 
 const unhex = (h) => Uint8Array.from(h.match(/../g) ?? [], (x) => parseInt(x, 16));
 const tohex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -86,10 +86,21 @@ export async function run() {
     const [, e] = attempt(() => parseValue(ty, tx));
     check(e instanceof RowError && e.code === cd, `parseValue(${ty}, ${JSON.stringify(tx)}): ${e ? e.message : "no error"}; want ${cd}`);
   }
-  for (const [val, cd] of [[null, "T004"], [[], "T004"], [new Decimal(1, 16), "V002"], [{}, "V009"]]) {
+  // the value is checked before its kind, as in Go: a row holding NaN is V003
+  for (const [val, cd] of [[null, "T004"], [[], "T004"], [new Decimal(1, 16), "V002"], [{}, "V009"], [[new Float(NaN)], "V003"]]) {
     const [, e] = attempt(() => formatValue(val));
     check(e instanceof RowError && e.code === cd, `formatValue(${JSON.stringify(val)}): ${e ? e.message : "no error"}; want ${cd}`);
   }
+  // what no vector can hold: a program's values
+  const refuse = (what, f, cd) => {
+    const [, e] = attempt(f);
+    check(e instanceof RowError && e.code === cd, `${what}: ${e ? e.message : "no error"}; want ${cd}`);
+  };
+  refuse("encode of a sparse array", () => encode([1, , 2]), "V009"); // eslint-disable-line no-sparse-arrays
+  refuse("format of a sparse array", () => format([1, , 2]), "V009"); // eslint-disable-line no-sparse-arrays
+  refuse("encode of 1.5", () => encode([1.5]), "V009");
+  refuse("a label with a lone surrogate", () => formatLabeled([{ label: "\ud800", row: [] }]), "V008");
+  check(typeName(1.5) === "", `typeName(1.5) = ${JSON.stringify(typeName(1.5))}, want "" (a float is a Float)`);
   check(values > 100, `only ${values} value lines checked`);
   const count = v.valid.length + v.labeled.length + v.lenient.length + v.badBinary.length + v.badText.length + v.badLabeled.length;
   return { fails, count };

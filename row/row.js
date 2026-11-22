@@ -101,7 +101,7 @@ function validUTF16(s) {
 export function typeName(v) {
   if (v === null) return "none";
   if (typeof v === "boolean") return "bool";
-  if (typeof v === "number") return "int";
+  if (typeof v === "number") return Number.isInteger(v) ? "int" : ""; // 1.5 is a Float's
   if (typeof v === "string") return "str";
   if (v instanceof Decimal) return "dec";
   if (v instanceof Float) return "f64";
@@ -120,9 +120,7 @@ function check(v, path, depth) {
   switch (typeName(v)) {
     case "none": case "bool": case "bin": return;
     case "int":
-      if (!Number.isInteger(v)) throw fail("V009", path, `${v} is not an integer (a float is a Float)`);
       if (!inInt(v)) throw fail("V001", path, `int ${v} outside ±(2^53-1)`);
-      if (Object.is(v, -0)) return;
       return;
     case "str":
       if (!validUTF16(v)) throw fail("V008", path, "string holds a lone surrogate");
@@ -154,11 +152,13 @@ function check(v, path, depth) {
       checkItems(v, path, depth + 1);
       return;
   }
+  if (typeof v === "number") throw fail("V009", path, `${v} is not an integer (a float is a Float)`);
   throw fail("V009", path, `${Object.prototype.toString.call(v)} has no ROW type`);
 }
+// checkItems walks every index: a sparse array's hole is undefined, no value.
 function checkItems(r, path, depth) {
   const p = [...(path ?? []), 0];
-  r.forEach((v, i) => { p[p.length - 1] = i; check(v, p, depth); });
+  for (let i = 0; i < r.length; i++) { p[p.length - 1] = i; check(r[i], p, depth); }
 }
 
 // The bytes.
@@ -203,6 +203,7 @@ function pushItem(out, v) {
       for (const x of v) pushItem(out, x);
       return;
   }
+  throw new Error("row: an unchecked value reached the encoder"); // check refuses it first
 }
 
 // encode returns the bytes of a row (an Array), checking every value.
@@ -248,9 +249,14 @@ class Decoder {
     }
     return r;
   }
-  int(n, code, path, off, what) {
-    if (n < -BigInt(MAX_INT) || n > BigInt(MAX_INT)) throw this.fail(code, path, off, `${what} ${n} outside ±(2^53-1)`);
-    return Number(n);
+  // checked is a decoded value through check, the one check of a value
+  // against its type, its error placed at the item's offset.
+  checked(v, path, off) {
+    try { check(v, path, 1); } catch (e) {
+      if (!(e instanceof RowError)) throw e;
+      throw this.fail(e.code, path, off, e.message.replace(/^row: \S+( at \S+)?: /, ""));
+    }
+    return v;
   }
   str(n, path, off) {
     const s = this.take(n, path, off);
@@ -267,38 +273,23 @@ class Decoder {
     const t = this.b[this.i++];
     if (t <= MAX_STR) return this.str(BigInt(t), path, off);
     if (t < NONE) return this.take(BigInt(t - BYTES), path, off).slice();
-    if (t >= DEC && t < SROW) {
-      const m = this.int(this.zz(path, off), "V002", path, off, "decimal mantissa");
-      return new Decimal(m, t & 0x0f);
-    }
+    // a BigInt past 2^53 as a Number is inexact, but out of range all the same
+    const num = (n) => Number(n);
+    if (t >= DEC && t < SROW) return this.checked(new Decimal(num(this.zz(path, off)), t & 0x0f), path, off);
     if (t >= SROW && t <= SROW + MAX_SROW) return this.nested(BigInt(t & 0x0f), path, depth, off);
     switch (t) {
       case NONE: return null;
       case FALSE: return false;
       case TRUE: return true;
-      case INT: return this.int(this.zz(path, off), "V001", path, off, "int");
+      case INT: return this.checked(num(this.zz(path, off)), path, off);
       case FLT: {
         const s = this.take(8n, path, off);
-        const f = new DataView(s.buffer, s.byteOffset, 8).getFloat64(0, true);
-        if (!Number.isFinite(f) || Object.is(f, -0)) throw this.fail("V003", path, off, `float ${f}: NaN, infinite or -0`);
-        return new Float(f);
+        return this.checked(new Float(new DataView(s.buffer, s.byteOffset, 8).getFloat64(0, true)), path, off);
       }
-      case DATE: {
-        const n = this.zz(path, off);
-        if (n < BigInt(MIN_DAY) || n > BigInt(MAX_DAY)) throw this.fail("V004", path, off, `date ${n} days outside 0001-01-01 to 9999-12-31`);
-        return new Day(Number(n));
-      }
-      case DT: {
-        const n = this.zz(path, off);
-        if (n < BigInt(MIN_DT) || n > BigInt(MAX_DT)) throw this.fail("V005", path, off, `datetime ${n} ms outside 0001 to 9999`);
-        return new Date(Number(n));
-      }
-      case TIME: {
-        const u = this.varint(path, off);
-        if (u > BigInt(MAX_TIME)) throw this.fail("V006", path, off, `time ${u} ms outside one day`);
-        return new TimeOfDay(Number(u));
-      }
-      case DUR: return new Duration(this.int(this.zz(path, off), "V007", path, off, "duration"));
+      case DATE: return this.checked(new Day(num(this.zz(path, off))), path, off);
+      case DT: return this.checked(new Date(num(this.zz(path, off))), path, off);
+      case TIME: return this.checked(new TimeOfDay(num(this.varint(path, off))), path, off);
+      case DUR: return this.checked(new Duration(num(this.zz(path, off))), path, off);
       case LSTR: return this.str(this.varint(path, off) + BigInt(MAX_STR + 1), path, off);
       case LBYTES: return this.take(this.varint(path, off) + BigInt(MAX_BYTES + 1), path, off).slice();
       case LROW: return this.nested(this.varint(path, off) + BigInt(MAX_SROW + 1), path, depth, off);
@@ -425,6 +416,7 @@ export function formatLabeled(rows) {
   const seen = new Set();
   const lines = [];
   for (const { label, row } of rows) {
+    if (typeof label !== "string" || !validUTF16(label)) throw fail("V008", null, "a label that is no UTF-8 string");
     if (seen.has(label)) throw fail("T005", null, `label ${JSON.stringify(label)} twice`);
     seen.add(label);
     checkItems(row, null, 1);
@@ -564,17 +556,18 @@ function assemble(lines, labelled) {
     if (!children.has(parent)) children.set(parent, []);
     children.get(parent).push(l);
   }
-  const build = (key, path, headerLine) => {
+  const build = (key, path) => {
     const kids = (children.get(key) ?? []).slice().sort((a, b) => a.path[path.length] - b.path[path.length]);
     return kids.map((l, i) => {
       if (l.path[path.length] !== i) {
+        // at the line after the gap: a top-level row has no line of its own
         const missing = [...path, i];
-        throw lineErr("T005", headerLine, missing, `position ${missing.join(".")} missing`);
+        throw lineErr("T005", l.num, missing, `position ${missing.join(".")} missing`);
       }
-      return l.header ? build(l.path.join("."), l.path, l.num) : l.value;
+      return l.header ? build(l.path.join("."), l.path) : l.value;
     });
   };
-  return build("", [], root ? root.num : 0);
+  return build("", []);
 }
 
 // parse returns the row of an unlabelled text, its lines in any order
@@ -687,13 +680,17 @@ function fixed(s, i, n) {
   return t.length === n && [...t].every(isDigit) ? Number(t) : null;
 }
 
-// parseDate: [day, inRange] or null if it is no date.
+// parseDate reads the date YYYY-MM-DD at the start of s, a year of four
+// digits or more: [day, length, inRange], or null if it is no date. Year
+// 0 is a leap year, as the proleptic calendar has it; a year past 99999
+// is far enough beyond to stand as 100000.
 function parseDate(s) {
-  if (s.length !== 10 || s[4] !== "-" || s[7] !== "-") return null;
-  const y = fixed(s, 0, 4), m = fixed(s, 5, 2), d = fixed(s, 8, 2);
-  if (y === null || m === null || d === null || m < 1 || m > 12 || d < 1 || d > daysIn(Math.max(y, 1), m)) return null;
-  if (y < 1) return [0, false];
-  return [daysFromCivil(y, m, d), true];
+  const k = s.indexOf("-");
+  if (k < 4 || s.length < k + 6 || s[k + 3] !== "-") return null;
+  const y = k <= 5 ? fixed(s, 0, k) : [...s.slice(0, k)].every(isDigit) ? 100000 : null;
+  const m = fixed(s, k + 1, 2), d = fixed(s, k + 4, 2);
+  if (y === null || m === null || d === null || m < 1 || m > 12 || d < 1 || d > daysIn(y, m)) return null;
+  return [daysFromCivil(y, m, d), k + 6, y >= 1 && y <= 9999];
 }
 
 // clock reads HH:MM[:SS[.f...]] at the start of s: {ms, fine, j} or
@@ -731,10 +728,9 @@ function parseTime(s) {
 
 function parseDatetime(s) {
   const no = () => bad(`${JSON.stringify(s)} is not a datetime`);
-  if (s.length < 11 || !"Tt ".includes(s[10])) throw no();
-  const d = parseDate(s.slice(0, 10));
-  if (!d) throw no();
-  const rest = s.slice(11);
+  const d = parseDate(s);
+  if (!d || s.length <= d[1] || !"Tt ".includes(s[d[1]])) throw no();
+  const rest = s.slice(d[1] + 1);
   const c = clock(rest, true);
   if (!c) throw no();
   if (c.leap) throw outside("V005", `datetime ${s}: a leap second`);
@@ -747,7 +743,8 @@ function parseDatetime(s) {
     offset = (oh * 60 + om) * 60000 * (zone[0] === "-" ? -1 : 1);
   } else throw no();
   if (c.fine) throw outside("V005", `datetime ${s} finer than a millisecond`);
-  if (!d[1]) throw outside("V005", `datetime ${s} outside 0001 to 9999`);
+  // in range by the instant, whatever the year written: an offset can
+  // carry 0000-12-31 into 0001
   const t = d[0] * 86400000 + c.ms - offset;
   if (t < MIN_DT || t > MAX_DT) throw outside("V005", `datetime ${s} outside 0001 to 9999`);
   return new Date(t);
@@ -806,8 +803,8 @@ function readValue(name, s) {
     case "f64": return parseFloatValue(s);
     case "date": {
       const d = parseDate(s);
-      if (!d) throw bad(`${JSON.stringify(s)} is not a date`);
-      if (!d[1]) throw outside("V004", `date ${s} outside 0001-01-01 to 9999-12-31`);
+      if (!d || d[1] !== s.length) throw bad(`${JSON.stringify(s)} is not a date`);
+      if (!d[2]) throw outside("V004", `date ${s} outside 0001-01-01 to 9999-12-31`);
       return new Day(d[0]);
     }
     case "utc": return parseDatetime(s);
@@ -847,47 +844,9 @@ export function parseValue(type, text) {
 // checking it first as encode does. none and a row have no value text
 // (T004): a row's text is format's.
 export function formatValue(v) {
+  check(v, null, 1); // first, as Go's: a row holding NaN is V003
   const t = typeName(v);
   if (t === "none" || t === "row") throw bad(`a ${t} has no value text`);
-  check(v, null, 1);
   return writeValue(v);
 }
 
-// The reader (ROW.t 8.1): a row's items in order; every read throws
-// a RowError (S001 to S003) when the row is not of the shape asked.
-
-class Reader {
-  constructor(row, path) { this.row = row; this.path = path; this.i = 0; }
-  at() { return [...this.path, this.i]; }
-  next(want) {
-    if (this.i >= this.row.length) throw fail("S002", this.at(), `the row ends where a ${want} was asked for`);
-    const v = this.row[this.i];
-    const got = typeName(v);
-    if (got !== want) throw fail("S001", this.at(), `${got} where a ${want} was asked for`);
-    this.i++;
-    return v;
-  }
-  str() { return this.next("str"); }
-  bin() { return this.next("bin"); }
-  int() { return this.next("int"); }
-  dec() { return this.next("dec"); }
-  f64() { return this.next("f64").value; }
-  bool() { return this.next("bool"); }
-  date() { return this.next("date"); }
-  utc() { return this.next("utc"); }
-  time() { return this.next("time"); }
-  dur() { return this.next("dur"); }
-  row() { const p = this.at(); return new Reader(this.next("row"), p); }
-  // none reports whether the next item is none, and takes it if so.
-  none() {
-    if (this.i < this.row.length && this.row[this.i] === null) { this.i++; return true; }
-    return false;
-  }
-  // peek names the next item's type, "" at the row's end.
-  peek() { return this.i < this.row.length ? typeName(this.row[this.i]) : ""; }
-  more() { return this.i < this.row.length; }
-  end() { if (this.i < this.row.length) throw fail("S003", this.at(), `${this.row.length - this.i} items left`); }
-}
-
-// reader returns a reader of a decoded row's items, in order.
-export function reader(row) { return new Reader(row, []); }
