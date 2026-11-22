@@ -57,8 +57,8 @@ func TestHTML(t *testing.T) {
 		`<p class="link"><a href="https://example.org/a">https://example.org/a</a></p>`,
 		"<blockquote>\n<p>Said thing.</p>\n<p class=\"attrib\">Who</p>\n</blockquote>",
 		`<table style="max-width:20ch">`,
-		"<thead>\n<tr><th>name</th><th style=\"text-align:right\">amount</th></tr>\n</thead>",
-		`<tr class="note"><td></td><td>eur</td></tr>`,
+		// The header's note stays with the header, in thead.
+		"<thead>\n<tr><th>name</th><th style=\"text-align:right\">amount</th></tr>\n<tr class=\"note\"><td></td><td>eur</td></tr>\n</thead>",
 		`<tr><td>a</td><td style="text-align:right">1.50</td></tr>`,
 		`<tr class="total"><td>total</td><td style="text-align:right">1.50</td></tr>`,
 		`<tr><td colspan="2">wide</td></tr>`,

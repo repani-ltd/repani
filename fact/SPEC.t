@@ -714,29 +714,50 @@ scales in simulation.
 
 Tested and rejected (do not re-litigate without new evidence):
 
-.fmt 24L 16L *L
-^Proposal | Verdict | Reason
-Sections ([server]) | Rejected | A line's meaning would depend on a distant header; grep hits become ambiguous
-External schema | Rejected | Two sources of truth; the annotation-as-domain property does the schema's work inline
-Type inference | Rejected | The annotation is the edit domain, not a classifier
-Drop ref(kind) parameter | Rejected | Value names today's inhabitant; parameter names tomorrow's legal edits
-Normalize lists into back-refs | Rejected | Ordered membership is one atomic fact
-Drop bool | Rejected (kept as sugar) | Files exist millions of times, the spec once
-Nested wrappers | Adopted ban | Type grammar finite (21 shapes), non-recursive all the way down
-Canonical form | Adopted | Hash equality; clean diffs; projection-diff-as-impact-analysis
-Last-wins duplicates | Rejected | Silent override hides bugs from agents
-Comment lines | Removed (v0.4) | Admitted in v0.1 without a consumer, and never coherent with §8: canonical form drops comments, so fact fmt -w silently deleted them -- nine live lines of run instructions in a working config, and 264 lines across 26 of the 48 fact files in these repos. The format's own formatter destroying a construct is worse than not having it, and one project's documentation already told authors not to use comments because the parser discards them. §8 could not be relaxed to keep them (equal fact sets must produce equal bytes), and the alternative of making fmt -w refuse on a commented file would leave the construct as a permanent exception to canonical form. Prose about a file is prose: §7's boundary sends it to a sibling document, and a fact file now holds nothing addressed to a reader rather than a parser. Blank lines stay -- sorting them away loses no information
-Multi-line string values (heredocs, continuations) | Rejected | Every load-bearing property hangs on one line = one fact: bytewise line sorting for canonical form, stateless line-local lexing, grep hits being complete facts, the single-line edit primitive. Prose crosses the content boundary (§7) as a sibling file/archive member, never as grammar
-Defaults by key absence | Rejected | Absent vs asserted-none = investigate vs trust
-Lowercase-only keys (v0.1) | Reversed in v0.2 | Projected identifiers are case-sensitive and case is semantic (Go exportedness); an actual extractor violated the rule on first run
-Full Go-source conversion (bodies as facts) | Rejected | Reinvents compiler IR at ~8× tokens while discarding model fluency in Go; declarations are facts, bodies are computation
-list(ref(func)) for call edges | Deferred (§6.4) | External symbols break resolution; per-generator choice between all-str and stub-facts
-Line numbers in the source handoff (loc = "file.go:line") | Reversed | Line numbers are the only contract-independent data the projection carried: any edit above a declaration churned them, polluting the regeneration diff that §11.1 makes the impact report. Replaced by file — the defining file plus the symbol name locates a declaration in one grep, and the projection now changes iff the declaration layer changes (§11.2 churn invariant)
-date and datetime as two base types | Rejected (v0.3) | One datetime annotation whose domain spans both precisions is the annotation-as-edit-domain rule at work; two types would force every key author to predict whether precision will ever be needed
-Full-date normalizes to midnight (2026-07-20 → 2026-07-20T00:00:00Z) | Rejected (v0.3) | Meaning-changing, unlike float normalization (5.0→5): a due date is a day, not an instant. Both forms are canonical as written
-Datetime offsets, local date-times, fractional seconds | Rejected (v0.3) | Offsets and local forms import tzdata and political time — the open semantics that keep datetime out of every minimal format; a Z-less token parses as local time across ecosystems, so the Z must travel with the value; fractions would break bytewise-order = chronological-order
-Row formats for record data (TSV with a typed header and a validating CLI; a table of structs in the host language) | Rejected (v0.3, on field evidence) | Cheaper per record and better on record-shaped greps — a hit is a whole row, where a FACT hit is one field of one and a conjunctive query is a join. Rejected on error locality, measured on a 1600-record agent-generated corpus (nyx): the writer of record data is a lossy generator repaired line by line, and per-line self-description is what makes its mistakes detectable where they were made. Seeded one at a time, fact validate caught a duplicate record (E007), an enum typo (E005) and a dangling ref (E008) with no schema; a row format catches none of the three without an external schema, which §4.3 and this ledger already reject, and its header states the contract at a distance from the line being written. Blast radius decides it: one unterminated string in the equivalent Go table masked every other error in the file, and a JSON syntax error does the same, where §9's no-cascading rule reports the bad line and keeps reporting. TSV additionally cannot express asserted absence (the empty cell is both none and forgotten), has no escape standard (a generated tab or newline silently reshapes a row, where str is JSON-quoted), and cannot grow a field without an encoded list inside a column or a variable width. The one check a row format wins is arity — a short row — and that is the class fact validate misses; the schema-free answer is a lint, not a schema (W003, parked in TASKS.t). Rejected as an authoring format, a row form is nonetheless admitted ONE-WAY as a derived view (fact rows, parked with W003): the conjunctive query is the one place a row form is genuinely cheaper, awk and cut are everywhere jq is not, and a rendered view carries no authority — nothing reads it back, so it is a render of the fact set the way pica text is a render of a document, and an importer is prohibited for every reason in this row
-Package-qualified keys (one leading pkg: marker; module-relative mangled ids; module = validation set) | Deferred | Would make per-package files concatenatable, enable module-wide validation, and make cross-package refs expressible (incl. config→code refs, and qualified ref values) — at a per-line token tax on every projection. Unneeded by interactive agents: grep's printed file path already qualifies (§1.1), and the compiler plus freshness gate already guarantee cross-package integrity (§6.2). Adopt if/when fine-tune training-corpus generation begins — a format baked into model weights cannot be changed afterwards, and that is the one consumer for whom self-contained module-wide lines, single-artifact module diffs, and a millisecond module-wide validator (hallucination gate) pay for the tax
+.fmt 24L *L
+^Proposal | Verdict
+Sections ([server]) | Rejected
+A line's meaning would depend on a distant header; grep hits become ambiguous
+External schema | Rejected
+Two sources of truth; the annotation-as-domain property does the schema's work inline
+Type inference | Rejected
+The annotation is the edit domain, not a classifier
+Drop ref(kind) parameter | Rejected
+Value names today's inhabitant; parameter names tomorrow's legal edits
+Normalize lists into back-refs | Rejected
+Ordered membership is one atomic fact
+Drop bool | Rejected (kept as sugar)
+Files exist millions of times, the spec once
+Nested wrappers | Adopted ban
+Type grammar finite (21 shapes), non-recursive all the way down
+Canonical form | Adopted
+Hash equality; clean diffs; projection-diff-as-impact-analysis
+Last-wins duplicates | Rejected
+Silent override hides bugs from agents
+Comment lines | Removed (v0.4)
+Admitted in v0.1 without a consumer, and never coherent with §8: canonical form drops comments, so fact fmt -w silently deleted them -- nine live lines of run instructions in a working config, and 264 lines across 26 of the 48 fact files in these repos. The format's own formatter destroying a construct is worse than not having it, and one project's documentation already told authors not to use comments because the parser discards them. §8 could not be relaxed to keep them (equal fact sets must produce equal bytes), and the alternative of making fmt -w refuse on a commented file would leave the construct as a permanent exception to canonical form. Prose about a file is prose: §7's boundary sends it to a sibling document, and a fact file now holds nothing addressed to a reader rather than a parser. Blank lines stay -- sorting them away loses no information
+Multi-line string values (heredocs, continuations) | Rejected
+Every load-bearing property hangs on one line = one fact: bytewise line sorting for canonical form, stateless line-local lexing, grep hits being complete facts, the single-line edit primitive. Prose crosses the content boundary (§7) as a sibling file/archive member, never as grammar
+Defaults by key absence | Rejected
+Absent vs asserted-none = investigate vs trust
+Lowercase-only keys (v0.1) | Reversed in v0.2
+Projected identifiers are case-sensitive and case is semantic (Go exportedness); an actual extractor violated the rule on first run
+Full Go-source conversion (bodies as facts) | Rejected
+Reinvents compiler IR at ~8× tokens while discarding model fluency in Go; declarations are facts, bodies are computation
+list(ref(func)) for call edges | Deferred (§6.4)
+External symbols break resolution; per-generator choice between all-str and stub-facts
+Line numbers in the source handoff (loc = "file.go:line") | Reversed
+Line numbers are the only contract-independent data the projection carried: any edit above a declaration churned them, polluting the regeneration diff that §11.1 makes the impact report. Replaced by file — the defining file plus the symbol name locates a declaration in one grep, and the projection now changes iff the declaration layer changes (§11.2 churn invariant)
+date and datetime as two base types | Rejected (v0.3)
+One datetime annotation whose domain spans both precisions is the annotation-as-edit-domain rule at work; two types would force every key author to predict whether precision will ever be needed
+Full-date normalizes to midnight (2026-07-20 → 2026-07-20T00:00:00Z) | Rejected (v0.3)
+Meaning-changing, unlike float normalization (5.0→5): a due date is a day, not an instant. Both forms are canonical as written
+Datetime offsets, local date-times, fractional seconds | Rejected (v0.3)
+Offsets and local forms import tzdata and political time — the open semantics that keep datetime out of every minimal format; a Z-less token parses as local time across ecosystems, so the Z must travel with the value; fractions would break bytewise-order = chronological-order
+Row formats for record data (TSV with a typed header and a validating CLI; a table of structs in the host language) | Rejected (v0.3, on field evidence)
+Cheaper per record and better on record-shaped greps — a hit is a whole row, where a FACT hit is one field of one and a conjunctive query is a join. Rejected on error locality, measured on a 1600-record agent-generated corpus (nyx): the writer of record data is a lossy generator repaired line by line, and per-line self-description is what makes its mistakes detectable where they were made. Seeded one at a time, fact validate caught a duplicate record (E007), an enum typo (E005) and a dangling ref (E008) with no schema; a row format catches none of the three without an external schema, which §4.3 and this ledger already reject, and its header states the contract at a distance from the line being written. Blast radius decides it: one unterminated string in the equivalent Go table masked every other error in the file, and a JSON syntax error does the same, where §9's no-cascading rule reports the bad line and keeps reporting. TSV additionally cannot express asserted absence (the empty cell is both none and forgotten), has no escape standard (a generated tab or newline silently reshapes a row, where str is JSON-quoted), and cannot grow a field without an encoded list inside a column or a variable width. The one check a row format wins is arity — a short row — and that is the class fact validate misses; the schema-free answer is a lint, not a schema (W003, parked in TASKS.t). Rejected as an authoring format, a row form is nonetheless admitted ONE-WAY as a derived view (fact rows, parked with W003): the conjunctive query is the one place a row form is genuinely cheaper, awk and cut are everywhere jq is not, and a rendered view carries no authority — nothing reads it back, so it is a render of the fact set the way pica text is a render of a document, and an importer is prohibited for every reason in this row
+Package-qualified keys (one leading pkg: marker; module-relative mangled ids; module = validation set) | Deferred
+Would make per-package files concatenatable, enable module-wide validation, and make cross-package refs expressible (incl. config→code refs, and qualified ref values) — at a per-line token tax on every projection. Unneeded by interactive agents: grep's printed file path already qualifies (§1.1), and the compiler plus freshness gate already guarantee cross-package integrity (§6.2). Adopt if/when fine-tune training-corpus generation begins — a format baked into model weights cannot be changed afterwards, and that is the one consumer for whom self-contained module-wide lines, single-artifact module diffs, and a millisecond module-wide validator (hallucination gate) pay for the tax
 .end
 
 # Appendix B — Naming

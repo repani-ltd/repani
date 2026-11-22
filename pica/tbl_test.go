@@ -465,3 +465,80 @@ func TestFmtBlockErrors(t *testing.T) {
 		}
 	}
 }
+
+// A header or total rule never crosses a box that runs down past it:
+// the rule leaves its columns out (the review's d.t and e.t).
+func TestFmtRuleSkipsRunningBox(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{"T\n\n.fmt 10L 6N\n^Item | Amount\nFees and other long charges | 1.50\n.fmt ^ N\n= 10.25\n.end\n\n.width 20\n", `T
+
+Item       Amount
+---------- ------
+Fees and     1.50
+           ------
+other long  10.25
+charges
+`},
+		{"T\n\n.fmt 10L 6L 6L\n^Group heading long text | b | c\n.fmt ^ L L\nx | y\n.fmt L L L\np | q | r\n.end\n\n.width 24\n", `T
+
+Group      b      c
+           ------ ------
+heading    x      y
+long text
+p          q      r
+`},
+	} {
+		if got := mustParse(t, tc.src).Text(); got != tc.want {
+			t.Errorf("text\n%s\nwant\n%s", got, tc.want)
+		}
+	}
+}
+
+// A note row that a box runs down through is an ordinary row for the
+// half-size writers: its lines and the box's are one text, which the
+// half-size grid would cut apart (the review's e2.t and b.t).
+func TestFmtNoteInRunIsRow(t *testing.T) {
+	for _, src := range []string{
+		"T\n\n.fmt 10L 6L\n^Head | b\n.. a note under head that is long | n\n.fmt ^ L\nx\n.end\n\n.width 20\n",
+		"T\n\n.fmt 8L 8L 8L\nlong text that wraps over many many lines here | b | c\n.fmt ^ L L\n.. n1 | n2\nx | y\n.end\n\n.width 30\n",
+	} {
+		tl, err := mustParse(t, src).Blocks[0].Table.Layout(30)
+		if err != nil {
+			t.Fatal(err)
+		}
+		notes := 0
+		if tl.Header != nil {
+			notes += len(tl.Header.Notes)
+		}
+		for _, r := range tl.Rows {
+			notes += len(r.Notes)
+		}
+		if notes != 0 {
+			t.Errorf("%q: %d half-size note lines, want the note as a row", src, notes)
+		}
+	}
+}
+
+// A note's cells are L and wrap whatever their columns, resolved once
+// in tbl for every writer: a clip column does not clip a note (the
+// review's j.t).
+func TestFmtNoteIgnoresClip(t *testing.T) {
+	d := mustParse(t, "T\n\n.fmt 6L! 10R\nlabel | value\n.. a long note that wraps | n\n.end\n")
+	for _, c := range d.Blocks[0].Table.Cells()[1].Cells {
+		if c.Clip || c.Align != 'L' {
+			t.Errorf("note cell %+v: want L, unclipped", c)
+		}
+	}
+}
+
+// A later grid of a .fmt block is More; a table that only follows a
+// paragraph line with no blank between is Tight but its own block.
+func TestFmtMore(t *testing.T) {
+	d := mustParse(t, "T\n\nSome para\n.fmt 5L 5L\na | b\n.fmt 5L\nc\n.end\n")
+	if b := d.Blocks[1]; b.Kind != TableBlk || !b.Tight || b.More {
+		t.Errorf("first grid %+v: Tight, not More", b)
+	}
+	if b := d.Blocks[2]; b.Kind != TableBlk || !b.More {
+		t.Errorf("second grid %+v: More", b)
+	}
+}

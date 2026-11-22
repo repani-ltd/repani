@@ -108,31 +108,26 @@ func htmlBlock(w *strings.Builder, b Block) {
 	}
 }
 
-// htmlTable writes a table: the header row in <thead> when the table
-// has one, then data rows, total rows (class "total") and note rows
-// (class "note"); every cell but a note's, which sets left as on
-// every page, carries the text-align of its box's first column, a box
-// over several columns a colspan, a box running down rows (^) a
-// rowspan, and a coloured cell its ink and fill from the print
-// palette. A narrowing width from the spec becomes max-width in ch.
+// htmlTable writes a table: the header row and its notes in <thead>
+// when the table has one, then data rows, total rows (class "total")
+// and note rows (class "note"); every cell but a note's, which sets
+// left as on every page, carries the text-align of its box, a box over
+// several columns a colspan, a box running down rows (^) a rowspan,
+// and a coloured cell its ink and fill from the print palette. N cells
+// set right: a browser aligns no decimal point. A narrowing width from
+// the spec becomes max-width in ch.
 func htmlTable(w *strings.Builder, t *Table) {
 	open := "<table>"
 	if n := t.Narrow(); n > 0 {
 		open = `<table style="max-width:` + strconv.Itoa(n) + `ch">`
 	}
 	w.WriteString(open + "\n")
-	// HTML wants the boxes, not the lines, so the table is laid at the
-	// widest measure a document may declare: a table that fit its own
-	// document fits there.
-	rows, err := t.Boxes(maxWidth)
-	if err != nil {
-		panic("pica: a parsed table does not lay out at the widest measure: " + err.Error())
-	}
+	rows := t.Cells()
 	header := len(rows) > 0 && rows[0].Header
 	write := func(i int, tag, class string) {
 		r := rows[i]
 		w.WriteString("<tr" + class + ">")
-		for _, b := range r.Boxes {
+		for _, b := range r.Cells {
 			// A box running down from the header cannot leave <thead>:
 			// each body row it reaches holds an empty cell in its place.
 			fromHead := header && b.Top == 0
@@ -155,10 +150,10 @@ func htmlTable(w *strings.Builder, t *Table) {
 				style = append(style, "text-align:center")
 			}
 			if b.FG != 0 {
-				style = append(style, "color:"+hexColor(Ink(b.FG)))
+				style = append(style, "color:"+hexColor(Ink(uint8(b.FG))))
 			}
 			if b.BG != 0 {
-				style = append(style, "background:"+hexColor(Tint(b.BG)))
+				style = append(style, "background:"+hexColor(Tint(uint8(b.BG))))
 			}
 			if style != nil {
 				attrs += ` style="` + strings.Join(style, ";") + `"`
@@ -167,15 +162,7 @@ func htmlTable(w *strings.Builder, t *Table) {
 		}
 		w.WriteString("</tr>\n")
 	}
-	first := 0
-	if header {
-		w.WriteString("<thead>\n")
-		write(0, "th", "")
-		w.WriteString("</thead>\n")
-		first = 1
-	}
-	w.WriteString("<tbody>\n")
-	for i := first; i < len(rows); i++ {
+	row := func(i int) {
 		switch {
 		case rows[i].Total:
 			write(i, "td", ` class="total"`)
@@ -184,6 +171,20 @@ func htmlTable(w *strings.Builder, t *Table) {
 		default:
 			write(i, "td", "")
 		}
+	}
+	first := 0
+	if header {
+		// The header's notes stay with it, as on every page.
+		w.WriteString("<thead>\n")
+		write(0, "th", "")
+		for first = 1; first < len(rows) && rows[first].Note; first++ {
+			row(first)
+		}
+		w.WriteString("</thead>\n")
+	}
+	w.WriteString("<tbody>\n")
+	for i := first; i < len(rows); i++ {
+		row(i)
 	}
 	w.WriteString("</tbody>\n</table>\n")
 }

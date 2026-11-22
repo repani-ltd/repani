@@ -359,10 +359,11 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				return nil, err
 			}
 			// The separator/total rule: one hairline segment per
-			// column interval — the PDF form of the text writer's
-			// dashed separator row.
-			rule := func() sline {
-				return sline{style: styleRule, ruleSegs: tl.Cols}
+			// column interval -- the PDF form of the text writer's
+			// dashed separator row -- leaving out a box that runs
+			// across it.
+			rule := func(segs []pica.Span) sline {
+				return sline{style: styleRule, ruleSegs: segs}
 			}
 			if h := tl.Header; h != nil {
 				lines := toSlines(h.Lines)
@@ -374,7 +375,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				}
 				attachProse(lines, h.Prose, pdf.Measure(pdf.SansBold))
 				lines = append(lines, halfSlines(h.Notes)...)
-				lines = append(lines, rule())
+				lines = append(lines, rule(h.Rule))
 				fb.segs = append(fb.segs, seg{lines: lines})
 				fb.repeat = 1
 			}
@@ -390,7 +391,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				fits = fits && len(r.Notes) <= 1
 			}
 			even := hasNote && fits
-			for _, row := range tl.Rows {
+			for ri, row := range tl.Rows {
 				rowLines := toSlines(row.Lines)
 				attachProse(rowLines, row.Prose, pdf.Measure(pdf.Sans))
 				if t.sans {
@@ -403,17 +404,21 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 					for i := range rowLines {
 						rowLines[i].style = styleBold
 					}
-					lines = append(lines, rule())
+					lines = append(lines, rule(row.Rule))
 				}
 				lines = append(lines, rowLines...)
 				lines = append(lines, halfSlines(row.Notes)...)
-				if even && len(row.Notes) == 0 && !row.Total {
+				// The pad never opens inside a box that runs on into
+				// the next row: its text is one column of lines.
+				runsOn := ri+1 < len(tl.Rows) && tl.Rows[ri+1].Cont
+				if even && len(row.Notes) == 0 && !row.Total && !runsOn {
 					lines = append(lines, sline{role: roleHalf})
 				}
 				// A row continuing a box of the row above (^) is one
 				// atomic unit with it, as a wrapped row is: a split
-				// never falls inside a span. (A box of the header,
-				// which repeats, may still part from its continuation.)
+				// never falls inside a box running down rows. (A box of
+				// the header, which repeats, may still part from its
+				// continuation.)
 				if row.Cont && len(fb.segs) > fb.repeat {
 					last := &fb.segs[len(fb.segs)-1]
 					last.lines = append(last.lines, lines...)

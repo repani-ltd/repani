@@ -195,6 +195,9 @@ func (f *Formats) apply(spec string, col int) (Format, bool, error) {
 		fc.Align, fc.Clip = c.align, c.clip
 		fc.Code = c.code.Over(fc.Code)
 	}
+	if len(cols) > 0 && len(groups(fm)) == 0 {
+		return Format{}, false, errAt(0, cols[0].col, ErrContinue, "a format of ^ columns alone leaves a row no cell")
+	}
 	return fm, false, nil
 }
 

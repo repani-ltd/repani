@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -77,6 +78,48 @@ func TestFormColour(t *testing.T) {
 	}
 	if plain := render("T\n\n.fmt 10L 10L\nLaws | Required\n.end\n\n.width 40\n.layout form\n"); strings.Contains(plain, " rg\n") {
 		t.Error("a document without colour sets RGB")
+	}
+}
+
+// Rows a box runs down are never split, so ones taller than a page are
+// an error in every layout, never drawn off the page (the review's g.t).
+func TestTooTallIsAnError(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("T\n\n.fmt 10L 20L\nSection | row 0\n.fmt ^ L\n")
+	for i := 1; i <= 120; i++ {
+		fmt.Fprintf(&b, "row %d\n", i)
+	}
+	b.WriteString(".end\n\n")
+	for _, layout := range []string{"form", "report", "flow"} {
+		doc, err := pica.Parse(b.String() + ".layout " + layout + "\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := PDF(doc, false); err == nil || !strings.Contains(err.Error(), "taller than a") {
+			t.Errorf("%s: %v, want the too-tall error", layout, err)
+		}
+	}
+}
+
+// A table that follows a paragraph line with no blank between still
+// gets its outline: the outline is the .fmt block's, not the blank
+// line's (the review's i.t).
+func TestFormOutlineAfterParagraph(t *testing.T) {
+	for _, src := range []string{
+		"T\n\nSome para\n.fmt 5L 5L\na | b\n.end\n\n.layout form\n",
+		"T\n\nSome para\n\n.fmt 5L 5L\na | b\n.end\n\n.layout form\n",
+	} {
+		doc, err := pica.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := PDF(doc, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := strings.Count(string(inflate(t, out)), "\n1 w\n"); n != 4 {
+			t.Errorf("%q: %d frame strokes, want 4", src, n)
+		}
 	}
 }
 

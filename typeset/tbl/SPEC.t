@@ -190,9 +190,22 @@ set, else the format's row code if set, else the box's first column if set, else
 each with the resolved format it is under -- the MEASURE (board 40, pica its
 document width) and a gap of 1. It returns the GRID the rows are laid on -- each
 column's span and each N column's decimal metrics, for a host that draws numbers
-itself -- and, per row, its kind, role, resolved row colours and lines of placed
-cells. `Format.Boxes` gives the first and last column of each cell of a row of n
-cells.
+itself -- and, per row, its kind, role, resolved row colours, lines of placed
+cells and its boxes. `Format.Boxes` gives the first and last column of each cell
+of a row of n cells.
+
+A table's STRUCTURE needs no measure: `Add` resolves it as each row comes, and
+`Table.Boxes` gives a row's boxes in column order, the same ones `Layout` hands
+out beside its lines. Per box: its first and last format column; whether it
+continues a box of the row above; TOP, the row that began it, and ROWS, how many
+rows it covers (1 for a box that runs down none); the index of the row's cell it
+holds, none for a continued box; and its settings, resolved there and nowhere
+else -- the alignment and clip of its first column (a note's cells L and
+wrapping), its colours (the cell's mark, else the format's row code, else the
+column's) and its link. A continued box keeps the settings of the cell that
+began it, so a host that sets cells itself reads them and repeats no rule.
+`Table.Columns` fits the columns to a measure alone, for a host that places the
+boxes itself.
 
 .term fitting
 The width is the narrowing if set and less than the measure, else the measure.
@@ -214,11 +227,12 @@ A data row is as many lines as its tallest cell; a shorter cell's missing lines
 are empty. A box that rows below continue does not count towards the height of
 the row that begins it: its lines run down the rows it covers, each row showing
 the lines that fall within it, and when they are more than those rows' lines the
-last row it covers grows by the difference. The text starts at the top of the
-box.
-.term continued boxes
-Per row, the boxes that continue the row above, for a host that draws rules
-between rows: it draws none across them.
+last row it covers grows by the difference -- box by box in the order of the row
+they end on, so a table and its mirror image are as tall. The text starts at the
+top of the box.
+.term rules
+A host that draws rules between rows draws none across a box's rows: a box
+covers Top to Top + Rows - 1.
 .term alignment
 Each line of a cell is padded to exactly the box's width by its alignment, every
 line on its own.
@@ -265,10 +279,11 @@ mark at fault, or for columns that cannot fit, the format's spec. The kinds: a
 bad colour code; a token out of order or unknown; widths on some columns and not
 others; a relative format with the wrong column count, with a narrowing, or with
 no full format before it; S first or after a ^, or S with a code or `!`; a ^ in
-a full format, with a code or `!`, with no data row above, over part of a box
-above, or leaving a column in no box; a second `*`; columns that cannot fit the
-width; a bad or repeated mark; cell text a grid cannot show; a bad target; more
-cells than groups; a note row with no row above; a number wider than its N box.
+a full format, with a code or `!`, in every column of a format, with no data row
+above, over part of a box above, or leaving a column in no box; a second `*`;
+columns that cannot fit the width; a bad or repeated mark; cell text a grid
+cannot show; a bad target; more cells than groups; a note row with no row above;
+a number wider than its N box.
 
 Rationale, history and the choices weighed: `repani-lab/board/DESIGN.t`.
 

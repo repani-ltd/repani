@@ -40,6 +40,10 @@ type Block struct {
 	// Tight marks a block that was contiguous with the previous one
 	// in the source (no blank line between); writers preserve that.
 	Tight bool
+	// More marks a TableBlk that is a later grid of the .fmt block
+	// before it (a full .fmt inside the block): one box with it, which
+	// the form layout outlines as one. Such a block is also Tight.
+	More bool
 	// Line is the 1-based source line that opened the block (the
 	// command line, or the first line of a paragraph); it only
 	// serves error messages.
@@ -587,7 +591,7 @@ func parseTableBlock(lines []string, atLine int) ([]Block, error) {
 				return bad(empty())
 			}
 			t, tAt, tCol = new(Table), n, col
-			out = append(out, Block{Kind: TableBlk, Table: t, Line: n})
+			out = append(out, Block{Kind: TableBlk, Table: t, Line: n, More: len(out) > 0})
 		}
 	}
 	if t.tt.Len() == 0 {

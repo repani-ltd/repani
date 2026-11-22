@@ -1363,6 +1363,44 @@ with Len, both additions).
 Open: how a document states a box's vertical alignment (top, centre, bottom),
 parked in TASKS.t; the form sets top.
 
+# 27. What an adversarial review found (decided 2026-11-22)
+
+Driver: a fresh reviewer, given the code and the rules and not this ledger's
+reasoning, broke §23 to §26 at the edges where boxes running down rows meet
+pica's other row kinds. Every finding reproduced; each fix carries its repro as
+a test.
+
+.item THE STRUCTURE IS RESOLVED ONCE, AT ADD. A box's columns, continuation, Top
+and Rows, the cell it holds, and its settings -- alignment and clip (a note's L
+and wrapping), colours, link -- need no measure, so tbl resolves them when a row
+is added (tbl.RowBox, Table.Boxes; LaidBox is gone) and every writer reads them.
+The form had copied the note rule and lost half of it: a note in a clip column
+was clipped there only. HTML needs no layout now (the widest-measure lay-out and
+its panic are gone), and the form asks only where the columns fall
+(Table.Columns). Pica's view is Cells (CellRow, Cell): the reviewer counted
+three Box types chained, and §26's Box was the third.
+.item NO RULE CROSSES A BOX. A header's or total's rule leaves out the columns
+of a box running across its line, in the text page and the PDFs alike; tbl's
+contract said so and its main host did not.
+.item A NOTE A BOX RUNS THROUGH IS A ROW where notes are half-size (flow,
+report): the half-size grid re-wrapped the note apart from the box's lines and
+duplicated or dropped text. The half-line pad no longer opens inside such a box.
+.item TALLER THAN A PAGE IS AN ERROR. Rows a box runs down are never split; in
+the form and in the flow and report columns, ones taller than the page or column
+are refused with the size, where they had been drawn below the page.
+.item RUNS GROW IN THE ORDER OF THE ROW THEY END ON, in tbl and the form, so a
+table and its mirror image are as tall.
+.item A LATER GRID IS MORE, NOT TIGHT. Block.More marks a full .fmt inside a
+block; the form had read Tight, which only means no blank line, and left a table
+under a paragraph line unframed. The frame now steps between grids of different
+widths.
+.item The form aligns N cells on the decimal point, measured in its face; HTML
+sets them right, and the spec says so. HTML keeps a header's notes in thead. A
+format of ^ columns alone is refused where it is written.
+
+Kept, weighed: ^ as both the header prefix of a row and continue in a format
+(troff has the same double use, and the two never meet on one line).
+
 .width 48
 .cols 2
 .font sans

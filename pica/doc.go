@@ -254,7 +254,8 @@ column spec is an optional narrowing width, then space-separated
 	        align on the decimal point and never wrap; accounting
 	        negatives "(1.23)" reserve a trailing paren slot for
 	        the whole column, and non-numeric cells (a header,
-	        "n/a") right-align at the units position.
+	        "n/a") right-align at the units position. HTML sets
+	        them right: a browser aligns no decimal point.
 	        P = prose: the cell holds running prose. In mono
 	        documents and the text page it lays out exactly as L;
 	        in a sans document the PDF writers set the cell in the
@@ -266,8 +267,10 @@ other cells padded blank, and such a multi-line row is an atomic
 unit for column-splitting writers. Append "!" to a token to clip
 that column instead ("5L! 4R!"). Columns are joined by a single
 space. "|" always separates cells (there is no escape for a
-literal one). A row with more cells than the spec has columns is
-an error; a row with fewer is a SHORT ROW, whose last cell spans
+literal one). A row with more cells than its format has cells to
+fill -- columns, less those S joins to their left and ^ continues
+-- is an error; a row with fewer is a SHORT ROW, whose last cell
+spans
 every remaining column, up to the next ^ column. A cell may not
 start with "@", the link mark pica does not set.
 
@@ -286,15 +289,21 @@ A ^ column takes no cell: the row's cells fill its other columns,
 and each run of ^ columns continues a box of the data row above,
 which becomes one box down both rows (a box can run down any
 number of rows). The ^ columns must cover whole boxes of the row
-above, and every column of the row must end up in a box. The text
-of the cell that began the box starts at its top and runs down the
-rows it covers; when it needs more lines than those rows have, the
-last row it covers grows. A note row may continue a box like any
-row (the form layout sets it small beside the box it continues;
-the half-size note of the flow and report layouts drops the
-continued text). A row continuing a box is atomic with
-the row above at a column split. For example, a label beside two
-rows, the second split into three cells:
+above, every column of the row must end up in a box, and a format
+of ^ columns alone is an error. The text of the cell that began
+the box starts at its top and runs down the rows it covers; when
+it needs more lines than those rows have, the last row it covers
+grows. A note row may continue a box like any row; one that a box
+runs through is set as an ordinary full-size row by the flow and
+report layouts, whose half-size grid would cut the box's text
+apart (the form sets it small beside the box). No rule crosses a
+box: the header's and a total's rules leave out its columns. A row
+continuing a box is atomic with the row above at a column split --
+but for a box of the header, which repeats after a split and may
+part from its continuation. A row, rows a box runs down, and a
+verbatim block are never split, so one taller than a column or
+page is an error in every PDF layout. For example, a label beside two rows, the second split
+into three cells:
 
 	.fmt 10L 5L 5L *L
 	.fmt L L S S

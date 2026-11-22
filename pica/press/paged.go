@@ -174,7 +174,21 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 				lo = mid + 1
 			}
 		}
-		columns = flow(blocks, func(int) int { return best })
+		capacity = func(int) int { return best }
+		columns = flow(blocks, capacity)
+	}
+
+	// flow places a unit it cannot split whole, so one taller than a
+	// column -- a table row, rows a box runs down, a verbatim block --
+	// would run off the page: an error, never drawn there.
+	for i, col := range columns {
+		units := 0
+		for _, ln := range col {
+			units += roleUnits(ln.role)
+		}
+		if units > 2*capacity(i) {
+			return nil, fmt.Errorf("something that cannot split -- a table row, rows a box runs down, or a verbatim block -- is taller than a column (%d lines of %d): shorten or split it", (units+1)/2, capacity(i))
+		}
 	}
 
 	pdoc := newDoc(doc, size, pres.mark)
