@@ -23,10 +23,10 @@ func TestParse_TitleAndDefaults(t *testing.T) {
 	if d.Title != "Weather Limassol" {
 		t.Errorf("Title = %q", d.Title)
 	}
-	if d.Layout != defaultLayout() {
-		t.Errorf("Layout = %+v", d.Layout)
+	if d.Trailer != defaultTrailer() {
+		t.Errorf("Layout = %+v", d.Trailer)
 	}
-	if len(d.Blocks) != 1 || d.Blocks[0].Kind != Para {
+	if len(d.Blocks) != 1 || d.Blocks[0].Kind != ParaBlk {
 		t.Fatalf("Blocks = %+v", d.Blocks)
 	}
 }
@@ -63,7 +63,7 @@ Mon | 31
 	for _, b := range d.Blocks {
 		kinds = append(kinds, b.Kind)
 	}
-	want := []BlockKind{Heading, Para, RuleBlk, Pre, Pre, TableBlk, LinkBlk}
+	want := []BlockKind{HeadingBlk, ParaBlk, RuleBlk, PreBlk, PreBlk, TableBlk, LinkBlk}
 	if len(kinds) != len(want) {
 		t.Fatalf("kinds = %v, want %v", kinds, want)
 	}
@@ -93,11 +93,11 @@ Mon | 31
 func TestParse_LayoutTrailer(t *testing.T) {
 	src := "T\n\nbody\n\n.width 32\n\n.paper a5\n.cols 2\n"
 	d := mustParse(t, src)
-	if d.Layout != (Layout{Width: 32, Paper: "a5", Cols: 2, Font: "mono", Kind: "flow"}) {
-		t.Errorf("Layout = %+v", d.Layout)
+	if d.Trailer != (Trailer{Width: 32, Paper: "a5", Cols: 2, Font: "mono", Layout: "flow"}) {
+		t.Errorf("Layout = %+v", d.Trailer)
 	}
-	if d := mustParse(t, "T\n\nbody\n\n.layout form\n"); d.Layout.Kind != "form" {
-		t.Errorf(".layout form: Kind = %q", d.Layout.Kind)
+	if d := mustParse(t, "T\n\nbody\n\n.layout form\n"); d.Trailer.Layout != "form" {
+		t.Errorf(".layout form: Kind = %q", d.Trailer.Layout)
 	}
 	if _, err := Parse("T\n\nbody\n\n.layout grid\n"); !errors.Is(err, ErrBadAttr) {
 		t.Errorf(".layout grid: %v", err)
@@ -122,8 +122,8 @@ func TestParse_LayoutTrailer(t *testing.T) {
 		}
 	}
 
-	if d := mustParse(t, "T\n\nbody\n\n.font sans\n"); d.Layout.Font != "sans" {
-		t.Errorf("Layout.Font = %q, want sans", d.Layout.Font)
+	if d := mustParse(t, "T\n\nbody\n\n.font sans\n"); d.Trailer.Font != "sans" {
+		t.Errorf("Layout.Font = %q, want sans", d.Trailer.Font)
 	}
 }
 
@@ -133,7 +133,7 @@ func TestParse_ClosedVocabulary(t *testing.T) {
 	}
 	// Wire text escapes are not commands.
 	d := mustParse(t, "T\n\n. leading dot space is text with more words\n\n..dots\n")
-	if d.Blocks[0].Kind != Para || d.Blocks[1].Kind != Para {
+	if d.Blocks[0].Kind != ParaBlk || d.Blocks[1].Kind != ParaBlk {
 		t.Errorf("escaped dot lines misparsed: %+v", d.Blocks)
 	}
 }
@@ -170,7 +170,7 @@ func TestParse_NoStructureFromSpacing(t *testing.T) {
 	// looking line without .pre is prose and gets filled like any
 	// other, including double spaces after sentences.
 	d := mustParse(t, "T\n\nKey   Value\nend of sentence.  Next one.\n")
-	if len(d.Blocks) != 1 || d.Blocks[0].Kind != Para {
+	if len(d.Blocks) != 1 || d.Blocks[0].Kind != ParaBlk {
 		t.Fatalf("blocks = %+v, want one Para", d.Blocks)
 	}
 	if d.Blocks[0].Text != "Key   Value end of sentence.  Next one." {
@@ -332,7 +332,7 @@ func TestParse_TableRows(t *testing.T) {
 	// Colours parse -- a row code, a column code, a cell mark -- and
 	// reach a writer that sets them through Grid.
 	cd := mustParse(t, "T\n\n.fmt /y 4L 4L/b\n:r a | b\n.end\n")
-	_, grid, err := cd.Blocks[0].Table.Grid(cd.Layout.Width)
+	grid, err := cd.Blocks[0].Table.Grid(cd.Trailer.Width)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestTableFixedWidthValidated(t *testing.T) {
 func TestQuoteBlock(t *testing.T) {
 	d := mustParse(t, "T\n\n.quote\nWisdom of the\nancients endures.\n.attrib Aesop\n.end\n")
 	b := d.Blocks[0]
-	if b.Kind != Quote || b.Text != "Wisdom of the ancients endures." || b.Attrib != "Aesop" {
+	if b.Kind != QuoteBlk || b.Text != "Wisdom of the ancients endures." || b.Attrib != "Aesop" {
 		t.Fatalf("quote block = %+v", b)
 	}
 
@@ -383,7 +383,7 @@ func TestQuoteBlock(t *testing.T) {
 
 func TestItemBlock(t *testing.T) {
 	d := mustParse(t, "T\n\n.item first thing\n.item second thing\n")
-	if len(d.Blocks) != 2 || d.Blocks[0].Kind != Item || d.Blocks[1].Kind != Item {
+	if len(d.Blocks) != 2 || d.Blocks[0].Kind != ItemBlk || d.Blocks[1].Kind != ItemBlk {
 		t.Fatalf("blocks = %+v", d.Blocks)
 	}
 	if d.Blocks[0].Tight || !d.Blocks[1].Tight {
@@ -470,11 +470,11 @@ func TestItemFillsLikeProse(t *testing.T) {
 		kind BlockKind
 		text string
 	}{
-		{Item, "first item wraps onto a second source line"},
-		{Item, "second item still the second item"},
-		{Para, "a fresh paragraph"},
-		{Item, "third"},
-		{Heading, "Heading"},
+		{ItemBlk, "first item wraps onto a second source line"},
+		{ItemBlk, "second item still the second item"},
+		{ParaBlk, "a fresh paragraph"},
+		{ItemBlk, "third"},
+		{HeadingBlk, "Heading"},
 	}
 	if len(d.Blocks) != len(want) {
 		t.Fatalf("blocks = %d, want %d: %+v", len(d.Blocks), len(want), d.Blocks)

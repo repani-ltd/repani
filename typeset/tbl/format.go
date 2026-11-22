@@ -156,9 +156,9 @@ func (f *Formats) apply(spec string, col int) (Format, bool, error) {
 		case '^':
 			switch {
 			case c.hasWidth:
-				return Format{}, false, errAt(0, c.col, ErrVSpan, "^ continues the box above, so it belongs in a relative format")
+				return Format{}, false, errAt(0, c.col, ErrContinue, "^ continues the box above, so it belongs in a relative format")
 			case c.code.HasFG || c.code.HasBG || c.clip:
-				return Format{}, false, errAt(0, c.col, ErrVSpan, "^ takes the style of the box it continues, so it carries no code or !")
+				return Format{}, false, errAt(0, c.col, ErrContinue, "^ takes the style of the box it continues, so it carries no code or !")
 			}
 		}
 	}

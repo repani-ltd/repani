@@ -12,7 +12,7 @@ func TestTermBlock(t *testing.T) {
 	// filling as an item does; consecutive terms are tight; the
 	// label is verbatim (an underscore in it is a character).
 	d := mustParse(t, "T\n\n.term FUEL\n06:00-14:00,\nsouth quay\n.term _odd_ name\nsecond\n\n# H\n")
-	if len(d.Blocks) != 3 || d.Blocks[0].Kind != Term || d.Blocks[1].Kind != Term {
+	if len(d.Blocks) != 3 || d.Blocks[0].Kind != TermBlk || d.Blocks[1].Kind != TermBlk {
 		t.Fatalf("Blocks = %+v", d.Blocks)
 	}
 	if got := d.Blocks[0]; got.Label != "FUEL" || got.Text != "06:00-14:00, south quay" {

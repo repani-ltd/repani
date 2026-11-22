@@ -60,19 +60,19 @@ type item struct {
 }
 
 func formPDF(doc *pica.Doc, mark bool) ([]byte, error) {
-	size := paperSize(doc.Layout.Paper)
+	size := paperSize(doc.Trailer.Paper)
 	pageW, pageH := size.Dimensions()
 	// The grid is .width cells plus the half cell each side that
 	// holds the outer rules.
-	cw := (pageW - 2*formMargin) / float64(doc.Layout.Width+1)
+	cw := (pageW - 2*formMargin) / float64(doc.Trailer.Width+1)
 	ps := cw / emWidth
 	if ps < minPs {
 		return nil, fmt.Errorf("derived body size %.1fpt is below %.1fpt: .width %d on %s leaves the form too narrow",
-			ps, minPs, doc.Layout.Width, doc.Layout.Paper)
+			ps, minPs, doc.Trailer.Width, doc.Trailer.Paper)
 	}
 	s := &formSheet{doc: doc, pageW: pageW, pageH: pageH, cw: cw, ps: ps, lead: ps * formLeading,
 		body: pdf.Regular, bold: pdf.Bold}
-	if doc.Layout.Font == "sans" {
+	if doc.Trailer.Font == "sans" {
 		s.body, s.bold = pdf.Sans, pdf.SansBold
 	}
 	s.mb, s.mbold = pdf.Measure(s.body), pdf.Measure(s.bold)
@@ -109,13 +109,7 @@ func formPDF(doc *pica.Doc, mark bool) ([]byte, error) {
 	}
 	pages = append(pages, cur)
 
-	pdoc := &pdf.Doc{
-		Title: doc.Title, Author: doc.By, Creator: "pica", Producer: "Repani Limited",
-		Created: infoDate(doc.Date), PageSize: size,
-	}
-	if mark {
-		pdoc.AddForm(markName, markW, markH, markStream)
-	}
+	pdoc := newDoc(doc, size, mark)
 	for pg, items := range pages {
 		var p pdf.Page
 		if pg == 0 {
@@ -128,11 +122,7 @@ func formPDF(doc *pica.Doc, mark bool) ([]byte, error) {
 			pl.draw(&p, pl.y)
 		}
 		s.frames(&p, items)
-		num := fmt.Sprintf("Page %d of %d", pg+1, len(pages))
-		if doc.Rights != "" {
-			num = doc.Rights + " · " + num
-		}
-		s.centered(&p, formMargin/2, ps*0.8, s.body, 0.5, num)
+		centered(&p, pageW, formMargin/2, ps*0.8, s.body, 0.5, pageOf(doc, pg, len(pages)))
 		pdoc.Add(&p)
 	}
 	return pdoc.Bytes(), nil
@@ -166,17 +156,10 @@ func (s *formSheet) frames(p *pdf.Page, items []placed) {
 
 // title draws the title centred in bold, and the byline under it.
 func (s *formSheet) title(p *pdf.Page, top, pt float64) {
-	s.centered(p, top-pt, pt, s.bold, 0, s.doc.Title)
+	centered(p, s.pageW, top-pt, pt, s.bold, 0, s.doc.Title)
 	if b := s.doc.Byline(); b != "" {
-		s.centered(p, top-pt-s.ps*formByline, s.ps*0.9, s.body, 0.4, b)
+		centered(p, s.pageW, top-pt-s.ps*formByline, s.ps*0.9, s.body, 0.4, b)
 	}
-}
-
-func (s *formSheet) centered(p *pdf.Page, y, pt float64, f pdf.Font, gray float64, text string) {
-	p.SetFont(f, pt)
-	p.Gray(gray)
-	p.Text((s.pageW-pdf.Width(text, f, pt))/2, y, text)
-	p.Gray(0)
 }
 
 // compose turns the blocks into items: each table row, or rows a box
@@ -200,15 +183,15 @@ func (s *formSheet) compose() ([]item, error) {
 				return nil, err
 			}
 			out = append(out, rows...)
-		case pica.Heading:
+		case pica.HeadingBlk:
 			out = append(out, s.lines(b.Text, s.bold, s.mbold, "")...)
-		case pica.Para, pica.Quote, pica.Term:
+		case pica.ParaBlk, pica.QuoteBlk, pica.TermBlk:
 			text := b.Text
-			if b.Kind == pica.Term {
+			if b.Kind == pica.TermBlk {
 				text = b.Label + "  " + text
 			}
 			out = append(out, s.lines(text, s.body, s.mb, "")...)
-		case pica.Item:
+		case pica.ItemBlk:
 			out = append(out, s.lines(b.Text, s.body, s.mb, "• ")...)
 		case pica.LinkBlk:
 			text := b.Text
@@ -216,7 +199,7 @@ func (s *formSheet) compose() ([]item, error) {
 				text = b.Label + " (" + b.Text + ")"
 			}
 			out = append(out, s.lines(text, s.body, s.mb, "")...)
-		case pica.Pre:
+		case pica.PreBlk:
 			for _, ln := range b.Lines {
 				out = append(out, s.text(ln, pdf.Regular))
 			}
@@ -237,7 +220,7 @@ func (s *formSheet) compose() ([]item, error) {
 // lines wraps prose ragged across the grid, each line an item; lead
 // starts the first line and hangs the rest.
 func (s *formSheet) lines(text string, f pdf.Font, m pdf.Measurer, lead string) []item {
-	units := int(float64(s.doc.Layout.Width) * s.cw * 1000 / s.ps)
+	units := int(float64(s.doc.Trailer.Width) * s.cw * 1000 / s.ps)
 	ind := m.Width(lead)
 	var out []item
 	for i, ln := range wrap.Hyphenated(text, units-ind, units-ind, hyphen.Default, wrap.PenaltyProse, m) {
@@ -273,30 +256,20 @@ func (s *formSheet) baseline(top, pad float64, i int, sc float64) float64 {
 	return top - pad - float64(i)*lead - lead + (lead-ps)/2 + ps*0.22
 }
 
-// cell is one measured box of a row: its edges, alignment, face, size
-// (sc times the body's: a note row's is smaller) and lines -- or, for a
-// box that rows run down, its span.
+// cell is one measured box of a row: its grid box, its face and size
+// (sc times the body's: a note row's is smaller), and its lines -- for
+// a box that runs down rows, all of them, set from its first row.
 type cell struct {
 	pica.GridBox
 	bold  bool
 	sc    float64
 	lines []string
-	span  *fspan
 }
 
-// fspan is a box running down rows: its lines, their size, and the
-// rows it covers.
-type fspan struct {
-	lines    []string
-	sc       float64
-	from, to int
-}
-
-// table measures a grid's rows and returns them as items, rows a box
-// runs down joined into one.
+// table measures a grid's rows and returns them as items, the rows a
+// box runs down joined into one.
 func (s *formSheet) table(t *pica.Table, block int) ([]item, error) {
-	width := s.doc.Layout.Width
-	_, rows, err := t.Grid(width)
+	rows, err := t.Grid(s.doc.Trailer.Width)
 	if err != nil {
 		return nil, err
 	}
@@ -308,33 +281,16 @@ func (s *formSheet) table(t *pica.Table, block int) ([]item, error) {
 				c.Align, c.sc = 'L', formNote
 			}
 			if !b.Cont {
-				c.lines = s.wrapCell(c.GridBox, c.bold, c.sc) // a note's L, not its column's
+				c.lines = s.cellLines(c.GridBox, c.bold, c.sc) // a note's L, not its column's
 			}
 			cells[i] = append(cells[i], c)
 		}
 	}
-	// Spans: a box the next row continues begins one; a continuing
-	// box joins the span of the box above it.
-	var spans []*fspan
-	for i := range cells {
-		for k := range cells[i] {
-			c := &cells[i][k]
-			if !c.Cont {
-				continue
-			}
-			above := find(cells[i-1], c.Span)
-			if above.span == nil {
-				above.span = &fspan{lines: above.lines, sc: above.sc, from: i - 1}
-				spans = append(spans, above.span)
-			}
-			above.span.to = i
-			c.span = above.span
-		}
-	}
-	// Heights in points: a row is as tall as its own boxes' lines,
-	// padded; a span sets its lines at the leading from the top of
-	// its first row, and when they need more than its rows give, its
-	// last row grows by the difference.
+	// Heights in points: a row is as tall as the lines of its boxes
+	// that run down no rows, padded. A box that runs down rows sets its
+	// lines at the leading from the top of its first row, and when they
+	// need more than its rows give, its last row grows by the
+	// difference.
 	pad := s.ps * formPad
 	tall := func(n int, sc float64) float64 { return float64(max(n, 1))*s.lead*sc + 2*pad }
 	hp := make([]float64, len(rows))
@@ -345,33 +301,40 @@ func (s *formSheet) table(t *pica.Table, block int) ([]item, error) {
 		}
 		hp[i] = tall(1, sc)
 		for _, c := range cells[i] {
-			if c.span == nil {
+			if c.Rows == 1 {
 				hp[i] = max(hp[i], tall(len(c.lines), c.sc))
 			}
 		}
 	}
-	for _, sp := range spans {
-		have := 0.0
-		for j := sp.from; j <= sp.to; j++ {
-			have += hp[j]
+	// down is the height of n rows from row i.
+	down := func(i, n int) float64 {
+		h := 0.0
+		for _, x := range hp[i : i+n] {
+			h += x
 		}
-		if need := tall(len(sp.lines), sp.sc) - have; need > 0 {
-			hp[sp.to] += need
+		return h
+	}
+	for i := range cells {
+		for _, c := range cells[i] {
+			if !c.Cont && c.Rows > 1 {
+				if need := tall(len(c.lines), c.sc) - down(i, c.Rows); need > 0 {
+					hp[i+c.Rows-1] += need
+				}
+			}
 		}
 	}
 
 	var out []item
 	for i := 0; i < len(rows); {
-		// The rows a span runs down are one item.
-		j := i
-		for j+1 < len(rows) && hasCont(cells[j+1]) {
-			j++
-		}
-		first, last := i, j
-		height := 0.0
+		// The rows a box runs down are one item, and so are rows whose
+		// boxes overlap theirs.
+		first, last := i, i
 		for k := first; k <= last; k++ {
-			height += hp[k]
+			for _, c := range cells[k] {
+				last = max(last, c.Top+c.Rows-1)
+			}
 		}
+		height := down(first, last-first+1)
 		x0 := s.x(cells[first][0].Start) - s.cw/2
 		lastBox := cells[first][len(cells[first])-1]
 		x1 := s.x(lastBox.End) + s.cw/2
@@ -386,13 +349,7 @@ func (s *formSheet) table(t *pica.Table, block int) ([]item, error) {
 					if c.Cont || (c.BG == 0 && !rows[k].Header) {
 						continue
 					}
-					h := hp[k]
-					if c.span != nil {
-						h = 0
-						for j := c.span.from; j <= c.span.to; j++ {
-							h += hp[j]
-						}
-					}
+					h := down(k, c.Rows)
 					if c.BG != 0 {
 						p.RGB(pica.Tint(c.BG))
 					} else {
@@ -407,24 +364,24 @@ func (s *formSheet) table(t *pica.Table, block int) ([]item, error) {
 			top = y
 			for k := first; k <= last; k++ {
 				s.drawRow(p, cells[k], top, hp[k], pad, rows[k].Note)
-				// The bottom of every box the next row does not continue.
+				// The bottom of every box that ends on this row.
 				p.StrokeGray(formGray)
 				for _, c := range cells[k] {
-					if k == last || !continued(cells[k+1], c.Span) {
+					if k == c.Top+c.Rows-1 {
 						p.Line(s.x(c.Start)-s.cw/2, top-hp[k], s.x(c.End)+s.cw/2, top-hp[k], formRule)
 					}
 				}
 				top -= hp[k]
 			}
 		}})
-		i = j + 1
+		i = last + 1
 	}
 	return out, nil
 }
 
 // drawRow draws one row's text and its boxes' top and side rules; a
 // continuing box draws no top and no text, since the row that began
-// its span set all of the span's lines from the box's top.
+// it set all of its lines from the box's top.
 func (s *formSheet) drawRow(p *pdf.Page, cells []cell, top, height, pad float64, note bool) {
 	p.StrokeGray(formGray)
 	for _, c := range cells {
@@ -466,10 +423,9 @@ func (s *formSheet) drawRow(p *pdf.Page, cells []cell, top, height, pad float64,
 	}
 }
 
-// wrapCell breaks a box's text at its width in the face it sets in:
-// one line for a clip or N box, else the cell breaker's hyphenating
-// ragged lines.
-func (s *formSheet) wrapCell(b pica.GridBox, bold bool, sc float64) []string {
+// cellLines breaks a box's text at its width in the face and size it
+// sets in, with pica's cell breaker: one line for a clip or N box.
+func (s *formSheet) cellLines(b pica.GridBox, bold bool, sc float64) []string {
 	m := s.mb
 	if bold {
 		m = s.mbold
@@ -479,38 +435,8 @@ func (s *formSheet) wrapCell(b pica.GridBox, bold bool, sc float64) []string {
 	}
 	units := int(float64(b.End-b.Start) * s.cw * 1000 / (s.ps * sc))
 	var out []string
-	for _, ln := range wrap.Hyphenated(b.Text, units, units, hyphen.Default, wrap.PenaltyCell, m) {
+	for _, ln := range pica.CellLines(b.Text, units, m, b.Clip || b.Align == 'N') {
 		out = append(out, strings.Join(ln.Words, " "))
 	}
-	if (b.Clip || b.Align == 'N') && len(out) > 1 {
-		out = out[:1]
-	}
 	return out
-}
-
-func hasCont(cs []cell) bool {
-	for _, c := range cs {
-		if c.Cont {
-			return true
-		}
-	}
-	return false
-}
-
-func continued(next []cell, sp pica.Span) bool {
-	for _, c := range next {
-		if c.Cont && c.Span == sp {
-			return true
-		}
-	}
-	return false
-}
-
-func find(cs []cell, sp pica.Span) *cell {
-	for k := range cs {
-		if cs[k].Span == sp {
-			return &cs[k]
-		}
-	}
-	panic("press: a continued box missing from the row above")
 }

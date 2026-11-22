@@ -1322,6 +1322,40 @@ text says (a red Required, a yellow input), because the text page and the
 flowing PDFs ignore it. Those flowing PDFs are parked in TASKS.t until a flowing
 document wants colour.
 
+# 26. One word per idea, layout in the trailer (decided 2026-11-22)
+
+Driver: a review of §23 to §25 for inconsistency, duplication and needless code.
+
+.item THE LAYOUT IS THE TRAILER'S. pica report is gone; .layout takes flow,
+report or form, and pica pdf sets a document in the layout it names. Layout was
+already the trailer's (width, paper, columns, face), and a report is a layout,
+not a publishing choice: §7's report stays, chosen in the document. -mark stays
+a flag, since the mark is publishing policy. The statement example says .layout
+report.
+.item THE TRAILER STRUCT IS TRAILER. Doc.Layout became Doc.Trailer, so every
+field is named after its command -- Width, Paper, Cols, Font and Layout -- where
+the layout command had mapped to Layout.Kind.
+.item EVERY BLOCK KIND ENDS IN BLK. Para, Heading, Pre, Quote, Item and Term
+became ParaBlk ... TermBlk, beside TableBlk, RuleBlk and LinkBlk, which needed
+the suffix because their plain words name other things.
+.item ^ CONTINUES; S SPANS. "Span" already named tbl.Span, a stretch of grid
+columns, and the S alignment; the box running down rows is a continuation or a
+run in code and prose: ErrContinue, tbl's run, continue_test.go.
+.item NAMES KEPT, ON PURPOSE. pica fmt stays the source formatter, as gofmt is
+Go's; .fmt the table word; typeset/tbl the table language; pica/tbl.go its host
+in pica, whose tests now hold the .fmt block tests too.
+.item ONE ANSWER TO "WHAT CONTINUES WHAT". tbl knew it and four places worked it
+out again. LaidRow now carries Boxes, parallel to every line: each box's format
+columns, whether it continues the box above, the row it began on and how many
+rows it covers. pica's layout, its Grid, the form and HTML read it; HTML is now
+built on Grid (laid at the widest measure, since it wants boxes, not lines), so
+its rowspans and colours are tbl's and not its own. One cell breaker,
+pica.CellLines, for pica and the form; one PDF set-up, one centred line and one
+"Page N of M" for every layout.
+
+Open: how a document states a box's vertical alignment (top, centre, bottom),
+parked in TASKS.t; the form sets top.
+
 .width 48
 .cols 2
 .font sans

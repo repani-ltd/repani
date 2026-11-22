@@ -1,13 +1,11 @@
 // Command pica renders pica source documents (see the pica
-// package for the language) to text pages, N-column PDFs, report
-// PDFs and HTML.
+// package for the language) to text pages, PDFs and HTML.
 //
 // One generation stage, then a writer:
 //
 //	pica render <template> <data>   Go template + data -> source doc
 //	pica text   [file|-]            source doc -> fixed-width text page
-//	pica pdf    [file|-]            source doc -> N-column PDF
-//	pica report [file|-]            source doc -> single-column report PDF
+//	pica pdf    [file|-]            source doc -> PDF, in its trailer's .layout
 //	pica html   [file|-]            source doc -> HTML article (-txtar: a page)
 //
 // Two oracles, so learning the language never requires the source:
@@ -23,12 +21,11 @@
 //
 //	pica render page.tmpl data.json | pica text     > page.txt
 //	pica render page.tmpl data.json | pica pdf -o page.pdf
-//	pica render page.tmpl data.json | pica report -o page.pdf
 //
-// Documents are self-contained: width, paper, columns, and body face
-// come from the document's layout trailer (.width/.paper/.cols/
-// .font), never from flags, so the same source always produces the
-// same output -- the PDF byte-identically so.
+// Documents are self-contained: width, paper, columns, body face and
+// layout come from the document's layout trailer (.width/.paper/
+// .cols/.font/.layout), never from flags, so the same source always
+// produces the same output -- the PDF byte-identically so.
 //
 // # Templates
 //
@@ -96,8 +93,6 @@ func main() {
 		os.Exit(textCmd(os.Args[2:]))
 	case "pdf":
 		os.Exit(pdfCmd(os.Args[2:]))
-	case "report":
-		os.Exit(reportCmd(os.Args[2:]))
 	case "html":
 		os.Exit(htmlCmd(os.Args[2:]))
 	case "spec":
@@ -125,7 +120,6 @@ Usage:
   pica render [-txtar|-fact] [-o FILE] <template> <data|->
   pica text [-o FILE] [file|-]
   pica pdf [-mark] [-o FILE] [file|-]
-  pica report [-mark] [-o FILE] [file|-]
   pica html [-o FILE] [file|-]
   pica html -txtar -page NAME [-o FILE] [archive|-]
   pica spec [-o FILE]
@@ -135,9 +129,10 @@ Usage:
 render executes a Go template over JSON, FACT (-fact, implied by a
 .fact filename), or txtar (-txtar) data and emits a pica source
 document, parsed before it is written so an invalid render is an
-error, never output; text, pdf, and report render a source document (default
-stdin) to a fixed-width text page, an N-column PDF, or a
-single-column report PDF (hairline table rules, page footer); html
+error, never output; text and pdf render a source document (default
+stdin) to a fixed-width text page or a PDF in the layout its trailer
+names -- flow (N columns), report (one column, page footer) or form
+(ruled boxes); html
 renders one document to a semantic <article> fragment, or, with
 -txtar, assembles a whole page from an archive: NAME.t is the
 document (or NAME.t.tmpl, a text/template over data.fact that
@@ -152,8 +147,9 @@ source document's prose to 80 columns, the source measure (not
 .term and .quote text, and runs of .rem lines; it prints the
 result, or with -w rewrites each file that differs and with -l
 lists it, and refuses a document that does not parse. Layout
-(width, paper, columns, font) comes from the document's trailer
-(.width/.paper/.cols/.font), not from flags. -mark paints the
+(width, paper, columns, font, layout) comes from the document's
+trailer (.width/.paper/.cols/.font/.layout), not from flags. -mark
+paints the
 Repani mark top-right of page one: a publishing choice made where
 the PDF is rendered, never in the document. See the pica package
 documentation for the source language.

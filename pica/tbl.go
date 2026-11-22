@@ -215,14 +215,10 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 		}
 		bs := fm.Boxes(len(texts))
 		lines := laid[i].Lines
-		own := ownBoxes(laid[i], spans)
-		// A box that begins a span stays on the mono grid: its lines
-		// run down rows, which measured drawing does not.
-		var below []tbl.Box
-		if i+1 < len(laid) {
-			below = laid[i+1].Cont
-		}
-		measurable := func(k int) bool { return !startsAt(below, spans, lines[0][own[k]].Start) }
+		own := ownBoxes(laid[i])
+		// A box that runs down rows stays on the mono grid: its lines
+		// cross rows, which measured drawing does not.
+		measurable := func(k int) bool { return laid[i].Boxes[own[k]].Rows == 1 }
 		switch row.Role {
 		case tbl.Note:
 			// Under the row above: the header when no data row has
@@ -232,7 +228,8 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 				r = &tl.Rows[len(tl.Rows)-1]
 			}
 			// Its own boxes only: a box it continues (^) holds the
-			// span's text, which the half-size grid does not carry.
+			// text running down from above, which the half-size grid
+			// does not carry.
 			mine := make([]tbl.Placed, len(own))
 			for k, at := range own {
 				mine[k] = lines[0][at]
@@ -261,7 +258,7 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 			tl.Header = &TableRow{Lines: flatLines(lines), Prose: pcs}
 			continue
 		}
-		r := TableRow{Total: row.Role == tbl.Total, Cont: len(laid[i].Cont) > 0}
+		r := TableRow{Total: row.Role == tbl.Total, Cont: len(own) < len(laid[i].Boxes)}
 		if m != nil {
 			reserve := make([]bool, len(lines[0]))
 			for k, b := range bs {
@@ -297,17 +294,18 @@ type GridRow struct {
 	Boxes               []GridBox
 }
 
-// GridBox is one box of a row: its grid columns, and either the
-// cell's text with the alignment and clip of the box's first column,
-// or Cont, a box continuing the box of the row above (^), which has
-// no text of its own -- the text of the cell that began it runs
-// down.
+// GridBox is one box of a row: tbl's laid box -- its format columns,
+// whether it continues a box above (^), and the row it began on and
+// how many rows it covers -- its grid columns, its colours, and for a
+// box of the row's own, its cell's text with the alignment and clip of
+// its first column. A continuing box has no text of its own: the text
+// of the cell that began it runs down.
 type GridBox struct {
+	tbl.LaidBox
 	Span
 	Text  string
 	Align byte
 	Clip  bool
-	Cont  bool
 	// FG and BG are the box's colours, tbl's palette indexes resolved
 	// (cell, row, column), 0 the default: ink and no fill.
 	FG, BG uint8
@@ -336,68 +334,50 @@ func Ink(c uint8) (r, g, b float64) { k := inks[c&7]; return k[0], k[1], k[2] }
 // Tint is colour c as a cell's fill.
 func Tint(c uint8) (r, g, b float64) { k := tints[c&7]; return k[0], k[1], k[2] }
 
-// Grid lays the table on its grid at width and returns the column
-// spans and every row's boxes, for a writer that measures and draws
-// the cells itself.
-func (t *Table) Grid(width int) ([]Span, []GridRow, error) {
-	grid, laid, err := t.tt.Layout(width)
+// Grid lays the table on its grid at width and returns every row's
+// boxes, for a writer that measures and draws the cells itself.
+func (t *Table) Grid(width int) ([]GridRow, error) {
+	_, laid, err := t.tt.Layout(width)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	spans := grid.Spans()
 	rows := make([]GridRow, len(laid))
 	for i, row := range t.tt.Rows() {
 		fm := t.fms[i]
 		r := GridRow{Header: row.Role == tbl.Header, Total: row.Role == tbl.Total, Note: row.Role == tbl.Note}
-		// The laid boxes, in column order, carry each box's columns
-		// and its colours as tbl resolved them; the row's own ones take
-		// their cell's text in order, the rest continue a box above.
-		own, bs, k := ownBoxes(laid[i], spans), fm.Boxes(len(row.Cells)), 0
-		for at, p := range laid[i].Lines[0] {
-			b := GridBox{Span: Span{Start: p.Start, End: p.End}, FG: uint8(p.FG), BG: uint8(p.BG), Cont: true}
-			if k < len(own) && own[k] == at {
-				col := fm.Cols[bs[k].First]
-				b.Text, b.Align, b.Clip, b.Cont = row.Cells[k].Text, col.Align, col.Clip, false
+		k := 0 // the next cell of the row's own
+		for at, lb := range laid[i].Boxes {
+			p := laid[i].Lines[0][at]
+			b := GridBox{LaidBox: lb, Span: Span{Start: p.Start, End: p.End}, FG: uint8(p.FG), BG: uint8(p.BG)}
+			if !lb.Cont {
+				col := fm.Cols[lb.First]
+				b.Text, b.Align, b.Clip = row.Cells[k].Text, col.Align, col.Clip
 				k++
 			}
 			r.Boxes = append(r.Boxes, b)
 		}
 		rows[i] = r
 	}
-	return spans, rows, nil
+	return rows, nil
 }
 
-// ownBoxes returns the positions, in a laid row's lines, of the
-// row's own boxes -- cell k's box is at ownBoxes(...)[k] -- leaving
-// out the boxes it continues (^), which the lines also hold, in
-// column order.
-func ownBoxes(lr tbl.LaidRow, spans []Span) []int {
-	own := make([]int, 0, len(lr.Lines[0]))
-	for at, p := range lr.Lines[0] {
-		if !startsAt(lr.Cont, spans, p.Start) {
+// ownBoxes returns the positions, among a laid row's boxes, of the
+// row's own -- cell k's box is at ownBoxes(...)[k] -- leaving out the
+// boxes it continues (^).
+func ownBoxes(lr tbl.LaidRow) []int {
+	own := make([]int, 0, len(lr.Boxes))
+	for at, b := range lr.Boxes {
+		if !b.Cont {
 			own = append(own, at)
 		}
 	}
 	return own
 }
 
-// startsAt reports whether one of boxes starts at grid column start.
-func startsAt(boxes []tbl.Box, spans []Span, start int) bool {
-	for _, b := range boxes {
-		if spans[b.First].Start == start {
-			return true
-		}
-	}
-	return false
-}
-
 // measure wraps a cell under m at its box's measure; a clip column's
 // cell is one line, measured or not.
 func measure(p tbl.Placed, text string, col tbl.Column, m Measurer, runeUnits int) ProseCell {
-	lines := wrapCellMeasured(text, (p.End-p.Start)*runeUnits, m)
-	if col.Clip && len(lines) > 1 {
-		lines = lines[:1]
-	}
+	lines := CellLines(text, (p.End-p.Start)*runeUnits, m, col.Clip)
 	return ProseCell{Box: Span{Start: p.Start, End: p.End}, Align: col.Align, Lines: lines}
 }
 
@@ -490,10 +470,16 @@ func halfNote(boxes []tbl.Placed, cells []string) []string {
 	return out
 }
 
-// wrapCellMeasured wraps prose cell content under a real measurer
-// at the given measure, with the cell-tuned hyphen penalty.
-func wrapCellMeasured(s string, measure int, m Measurer) []Line {
-	return wrap.Hyphenated(s, measure, measure, hyphen.Default, wrap.PenaltyCell, m)
+// CellLines breaks a table cell's text under a real measurer at
+// measure, in m's units: the cell breaker every writer that measures
+// cells shares -- ragged, hyphenating at the cell penalty -- cut to its
+// first line for a clip cell.
+func CellLines(s string, measure int, m Measurer, clip bool) []Line {
+	lines := wrap.Hyphenated(s, measure, measure, hyphen.Default, wrap.PenaltyCell, m)
+	if clip && len(lines) > 1 {
+		lines = lines[:1]
+	}
+	return lines
 }
 
 // wrapCell wraps a cell's text to width: wrap.Cell, the breaker the

@@ -271,7 +271,7 @@ func TestDeriveTypo_FloorGuardsMonoSize(t *testing.T) {
 	if _, err := deriveTypo(doc, colW); err == nil {
 		t.Fatal("expected floor error for the mono size")
 	}
-	doc.Layout.Font = "mono"
+	doc.Trailer.Font = "mono"
 	if _, err := deriveTypo(doc, colW); err == nil {
 		t.Fatal("expected floor error in mono mode too")
 	}

@@ -45,14 +45,6 @@ func TestFormRenders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Report(doc, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Both commands render the form, and byte for byte the same.
-	if !bytes.Equal(a, b) {
-		t.Error("PDF and Report differ on a form")
-	}
 	again, _ := PDF(doc, false)
 	if !bytes.Equal(a, again) {
 		t.Error("two renders differ")

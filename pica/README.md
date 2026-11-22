@@ -3,9 +3,10 @@
 A minimal, troff-inspired source language and typesetter.
 Documents are parsed once into a typed block model and exported by
 writers: a fixed-width text page (for byte-frugal transports like
-Quietcasting), an N-column PDF, a single-column
-report PDF -- monospace by default, proportional prose with
-`.font sans` -- and a semantic HTML `<article>` fragment (`pica
+Quietcasting), a PDF in the layout the document's trailer names --
+an N-column flow, a single-column report or a ruled form;
+monospace by default, proportional prose with `.font sans` -- and
+a semantic HTML `<article>` fragment (`pica
 html`), which with `-txtar` assembles a whole page from one archive
 holding the document, a Go html/template, facts and raw fragments.
 
@@ -49,10 +50,11 @@ DESIGN.t §10):
 
 - `pica` (root) -- the language: `Parse`, the text page, the HTML
   fragment. Stdlib only, so wire clients parse without fonts.
-- `press` -- the compositor behind two presentations:
-  `press.PDF`, the default (the document rendered as itself), and
-  `press.Report`, house stationery. The Repani mark is its one
-  option: publishing policy, passed where the PDF is made.
+- `press` -- the compositor behind `press.PDF`, which sets the
+  document in its trailer's `.layout`: flow (the document rendered
+  as itself), report (house stationery) or form (ruled boxes). The
+  Repani mark is its one option: publishing policy, passed where
+  the PDF is made.
 - `desk` -- pica copy from data: the template vocabulary (the house
   formatting of `repani.com/typeset/format`, `cells` over tab, and
   `table`), and `Render`, which parses its output before returning
@@ -66,8 +68,7 @@ DESIGN.t §10):
 
     pica render page.tmpl data.json        # Go template -> source doc
     pica render ... | pica text            # source -> text page
-    pica render ... | pica pdf -o p.pdf    # source -> N-column PDF
-    pica render ... | pica report -o p.pdf # source -> report PDF
+    pica render ... | pica pdf -o p.pdf    # source -> PDF, in its .layout
     pica spec                              # the language reference
     pica check page.t                      # parse, report errors
 
@@ -91,9 +92,11 @@ columns with orphan/widow control (splits keep >= 2 lines on each
 side), headings scaled by level and kept with their story, split
 tables repeating their headers (notes riding their rows), `.pre`
 blocks atomic, and -- on multi-column pages -- a single underfull
-page balanced across its columns. `report` is the same engine in a
-single-column identity: left title block, hairline table rules,
-"Page N of M" footer.
+page balanced across its columns. `.layout report` is the same
+engine in a single-column identity: left title block, hairline table
+rules, "Page N of M" footer. `.layout form` is its own driver, for
+sheets built of tables: every box ruled, rows measured in points,
+boxes running down rows, cell colours.
 
 `example/` holds three official documents, each enforced by golden
 tests:
@@ -112,7 +115,7 @@ tests:
 - `statement.t`, the client report: heading hierarchy, annotated
   N-column tables with totals, settlement details in `.pre`,
   disclosures as items, a `.rem` provenance line that never
-  renders (`pica report`).
+  renders (`.layout report`).
 
 ## pdf/
 

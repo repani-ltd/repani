@@ -71,3 +71,4 @@ quarter.
 
 .width 82
 .font sans
+.layout report

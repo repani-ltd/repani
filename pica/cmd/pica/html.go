@@ -75,7 +75,7 @@ type pageData struct {
 	Title   string
 	Byline  string
 	Rights  string
-	Layout  pica.Layout
+	Layout  pica.Trailer
 	Article template.HTML
 	Facts   map[string]any
 	Raw     map[string]template.HTML
@@ -145,7 +145,7 @@ func htmlPage(archive, page string) ([]byte, error) {
 	}
 	var buf strings.Builder
 	err = tmpl.Execute(&buf, pageData{
-		Page: page, Title: doc.Title, Byline: doc.Byline(), Rights: doc.Rights, Layout: doc.Layout,
+		Page: page, Title: doc.Title, Byline: doc.Byline(), Rights: doc.Rights, Layout: doc.Trailer,
 		Article: template.HTML(doc.HTML()), Facts: facts, Raw: raw,
 	})
 	if err != nil {

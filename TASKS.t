@@ -91,6 +91,13 @@ listing it is a call to make, not work.
 Refused for pica and parked with its readmission test in pica/DESIGN.t §11; in
 tessera it is a template condition over the data, not a language mark. Listed
 here only so the two records point at each other.
+.term vertical alignment of a box running down rows
+A box that runs down rows (^) sets its text from the top in every writer (pica
+DESIGN.t §23, §26). Forms will want to say top, centre or bottom: a centred
+label beside a tall row, a figure at the foot of its box. Unspecified as yet:
+whether it is a column's property (a letter after the alignment, beside ! and
+the colour code), a cell's mark, or the writer's rule. Trigger: a real form
+whose sheet cannot be matched with top.
 .term colour in pica's flowing PDF tables
 Colour in tables landed for the form layout and HTML (pica/DESIGN.t §25); the
 flowing presentations (pica pdf and report without .layout form) still ignore

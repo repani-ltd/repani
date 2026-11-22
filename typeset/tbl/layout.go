@@ -50,7 +50,7 @@ func (t *Table) Add(fm Format, r Row) error {
 		}
 	}
 	// A ^ continues the box of the data row above, a note's included;
-	// a blank or rule row ends every span.
+	// a blank or rule row ends every box running down.
 	e := entry{fm: fm, row: r}
 	if r.Kind == Data {
 		var err error
@@ -96,17 +96,26 @@ func sameGrid(a, b Format) bool {
 // LaidRow is one row laid out: its kind and role, its resolved row
 // colours -- for the gaps between boxes and the width the format
 // leaves -- and, for a data row, its lines, each holding every box of
-// the row in column order. Blank and rule rows have no lines.
+// the row in column order, and its boxes, parallel to every line.
+// Blank and rule rows have no lines and no boxes.
 type LaidRow struct {
 	Kind   Kind
 	Role   Role
 	FG, BG raster.Color
 	Lines  [][]Placed
-	// Cont holds the boxes of this row that continue a box of the row
-	// above (^ columns), in column order: their lines carry on the
-	// text of the cell that began the box, and a host that draws
-	// rules draws none between them and the box above.
-	Cont []Box
+	Boxes  []LaidBox
+}
+
+// LaidBox is a box of a laid row: its format columns; Cont, whether
+// it continues a box of the row above (^), its lines carrying on the
+// text of the cell that began it; and Top and Rows, the row that began
+// it and how many rows it covers -- 1 for a box that runs down no
+// rows. A host that draws rules draws none between the rows a box
+// covers.
+type LaidBox struct {
+	Box
+	Cont      bool
+	Top, Rows int
 }
 
 // Placed is one cell's box on one line: grid columns Start to End
@@ -182,7 +191,7 @@ func (f Format) carets() bool {
 // with plain columns after it.
 func rowBoxes(f Format, r Row, prev []Box) (boxes []Box, own []bool, err error) {
 	at := func(format string, args ...any) error {
-		return errAt(r.Line, r.Cells[0].Col, ErrVSpan, format, args...)
+		return errAt(r.Line, r.Cells[0].Col, ErrContinue, format, args...)
 	}
 	mine := f.Boxes(len(r.Cells))
 	if !f.carets() {
@@ -265,17 +274,17 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 		}
 	}
 	// A box is laid once, by the row whose cell begins it; a box that
-	// later rows continue (^) is a span, whose lines run down the rows
-	// it covers. Rows are first laid on their own boxes, a span's first
+	// later rows continue (^) is a run, whose lines run down the rows
+	// it covers. Rows are first laid on their own boxes, a run's first
 	// box not counting towards its row's height; then the last row of
-	// each span grows by what the rows it covers leave short; then
+	// each run grows by what the rows it covers leave short; then
 	// every row's lines are cut from its boxes' stacks.
 	type laid struct {
 		boxes []box
 		h     int
 	}
 	rows := make([]laid, len(t.entries))
-	var spans []*span
+	var runs []*run
 	var prev []box
 	for k, e := range t.entries {
 		if e.row.Kind != Data {
@@ -287,12 +296,12 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 		for i, b := range e.boxes {
 			if !e.own[i] {
 				p := find(prev, b)
-				if p.span == nil {
-					p.span = &span{lines: p.lines, from: p.row}
-					spans = append(spans, p.span)
+				if p.run == nil {
+					p.run = &run{lines: p.lines, from: p.row}
+					runs = append(runs, p.run)
 				}
-				p.span.to = k
-				cur = append(cur, box{Box: b, span: p.span, placed: p.placed, row: k})
+				p.run.to = k
+				cur = append(cur, box{Box: b, run: p.run, placed: p.placed, row: k})
 				continue
 			}
 			x, err := layBox(e.fm, e.row, cell, b, grid)
@@ -309,18 +318,18 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 	for k := range rows {
 		rows[k].h = 1
 		for _, b := range rows[k].boxes {
-			if b.span == nil {
+			if b.run == nil {
 				rows[k].h = max(rows[k].h, len(b.lines))
 			}
 		}
 	}
-	for _, s := range spans {
+	for _, r := range runs {
 		have := 0
-		for k := s.from; k <= s.to; k++ {
+		for k := r.from; k <= r.to; k++ {
 			have += rows[k].h
 		}
-		if need := len(s.lines) - have; need > 0 {
-			rows[s.to].h += need
+		if need := len(r.lines) - have; need > 0 {
+			rows[r.to].h += need
 		}
 	}
 	out := make([]LaidRow, len(t.entries))
@@ -335,16 +344,19 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 		}
 		if e.row.Kind == Data {
 			// Each box's lines, and where this row's first line falls
-			// in them: 0 for its own, the rows above it for a span's.
+			// in them: 0 for its own, the rows above it for a run's.
 			bs := rows[k].boxes
 			src, off := make([][]string, len(bs)), make([]int, len(bs))
+			lr.Boxes = make([]LaidBox, len(bs))
 			for i, b := range bs {
 				src[i] = b.lines
-				if b.span != nil {
-					src[i] = b.span.lines
-					for j := b.span.from; j < k; j++ {
+				lr.Boxes[i] = LaidBox{Box: b.Box, Top: k, Rows: 1}
+				if b.run != nil {
+					src[i] = b.run.lines
+					for j := b.run.from; j < k; j++ {
 						off[i] += rows[j].h
 					}
+					lr.Boxes[i] = LaidBox{Box: b.Box, Cont: k != b.run.from, Top: b.run.from, Rows: b.run.to - b.run.from + 1}
 				}
 			}
 			lr.Lines = make([][]Placed, rows[k].h)
@@ -361,11 +373,6 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 				}
 				lr.Lines[h] = line
 			}
-			for _, b := range rows[k].boxes {
-				if b.span != nil && b.row != b.span.from {
-					lr.Cont = append(lr.Cont, b.Box)
-				}
-			}
 		}
 		out[k] = lr
 	}
@@ -374,18 +381,18 @@ func (t *Table) Layout(measure int) (*Grid, []LaidRow, error) {
 
 // box is one box of a laid row: where it is, its cell's lines and the
 // rest of its placing (columns, colours, link), and, when it begins or
-// continues a span, the span.
+// continues a run, the run.
 type box struct {
 	Box
 	lines  []string
 	placed Placed
-	span   *span
+	run    *run
 	row    int // the entry the box is in
 }
 
-// span is a box that rows below continue: its cell's lines, and the
+// run is a box that rows below continue: its cell's lines, and the
 // first and last rows it covers.
-type span struct {
+type run struct {
 	lines    []string
 	from, to int
 }

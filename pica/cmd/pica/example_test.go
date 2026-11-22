@@ -14,15 +14,12 @@ import (
 // triptych (newspaper), the statement (report) and the harbour
 // notice board (a 34-column sans page of terms, items and tables).
 // The text output is golden; the PDF must render deterministically
-// through the example's own presentation.
+// in the layout each example's trailer names.
 func TestOfficialExamples(t *testing.T) {
-	cases := []struct {
-		name, src, golden string
-		render            func(*pica.Doc) ([]byte, error)
-	}{
-		{"triptych", "../../example/triptych.t", "../../example/triptych.txt", func(d *pica.Doc) ([]byte, error) { return press.PDF(d, false) }},
-		{"statement", "../../example/statement.t", "../../example/statement.txt", func(d *pica.Doc) ([]byte, error) { return press.Report(d, false) }},
-		{"harbour", "../../example/harbour.t", "../../example/harbour.txt", func(d *pica.Doc) ([]byte, error) { return press.PDF(d, false) }},
+	cases := []struct{ name, src, golden string }{
+		{"triptych", "../../example/triptych.t", "../../example/triptych.txt"},
+		{"statement", "../../example/statement.t", "../../example/statement.txt"},
+		{"harbour", "../../example/harbour.t", "../../example/harbour.txt"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -42,11 +39,11 @@ func TestOfficialExamples(t *testing.T) {
 			if page != string(want) {
 				t.Errorf("text output differs from committed %s", c.golden)
 			}
-			a, err := c.render(doc)
+			a, err := press.PDF(doc, false)
 			if err != nil {
 				t.Fatal(err)
 			}
-			b, err := c.render(doc)
+			b, err := press.PDF(doc, false)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -120,7 +120,7 @@ type presentation struct {
 // one page is emitted.
 func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 	ncols := pres.ncols
-	size := paperSize(doc.Layout.Paper)
+	size := paperSize(doc.Trailer.Paper)
 	pageW, pageH := size.Dimensions()
 	margin := pageMargin(ncols)
 	usableW := pageW - 2*margin
@@ -177,17 +177,7 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 		columns = flow(blocks, func(int) int { return best })
 	}
 
-	pdoc := &pdf.Doc{
-		Title:    doc.Title,
-		Author:   doc.By,
-		Creator:  "pica",
-		Producer: "Repani Limited",
-		Created:  infoDate(doc.Date),
-		PageSize: size,
-	}
-	if pres.mark {
-		pdoc.AddForm(markName, markW, markH, markStream)
-	}
+	pdoc := newDoc(doc, size, pres.mark)
 	total := (len(columns) + ncols - 1) / ncols
 	for pg := 0; pg < total; pg++ {
 		var p pdf.Page
@@ -231,12 +221,39 @@ func paged(doc *pica.Doc, pres presentation) ([]byte, error) {
 	return pdoc.Bytes(), nil
 }
 
-// centered draws text centered on the page at baseline y, in the
-// body face at size ps and the given gray level (black restored
-// after).
-func (s *sheet) centered(p *pdf.Page, y, ps, gray float64, text string) {
-	p.SetFont(s.bodyFont, ps)
+// newDoc is the PDF every layout writes into: the document's title,
+// byline and date as its info, the paper, and the mark's form when
+// the mark is painted.
+func newDoc(doc *pica.Doc, size pdf.PageSize, mark bool) *pdf.Doc {
+	pdoc := &pdf.Doc{
+		Title:    doc.Title,
+		Author:   doc.By,
+		Creator:  "pica",
+		Producer: "Repani Limited",
+		Created:  infoDate(doc.Date),
+		PageSize: size,
+	}
+	if mark {
+		pdoc.AddForm(markName, markW, markH, markStream)
+	}
+	return pdoc
+}
+
+// centered draws text centred on a page pageW wide at baseline y, in
+// face f at size pt and the given gray level (black restored after).
+func centered(p *pdf.Page, pageW, y, pt float64, f pdf.Font, gray float64, text string) {
+	p.SetFont(f, pt)
 	p.Gray(gray)
-	p.Text((s.pageW-pdf.Width(text, s.bodyFont, ps))/2, y, text)
+	p.Text((pageW-pdf.Width(text, f, pt))/2, y, text)
 	p.Gray(0)
+}
+
+// pageOf is the footer of page pg (0-based) of total: "Page N of M",
+// joined to the rights notice when the document has one.
+func pageOf(doc *pica.Doc, pg, total int) string {
+	num := fmt.Sprintf("Page %d of %d", pg+1, total)
+	if doc.Rights != "" {
+		num = doc.Rights + " · " + num
+	}
+	return num
 }

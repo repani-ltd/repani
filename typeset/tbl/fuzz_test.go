@@ -20,7 +20,7 @@ func checkErr(t *testing.T, what, s string, err error) {
 }
 
 func FuzzApply(f *testing.F) {
-	for _, s := range []string{"5L 13L 7L *L", "w/b 30 31L 8R", "c", "", "L L S Lg", "*N! 2C/r", "5S", "0L", "5L!r", "r//b"} {
+	for _, s := range []string{"5L 13L 7L *L", "w/b 30 31L 8R", "c", "", "L L S Lg", "*N! 2C/r", "5S", "0L", "5L!r", "r//b", "^ L ^ L", "L ^ S L", "5^", "L ^r L L"} {
 		f.Add("6L 6L 6L 6L", s)
 	}
 	f.Fuzz(func(t *testing.T, full, spec string) {
@@ -74,6 +74,73 @@ func FuzzParseRow(f *testing.F) {
 			}
 			if c.Text != "" && (c.Text[0] == ':' || c.Text[0] == '@') {
 				t.Fatalf("ParseRow(%q): content %q starts with a mark", line, c.Text)
+			}
+		}
+	})
+}
+
+// FuzzContinue lays a row and a second row under a relative format
+// that may continue its boxes (^): every line holds a placed cell per
+// box, in order and inside the measure, and every box that continues
+// one began on the row above and covers both.
+func FuzzContinue(f *testing.F) {
+	f.Add("9L 4L 5L *L 3C", "Investor | Fund name | Y", "^ L L L ^", "RM# | N/A | 1953", 40)
+	f.Add("10L 3L *P", "Laws | REQ | a long comment that wraps down the rows beside it", "L L ^", ".. Sponsors | REQ", 30)
+	f.Add("6L *L", "a | b", "^ ^", "c", 20)
+	f.Fuzz(func(t *testing.T, full, first, rel, second string, measure int) {
+		if measure < 1 || measure > 200 {
+			return
+		}
+		var fs Formats
+		fm, _, err := fs.Apply(full, 1, 1)
+		if err != nil {
+			return
+		}
+		if _, err := fit(fm, measure); err != nil {
+			return
+		}
+		fm2, isFull, err := fs.Apply(rel, 2, 1)
+		if err != nil || isFull {
+			return
+		}
+		var tb Table
+		for i, x := range []struct {
+			fm   Format
+			line string
+		}{{fm, first}, {fm2, second}} {
+			r, err := ParseRow(x.line, i+1, 1)
+			if err != nil || r.Kind != Data {
+				return
+			}
+			if err := tb.Add(x.fm, r); err != nil {
+				checkErr(t, "Add", x.line, err)
+				return
+			}
+		}
+		_, rows, err := tb.Layout(measure)
+		if errors.Is(err, ErrNumber) {
+			return
+		}
+		if err != nil {
+			t.Fatalf("Layout after a fitting format: %v", err)
+		}
+		for k, lr := range rows {
+			for _, ln := range lr.Lines {
+				if len(ln) != len(lr.Boxes) {
+					t.Fatalf("row %d: %d placed cells for %d boxes", k, len(ln), len(lr.Boxes))
+				}
+				end := 0
+				for _, p := range ln {
+					if p.Start < end || p.End <= p.Start || p.End > measure || utf8.RuneCountInString(p.Text) != p.End-p.Start {
+						t.Fatalf("row %d: cell %+v after %d in %d", k, p, end, measure)
+					}
+					end = p.End
+				}
+			}
+			for _, b := range lr.Boxes {
+				if b.Cont && (k != 1 || b.Top != 0 || b.Rows != 2) || b.Top+b.Rows > len(rows) {
+					t.Fatalf("row %d: box %+v", k, b)
+				}
 			}
 		}
 	})

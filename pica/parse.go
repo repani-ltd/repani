@@ -16,15 +16,15 @@ import (
 type BlockKind int
 
 const (
-	Para     BlockKind = iota // flowing prose; writers wrap it
-	Heading                   // section (#) or subsection (##) heading; see Level
-	TableBlk                  // structured table
-	Pre                       // verbatim lines; atomic for column flow
-	RuleBlk                   // horizontal rule
-	LinkBlk                   // .link reference: URL and optional title
-	Quote                     // .quote: indented prose, optional attribution
-	Item                      // .item: one bulleted list item
-	Term                      // .term: a labelled entry, the label run in; see Label
+	ParaBlk    BlockKind = iota // flowing prose; writers wrap it
+	HeadingBlk                  // section (#) or subsection (##) heading; see Level
+	TableBlk                    // structured table
+	PreBlk                      // verbatim lines; atomic for column flow
+	RuleBlk                     // horizontal rule
+	LinkBlk                     // .link reference: URL and optional title
+	QuoteBlk                    // .quote: indented prose, optional attribution
+	ItemBlk                     // .item: one bulleted list item
+	TermBlk                     // .term: a labelled entry, the label run in; see Label
 )
 
 // Block is one element of a parsed document.
@@ -46,29 +46,36 @@ type Block struct {
 	Line int
 }
 
-// Layout holds the document-global attributes from the layout
+// Trailer holds the document-global attributes from the layout
 // trailer, with defaults applied.
-type Layout struct {
-	Width int    // characters per line/column
-	Paper string // "a4", "a5", or "letter"
-	Cols  int    // pdf columns per page
-	Font  string // "mono" or "sans"; proportional writers honor it
-	Kind  string // "flow" or "form"; the PDF writers honor it
+type Trailer struct {
+	Width  int    // characters per line/column
+	Paper  string // "a4", "a5", or "letter"
+	Cols   int    // pdf columns per page
+	Font   string // "mono" or "sans"; proportional writers honor it
+	Layout string // "flow", "report" or "form"; the PDF writer honors it
 }
 
-// defaultLayout is the layout of a document with no trailer.
-func defaultLayout() Layout {
-	return Layout{Width: 80, Paper: "a4", Cols: 1, Font: "mono", Kind: "flow"}
+// The range of .width: the narrowest and widest measures a document
+// may declare.
+const (
+	minWidth = 10
+	maxWidth = 200
+)
+
+// defaultTrailer is the layout of a document with no trailer.
+func defaultTrailer() Trailer {
+	return Trailer{Width: 80, Paper: "a4", Cols: 1, Font: "mono", Layout: "flow"}
 }
 
 // Doc is a parsed document.
 type Doc struct {
-	Title  string
-	By     string // .by byline ("" = none)
-	Date   string // .date dateline ("" = none)
-	Rights string // .rights imprint/copyright notice ("" = none)
-	Layout Layout
-	Blocks []Block
+	Title   string
+	By      string // .by byline ("" = none)
+	Date    string // .date dateline ("" = none)
+	Rights  string // .rights imprint/copyright notice ("" = none)
+	Trailer Trailer
+	Blocks  []Block
 }
 
 // Byline renders the .by/.date header line: "by BY -- DATE" with
@@ -146,7 +153,7 @@ func Parse(src string) (*Doc, error) {
 	src = strings.ReplaceAll(src, "\r\n", "\n")
 	lines := strings.Split(strings.TrimRight(src, "\n"), "\n")
 	p := &parser{
-		doc:   &Doc{Layout: defaultLayout()},
+		doc:   &Doc{Trailer: defaultTrailer()},
 		attrs: map[string]bool{},
 	}
 
@@ -205,11 +212,11 @@ func Parse(src string) (*Doc, error) {
 
 		case strings.HasPrefix(trimmed, "## "):
 			p.flush()
-			p.add(Block{Kind: Heading, Text: strings.TrimSpace(trimmed[3:]), Level: 2})
+			p.add(Block{Kind: HeadingBlk, Text: strings.TrimSpace(trimmed[3:]), Level: 2})
 
 		case strings.HasPrefix(trimmed, "# "):
 			p.flush()
-			p.add(Block{Kind: Heading, Text: strings.TrimSpace(trimmed[2:]), Level: 1})
+			p.add(Block{Kind: HeadingBlk, Text: strings.TrimSpace(trimmed[2:]), Level: 1})
 
 		default:
 			// Everything unmarked is prose -- fill mode, as in
@@ -244,16 +251,16 @@ func Parse(src string) (*Doc, error) {
 	for _, b := range p.doc.Blocks {
 		switch b.Kind {
 		case TableBlk:
-			if _, err := b.Table.Layout(p.doc.Layout.Width); err != nil {
+			if _, err := b.Table.Layout(p.doc.Trailer.Width); err != nil {
 				return nil, err
 			}
-		case Term:
+		case TermBlk:
 			// A label with nothing beneath it is not an entry.
 			if b.Text == "" {
 				return nil, fmt.Errorf("%w: .term %q wants text on the lines beneath it (line %d)", ErrBadAttr, b.Label, b.Line)
 			}
 			fallthrough
-		case Para, Quote, Item:
+		case ParaBlk, QuoteBlk, ItemBlk:
 			// Emphasis lives only in flowing prose, and every span
 			// must close inside its block: an unclosed opener is
 			// rejected here, so writers only ever see balanced text.
@@ -278,7 +285,7 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		return i, nil
 	}
 
-	if handled, err := p.layoutCommand(word, rest, n); handled || err != nil {
+	if handled, err := p.trailerCommand(word, rest, n); handled || err != nil {
 		return i, err
 	}
 
@@ -317,7 +324,7 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 			return 0, fmt.Errorf("%w: .item wants text (line %d)", ErrBadAttr, n)
 		}
 		p.flush()
-		p.add(Block{Kind: Item, Text: rest})
+		p.add(Block{Kind: ItemBlk, Text: rest})
 		p.openItem = true
 		return i, nil
 
@@ -330,7 +337,7 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 			return 0, fmt.Errorf("%w: .term wants a label (line %d)", ErrBadAttr, n)
 		}
 		p.flush()
-		p.add(Block{Kind: Term, Label: rest})
+		p.add(Block{Kind: TermBlk, Label: rest})
 		p.openItem = true
 		return i, nil
 
@@ -351,7 +358,7 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 		if len(body) == 0 {
 			return next, nil // renders nothing, so it separates nothing
 		}
-		p.add(Block{Kind: Pre, Lines: body, Repeat: repeat})
+		p.add(Block{Kind: PreBlk, Lines: body, Repeat: repeat})
 		return next, nil
 
 	case ".fmt":
@@ -386,11 +393,11 @@ func (p *parser) command(lines []string, i int, trimmed string) (int, error) {
 	return 0, fmt.Errorf("%w: %s (line %d)", ErrUnknownCommand, word, n)
 }
 
-// layoutCommand recognizes and applies a layout trailer command,
+// trailerCommand recognizes and applies a layout trailer command,
 // owning the whole trailer mechanism (vocabulary, duplicate check,
 // validation) in one place. Returns handled == false for words that
 // are not layout commands.
-func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err error) {
+func (p *parser) trailerCommand(word, rest string, n int) (handled bool, err error) {
 	bad := func(want string) (bool, error) {
 		return true, fmt.Errorf("%w: %s %q: want %s (line %d)", ErrBadAttr, word, rest, want, n)
 	}
@@ -407,14 +414,14 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 	switch word {
 	case ".width":
 		v, err := strconv.Atoi(rest)
-		if err != nil || v < 10 || v > 200 {
-			return bad("10-200")
+		if err != nil || v < minWidth || v > maxWidth {
+			return bad(fmt.Sprintf("%d-%d", minWidth, maxWidth))
 		}
-		return set(func() { p.doc.Layout.Width = v })
+		return set(func() { p.doc.Trailer.Width = v })
 	case ".paper":
 		switch rest {
 		case "a4", "a5", "letter":
-			return set(func() { p.doc.Layout.Paper = rest })
+			return set(func() { p.doc.Trailer.Paper = rest })
 		default:
 			return bad("a4, a5, or letter")
 		}
@@ -423,20 +430,20 @@ func (p *parser) layoutCommand(word, rest string, n int) (handled bool, err erro
 		if err != nil || v < 1 || v > 6 {
 			return bad("1-6")
 		}
-		return set(func() { p.doc.Layout.Cols = v })
+		return set(func() { p.doc.Trailer.Cols = v })
 	case ".font":
 		switch rest {
 		case "mono", "sans":
-			return set(func() { p.doc.Layout.Font = rest })
+			return set(func() { p.doc.Trailer.Font = rest })
 		default:
 			return bad("mono or sans")
 		}
 	case ".layout":
 		switch rest {
-		case "flow", "form":
-			return set(func() { p.doc.Layout.Kind = rest })
+		case "flow", "report", "form":
+			return set(func() { p.doc.Trailer.Layout = rest })
 		default:
-			return bad("flow or form")
+			return bad("flow, report or form")
 		}
 	}
 	return false, nil
@@ -495,7 +502,7 @@ func parseQuoteBlock(body []string, atLine int) (Block, error) {
 	if len(prose) == 0 {
 		return Block{}, fmt.Errorf("%w: empty .quote (line %d)", ErrBadAttr, atLine)
 	}
-	return Block{Kind: Quote, Text: strings.Join(prose, " "), Attrib: attrib}, nil
+	return Block{Kind: QuoteBlk, Text: strings.Join(prose, " "), Attrib: attrib}, nil
 }
 
 func (p *parser) add(b Block) {
@@ -514,7 +521,7 @@ func (p *parser) add(b Block) {
 func (p *parser) flush() {
 	p.openItem = false
 	if len(p.para) > 0 {
-		p.add(Block{Kind: Para, Text: strings.Join(p.para, " "), Line: p.paraLine})
+		p.add(Block{Kind: ParaBlk, Text: strings.Join(p.para, " "), Line: p.paraLine})
 		p.para = nil
 	}
 }

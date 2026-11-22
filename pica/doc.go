@@ -195,15 +195,19 @@ has a default, so an attribute-free document is fully determined:
 	.paper P    pdf paper: a4, a5, or letter   (default a4)
 	.cols N     pdf columns per page           (default 1, 1-6)
 	.font F     pdf body face: mono or sans    (default mono)
-	.layout L   pdf layout: flow or form       (default flow)
+	.layout L   pdf layout: flow, report, form (default flow)
 
-Values outside the given ranges are parse errors. The FORM layout
-sets the document as a ruled form, for sheets built of tables:
-every cell boxed, a heavier rule round each .fmt block, rows as
-tall as their text, cells set in the body face and measured in
-it, a small centred title and narrow margins; .width is then the
-characters across the grid. Both PDF commands render it (.cols
-does not apply); the text page and HTML ignore .layout. Hyphenation
+Values outside the given ranges are parse errors. pica pdf sets a
+document in the layout its trailer names. FLOW is the default: a
+masthead over .cols columns. REPORT is a single-column client
+report: generous margins, a left-aligned title block, hairline
+table rules, "Page N of M" in the footer (.cols does not apply).
+FORM sets the document as a ruled form, for sheets built of
+tables: every cell boxed, a heavier rule round each .fmt block,
+rows as tall as their text, cells set in the body face and
+measured in it, a small centred title and narrow margins; .width
+is then the characters across the grid (.cols does not apply).
+The text page and HTML ignore .layout. Hyphenation
 always uses every embedded pattern set: the embedded scripts are
 disjoint, so the merged set hyphenates English and Greek prose
 correctly side by side. (A .lang selector existed and was removed
@@ -287,8 +291,8 @@ of the cell that began the box starts at its top and runs down the
 rows it covers; when it needs more lines than those rows have, the
 last row it covers grows. A note row may continue a box like any
 row (the form layout sets it small beside the box it continues;
-the half-size note of the other PDF writers drops the continued
-text). A row continuing a box is atomic with
+the half-size note of the flow and report layouts drops the
+continued text). A row continuing a box is atomic with
 the row above at a column split. For example, a label beside two
 rows, the second split into three cells:
 

@@ -116,7 +116,7 @@ func TestPDFEmphasisSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := Report(sans, false)
+	out, err := reportPDF(sans, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestPDFEmphasisSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err = Report(mono, false)
+	out, err = reportPDF(mono, false)
 	if err != nil {
 		t.Fatal(err)
 	}

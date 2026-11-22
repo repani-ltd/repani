@@ -20,7 +20,7 @@ import (
 // separated by one blank line unless they were contiguous in the
 // source.
 func (d *Doc) Text() string {
-	width := d.Layout.Width
+	width := d.Trailer.Width
 	out := []string{format.Trunc(d.Title, width)}
 	if bl := d.Byline(); bl != "" {
 		out = append(out, format.Trunc(bl, width))
@@ -49,14 +49,14 @@ func (d *Doc) Text() string {
 // the same width.
 func renderBlock(b Block, width int) []string {
 	switch b.Kind {
-	case Heading:
+	case HeadingBlk:
 		marker := "# "
 		if b.Level == 2 {
 			marker = "## "
 		}
 		return []string{format.Trunc(marker+b.Text, width)}
 
-	case Para, Quote, Item, Term:
+	case ParaBlk, QuoteBlk, ItemBlk, TermBlk:
 		lp := LayProse(b, width, wrapText)
 		var out []string
 		if lp.Head != "" {
@@ -85,7 +85,7 @@ func renderBlock(b Block, width int) []string {
 		}
 		return tl.Lines()
 
-	case Pre:
+	case PreBlk:
 		out := make([]string, len(b.Lines))
 		for i, ln := range b.Lines {
 			out[i] = format.Trunc(ln, width)
@@ -132,15 +132,15 @@ func LayProse(b Block, width int, set func(para string, first, width int) []stri
 	}
 	hang := strings.Repeat(" ", ItemIndent)
 	switch b.Kind {
-	case Quote:
+	case QuoteBlk:
 		inset := strings.Repeat(" ", QuoteIndent)
 		fill(inset, inset, width-2*QuoteIndent, width-2*QuoteIndent)
 		if b.Attrib != "" {
 			lp.Tail = attribLine(b.Attrib, width)
 		}
-	case Item:
+	case ItemBlk:
 		fill(Bullet+" ", hang, width-ItemIndent, width-ItemIndent)
-	case Term:
+	case TermBlk:
 		if first, runIn := termRunIn(b.Label, width); runIn {
 			fill(b.Label+strings.Repeat(" ", TermGap), hang, first, width-ItemIndent)
 		} else {

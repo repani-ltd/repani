@@ -12,11 +12,8 @@ package pica
 import (
 	"fmt"
 	"html"
-	"sort"
 	"strconv"
 	"strings"
-
-	"repani.com/typeset/tbl"
 )
 
 // HTML renders the document as an <article> fragment: <h1> title,
@@ -45,7 +42,7 @@ func (d *Doc) HTML() string {
 	}
 	for _, b := range d.Blocks {
 		switch b.Kind {
-		case Item:
+		case ItemBlk:
 			if open != "ul" {
 				closeList()
 				w.WriteString("<ul>\n")
@@ -53,7 +50,7 @@ func (d *Doc) HTML() string {
 			}
 			w.WriteString("<li>" + emphHTML(b.Text) + "</li>\n")
 			continue
-		case Term:
+		case TermBlk:
 			if open != "dl" {
 				closeList()
 				w.WriteString("<dl>\n")
@@ -75,9 +72,9 @@ func (d *Doc) HTML() string {
 
 func htmlBlock(w *strings.Builder, b Block) {
 	switch b.Kind {
-	case Para:
+	case ParaBlk:
 		w.WriteString("<p>" + emphHTML(b.Text) + "</p>\n")
-	case Heading:
+	case HeadingBlk:
 		tag := "h2"
 		if b.Level == 2 {
 			tag = "h3"
@@ -85,7 +82,7 @@ func htmlBlock(w *strings.Builder, b Block) {
 		w.WriteString("<" + tag + ">" + esc(b.Text) + "</" + tag + ">\n")
 	case RuleBlk:
 		w.WriteString("<hr>\n")
-	case Pre:
+	case PreBlk:
 		w.WriteString("<pre>")
 		for i, ln := range b.Lines {
 			if i > 0 {
@@ -100,7 +97,7 @@ func htmlBlock(w *strings.Builder, b Block) {
 			title = url
 		}
 		w.WriteString(`<p class="link"><a href="` + esc(url) + `">` + esc(title) + "</a></p>\n")
-	case Quote:
+	case QuoteBlk:
 		w.WriteString("<blockquote>\n<p>" + emphHTML(b.Text) + "</p>\n")
 		if b.Attrib != "" {
 			w.WriteString(`<p class="attrib">` + esc(b.Attrib) + "</p>\n")
@@ -124,69 +121,49 @@ func htmlTable(w *strings.Builder, t *Table) {
 		open = `<table style="max-width:` + strconv.Itoa(n) + `ch">`
 	}
 	w.WriteString(open + "\n")
-	rows := t.tt.Rows()
-	header := len(rows) > 0 && rows[0].Role == tbl.Header
-	caret := func(j, col int) bool { return t.fms[j].Cols[col].Align == '^' }
-	type cell struct {
-		box  tbl.Box
-		text string
-		own  bool
-		code tbl.Code // resolved: the cell's mark, the row code, the column's
+	// HTML wants the boxes, not the lines, so the table is laid at the
+	// widest measure a document may declare: a table that fit its own
+	// document fits there.
+	rows, err := t.Grid(maxWidth)
+	if err != nil {
+		panic("pica: a parsed table does not lay out at the widest measure: " + err.Error())
 	}
+	header := len(rows) > 0 && rows[0].Header
 	write := func(i int, tag, class string) {
-		r, fm := rows[i], t.fms[i]
-		var cells []cell
-		for k, bx := range fm.Boxes(len(r.Cells)) {
-			code := r.Cells[k].Code.Over(fm.Row.Over(fm.Cols[bx.First].Code))
-			cells = append(cells, cell{bx, r.Cells[k].Text, true, code})
-		}
-		// A header box that rows continue (^) cannot span out of
-		// <thead>: each row continuing it holds an empty cell instead.
-		if header && i > 0 {
-			for _, bx := range t.fms[0].Boxes(len(rows[0].Cells)) {
-				j := 1
-				for j <= i && caret(j, bx.First) {
-					j++
-				}
-				if j > i {
-					cells = append(cells, cell{box: bx})
-				}
-			}
-			sort.Slice(cells, func(a, b int) bool { return cells[a].box.First < cells[b].box.First })
-		}
+		r := rows[i]
 		w.WriteString("<tr" + class + ">")
-		for _, c := range cells {
-			bx, attrs := c.box, ""
-			if bx.Last > bx.First {
-				attrs = ` colspan="` + strconv.Itoa(bx.Last-bx.First+1) + `"`
+		for _, b := range r.Boxes {
+			// A box running down from the header cannot leave <thead>:
+			// each body row it reaches holds an empty cell in its place.
+			fromHead := header && b.Top == 0
+			if b.Cont && !fromHead {
+				continue
 			}
-			if c.own && !(header && i == 0) {
-				n := 1
-				for j := i + 1; j < len(rows) && caret(j, bx.First); j++ {
-					n++
-				}
-				if n > 1 {
-					attrs += ` rowspan="` + strconv.Itoa(n) + `"`
-				}
+			attrs := ""
+			if b.Last > b.First {
+				attrs = ` colspan="` + strconv.Itoa(b.Last-b.First+1) + `"`
+			}
+			if !b.Cont && !fromHead && b.Rows > 1 {
+				attrs += ` rowspan="` + strconv.Itoa(b.Rows) + `"`
 			}
 			var style []string
-			switch align := fm.Cols[bx.First].Align; {
-			case !c.own, r.Role == tbl.Note:
-			case align == 'R' || align == 'N':
+			switch {
+			case b.Cont, r.Note:
+			case b.Align == 'R' || b.Align == 'N':
 				style = append(style, "text-align:right")
-			case align == 'C':
+			case b.Align == 'C':
 				style = append(style, "text-align:center")
 			}
-			if c.code.HasFG && c.code.FG != 0 {
-				style = append(style, "color:"+hexColor(Ink(uint8(c.code.FG))))
+			if b.FG != 0 {
+				style = append(style, "color:"+hexColor(Ink(b.FG)))
 			}
-			if c.code.HasBG && c.code.BG != 0 {
-				style = append(style, "background:"+hexColor(Tint(uint8(c.code.BG))))
+			if b.BG != 0 {
+				style = append(style, "background:"+hexColor(Tint(b.BG)))
 			}
 			if style != nil {
 				attrs += ` style="` + strings.Join(style, ";") + `"`
 			}
-			w.WriteString("<" + tag + attrs + ">" + esc(c.text) + "</" + tag + ">")
+			w.WriteString("<" + tag + attrs + ">" + esc(b.Text) + "</" + tag + ">")
 		}
 		w.WriteString("</tr>\n")
 	}
@@ -199,10 +176,10 @@ func htmlTable(w *strings.Builder, t *Table) {
 	}
 	w.WriteString("<tbody>\n")
 	for i := first; i < len(rows); i++ {
-		switch rows[i].Role {
-		case tbl.Total:
+		switch {
+		case rows[i].Total:
 			write(i, "td", ` class="total"`)
-		case tbl.Note:
+		case rows[i].Note:
 			write(i, "td", ` class="note"`)
 		default:
 			write(i, "td", "")

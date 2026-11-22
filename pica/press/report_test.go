@@ -31,8 +31,8 @@ func TestReport_Smoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, font := range []string{"mono", "sans"} {
-		doc.Layout.Font = font
-		b, err := Report(doc, false)
+		doc.Trailer.Font = font
+		b, err := reportPDF(doc, false)
 		if err != nil {
 			t.Fatalf("Report(%s): %v", font, err)
 		}
@@ -40,6 +40,13 @@ func TestReport_Smoke(t *testing.T) {
 			t.Fatalf("Report(%s): implausible PDF (%d bytes)", font, len(b))
 		}
 	}
+}
+
+// reportPDF renders doc in the report layout, whatever its trailer
+// says.
+func reportPDF(doc *pica.Doc, mark bool) ([]byte, error) {
+	doc.Trailer.Layout = "report"
+	return PDF(doc, mark)
 }
 
 // The mark is a render option: off, the output carries no form
@@ -51,11 +58,11 @@ func TestReport_Mark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	off, err := Report(doc, false)
+	off, err := reportPDF(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	on, err := Report(doc, true)
+	on, err := reportPDF(doc, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +91,7 @@ func TestReport_InfoFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Report(doc, false)
+	b, err := reportPDF(doc, false)
 	if err != nil {
 		t.Fatal(err)
 	}

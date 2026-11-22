@@ -16,14 +16,19 @@ import (
 // mastRuleGap is the extra white on each side of the masthead rule.
 const mastRuleGap = 4.0
 
-// PDF renders a parsed document as the default PDF. mark paints
-// the Repani mark top-right of page one: publishing policy,
-// chosen where the PDF is made, never in the document.
+// PDF renders a parsed document in the layout its trailer names:
+// flow, the default (this file: a masthead, .cols columns), report
+// (report.go) or form (form.go). mark paints the Repani mark top-right
+// of page one: publishing policy, chosen where the PDF is made, never
+// in the document.
 func PDF(doc *pica.Doc, mark bool) ([]byte, error) {
-	if doc.Layout.Kind == "form" {
+	switch doc.Trailer.Layout {
+	case "report":
+		return report(doc, mark)
+	case "form":
 		return formPDF(doc, mark)
 	}
-	ncols := doc.Layout.Cols
+	ncols := doc.Trailer.Cols
 	return paged(doc, presentation{
 		ncols:  ncols,
 		mark:   mark,
@@ -36,7 +41,7 @@ func PDF(doc *pica.Doc, mark bool) ([]byte, error) {
 			if s.doc.Rights != "" {
 				num = fmt.Sprintf("%s · page %d", s.doc.Rights, pg+1)
 			}
-			s.centered(p, s.margin/2-2, s.t.ps*0.9, 0.4, num)
+			centered(p, s.pageW, s.margin/2-2, s.t.ps*0.9, s.bodyFont, 0.4, num)
 		},
 	})
 }
@@ -67,7 +72,7 @@ func masthead(s *sheet) (float64, func(p *pdf.Page)) {
 		w := pdf.Width(title, s.titleFont, mastPt)
 		p.Text((s.pageW-w)/2, s.topY-mastPt, title)
 		if byline != "" {
-			s.centered(p, mastBottom-ps, ps, 0.4, byline)
+			centered(p, s.pageW, mastBottom-ps, ps, s.bodyFont, 0.4, byline)
 		}
 		p.StrokeGray(0)
 		p.Line(s.margin, ruleY, s.pageW-s.margin, ruleY, 1.0)

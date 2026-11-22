@@ -148,8 +148,8 @@ type typo struct {
 // both. This is THE size contract; every presentation derives
 // through it.
 func deriveTypo(doc *pica.Doc, colW float64) (typo, error) {
-	width := doc.Layout.Width
-	sans := doc.Layout.Font == "sans"
+	width := doc.Trailer.Width
+	sans := doc.Trailer.Font == "sans"
 	psMono := colW / (emWidth * float64(width))
 	ps := psMono
 	units := 0
@@ -163,7 +163,7 @@ func deriveTypo(doc *pica.Doc, colW float64) (typo, error) {
 	if small := min(ps, psMono); small < minPs {
 		return typo{}, fmt.Errorf(
 			"derived body size %.1fpt is below %.1fpt: .width %d on %s leaves the measure too narrow",
-			small, minPs, width, doc.Layout.Paper)
+			small, minPs, width, doc.Trailer.Paper)
 	}
 	return typo{
 		sans: sans, ps: ps, psMono: psMono,
@@ -233,11 +233,11 @@ func (b fblock) height() int {
 // lines; verbatim blocks and tables keep monospace layout in both
 // modes.
 func compose(doc *pica.Doc, t typo) ([]fblock, error) {
-	width := doc.Layout.Width
+	width := doc.Trailer.Width
 	var out []fblock
 	for bi := 0; bi < len(doc.Blocks); bi++ {
 		blk := doc.Blocks[bi]
-		if blk.Kind == pica.Item || blk.Kind == pica.Term {
+		if blk.Kind == pica.ItemBlk || blk.Kind == pica.TermBlk {
 			run := []pica.Block{blk}
 			for bi+1 < len(doc.Blocks) && doc.Blocks[bi+1].Kind == blk.Kind && doc.Blocks[bi+1].Tight {
 				bi++
@@ -248,14 +248,14 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 		}
 		fb := fblock{tight: blk.Tight}
 		switch blk.Kind {
-		case pica.Para:
+		case pica.ParaBlk:
 			if t.sans {
 				fb.segs = sansProse(blk.Text, t.units, t.units, 0, 0)
 			} else {
 				fb.segs = monoBlock(blk, width)
 			}
 
-		case pica.Quote:
+		case pica.QuoteBlk:
 			// Inset pica.QuoteIndent spaces on both sides; the
 			// attribution line is right-aligned to the quote's right
 			// margin. Mirrors the text writer's geometry.
@@ -274,7 +274,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				fb.segs = monoBlock(blk, width)
 			}
 
-		case pica.Heading:
+		case pica.HeadingBlk:
 			// "#" sections set at the display role, "##" subsections
 			// at the heading role: larger glyphs on taller slots of
 			// the same half-line grid, so the hierarchy reads without
@@ -422,7 +422,7 @@ func compose(doc *pica.Doc, t typo) ([]fblock, error) {
 				fb.segs = append(fb.segs, seg{lines: lines})
 			}
 
-		case pica.Pre:
+		case pica.PreBlk:
 			lines := make([]sline, len(blk.Lines))
 			for j, ln := range blk.Lines {
 				lines[j] = sline{text: format.Trunc(ln, width)}
@@ -461,7 +461,7 @@ func composeItems(run []pica.Block, t typo, width int) []fblock {
 	fbs := make([]fblock, len(run))
 	wrapped := false
 	for i, blk := range run {
-		if blk.Kind == pica.Term {
+		if blk.Kind == pica.TermBlk {
 			fbs[i] = composeTerm(blk, t, width)
 		} else {
 			fbs[i] = composeItem(blk, t, width)
@@ -545,7 +545,7 @@ func monoBlock(blk pica.Block, width int) []seg {
 		segs = append(segs, seg{lines: []sline{{text: lp.Head, lead: lp.Head}}})
 	}
 	text := monoProse(blk.Text, lp.Lines, func(i int) string { return lp.Prefix[i] })
-	if blk.Kind == pica.Term && lp.Head == "" && len(text) > 0 {
+	if blk.Kind == pica.TermBlk && lp.Head == "" && len(text) > 0 {
 		text[0].lines[0].lead = blk.Label
 	}
 	segs = append(segs, text...)

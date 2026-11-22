@@ -1,38 +1,25 @@
-// Report presentation (DESIGN.t §7): the same source document
-// rendered as a single-column client report rather than under the
-// default masthead — generous margins, a left-aligned title block,
-// a "Page N of M" footer. Layout comes from the document trailer
-// exactly as in PDF; .cols is ignored, a report is one wide
+// The report layout (.layout report, DESIGN.t §7): the same source
+// document set as a single-column client report rather than under
+// the default masthead — generous margins, a left-aligned title block,
+// a "Page N of M" footer. .cols is ignored, a report is one wide
 // column, so .width is the report's characters per line.
 
 package press
 
 import (
-	"fmt"
-
 	"repani.com/pica"
 	"repani.com/pica/pdf"
 )
 
-// Report renders a parsed document as the report PDF. mark paints
-// the Repani mark top-right of page one, as in PDF.
-func Report(doc *pica.Doc, mark bool) ([]byte, error) {
-	if doc.Layout.Kind == "form" {
-		return formPDF(doc, mark)
-	}
+// report renders a document whose trailer reads .layout report.
+func report(doc *pica.Doc, mark bool) ([]byte, error) {
 	return paged(doc, presentation{
 		ncols:  1,
 		what:   "a report",
 		mark:   mark,
 		header: titleBlock,
 		footer: func(s *sheet, p *pdf.Page, pg, total int) {
-			// Footer, centered: the page number with the total,
-			// joined to the rights notice when present.
-			num := fmt.Sprintf("Page %d of %d", pg+1, total)
-			if s.doc.Rights != "" {
-				num = s.doc.Rights + " · " + num
-			}
-			s.centered(p, s.margin/2-2, s.t.ps*0.85, 0.5, num)
+			centered(p, s.pageW, s.margin/2-2, s.t.ps*0.85, s.bodyFont, 0.5, pageOf(s.doc, pg, total))
 		},
 	})
 }

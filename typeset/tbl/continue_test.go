@@ -8,7 +8,7 @@ import (
 
 // A label and a key run down two rows while the middle of the grid
 // changes shape beneath a joined name: the cover sheet's entity rows.
-func TestVSpanLabelAndKey(t *testing.T) {
+func TestContinueLabelAndKey(t *testing.T) {
 	rows := build(t, `
 .fmt 9L 4L 5L *L 3C
 .fmt L L S S C
@@ -19,11 +19,15 @@ RM# | N/A | Est 1953`, 40)
 Investor  Some Fund Name              Y |
           RM#  N/A   Est 1953           |
 `)
-	if got := rows[1].Cont; len(got) != 2 || got[0] != (Box{0, 0}) || got[1] != (Box{4, 4}) {
-		t.Errorf("Cont = %v, want the label and key boxes", got)
+	// The label and the key begin on row 0 and cover two rows; row 1
+	// continues them, and its own three cells cover one.
+	label, key := LaidBox{Box{0, 0}, false, 0, 2}, LaidBox{Box{4, 4}, false, 0, 2}
+	if b := rows[0].Boxes; len(b) != 3 || b[0] != label || b[1] != (LaidBox{Box{1, 3}, false, 0, 1}) || b[2] != key {
+		t.Errorf("row 0 boxes %+v", b)
 	}
-	if rows[0].Cont != nil {
-		t.Errorf("the first row continues nothing: %v", rows[0].Cont)
+	label.Cont, key.Cont = true, true
+	if b := rows[1].Boxes; len(b) != 5 || b[0] != label || b[1] != (LaidBox{Box{1, 1}, false, 1, 1}) || b[4] != key {
+		t.Errorf("row 1 boxes %+v", b)
 	}
 	// The continued boxes keep the placing of the cell that began them.
 	if p := rows[1].Lines[0][4]; p.Start != 37 || p.End != 40 {
@@ -33,7 +37,7 @@ Investor  Some Fund Name              Y |
 
 // A comment beside several short rows: its lines run down them, and
 // the last row grows by what they leave short.
-func TestVSpanTallComment(t *testing.T) {
+func TestContinueTallComment(t *testing.T) {
 	rows := build(t, `
 .fmt 10L 3L *P
 Laws | REQ | The laws and regulations that establish the scheme and its sponsor.
@@ -68,7 +72,7 @@ Sponsors   REQ that establish the scheme|
 // A note row continues a box like any row, and its own cells lay out
 // L whatever their columns: the cover sheet's identifier line, set
 // small beside the label it belongs to.
-func TestVSpanNoteContinues(t *testing.T) {
+func TestContinueNoteContinues(t *testing.T) {
 	rows := build(t, `
 .fmt 9L 5R *L
 Investor | Fund | Pension
@@ -81,14 +85,14 @@ Investor   Fund Pension       |
           RM#   N/A           |
 Sponsor   State Government    |
 `)
-	if rows[1].Role != Note || len(rows[1].Cont) != 1 || rows[1].Cont[0] != (Box{0, 0}) {
+	if b := rows[1].Boxes; rows[1].Role != Note || len(b) != 3 || b[0] != (LaidBox{Box{0, 0}, true, 0, 2}) {
 		t.Errorf("note row %+v: a note continuing the label", rows[1])
 	}
 }
 
-// A span over three rows: the box continues through a middle row
-// that continues it too.
-func TestVSpanThreeRows(t *testing.T) {
+// A box over three rows: it continues through a middle row that
+// continues it too.
+func TestContinueThreeRows(t *testing.T) {
 	rows := build(t, `
 .fmt 12L *L
 Overview | one
@@ -100,21 +104,21 @@ Overview     one    |
              two    |
              three  |
 `)
-	if len(rows[2].Cont) != 1 || rows[2].Cont[0] != (Box{0, 0}) {
-		t.Errorf("third row Cont = %v", rows[2].Cont)
+	if b := rows[2].Boxes; len(b) != 2 || b[0] != (LaidBox{Box{0, 0}, true, 0, 3}) {
+		t.Errorf("third row boxes %+v", b)
 	}
 }
 
-func TestVSpanFormatErrors(t *testing.T) {
+func TestContinueFormatErrors(t *testing.T) {
 	for _, tc := range []struct {
 		full, spec string
 		kind       error
 		msg        string
 	}{
-		{"", "5L 5^", ErrVSpan, "relative format"},
-		{"", "*^ 5L", ErrVSpan, "relative format"},
-		{"5L 5L", "L ^r", ErrVSpan, "no code"},
-		{"5L 5L", "L ^!", ErrVSpan, "no code"},
+		{"", "5L 5^", ErrContinue, "relative format"},
+		{"", "*^ 5L", ErrContinue, "relative format"},
+		{"5L 5L", "L ^r", ErrContinue, "no code"},
+		{"5L 5L", "L ^!", ErrContinue, "no code"},
 		{"5L 5L 5L", "L ^ S", ErrSpan, "^ column"},
 	} {
 		var fs Formats
@@ -130,7 +134,7 @@ func TestVSpanFormatErrors(t *testing.T) {
 	}
 }
 
-func TestVSpanRowErrors(t *testing.T) {
+func TestContinueRowErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name, src, msg string
 	}{
@@ -165,8 +169,8 @@ func TestVSpanRowErrors(t *testing.T) {
 				break
 			}
 		}
-		if !errors.Is(err, ErrVSpan) || !strings.Contains(err.Error(), tc.msg) {
-			t.Errorf("%s: %v, want ErrVSpan (%s)", tc.name, err, tc.msg)
+		if !errors.Is(err, ErrContinue) || !strings.Contains(err.Error(), tc.msg) {
+			t.Errorf("%s: %v, want ErrContinue (%s)", tc.name, err, tc.msg)
 		}
 	}
 }

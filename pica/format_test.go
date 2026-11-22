@@ -128,7 +128,7 @@ func assertSameDoc(t *testing.T, a, b string) {
 		return bs
 	}
 	if !reflect.DeepEqual(norm(da), norm(db)) || da.Title != db.Title || da.Byline() != db.Byline() ||
-		da.Rights != db.Rights || da.Layout != db.Layout {
+		da.Rights != db.Rights || da.Trailer != db.Trailer {
 		t.Errorf("meaning changed:\n%s\n---\n%s", a, b)
 	}
 	if da.Text() != db.Text() {
