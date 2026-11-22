@@ -33,8 +33,7 @@ var (
 // laid out at a width when a writer asks. A block whose body holds
 // several full formats is several Tables, the later ones Tight.
 type Table struct {
-	fms []tbl.Format // per row
-	tt  tbl.Table
+	tt tbl.Table // the rows, each with its format
 }
 
 // tableFormats reads a .fmt block's formats. Every refusal comes as a
@@ -60,7 +59,7 @@ func (f *tableFormats) apply(spec string, line, col int) (bool, error) {
 }
 
 // Narrow is the width the spec narrows the table to, or 0.
-func (t *Table) Narrow() int { return t.fms[0].Narrow }
+func (t *Table) Narrow() int { return t.tt.Format(0).Narrow }
 
 // add appends a parsed row under fm, refusing what pica does not set:
 // blank and rule rows, links, a header after the first row, and what
@@ -71,7 +70,7 @@ func (t *Table) add(fm tbl.Format, r tbl.Row) error {
 	if r.Kind != tbl.Data {
 		return &tbl.Error{Line: r.Line, Col: 1, Err: ErrTableRow}
 	}
-	if r.Role == tbl.Header && len(t.fms) > 0 {
+	if r.Role == tbl.Header && t.tt.Len() > 0 {
 		return &tbl.Error{Line: r.Line, Col: r.Cells[0].Col, Err: ErrTableHeader}
 	}
 	for _, c := range r.Cells {
@@ -79,11 +78,7 @@ func (t *Table) add(fm tbl.Format, r tbl.Row) error {
 			return &tbl.Error{Line: r.Line, Col: c.Col, Err: ErrTableLink}
 		}
 	}
-	if err := t.tt.Add(fm, r); err != nil {
-		return err
-	}
-	t.fms = append(t.fms, fm)
-	return nil
+	return t.tt.Add(fm, r)
 }
 
 // separator is the character used to draw header underline rows.
@@ -208,7 +203,7 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 		nums[n.Start] = n
 	}
 	for i, row := range t.tt.Rows() {
-		fm := t.fms[i]
+		fm := t.tt.Format(i)
 		texts := make([]string, len(row.Cells))
 		for k, c := range row.Cells {
 			texts[k] = c.Text
@@ -286,21 +281,21 @@ func (t *Table) layout(width int, m, mHead Measurer, runeUnits int) (*TableLayou
 	return tl, nil
 }
 
-// GridRow is one row of a table as a writer that draws every box
+// BoxRow is one row of a table as a writer that draws every box
 // itself sees it (the form layout): its role and its boxes in column
 // order.
-type GridRow struct {
+type BoxRow struct {
 	Header, Total, Note bool
-	Boxes               []GridBox
+	Boxes               []Box
 }
 
-// GridBox is one box of a row: tbl's laid box -- its format columns,
+// Box is one box of a row: tbl's laid box -- its format columns,
 // whether it continues a box above (^), and the row it began on and
 // how many rows it covers -- its grid columns, its colours, and for a
 // box of the row's own, its cell's text with the alignment and clip of
 // its first column. A continuing box has no text of its own: the text
 // of the cell that began it runs down.
-type GridBox struct {
+type Box struct {
 	tbl.LaidBox
 	Span
 	Text  string
@@ -334,21 +329,21 @@ func Ink(c uint8) (r, g, b float64) { k := inks[c&7]; return k[0], k[1], k[2] }
 // Tint is colour c as a cell's fill.
 func Tint(c uint8) (r, g, b float64) { k := tints[c&7]; return k[0], k[1], k[2] }
 
-// Grid lays the table on its grid at width and returns every row's
+// Boxes lays the table on its grid at width and returns every row's
 // boxes, for a writer that measures and draws the cells itself.
-func (t *Table) Grid(width int) ([]GridRow, error) {
+func (t *Table) Boxes(width int) ([]BoxRow, error) {
 	_, laid, err := t.tt.Layout(width)
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]GridRow, len(laid))
+	rows := make([]BoxRow, len(laid))
 	for i, row := range t.tt.Rows() {
-		fm := t.fms[i]
-		r := GridRow{Header: row.Role == tbl.Header, Total: row.Role == tbl.Total, Note: row.Role == tbl.Note}
+		fm := t.tt.Format(i)
+		r := BoxRow{Header: row.Role == tbl.Header, Total: row.Role == tbl.Total, Note: row.Role == tbl.Note}
 		k := 0 // the next cell of the row's own
 		for at, lb := range laid[i].Boxes {
 			p := laid[i].Lines[0][at]
-			b := GridBox{LaidBox: lb, Span: Span{Start: p.Start, End: p.End}, FG: uint8(p.FG), BG: uint8(p.BG)}
+			b := Box{LaidBox: lb, Span: Span{Start: p.Start, End: p.End}, FG: uint8(p.FG), BG: uint8(p.BG)}
 			if !lb.Cont {
 				col := fm.Cols[lb.First]
 				b.Text, b.Align, b.Clip = row.Cells[k].Text, col.Align, col.Clip

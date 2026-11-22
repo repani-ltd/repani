@@ -583,14 +583,14 @@ func parseTableBlock(lines []string, atLine int) ([]Block, error) {
 			return bad(err)
 		}
 		if full {
-			if t != nil && len(t.fms) == 0 {
+			if t != nil && t.tt.Len() == 0 {
 				return bad(empty())
 			}
 			t, tAt, tCol = new(Table), n, col
 			out = append(out, Block{Kind: TableBlk, Table: t, Line: n})
 		}
 	}
-	if len(t.fms) == 0 {
+	if t.tt.Len() == 0 {
 		return bad(empty())
 	}
 	return out, nil

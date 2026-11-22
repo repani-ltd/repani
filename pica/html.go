@@ -124,7 +124,7 @@ func htmlTable(w *strings.Builder, t *Table) {
 	// HTML wants the boxes, not the lines, so the table is laid at the
 	// widest measure a document may declare: a table that fit its own
 	// document fits there.
-	rows, err := t.Grid(maxWidth)
+	rows, err := t.Boxes(maxWidth)
 	if err != nil {
 		panic("pica: a parsed table does not lay out at the widest measure: " + err.Error())
 	}

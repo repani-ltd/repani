@@ -330,9 +330,9 @@ func TestParse_TableRows(t *testing.T) {
 		}
 	}
 	// Colours parse -- a row code, a column code, a cell mark -- and
-	// reach a writer that sets them through Grid.
+	// reach a writer that sets them through Boxes.
 	cd := mustParse(t, "T\n\n.fmt /y 4L 4L/b\n:r a | b\n.end\n")
-	grid, err := cd.Blocks[0].Table.Grid(cd.Trailer.Width)
+	grid, err := cd.Blocks[0].Table.Boxes(cd.Trailer.Width)
 	if err != nil {
 		t.Fatal(err)
 	}

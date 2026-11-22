@@ -1347,11 +1347,18 @@ in pica, whose tests now hold the .fmt block tests too.
 .item ONE ANSWER TO "WHAT CONTINUES WHAT". tbl knew it and four places worked it
 out again. LaidRow now carries Boxes, parallel to every line: each box's format
 columns, whether it continues the box above, the row it began on and how many
-rows it covers. pica's layout, its Grid, the form and HTML read it; HTML is now
-built on Grid (laid at the widest measure, since it wants boxes, not lines), so
-its rowspans and colours are tbl's and not its own. One cell breaker,
+rows it covers. pica's layout, its box view, the form and HTML read it; HTML is
+now built on the box view (laid at the widest measure, since it wants boxes, not
+lines), so its rowspans and colours are tbl's and not its own. One cell breaker,
 pica.CellLines, for pica and the form; one PDF set-up, one centred line and one
 "Page N of M" for every layout.
+.item THREE LAYERS, ONE NAME EACH. typeset/tbl is the table language and
+tbl.Grid its fitted columns; pica.Table is one grid of a .fmt block with pica's
+rules, and offers two views: Layout, the lines the text page and the flow and
+report PDFs set, and Boxes (BoxRow, Box), the boxes the form and HTML draw --
+once Grid, GridRow and GridBox, which put a second meaning on tbl's word.
+pica.Table no longer copies each row's format: tbl.Table hands it out (Format,
+with Len, both additions).
 
 Open: how a document states a box's vertical alignment (top, centre, bottom),
 parked in TASKS.t; the form sets top.

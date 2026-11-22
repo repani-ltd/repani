@@ -260,7 +260,7 @@ func (s *formSheet) baseline(top, pad float64, i int, sc float64) float64 {
 // (sc times the body's: a note row's is smaller), and its lines -- for
 // a box that runs down rows, all of them, set from its first row.
 type cell struct {
-	pica.GridBox
+	pica.Box
 	bold  bool
 	sc    float64
 	lines []string
@@ -269,19 +269,19 @@ type cell struct {
 // table measures a grid's rows and returns them as items, the rows a
 // box runs down joined into one.
 func (s *formSheet) table(t *pica.Table, block int) ([]item, error) {
-	rows, err := t.Grid(s.doc.Trailer.Width)
+	rows, err := t.Boxes(s.doc.Trailer.Width)
 	if err != nil {
 		return nil, err
 	}
 	cells := make([][]cell, len(rows))
 	for i, r := range rows {
 		for _, b := range r.Boxes {
-			c := cell{GridBox: b, bold: r.Header || r.Total, sc: 1}
+			c := cell{Box: b, bold: r.Header || r.Total, sc: 1}
 			if r.Note {
 				c.Align, c.sc = 'L', formNote
 			}
 			if !b.Cont {
-				c.lines = s.cellLines(c.GridBox, c.bold, c.sc) // a note's L, not its column's
+				c.lines = s.cellLines(c.Box, c.bold, c.sc) // a note's L, not its column's
 			}
 			cells[i] = append(cells[i], c)
 		}
@@ -425,7 +425,7 @@ func (s *formSheet) drawRow(p *pdf.Page, cells []cell, top, height, pad float64,
 
 // cellLines breaks a box's text at its width in the face and size it
 // sets in, with pica's cell breaker: one line for a clip or N box.
-func (s *formSheet) cellLines(b pica.GridBox, bold bool, sc float64) []string {
+func (s *formSheet) cellLines(b pica.Box, bold bool, sc float64) []string {
 	m := s.mb
 	if bold {
 		m = s.mbold

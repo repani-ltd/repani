@@ -72,6 +72,12 @@ func (t *Table) Rows() []Row {
 	return out
 }
 
+// Len is the number of rows the table holds.
+func (t *Table) Len() int { return len(t.entries) }
+
+// Format is the resolved format row i was added under.
+func (t *Table) Format(i int) Format { return t.entries[i].fm }
+
 func (t *Table) hasData() bool {
 	for _, e := range t.entries {
 		if e.row.Kind == Data {
